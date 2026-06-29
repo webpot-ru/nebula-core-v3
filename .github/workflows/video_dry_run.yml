@@ -2,6 +2,17 @@ name: Dry-Run Video Render
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/video_dry_run.yml"
+      - "render.py"
+      - "storyboard_generator.py"
+      - "sample_story_data.json"
+      - "index.html"
+      - "style.css"
+      - "app.js"
 
 jobs:
   render-dry-run:

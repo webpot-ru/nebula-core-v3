@@ -23,7 +23,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - `render.py` opens the existing RedditSim UI in headless Chrome/Chromium, captures deterministic typing-progress screenshots, and uses FFmpeg to render a minimal 9:16 dry-run `final_output.mp4` from `storyboard.json`.
 - `uploader.py` is a base YouTube Data API uploader.
 - `.github/workflows/auto_publish.yml` sketches the cloud pipeline, but the end-to-end production path is not fully verified.
-- `.github/workflows/video_dry_run.yml` is a manual no-spend workflow that renders `final_output.mp4` from `sample_story_data.json` and uploads it as an artifact.
+- `.github/workflows/video_dry_run.yml` is a no-spend workflow that renders `final_output.mp4` from `sample_story_data.json` and uploads it as an artifact. It supports manual dispatch and push-triggered runs for renderer/simulator/sample changes.
 
 ## Verified Locally
 

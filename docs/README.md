@@ -192,7 +192,7 @@ ffprobe final_output.mp4
 
 `render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic typing progress screenshots, and uses FFmpeg to encode them into `final_output.mp4`. It is intentionally minimal: no voiceover, no subtitles, no external API calls, no upload.
 
-The manual GitHub dry-run workflow is `.github/workflows/video_dry_run.yml`. It installs FFmpeg, uses the runner browser, builds `storyboard.json`, renders `final_output.mp4`, verifies the file with `ffprobe`, creates preview PNGs, and uploads all outputs as the `chonkertalks-dry-run-video` artifact.
+The GitHub dry-run workflow is `.github/workflows/video_dry_run.yml`. It can be run manually and also runs on pushes that touch the renderer/simulator/sample files. It installs FFmpeg, uses the runner browser, builds `storyboard.json`, renders `final_output.mp4`, verifies the file with `ffprobe`, creates preview PNGs, and uploads all outputs as the `chonkertalks-dry-run-video` artifact.
 
 ---
 
@@ -460,7 +460,7 @@ Each account has its own **refresh token** stored in GitHub Secrets.
 
 ### Dry-Run Render Workflow
 
-`video_dry_run.yml` is the safe workflow to run first. It is manual-only and does not use secrets:
+`video_dry_run.yml` is the safe workflow to run first. It can be triggered manually or by pushes touching the dry-run renderer/simulator/sample files, and it does not use secrets:
 
 ```text
 sample_story_data.json
