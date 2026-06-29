@@ -36,6 +36,12 @@ jobs:
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_REFRESH_TOKEN_ACC1: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC1 }}
+          YOUTUBE_REFRESH_TOKEN_ACC2: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC2 }}
+          YOUTUBE_REFRESH_TOKEN_ACC3: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC3 }}
+          YOUTUBE_REFRESH_TOKEN_ACC4: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC4 }}
+          YOUTUBE_REFRESH_TOKEN_ACC5: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC5 }}
+          YOUTUBE_REFRESH_TOKEN_ACC6: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC6 }}
+          YOUTUBE_REFRESH_TOKEN_ACC7: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC7 }}
         run: |
-          python uploader.py final_output.mp4
+          python uploader.py final_output.mp4 1
