@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+
+# Dry-run/generated video artifacts
+build/
+storyboard.json
+final_output.mp4
+youtube_metadata.json
+narration_*.mp3
+*.ai33-task.json

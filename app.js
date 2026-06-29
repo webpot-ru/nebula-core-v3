@@ -294,18 +294,160 @@ function playTypewriterClack(ctx, dest, baseFreq, duration) {
   noiseSource.stop(ctx.currentTime + duration * 1.5);
 }
 
+function isRenderMode() {
+  return new URLSearchParams(window.location.search).get('render') === '1';
+}
+
+function normalizeSubredditName(value) {
+  const text = String(value || 'AskReddit').trim();
+  if (!text) return 'r/AskReddit';
+  return text.startsWith('r/') ? text : `r/${text.replace(/^\/?r\//, '')}`;
+}
+
+function syncDOMFromState() {
+  subredditInput.value = state.subreddit;
+  usernameInput.value = state.username;
+  timeInput.value = state.time;
+  postTitleInput.value = state.postTitle;
+  postBodyInput.value = state.postBody;
+  upvotesInput.value = state.upvotes;
+  commentsCountInput.value = state.commentsCount;
+  aspectRatioSelect.value = state.aspectRatio;
+  layoutStyleSelect.value = state.layoutStyle;
+  showTopbarCheckbox.checked = state.showTopbar;
+  showLeftSidebarCheckbox.checked = state.showLeftSidebar;
+  showRightSidebarCheckbox.checked = state.showRightSidebar;
+  themeSelect.value = state.theme;
+  bgSelect.value = state.background;
+  safeZoneSelect.value = state.safeZone;
+  typingSpeedRange.value = state.typingSpeed;
+  typingJitterRange.value = state.jitter;
+  punctuationDelayRange.value = state.punctuationDelay;
+  mistakesCheckbox.checked = state.simulateMistakes;
+  cursorBlinkCheckbox.checked = state.cursorBlink;
+  soundToggleCheckbox.checked = state.soundEnabled;
+  keyboardSoundSelect.value = state.soundProfile;
+  soundVolumeRange.value = Math.round(state.soundVolume * 100);
+}
+
+function applyStoryData(story) {
+  state.subreddit = normalizeSubredditName(story.subreddit);
+  state.username = story.author || story.username || 'u/StoryTeller';
+  state.time = story.time || '5h ago';
+  state.postTitle = story.title || 'A Reddit story took a strange turn';
+  state.postBody = story.body || '';
+  state.upvotes = String(story.upvotes || story.score || '14.2k');
+  state.commentsCount = String(story.comments_count || story.num_comments || '1.8k');
+  state.comments = (story.comments || []).slice(0, 3).map((comment, index) => ({
+    id: Number(comment.id || index + 1),
+    username: comment.username || `u/Commenter_${index + 1}`,
+    time: comment.time || '1h ago',
+    body: comment.body || '',
+    upvotes: String(comment.upvotes || '1')
+  })).filter(comment => comment.body.trim());
+}
+
+async function applyRenderModeFromQuery() {
+  if (!isRenderMode()) return false;
+
+  const params = new URLSearchParams(window.location.search);
+  const storyPath = params.get('story');
+  if (storyPath) {
+    const response = await fetch(storyPath, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`Could not load render story: ${storyPath}`);
+    }
+    applyStoryData(await response.json());
+  }
+
+  state.aspectRatio = 'ratio-9-16';
+  state.layoutStyle = 'layout-mobile';
+  state.theme = params.get('theme') || 'theme-reddit-midnight';
+  state.background = params.get('background') || 'bg-dark-aurora';
+  state.safeZone = 'sz-none';
+  state.showTopbar = false;
+  state.showLeftSidebar = false;
+  state.showRightSidebar = false;
+  state.soundEnabled = false;
+  state.simulateMistakes = false;
+  state.cursorBlink = true;
+  state.typingSpeed = 70;
+  state.jitter = 0;
+  state.punctuationDelay = 0;
+  state.cleanMode = true;
+
+  syncDOMFromState();
+  appContainer.classList.add('clean-mode', 'render-mode');
+  exitCleanIndicator.style.opacity = '0';
+  return true;
+}
+
+function renderTypingAtProgress(progress) {
+  const safeProgress = Math.max(0, Math.min(1, Number(progress) || 0));
+  clearTimeout(typingTimeoutId);
+  state.isPlaying = false;
+
+  const totalChars = typingQueue.reduce((sum, item) => sum + item.text.length, 0);
+  let remainingChars = Math.floor(totalChars * safeProgress);
+  let activeCursor = null;
+  let activeIndex = safeProgress >= 1 ? typingQueue.length : 0;
+
+  postTitleCursor.classList.remove('active');
+  postBodyCursor.classList.remove('active');
+
+  typingQueue.forEach((item, index) => {
+    const availableChars = Math.max(0, remainingChars);
+    const visibleChars = Math.min(availableChars, item.text.length);
+    const shouldMountItem = visibleChars > 0 || (safeProgress >= 1 && item.text.length === 0);
+
+    if (shouldMountItem && item.setup) item.setup();
+    if (item.element) {
+      item.element.textContent = item.text.slice(0, visibleChars);
+    }
+    if (item.cursor) {
+      item.cursor.classList.remove('active');
+      if (shouldMountItem && visibleChars < item.text.length && !activeCursor) {
+        activeCursor = item.cursor;
+        activeIndex = index;
+      }
+    }
+    remainingChars -= visibleChars;
+  });
+
+  if (!activeCursor && safeProgress < 1) {
+    const firstTask = typingQueue.find(item => item.cursor);
+    activeCursor = firstTask ? firstTask.cursor : null;
+  }
+  if (!activeCursor && typingQueue.length) {
+    activeCursor = typingQueue[typingQueue.length - 1].cursor;
+  }
+  if (activeCursor) {
+    activeCursor.classList.add('active');
+    if (state.cursorBlink) activeCursor.classList.add('blink');
+  }
+
+  currentQueueIndex = activeIndex;
+  currentTextIndex = 0;
+  scrollCanvasToBottom();
+}
+
 // Initialise settings on page load
-function init() {
+async function init() {
   // Sync checkbox UI elements with initial state defaults on page load
   showTopbarCheckbox.checked = state.showTopbar;
   showLeftSidebarCheckbox.checked = state.showLeftSidebar;
   showRightSidebarCheckbox.checked = state.showRightSidebar;
 
   loadStateFromDOM();
+  const renderMode = await applyRenderModeFromQuery();
   renderCommentsEditor();
   applyStyles();
   resetTyping();
   setupEventListeners();
+  if (renderMode) {
+    renderTypingAtProgress(new URLSearchParams(window.location.search).get('progress') || 0);
+    document.body.dataset.renderReady = 'true';
+  }
 }
 
 // Load state from controls
@@ -921,4 +1063,9 @@ function exitCleanMode() {
   pauseTyping();
 }
 
-window.addEventListener('DOMContentLoaded', init);
+window.addEventListener('DOMContentLoaded', () => {
+  init().catch((error) => {
+    console.error(error);
+    document.body.dataset.renderError = error.message || String(error);
+  });
+});

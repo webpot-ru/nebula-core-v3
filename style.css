@@ -1560,3 +1560,101 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .app-container.clean-mode .canvas-hud {
   display: none;
 }
+
+/* ========================================= */
+/* HEADLESS RENDER MODE FOR DRY-RUN MP4 */
+/* ========================================= */
+.app-container.render-mode .canvas-viewport {
+  background: #080a0c;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.app-container.render-mode .canvas-container.ratio-9-16 {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.app-container.render-mode .reddit-card {
+  width: 88%;
+  max-width: 860px;
+  padding: 38px;
+  border-radius: 28px;
+}
+
+.app-container.render-mode .avatar {
+  width: 58px;
+  height: 58px;
+  font-size: 28px;
+  margin-right: 16px;
+}
+
+.app-container.render-mode .subreddit {
+  font-size: 25px;
+}
+
+.app-container.render-mode .author-details {
+  font-size: 20px;
+  margin-top: 4px;
+}
+
+.app-container.render-mode .join-btn {
+  font-size: 20px;
+  padding: 10px 22px;
+}
+
+.app-container.render-mode .post-title {
+  font-size: 43px;
+  line-height: 1.25;
+  margin: 32px 0 24px;
+}
+
+.app-container.render-mode .post-body-text {
+  font-size: 32px;
+  line-height: 1.44;
+}
+
+.app-container.render-mode .post-footer {
+  font-size: 22px;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.app-container.render-mode .footer-action {
+  padding: 10px 20px;
+}
+
+.app-container.render-mode .icon {
+  width: 28px;
+  height: 28px;
+}
+
+.app-container.render-mode .post-comments-section {
+  margin-top: 28px;
+  gap: 22px;
+}
+
+.app-container.render-mode .comment-card {
+  border-left-width: 4px;
+  padding-left: 18px;
+}
+
+.app-container.render-mode .comment-avatar {
+  width: 38px;
+  height: 38px;
+  font-size: 20px;
+}
+
+.app-container.render-mode .comment-author,
+.app-container.render-mode .comment-time,
+.app-container.render-mode .comment-footer {
+  font-size: 20px;
+}
+
+.app-container.render-mode .comment-body {
+  font-size: 28px;
+  line-height: 1.38;
+}

@@ -3,8 +3,10 @@
 **Internal project name**: `nebula-core-v3`  
 **GitHub**: [github.com/lalishka/nebula-core-v3](https://github.com/lalishka/nebula-core-v3) *(private)*  
 **Brand**: ChonkerTalks  
-**Purpose**: Fully automated Reddit story → multilingual YouTube video publishing pipeline  
+**Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
 **Last updated**: 2026-06-29
+
+**Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 
 ---
 
@@ -27,13 +29,14 @@
 
 ## 1. Project Overview
 
-**nebula-core-v3** is an automated content production system that:
+**nebula-core-v3** is an automated content production system for regional YouTube story-entertainment channels.
 
-1. Finds viral stories from Reddit (scraped by virality score)
-2. Translates them into 7 languages using AI
-3. Generates high-quality neural voice narration via **ElevenLabs**
-4. Publishes videos automatically to 7 YouTube channel networks
-5. Uses a custom-built Reddit UI simulator for visual video recording
+1. Tests short-form hooks across region-specific entertainment topics
+2. Expands the winning topics into long-form videos for the same channel audience
+3. Uses Reddit stories as one possible source, not as the whole content strategy
+4. Generates neural voice narration via **AI33 TTS v3** (prefixed voice ids for ElevenLabs, MiniMax, Edge, Kokoro, or clones)
+5. Publishes videos automatically to multilingual YouTube channel networks
+6. Uses a custom-built Reddit UI simulator for visual video recording when the format needs it
 
 The system is modeled after the successful **LUNA 2** architecture — orchestration runs locally via GitHub CLI, heavy processing (rendering, uploading) runs in GitHub Actions cloud runners at zero local CPU cost.
 
@@ -41,37 +44,53 @@ The system is modeled after the successful **LUNA 2** architecture — orchestra
 
 ## 2. Channel Network Strategy
 
-Configuration file: `channels.json`
+Status: **supersedes the older "one language = one Reddit niche" plan.**
 
-| Handle | Language | Region | Niche | Format | Priority |
-|---|---|---|---|---|---|
-| `@ChonkerTalksRussia` | 🇷🇺 Russian | RU/CIS | Horror + Drama | Long + Shorts | ⭐⭐⭐⭐ |
-| `@ChonkerTalksEn` | 🇬🇧 English | US/UK/AU/CA | AITA Drama | Shorts + Long | ⭐⭐⭐ |
-| `@ChonkerTalksDe` | 🇩🇪 German | DE/AT/CH | Horror (empty niche!) | Long | ⭐⭐⭐⭐⭐ |
-| `@ChonkerTalksES` | 🌎 Spanish LATAM | Mexico/Argentina/Colombia+ | Family Scandals | Shorts + Long | ⭐⭐⭐⭐⭐ |
-| `@CHONKERTALKSpo` | 🇧🇷 Portuguese BR | Brazil (2nd biggest YT market) | Drama + Confessions | Shorts | ⭐⭐⭐⭐⭐ |
-| `@ChonkerTalksFR` | 🇫🇷 French | FR/BE/CA | Horror + Mystery | Long | ⭐⭐⭐⭐ |
-| `@ChonkerTalksIT` | 🇮🇹 Italian | Italy | Relationship Drama | Shorts + Long | ⭐⭐⭐ |
+`channels.json` is still the current execution config for scripts, voices, and scraper inputs. It is **not** the final content strategy. Before production publishing, update it to match the audience-first strategy below.
 
-### Subreddit → Channel Mapping
+### Strategy Rule
 
-| Channel | Primary Subreddits |
-|---|---|
-| Russia 🇷🇺 | `r/nosleep`, `r/LetsNotMeet`, `r/creepyencounters`, `r/AmItheAsshole` |
-| English 🇬🇧 | `r/AmItheAsshole`, `r/relationship_advice`, `r/TIFU` |
-| German 🇩🇪 | `r/nosleep`, `r/LetsNotMeet`, `r/Glitch_in_the_Matrix` |
-| LATAM 🌎 | `r/AmItheAsshole`, `r/entitledparents`, `r/confession` |
-| Brazil 🇧🇷 | `r/confession`, `r/AmItheAsshole`, `r/offmychest` |
-| French 🇫🇷 | `r/nosleep`, `r/Glitch_in_the_Matrix`, `r/UnresolvedMysteries` |
-| Italian 🇮🇹 | `r/AmItheAsshole`, `r/relationship_advice`, `r/confession` |
+One channel should be defined by **language + viewer promise + tone**, not by a single subreddit or a single narrow topic. Shorts and long-form videos can cover different topics inside one channel if they satisfy the same viewer promise.
 
-### Virality Filtering Rules
+Operational split:
+- **Shorts**: fast hook testing, trend response, punchy facts, mini-dramas, mysteries, quizzes.
+- **Long-form**: expand proven Shorts topics into 8-18 minute explainers, story documentaries, moral-drama breakdowns, mystery timelines, or compilation-style episodes.
+- **Reddit**: one source of story material, especially for human drama and scary stories. It should not be treated as the whole channel concept.
 
-Stories are selected based on:
-- **Upvotes**: minimum 1,000 (configurable per channel)
-- **Comments ratio**: high comment/upvote ratio → indicates controversy → more YouTube comments
-- **Time window**: `top/week` — validated viral content, not temporary spikes
-- **Body length**: minimum 300 characters (enough content for full video narration)
+### Recommended Channel Concepts
+
+| Market / Language | Primary Channel Promise | Shorts Mix | Long-form Mix | Priority |
+|---|---|---|---|---|
+| LATAM Spanish | Emotional story entertainment: drama, internet lore, challenges, scary hooks | family scandals, AITA-style choices, creator/internet drama, quick mysteries | mini-telenovela-style story breakdowns, internet lore, challenge/adventure explainers | Highest |
+| Brazil Portuguese | Curiosities, football culture, emotional human stories | strange facts, football stories, moral drama hooks, pop-culture moments | football documentaries without match footage, curiosity explainers, strong personal stories | Highest |
+| French | Mystery, true stories, pop culture, gaming/creator lore | creepy facts, case hooks, creator drama, gaming lore | mystery timelines, true-story explainers, pop-culture dossiers | High |
+| German | Science/curiosity, experiments, strange facts, tech/internet explainers | "what happens if...", visual facts, tech hooks, strange discoveries | quality explainers, experiment recaps, internet/science documentaries | High |
+| Italian | Visual social comedy, football/food identity, relationship drama | visual sketches, relationship mini-scenes, football moments, food/culture hooks | social-experiment episodes, football/food culture stories, drama compilations | Medium-high |
+| English | Spectacle curiosity, internet lore, story hooks | experiments, gadgets, internet drama, "what happened next" hooks | high-production explainers, creator/internet lore, mystery or science stories | High upside / high competition |
+| Russian-speaking / CIS diaspora | Tech/gaming/facts plus dark stories, with platform-risk awareness | gaming facts, tech hooks, strange stories | tech/gaming explainers, dark-story compilations | Opportunistic |
+
+### Topic Families to Test
+
+1. **Dark Curiosity / Strange Stories** — disappearances, creepy internet lore, unresolved mysteries, unusual real events.
+2. **Human Drama / AITA Court** — relationship conflict, family scandals, workplace drama, "who is right?" formats.
+3. **Curiosity / Experiments / Facts** — visual explainers, surprising science, everyday experiments, "did you know?" formats.
+4. **Football Culture** — player arcs, club lore, transfer drama, fan culture, rights-safe documentaries and quizzes.
+5. **Pop Culture / Internet Lore** — meme histories, creator drama, fandom moments, gaming and series timelines.
+6. **Visual Social Comedy** — language-light Shorts, relationship sketches, expectation-vs-reality, street-style prompts.
+
+### Evidence Basis
+
+- Top-channel patterns reviewed through SocialBlade country lists for [Brazil](https://socialblade.com/youtube/top/country/br/mostsubscribed), [Mexico](https://socialblade.com/youtube/top/country/mx/mostsubscribed), [Germany](https://socialblade.com/youtube/top/country/de/mostsubscribed), [France](https://socialblade.com/youtube/lists/top/50/subscribers/all/FR), [Italy](https://socialblade.com/youtube/lists/top/50/subscribers/all/IT), [UK](https://socialblade.com/youtube/lists/top/50/subscribers/all/GB), [US](https://socialblade.com/youtube/lists/top/50/subscribers/all/US), and [Russia](https://socialblade.com/youtube/lists/top/50/subscribers/all/RU).
+- YouTube Shorts research indicates Shorts over-index toward entertainment, while regular long-form supports a wider range of topics: [arXiv:2403.00454](https://arxiv.org/abs/2403.00454).
+- Russia/CIS YouTube strategy carries extra platform-access risk, so treat it as opportunistic rather than the first launch market.
+
+### Scraper / Source Filtering Rules
+
+For Reddit-derived stories only:
+- **Upvotes**: minimum 1,000 unless a market-specific experiment says otherwise.
+- **Comments ratio**: high comment/upvote ratio indicates controversy and discussion potential.
+- **Time window**: `top/week` for validated viral content rather than temporary spikes.
+- **Body length**: minimum 300 characters for narration depth.
 
 ---
 
@@ -81,7 +100,10 @@ Stories are selected based on:
 |---|---|
 | Reddit scraping | PRAW (Python Reddit API Wrapper) + OAuth2 |
 | AI Translation | Prompt-engineered per-language translation (culturally adapted) |
-| Voice synthesis | **ElevenLabs** via REST API — full emotion support, multilingual v2 |
+| Voice synthesis | **AI33 TTS v3** via multipart FormData (`xi-api-key`) |
+| Metadata / SEO | **VectorEngine Gemini** (`gemini-3.5-flash`) |
+| Thumbnail image generation | **VectorEngine image** (`gpt-image-2`) via explicit `--confirm-spend` |
+| Dry-run video rendering | Deterministic `storyboard_generator.py` + RedditSim headless Chrome/Chromium capture + FFmpeg |
 | YouTube publishing | YouTube Data API v3 (OAuth2 Refresh Tokens, 7 accounts) |
 | CI/CD | GitHub Actions (ubuntu-latest runners) |
 | Orchestration | GitHub CLI (`gh workflow run`) — **local dispatch only** |
@@ -99,11 +121,17 @@ reddit/                            ← Project root (nebula-core-v3)
 ├── style.css                      ← Simulator CSS (themes, layouts, safe zones)
 ├── app.js                         ← Simulator JS (typing engine, audio, state)
 │
-├── scraper.py                     ← Reddit story fetcher ← NEEDS PRAW OAuth fix
-├── translator_tts.py              ← Translation + voice synthesis
+├── scraper.py                     ← Reddit story fetcher (PRAW OAuth2 + virality scoring)
+├── metadata_generator.py          ← VectorEngine Gemini YouTube metadata + SEO
+├── thumbnail_generator.py         ← VectorEngine image thumbnail generator
+├── vectorengine_client.py         ← Shared VectorEngine text/image client
+├── translator_tts.py              ← AI33 TTS v3 narration generator
+├── storyboard_generator.py        ← Deterministic story_data.json → storyboard.json
+├── render.py                      ← RedditSim dry-run renderer: storyboard.json → final_output.mp4
 ├── uploader.py                    ← YouTube Data API v3 auto-publisher
 │
-├── channels.json                  ← Channel strategy config
+├── channels.json                  ← Current execution config; content strategy above supersedes old niche plan
+├── sample_story_data.json         ← Safe fixture for local/GitHub dry-run rendering
 ├── requirements.txt               ← Python dependencies
 │
 ├── scrapers/                      ← Reference scrapers (study only)
@@ -112,7 +140,8 @@ reddit/                            ← Project root (nebula-core-v3)
 │
 └── .github/
     └── workflows/
-        └── auto_publish.yml       ← GitHub Actions daily pipeline
+        ├── auto_publish.yml       ← Production sketch; not end-to-end verified
+        └── video_dry_run.yml      ← Manual dry-run MP4 render artifact workflow
 ```
 
 ---
@@ -139,6 +168,31 @@ A fully custom web application mimicking Reddit's interface for use as video bac
 | `SPACE` | Play / Pause typing |
 | `R` | Reset animation |
 | `ESC` | Exit recording mode |
+
+### Dry-Run Storyboard / Renderer
+
+The minimal no-spend video path is now:
+
+```text
+sample_story_data.json or story_data.json
+  -> storyboard_generator.py
+  -> storyboard.json
+  -> render.py
+  -> final_output.mp4
+```
+
+This path does **not** call Reddit, AI33, VectorEngine, or YouTube. It is only a proof that the project can create a 9:16 MP4 artifact locally and in GitHub Actions.
+
+```bash
+python3 storyboard_generator.py --input sample_story_data.json --output storyboard.json
+python3 render.py --storyboard storyboard.json --output final_output.mp4
+test -s final_output.mp4
+ffprobe final_output.mp4
+```
+
+`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic typing progress screenshots, and uses FFmpeg to encode them into `final_output.mp4`. It is intentionally minimal: no voiceover, no subtitles, no external API calls, no upload.
+
+The manual GitHub dry-run workflow is `.github/workflows/video_dry_run.yml`. It installs FFmpeg, uses the runner browser, builds `storyboard.json`, renders `final_output.mp4`, verifies the file with `ffprobe`, creates preview PNGs, and uploads all outputs as the `chonkertalks-dry-run-video` artifact.
 
 ---
 
@@ -246,31 +300,82 @@ python3 scraper.py --channel acc3 --output story_ru.json
 
 ## 7. Translation & TTS Pipeline
 
-### Current: Edge-TTS (Microsoft, free)
-Basic, robotic voice. Sufficient for testing.
+### Current: AI33 TTS v3
 
-### Planned: ElevenLabs (`eleven_multilingual_v2`)
+`translator_tts.py` now submits narration text to AI33's unified v3 endpoint:
 
-```python
-def generate_voice(text, voice_id, output_path):
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-    headers = {
-        "xi-api-key": os.environ["ELEVENLABS_API_KEY"],
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "text": text,
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": {
-            "stability": 0.45,
-            "similarity_boost": 0.75,
-            "style": 0.5,          # Emotional expressiveness
-            "use_speaker_boost": True
-        }
-    }
-    r = requests.post(url, headers=headers, json=payload)
-    open(output_path, "wb").write(r.content)
+```bash
+python3 translator_tts.py es --output narration_es.mp3
+python3 translator_tts.py --channel acc4 --output narration_es.mp3
+python3 translator_tts.py ru --voice-id edge_ru-RU-DmitryNeural
 ```
+
+The script sends multipart FormData to:
+
+```text
+POST https://api.ai33.pro/v3/text-to-speech
+Header: xi-api-key: $AI33_API_KEY
+Fields: text, voice_id, model_id, speed, with_transcript, context_chaining, file_name
+```
+
+`voice_id` must already include an AI33 provider prefix:
+
+```text
+elevenlabs_...
+minimax_...
+clone_...
+edge_...
+kokoro_...
+```
+
+`channels.json` is the current source of truth for per-channel TTS voice ids. The current defaults use Edge-backed voices routed through AI33 for a low-risk baseline:
+
+| Channel | AI33 voice_id |
+|---|---|
+| 🇷🇺 Russia | `edge_ru-RU-DmitryNeural` |
+| 🇬🇧 English | `edge_en-US-ChristopherNeural` |
+| 🇩🇪 Germany | `edge_de-DE-ConradNeural` |
+| 🌎 LATAM | `edge_es-MX-JorgeNeural` |
+| 🇧🇷 Brazil | `edge_pt-BR-AntonioNeural` |
+| 🇫🇷 France | `edge_fr-FR-HenriNeural` |
+| 🇮🇹 Italy | `edge_it-IT-DiegoNeural` |
+
+To upgrade a channel to ElevenLabs v3 or MiniMax, first read AI33 Voice Library and paste the returned prefixed `voice_id` into `channels.json` or pass it with `--voice-id`.
+
+For ElevenLabs-backed voices, `translator_tts.py` sends `model_id=eleven_v3` by default. Override only intentionally:
+
+```bash
+python3 translator_tts.py en --voice-id elevenlabs_... --model-id eleven_v3
+AI33_TTS_MODEL_ID=eleven_v3 python3 translator_tts.py en --voice-id elevenlabs_...
+```
+
+### AI33 Task Handling
+
+The v3 create call returns a `task_id`. `translator_tts.py` polls the AI33 Common Task endpoint using:
+
+```text
+AI33_TASK_URL_TEMPLATE=https://api.ai33.pro/v3/task/{task_id}
+```
+
+The v3 task endpoint uses `Authorization: $AI33_API_KEY` by default. If AI33's live docs or account-specific routing use a different task URL or header, set `AI33_TASK_URL_TEMPLATE` or `AI33_TASK_AUTH_HEADER` in the environment. Use `--no-poll` when using a webhook-only `receive_url`; the script will save `*.ai33-task.json` metadata instead of waiting for an audio file.
+
+### Required Secret
+
+Use `AI33_API_KEY` in local shell and GitHub Secrets. `A133_API_KEY` is accepted only as a compatibility fallback because older LUNA2 notes mention that typo. Do not copy or print the key in chat or docs.
+
+```bash
+export AI33_API_KEY="..."
+python3 translator_tts.py es --dry-run
+python3 translator_tts.py es --output narration_es.mp3
+```
+
+Live audio generation spends AI33 credits, so run it intentionally.
+
+### Live Smoke Result
+
+On 2026-06-29, user-approved local smokes used the gitignored LUNA2 AI33 key without printing or copying it into this repo. The first test submitted an ElevenLabs-prefixed voice id with `[sighs]`, `[laughs]`, and `[whispers]` tags. A second test explicitly sent `model_id=eleven_v3` with `[laughs]` and `[sighs]`; AI33 returned `task_id=08c146ad-82a0-4efb-a4e2-f8ec65254852`, `/v3/task/{task_id}` polling returned `status=done`, and the output file was a valid 5.64s MP3 at `/tmp/reddit_ai33_eleven_v3_laugh.mp3`.
+
+Important distinction: the smoke used an `elevenlabs_...` voice. The current `channels.json` defaults are `edge_...` voices routed through AI33 as a low-risk baseline; if emotional sound tags like laughter should be default behavior, choose final `elevenlabs_...` or `minimax_...` voices from AI33 Voice Library and update `channels.json`.
 
 ### Translation Prompts per Channel
 
@@ -288,6 +393,49 @@ Each channel's `channels.json` entry has a `translate_prompt` field:
 ---
 
 ## 8. YouTube Auto-Publisher
+
+### VectorEngine Metadata / SEO
+
+`metadata_generator.py` builds YouTube packaging from `story_data.json` and `channels.json`:
+
+```bash
+# No API spend
+python3 metadata_generator.py --story story_data.json --channel acc4 --dry-run
+
+# Live VectorEngine Gemini call
+python3 metadata_generator.py --story story_data.json --channel acc4 --confirm-spend --output youtube_metadata.json
+```
+
+Output shape:
+
+```json
+{
+  "youtube_title": "...",
+  "youtube_description": "...",
+  "tags": ["..."],
+  "hashtags": ["#..."],
+  "thumbnail_text": "...",
+  "thumbnail_prompt": "...",
+  "seo_keywords": ["..."],
+  "risk_flags": ["..."]
+}
+```
+
+`uploader.py` prefers `youtube_metadata.json` when present, then falls back to `story_data.json`.
+
+### VectorEngine Thumbnail Images
+
+`thumbnail_generator.py` uses `youtube_metadata.json.thumbnail_prompt` and VectorEngine image generation:
+
+```bash
+# No image spend
+python3 thumbnail_generator.py --metadata youtube_metadata.json --dry-run
+
+# Paid image generation
+python3 thumbnail_generator.py --metadata youtube_metadata.json --confirm-spend --output youtube_thumbnail.png
+```
+
+The default image model is `gpt-image-2`, default size `1536x864`. Actual image generation is intentionally not run automatically in the current workflow.
 
 ### Multi-Account Architecture
 
@@ -310,13 +458,37 @@ Each account has its own **refresh token** stored in GitHub Secrets.
 
 ## 9. GitHub Actions Automation
 
-Schedule: **Daily at 18:00 UTC** (or manually triggered)
+### Dry-Run Render Workflow
 
-### Pipeline Flow
+`video_dry_run.yml` is the safe workflow to run first. It is manual-only and does not use secrets:
+
+```text
+sample_story_data.json
+  -> storyboard_generator.py
+  -> render.py
+  -> final_output.mp4
+  -> artifact upload
+```
+
+It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `ffprobe`, then uploads the MP4 and storyboard as a GitHub Actions artifact.
+
+### Production Publish Workflow
+
+`auto_publish.yml` is still a production sketch and is **not** end-to-end verified. It is scheduled daily at 18:00 UTC and can be manually triggered, but it still needs the production render/localization path before safe upload.
+
+Planned production flow:
 ```
 scraper.py → story_data.json
     ↓
-translator_tts.py → translated_text + narration.mp3
+localize_story.py → story_localized_<lang>.json
+    ↓
+metadata_generator.py → youtube_metadata.json via VectorEngine
+    ↓
+translator_tts.py → narration_<lang>.mp3 via AI33
+    ↓
+storyboard_generator.py → storyboard.json
+    ↓
+render.py → final_output.mp4
     ↓
 uploader.py → YouTube video published
 ```
@@ -340,14 +512,15 @@ uploader.py → YouTube video published
 
 | Secret | Status | Purpose |
 |---|---|---|
-| `YOUTUBE_CLIENT_ID` | ✅ Set | Google OAuth App |
-| `YOUTUBE_CLIENT_SECRET` | ✅ Set | Google OAuth App |
-| `YOUTUBE_REFRESH_TOKEN_ACC1–7` | ✅ Set (all 7) | Per-account YouTube tokens |
-| `REDDIT_CLIENT_ID` | ⏳ Needed | Reddit PRAW OAuth |
-| `REDDIT_CLIENT_SECRET` | ⏳ Needed | Reddit PRAW OAuth |
-| `REDDIT_USERNAME` | ⏳ Needed | Reddit account |
+| `YOUTUBE_CLIENT_ID` | ✅ Documented set | Google OAuth App |
+| `YOUTUBE_CLIENT_SECRET` | ✅ Documented set | Google OAuth App |
+| `YOUTUBE_REFRESH_TOKEN_ACC1–7` | ✅ Documented set | Per-account YouTube tokens |
+| `REDDIT_CLIENT_ID` | ✅ Documented set | Reddit PRAW OAuth |
+| `REDDIT_CLIENT_SECRET` | ✅ Documented set | Reddit PRAW OAuth |
+| `REDDIT_USERNAME` | ✅ Documented set | Reddit account |
 | `REDDIT_PASSWORD` | ⏳ Needed | Reddit account |
-| `ELEVENLABS_API_KEY` | ⏳ Needed | Voice synthesis |
+| `AI33_API_KEY` | ⏳ Needed / not re-read | AI33 TTS v3 |
+| `VECTORENGINE_API_KEY` | ⏳ Needed / local smoke passed with LUNA2 env | VectorEngine metadata and thumbnail generation |
 
 ---
 
@@ -365,11 +538,32 @@ git add . && git commit -m "message" && git push origin main
 # Trigger pipeline manually
 gh workflow run auto_publish.yml --ref main
 
+# Trigger no-spend dry-run render manually
+gh workflow run video_dry_run.yml --ref main
+
 # Check secrets
 gh secret list
 
-# Install PRAW (when ready)
-pip3 install praw
+# Generate narration through AI33 without spending credits
+python3 translator_tts.py es --dry-run
+
+# Generate narration through AI33 (spends AI33 credits)
+AI33_API_KEY=... python3 translator_tts.py es --output narration_es.mp3
+
+# Generate YouTube SEO metadata through VectorEngine without spending credits
+python3 metadata_generator.py --story story_data.json --channel acc4 --dry-run
+
+# Generate YouTube SEO metadata through VectorEngine (spends VectorEngine credits)
+VECTORENGINE_API_KEY=... python3 metadata_generator.py --story story_data.json --channel acc4 --confirm-spend
+
+# Generate thumbnail image through VectorEngine without spending credits
+python3 thumbnail_generator.py --metadata youtube_metadata.json --dry-run
+
+# Generate a local no-spend MP4 dry-run
+python3 storyboard_generator.py --input sample_story_data.json --output storyboard.json
+python3 render.py --storyboard storyboard.json --output final_output.mp4
+test -s final_output.mp4
+ffprobe final_output.mp4
 ```
 
 ---
@@ -381,21 +575,29 @@ pip3 install praw
 - [x] Desktop + Mobile dual layout
 - [x] GitHub private repo `nebula-core-v3`
 - [x] YouTube OAuth for all 7 accounts
-- [x] GitHub Secrets (12 secrets configured)
-- [x] `channels.json` — full channel strategy config
+- [x] GitHub Secrets baseline documented; live readback still required before production runs
+- [x] `channels.json` — initial execution config; content strategy now supersedes the old niche plan
 - [x] `scraper.py` — **fully rewritten with PRAW OAuth2 + virality scoring**
-- [x] `translator_tts.py`, `uploader.py` base scripts
+- [x] `translator_tts.py` switched to AI33 TTS v3, `uploader.py` base script
+- [x] `metadata_generator.py` connected to VectorEngine Gemini for SEO metadata
+- [x] `thumbnail_generator.py` connected to VectorEngine image generation behind explicit spend confirmation
+- [x] `storyboard_generator.py` and `render.py` create a no-spend dry-run `final_output.mp4`
+- [x] GitHub Actions workflow `video_dry_run.yml` renders and uploads a dry-run MP4 artifact
 - [x] GitHub Actions workflow `auto_publish.yml`
 - [x] Scrapers research & comparison documentation
 - [x] Reddit App registered: **red 2025** (Complex_Lack4476)
 
 ### 🔄 Next Steps (Priority Order)
 - [ ] **1. Add REDDIT_PASSWORD secret** → `gh secret set REDDIT_PASSWORD --body "..."`  — then scraper is 100% live
-- [ ] **2. Upgrade TTS** — Switch Edge-TTS → ElevenLabs API
-- [ ] **3. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2
+- [ ] **2. Add/verify AI33_API_KEY secret** for this GitHub repo; local one-off smoke passed with the LUNA2 key
+- [ ] **3. Update `channels.json` to match the new audience-first strategy** before production publishing
+- [ ] **4. Select final ElevenLabs/MiniMax voices** from AI33 Voice Library for each channel if emotion tags should be default
+- [ ] **5. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2
+- [ ] **6. Add/verify VECTORENGINE_API_KEY** in GitHub Secrets before relying on workflow metadata generation
+- [ ] **7. Add production localization + audio-aware render path** before enabling YouTube upload
 
 ### 🔮 Future
-- [ ] `render.py` — FFmpeg video renderer (Simulator screenshot + audio → MP4)
+- [ ] Browser-captured scene templates, animated captions, and audio-aware timing
 - [ ] Custom Chonker cat avatars per language
 - [ ] Analytics readback — track best performing content per language
 - [ ] Auto A/B test thumbnails
