@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reddit Video Simulator & Typing Animator</title>
+  <!-- Google Fonts: Inter and Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="style.css?v=21">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Left Sidebar: Controls -->
+    <aside class="sidebar" id="controlSidebar">
+      <div class="sidebar-header">
+        <h1 class="logo">Reddit<span>Sim</span></h1>
+        <p class="subtitle">Video Story Generator</p>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="post-tab">Post</button>
+        <button class="tab-btn" data-tab="comments-tab">Comments</button>
+        <button class="tab-btn" data-tab="style-tab">Scene & Sound</button>
+      </div>
+
+      <div class="tab-content-container">
+        <!-- TAB 1: POST SETTINGS -->
+        <div class="tab-content active" id="post-tab">
+          <section class="section">
+            <h3 class="section-title">Subreddit & Author</h3>
+            <div class="input-group">
+              <label for="subredditInput">Subreddit</label>
+              <input type="text" id="subredditInput" value="r/AskReddit" placeholder="e.g. r/AskReddit">
+            </div>
+            <div class="input-row">
+              <div class="input-group">
+                <label for="usernameInput">Username</label>
+                <input type="text" id="usernameInput" value="u/StoryTeller" placeholder="e.g. u/username">
+              </div>
+              <div class="input-group">
+                <label for="timeInput">Time</label>
+                <input type="text" id="timeInput" value="5h ago" placeholder="e.g. 2h ago">
+              </div>
+            </div>
+            <div class="input-group">
+              <label>Avatar Color</label>
+              <div class="avatar-colors">
+                <button class="color-dot active" style="background-color: #FF4500;" data-color="#FF4500"></button>
+                <button class="color-dot" style="background-color: #0099FF;" data-color="#0099FF"></button>
+                <button class="color-dot" style="background-color: #00FF66;" data-color="#00FF66"></button>
+                <button class="color-dot" style="background-color: #FFD700;" data-color="#FFD700"></button>
+                <button class="color-dot" style="background-color: #9900FF;" data-color="#9900FF"></button>
+                <button class="color-dot" style="background-color: #FF007F;" data-color="#FF007F"></button>
+              </div>
+            </div>
+          </section>
+
+          <section class="section">
+            <h3 class="section-title">Post Content</h3>
+            <div class="input-group">
+              <label for="postTitleInput">Post Title (Typed first)</label>
+              <textarea id="postTitleInput" rows="2" placeholder="Enter post title...">What is the creepiest thing that has ever happened to you that you still cannot explain?</textarea>
+            </div>
+            <div class="input-group">
+              <label for="postBodyInput">Post Body (Typed second)</label>
+              <textarea id="postBodyInput" rows="6" placeholder="Enter post body text (optional)...">It happened about ten years ago when I was home alone during a thunderstorm. I heard a knock at my window... on the second floor.</textarea>
+            </div>
+          </section>
+
+          <section class="section">
+            <h3 class="section-title">Post Stats</h3>
+            <div class="input-row">
+              <div class="input-group">
+                <label for="upvotesInput">Upvotes</label>
+                <input type="text" id="upvotesInput" value="14.2k">
+              </div>
+              <div class="input-group">
+                <label for="commentsCountInput">Comments Count</label>
+                <input type="text" id="commentsCountInput" value="1.8k">
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- TAB 2: COMMENTS SETTINGS -->
+        <div class="tab-content" id="comments-tab">
+          <section class="section">
+            <div class="section-header-row">
+              <h3 class="section-title">Comment Threads</h3>
+              <button class="btn btn-sm btn-primary" id="addCommentBtn">+ Add Comment</button>
+            </div>
+            <p class="section-desc">Comments will type out sequentially after the post finishes.</p>
+            <div class="comments-list" id="commentsListContainer">
+              <!-- Dynamically populated comments -->
+            </div>
+          </section>
+        </div>
+
+        <!-- TAB 3: STYLE & SOUND SETTINGS -->
+        <div class="tab-content" id="style-tab">
+          <section class="section">
+            <h3 class="section-title">Visual Settings</h3>
+            <div class="input-group">
+              <label for="aspectRatioSelect">Canvas Ratio</label>
+              <select id="aspectRatioSelect">
+                <option value="ratio-9-16">Vertical (9:16) - Shorts/Reels/TikTok</option>
+                <option value="ratio-16-9" selected>Horizontal (16:9) - YouTube Wide</option>
+                <option value="ratio-1-1">Square (1:1) - Instagram</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="layoutStyleSelect">Interface Layout</label>
+              <select id="layoutStyleSelect">
+                <option value="layout-mobile">Mobile Card UI</option>
+                <option value="layout-desktop" selected>Desktop Web Page UI</option>
+              </select>
+            </div>
+            
+            <!-- Desktop Layout Specific Visibility Toggles -->
+            <div id="desktopTogglesWrapper" style="margin-bottom: 14px;">
+              <label style="margin-bottom: 8px;">Desktop UI Elements</label>
+              <div class="checkbox-group">
+                <input type="checkbox" id="showTopbarCheckbox">
+                <label for="showTopbarCheckbox">Show Top Navbar</label>
+              </div>
+              <div class="checkbox-group">
+                <input type="checkbox" id="showLeftSidebarCheckbox">
+                <label for="showLeftSidebarCheckbox">Show Left Navigation Sidebar</label>
+              </div>
+              <div class="checkbox-group">
+                <input type="checkbox" id="showRightSidebarCheckbox">
+                <label for="showRightSidebarCheckbox">Show Right Community Sidebar</label>
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label for="themeSelect">Reddit Theme</label>
+              <select id="themeSelect">
+                <option value="theme-reddit-midnight" selected>Reddit Midnight (AMOLED Black)</option>
+                <option value="theme-reddit-dark">Reddit Dark (Night)</option>
+                <option value="theme-reddit-light">Reddit Light</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="bgSelect">Video Background</label>
+              <select id="bgSelect">
+                <option value="bg-dark-aurora" selected>Animated Aurora (Dark)</option>
+                <option value="bg-sunset-glow">Sunset Glow (Dark)</option>
+                <option value="bg-cosmic-dust">Cosmic Purple (Dark)</option>
+                <option value="bg-deep-abyss">Deep Space Dark</option>
+                <option value="bg-pastel-sky">Light Pastel Sky (Light)</option>
+                <option value="bg-light-minimal">Minimalist Grey (Light)</option>
+                <option value="bg-green-screen">Green Screen (Chroma Key)</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label for="safeZoneSelect">Platform Safe Zone Overlay</label>
+              <select id="safeZoneSelect">
+                <option value="sz-none" selected>None (Disabled)</option>
+                <option value="sz-shorts">YouTube Shorts Overlay</option>
+                <option value="sz-reels">Instagram Reels Overlay</option>
+                <option value="sz-tiktok">TikTok Overlay</option>
+              </select>
+            </div>
+          </section>
+
+          <section class="section">
+            <h3 class="section-title">Typing Controls</h3>
+            <div class="input-group">
+              <div class="range-header">
+                <label for="typingSpeedRange">Typing Speed</label>
+                <span class="range-val" id="typingSpeedVal">60 CPS</span>
+              </div>
+              <input type="range" id="typingSpeedRange" min="5" max="150" value="60">
+            </div>
+            <div class="input-group">
+              <div class="range-header">
+                <label for="typingJitterRange">Human Variance (Jitter)</label>
+                <span class="range-val" id="typingJitterVal">30%</span>
+              </div>
+              <input type="range" id="typingJitterRange" min="0" max="100" value="30">
+            </div>
+            <div class="input-group">
+              <div class="range-header">
+                <label for="punctuationDelayRange">Punctuation Pause</label>
+                <span class="range-val" id="punctuationDelayVal">300ms</span>
+              </div>
+              <input type="range" id="punctuationDelayRange" min="0" max="1000" step="50" value="300">
+            </div>
+            <div class="checkbox-group">
+              <input type="checkbox" id="mistakesCheckbox" checked>
+              <label for="mistakesCheckbox">Simulate Occasional Typos & Corrections</label>
+            </div>
+            <div class="checkbox-group">
+              <input type="checkbox" id="cursorBlinkCheckbox" checked>
+              <label for="cursorBlinkCheckbox">Show Blinking Typing Cursor</label>
+            </div>
+          </section>
+
+          <section class="section">
+            <h3 class="section-title">Sound Effects (SFX)</h3>
+            <div class="checkbox-group">
+              <input type="checkbox" id="soundToggleCheckbox" checked>
+              <label for="soundToggleCheckbox">Enable Keyboard Typing Sounds</label>
+            </div>
+            <div class="input-group">
+              <label for="keyboardSoundSelect">Keyboard Sound Profile</label>
+              <select id="keyboardSoundSelect">
+                <option value="mech-blue">Mechanical Switch (Blue)</option>
+                <option value="mech-brown" selected>Mechanical Switch (Brown - Subtler)</option>
+                <option value="chiclet-laptop">Laptop Chiclet</option>
+                <option value="vintage-typewriter">Vintage Typewriter</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <div class="range-header">
+                <label for="soundVolumeRange">SFX Volume</label>
+                <span class="range-val" id="soundVolumeVal">70%</span>
+              </div>
+              <input type="range" id="soundVolumeRange" min="0" max="100" value="70">
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Playback Actions Panel at the bottom of sidebar -->
+      <div class="playback-controls">
+        <button class="btn btn-danger" id="resetBtn">Reset</button>
+        <button class="btn btn-success" id="playPauseBtn">Play Animation</button>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="btn btn-secondary btn-full" id="cleanModeBtn">Enter Clean View (ESC to exit)</button>
+        <p class="tip">Tip: Press <strong>SPACE</strong> to Play/Pause, <strong>R</strong> to Reset animation.</p>
+      </div>
+    </aside>
+
+    <!-- Right Side: Canvas Viewport -->
+    <main class="canvas-viewport" id="canvasViewport">
+      <!-- Clean mode exit floating indicator (only shows in clean mode) -->
+      <div class="exit-clean-indicator" id="exitCleanIndicator">
+        Press <span>ESC</span> to exit clean view and edit settings
+      </div>
+
+      <!-- Playback HUD overlay (floating play/pause indicators on screen) -->
+      <div class="canvas-hud" id="canvasHud">
+        <div class="hud-speed-badge" id="hudSpeedBadge">1x</div>
+        <div class="hud-status" id="hudStatus">Ready</div>
+      </div>
+
+      <!-- Aspect Ratio Wrapper (resizes according to aspect ratio chosen) -->
+      <div class="canvas-container ratio-16-9 bg-dark-aurora" id="canvasContainer">
+        
+        <!-- TikTok/Reels/Shorts Dynamic Safe Zone Overlay -->
+        <div class="safe-zone-overlay" id="safeZoneOverlay">
+          <!-- Shorts Layer -->
+          <div class="sz-layer sz-layer-shorts">
+            <div class="sz-shorts-top">
+              <svg viewBox="0 0 24 24" class="sz-svg" style="width:20px; height:20px; fill:currentColor;"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+              <span>Subscriptions</span>
+            </div>
+            <div class="sz-shorts-right">
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor;"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg><span>124K</span></div>
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor;"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg><span>842</span></div>
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor;"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg><span>Share</span></div>
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor;"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg><span>Remix</span></div>
+              <div class="sz-sound-disc"></div>
+            </div>
+            <div class="sz-shorts-bottom">
+              <span class="sz-username">@stories_channel</span>
+              <span class="sz-caption">Reddit reading simulator vertical video #shorts #reddit</span>
+            </div>
+          </div>
+
+          <!-- Reels Layer -->
+          <div class="sz-layer sz-layer-reels">
+            <div class="sz-reels-right">
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor;"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></div>
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor;"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg></div>
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor;"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></div>
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:18px;height:18px;fill:currentColor;"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></div>
+              <div class="sz-reels-profile"></div>
+            </div>
+            <div class="sz-reels-bottom">
+              <div class="reels-user-row">
+                <div class="reels-avatar"></div>
+                <span class="sz-username">reels_creator</span>
+                <button class="sz-follow-btn">Follow</button>
+              </div>
+              <span class="sz-caption">Original audio • custom_stories</span>
+            </div>
+          </div>
+
+          <!-- TikTok Layer -->
+          <div class="sz-layer sz-layer-tiktok">
+            <div class="sz-tiktok-right">
+              <div class="sz-tiktok-profile-box">
+                <div class="sz-tiktok-avatar"></div>
+                <div class="sz-tiktok-plus">+</div>
+              </div>
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:20px;height:20px;fill:currentColor;"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></div>
+              <span class="sz-count">1.4M</span>
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:20px;height:20px;fill:currentColor;"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg></div>
+              <span class="sz-count">12.5K</span>
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:20px;height:20px;fill:currentColor;"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z"/></svg></div>
+              <span class="sz-count">48K</span>
+              <div class="sz-icon-circ"><svg viewBox="0 0 24 24" style="width:20px;height:20px;fill:currentColor;"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg></div>
+              <span class="sz-count">24K</span>
+              <div class="sz-sound-disc sz-rotate"></div>
+            </div>
+            <div class="sz-tiktok-bottom">
+              <span class="sz-username">@tiktok_stories</span>
+              <span class="sz-caption">Scary stories read out loud 💀 Check profile! #scary #reddit #shorts</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desktop Page Layout Shell -->
+        <div class="desktop-layout-wrapper" id="desktopLayoutWrapper">
+          <header class="desktop-nav-bar">
+            <div class="nav-left">
+              <svg viewBox="0 0 20 20" class="reddit-logo"><g><circle fill="#FF4500" cx="10" cy="10" r="10"></circle><path fill="#FFF" d="M16.67,9.08a1.56,1.56,0,0,0-2.54-1.18,8.69,8.69,0,0,0-4.41-1.33l.92-2.91,2.5.54a1,1,0,1,0,.15-.49l-2.76-.6a.33.33,0,0,0-.4.24L9.5,6.57a8.87,8.87,0,0,0-4.52,1.33,1.56,1.56,0,0,0-1,2.83,1.54,1.54,0,0,0,0,.29c0,2.61,3.42,4.72,7.62,4.72s7.62-2.11,7.62-4.72a1.54,1.54,0,0,0,0-.29A1.56,1.56,0,0,0,16.67,9.08ZM6.89,11.38a1,1,0,1,1,1-1A1,1,0,0,1,6.89,11.38Zm6.87,1.82a4.41,4.41,0,0,1-3.76,1.15,4.45,4.45,0,0,1-3.79-1.15.19.19,0,0,1,.27-.27,4,4,0,0,0,3.52,1,.19.19,0,0,1,.05,0,.19.19,0,0,1,.17.13A4,4,0,0,0,13.49,13a.19.19,0,0,1,.27.27Zm-.63-2.82a1,1,0,1,1-1-1A1,1,0,0,1,13.13,10.38Z"></path></g></svg>
+              <span class="reddit-brand">reddit</span>
+            </div>
+            <div class="nav-center">
+              <div class="desktop-search-bar">
+                <svg class="search-icon" viewBox="0 0 20 20"><path d="M12.9 14.32a8 8 0 1 1 1.41-1.41l5.35 5.33-1.42 1.42-5.34-5.34zM8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z"></path></svg>
+                <input type="text" placeholder="Search Reddit" disabled>
+              </div>
+            </div>
+            <div class="nav-right">
+              <button class="nav-icon-btn"><svg viewBox="0 0 20 20"><path d="M1.3 12c-.5 0-.8-.3-.8-.8V4.8c0-.5.3-.8.8-.8h17.4c.5 0 .8.3.8.8v6.4c0 .5-.3.8-.8.8H1.3zm1.6-1.6h14.2V5.6H2.9v4.8zM4.5 7.2h3.2v1.6H4.5V7.2zm4.8 0h6.4v1.6H9.3V7.2z"></path></svg></button>
+              <button class="nav-icon-btn"><svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 8 8 8 8 0 0 0-8-8zm0 14.4A6.4 6.4 0 1 1 16.4 10 6.4 6.4 0 0 1 10 16.4zm-1.6-7.2h3.2V12H8.4V9.2z"></path></svg></button>
+              <button class="nav-icon-btn"><svg viewBox="0 0 20 20"><path d="M10 12.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5zm0-6.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"></path></svg></button>
+              <div class="nav-profile">
+                <div class="nav-profile-avatar">u</div>
+              </div>
+            </div>
+          </header>
+
+          <div class="desktop-main-layout">
+            <!-- Left Navigation Sidebar -->
+            <aside class="desktop-left-sidebar" id="desktopLeftSidebar">
+              <ul class="nav-links">
+                <li class="active"><svg viewBox="0 0 20 20"><path d="M17.4 9.1L10 3.3 2.6 9.1V17h4.8v-4.8h5.2V17h4.8V9.1z"></path></svg> Home</li>
+                <li><svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 1 0 8 8 8 8 0 0 0-8-8zm0 12.8A4.8 4.8 0 1 1 14.8 10 4.8 4.8 0 0 1 10 14.8zm0-8A3.2 3.2 0 1 0 13.2 10 3.2 3.2 0 0 1 10 6.8z"></path></svg> Popular</li>
+                <li><svg viewBox="0 0 20 20"><path d="M10 2.5a7.5 7.5 0 1 0 7.5 7.5A7.5 7.5 0 0 0 10 2.5zm0 13.5a6 6 0 1 1 6-6 6 6 0 0 1-6 6zm-.8-8.5h1.6v4H9.2v-4zm0 4.8h1.6v1.6H9.2v-1.6z"></path></svg> All</li>
+              </ul>
+              <hr class="nav-divider">
+              <div class="sidebar-section-title">COMMUNITIES</div>
+              <ul class="nav-links communities-links">
+                <li><span class="community-icon" style="background:#ff4500;" id="desktopLeftSubIcon">r</span> <span class="c-name" id="desktopLeftSubName">r/AskReddit</span></li>
+              </ul>
+            </aside>
+
+            <!-- Center Feed Column -->
+            <main class="desktop-center-feed" id="desktopCenterFeed">
+              <!-- Reddit card will be dynamically appended here in app.js when Layout is Desktop Page -->
+            </main>
+
+            <!-- Right Community Sidebar Info -->
+            <aside class="desktop-right-sidebar" id="desktopRightSidebar">
+              <div class="about-card">
+                <div class="about-header">About Community</div>
+                <div class="about-body">
+                  <div class="about-subreddit-title" id="desktopRightSubName">r/AskReddit</div>
+                  <p class="about-desc">Reddit's premier subreddit for asking and answering thoughts, questions, and stories.</p>
+                  <div class="stats-row">
+                    <div class="stat">
+                      <span class="stat-count">48.2M</span>
+                      <span class="stat-label">Members</span>
+                    </div>
+                    <div class="stat">
+                      <span class="stat-count"><span class="online-dot"></span> 82.4k</span>
+                      <span class="stat-label">Online</span>
+                    </div>
+                  </div>
+                  <hr class="about-divider">
+                  <div class="created-date"><svg viewBox="0 0 20 20"><path d="M15 2.5V4H5V2.5H3V4H2v14h16V4h-1V2.5h-2zM4 16V6h12v10H4z"></path></svg> Created Jan 25, 2008</div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+
+        <!-- The Reddit Post Canvas Content (By default placed outside, JS relocates it as needed) -->
+        <div class="reddit-card theme-reddit-midnight" id="redditCard">
+          <!-- Post Header -->
+          <header class="post-header">
+            <div class="avatar" id="postAvatar">r</div>
+            <div class="meta-info">
+              <div class="subreddit" id="postSubreddit">r/AskReddit</div>
+              <div class="author-details">
+                <span class="author" id="postAuthorName">u/StoryTeller</span>
+                <span class="dot">•</span>
+                <span class="time" id="postTime">5h ago</span>
+              </div>
+            </div>
+            <button class="join-btn">Join</button>
+          </header>
+
+          <!-- Post Content Title -->
+          <h2 class="post-title" id="postTitleContainer">
+            <span class="typed-text" id="postTitleText"></span><span class="cursor active" id="postTitleCursor"></span>
+          </h2>
+
+          <!-- Post Content Body -->
+          <div class="post-body" id="postBodyWrapper" style="display: none;">
+            <p class="post-body-text" id="postBodyTextContainer">
+              <span class="typed-text" id="postBodyText"></span><span class="cursor" id="postBodyCursor"></span>
+            </p>
+          </div>
+
+          <!-- Post Footer Statistics -->
+          <footer class="post-footer">
+            <div class="footer-action upvotes-action">
+              <svg viewBox="0 0 24 24" class="icon up-arrow"><path d="M12 4l-8 8h6v8h4v-8h6z"></path></svg>
+              <span class="votes-count" id="postVotes">14.2k</span>
+              <svg viewBox="0 0 24 24" class="icon down-arrow"><path d="M12 20l8-8h-6v-8h-4v8h-6z"></path></svg>
+            </div>
+            <div class="footer-action comments-action">
+              <svg viewBox="0 0 24 24" class="icon"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18zM18 14H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"></path></svg>
+              <span class="comments-count" id="postCommentsCount">1.8k</span>
+            </div>
+            <div class="footer-action share-action">
+              <svg viewBox="0 0 24 24" class="icon"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"></path></svg>
+              <span>Share</span>
+            </div>
+          </footer>
+
+          <!-- Comments Thread -->
+          <div class="post-comments-section" id="postCommentsSection">
+            <!-- Simulated Comments will render here -->
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  
+  <!-- The JS Script -->
+  <script src="app.js?v=21"></script>
+</body>
+</html>

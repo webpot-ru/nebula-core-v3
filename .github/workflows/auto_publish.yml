@@ -1,0 +1,41 @@
+name: Reddit Video Auto-Publish Pipeline
+
+on:
+  schedule:
+    # Run once daily at 18:00 UTC (Adjust time as preferred)
+    - cron: '0 18 * * *'
+  workflow_dispatch: # Allows manual triggering from GitHub Actions tab
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Fetch viral story from Reddit
+        run: |
+          python scraper.py AskReddit
+
+      - name: Generate translation & neural voice audio
+        run: |
+          python translator_tts.py es
+
+      - name: Upload video to YouTube
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          python uploader.py final_output.mp4
