@@ -6,15 +6,18 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-def get_youtube_service():
-    # Read environment variables (GitHub Secrets)
+def get_youtube_service(account_index="1"):
+    # Read environment variables (GitHub Secrets) for specific account
     client_id = os.environ.get("YOUTUBE_CLIENT_ID")
     client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
-    refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
+    
+    # Try account specific token first, fallback to standard YOUTUBE_REFRESH_TOKEN
+    token_env_var = f"YOUTUBE_REFRESH_TOKEN_ACC{account_index}"
+    refresh_token = os.environ.get(token_env_var) or os.environ.get("YOUTUBE_REFRESH_TOKEN")
 
-    if not all([client_id, client_secret, refresh_token]):
-        print("ERROR: Missing YouTube API credentials in environment variables (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN).")
-        print("Please configure these in GitHub Repository Secrets.")
+    if not client_id or not client_secret or not refresh_token:
+        print(f"ERROR: Missing YouTube API credentials for Account {account_index}.")
+        print(f"Looking for env vars: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, and {token_env_var} (or YOUTUBE_REFRESH_TOKEN).")
         return None
 
     creds = Credentials(
@@ -27,8 +30,8 @@ def get_youtube_service():
 
     return build("youtube", "v3", credentials=creds)
 
-def upload_video(video_file, title, description, category_id="24", privacy_status="public", tags=None):
-    youtube = get_youtube_service()
+def upload_video(video_file, title, description, account_index="1", category_id="24", privacy_status="public", tags=None):
+    youtube = get_youtube_service(account_index=account_index)
     if not youtube:
         return False
 
@@ -48,7 +51,7 @@ def upload_video(video_file, title, description, category_id="24", privacy_statu
         }
     }
 
-    print(f"Uploading '{video_file}' to YouTube...")
+    print(f"Uploading '{video_file}' to YouTube Account #{account_index}...")
     media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
     request = youtube.videos().insert(part=','.join(body.keys()), body=body, media_body=media)
 
@@ -63,6 +66,7 @@ def upload_video(video_file, title, description, category_id="24", privacy_statu
 
 if __name__ == '__main__':
     video_path = sys.argv[1] if len(sys.argv) > 1 else 'final_output.mp4'
+    acc_num = sys.argv[2] if len(sys.argv) > 3 else "1"
     
     story_file = os.path.join(os.path.dirname(__file__), 'story_data.json')
     video_title = "Reddit Story"
@@ -75,6 +79,6 @@ if __name__ == '__main__':
             video_desc = f"{data.get('title')}\n\nOriginal thread: {data.get('url')}\n\n#reddit #shorts #stories"
 
     if os.path.exists(video_path):
-        upload_video(video_path, video_title, video_desc)
+        upload_video(video_path, video_title, video_desc, account_index=acc_num)
     else:
         print(f"Video file '{video_path}' not found. Please render the video first.")
