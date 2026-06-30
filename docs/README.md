@@ -456,7 +456,8 @@ SEO/upload handling:
 - `tags` and `seo_keywords` are merged into YouTube tags with duplicate removal and a 25-tag cap.
 - `language` is passed to YouTube as `defaultLanguage` and `defaultAudioLanguage` when present.
 - Manual `auto_publish.yml` runs default to `privacy_status=unlisted`; scheduled runs are also temporarily `unlisted` until YouTube account-token mapping is audited.
-- Before upload, `uploader.py` calls `channels.list(mine=true)` and verifies the authenticated channel against `channels.json`; a mismatch blocks the upload before `videos.insert`.
+- `uploader.py --check-channel-only --account-index N` calls `channels.list(mine=true)` and verifies the authenticated channel against `channels.json`; `auto_publish.yml` runs this as an early preflight before Reddit/Gemini/AI33/render spend.
+- Before upload, `uploader.py` repeats the same channel check; a mismatch blocks `videos.insert`.
 - After upload, `uploader.py` calls `videos.list(part=snippet,status)` to read back channel id, privacy, and language.
 - Public oEmbed readback can confirm the uploaded title and channel handle for unlisted videos, but authenticated YouTube Data API readback is still needed for description, tags, language, and final status.
 
@@ -516,7 +517,7 @@ It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `f
 
 `auto_publish.yml` has passed one end-to-end unlisted live smoke, but it is **not safe for public scheduled publishing yet**. The 2026-06-30 smoke verified localization, AI33 narration, audio-aware render, YouTube upload, and history commit, but readback/user review showed videos landing on the wrong channel for the requested account.
 
-Until all `YOUTUBE_REFRESH_TOKEN_ACC1-7` values are audited against the expected channel handles, scheduled runs stay `unlisted`. Manual `public` is still available only when intentionally passed in `workflow_dispatch`.
+Until all `YOUTUBE_REFRESH_TOKEN_ACC1-7` values are audited against the expected channel handles, scheduled runs stay `unlisted`. Manual `public` is still available only when intentionally passed in `workflow_dispatch`, but the early token preflight still blocks mismatched accounts.
 
 Planned production flow:
 ```
@@ -599,6 +600,9 @@ gh workflow run video_dry_run.yml --ref main
 
 # Check secrets
 gh secret list
+
+# Verify a YouTube token maps to the expected channels.json account without uploading
+python3 uploader.py --check-channel-only --account-index 4
 
 # Generate narration through AI33 without spending credits
 python3 translator_tts.py es --dry-run

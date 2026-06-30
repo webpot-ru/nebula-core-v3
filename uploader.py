@@ -115,6 +115,14 @@ def verify_account_channel(youtube, expected_channel, account_index="1"):
     )
     return actual
 
+
+def check_channel_mapping(account_index="1"):
+    youtube = get_youtube_service(account_index=account_index)
+    if not youtube:
+        raise UploadError("Could not create YouTube API service.")
+    expected_channel = load_expected_channel(account_index)
+    return verify_account_channel(youtube, expected_channel, account_index)
+
 def clean_tags(values, limit=25):
     seen = set()
     tags = []
@@ -265,9 +273,15 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(description="Upload rendered video to YouTube.")
     parser.add_argument("video", nargs="?", default="final_output.mp4")
     parser.add_argument("account", nargs="?", default="1")
+    parser.add_argument("--account-index", help="YouTube account index override, useful with --check-channel-only.")
     parser.add_argument("--privacy-status", default=os.environ.get("YOUTUBE_PRIVACY_STATUS", "public"),
                         choices=["public", "unlisted", "private"])
     parser.add_argument("--category-id", default="24")
+    parser.add_argument(
+        "--check-channel-only",
+        action="store_true",
+        help="Verify the authenticated YouTube account against channels.json and exit without uploading.",
+    )
     parser.add_argument(
         "--skip-channel-check",
         action="store_true",
@@ -277,6 +291,17 @@ def parse_args(argv):
 
 if __name__ == '__main__':
     args = parse_args(sys.argv[1:])
+    account_index = args.account_index or args.account
+
+    if args.check_channel_only:
+        try:
+            info = check_channel_mapping(account_index)
+            print(json.dumps({"status": "ok", "account": account_index, "channel": info}, ensure_ascii=False, indent=2))
+            sys.exit(0)
+        except UploadError as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(1)
+
     video_title, video_desc, video_tags, video_language = load_upload_metadata()
 
     if not os.path.exists(args.video):
@@ -288,7 +313,7 @@ if __name__ == '__main__':
             args.video,
             video_title,
             video_desc,
-            account_index=args.account,
+            account_index=account_index,
             category_id=args.category_id,
             privacy_status=args.privacy_status,
             tags=video_tags,

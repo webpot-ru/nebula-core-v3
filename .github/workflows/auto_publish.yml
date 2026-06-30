@@ -164,6 +164,20 @@ jobs:
           echo "privacy_status=${{ matrix.privacy_status || 'public' }}" >> $GITHUB_OUTPUT
           echo "📺 ${CH} | slot=${{ matrix.slot }} | filter=${{ matrix.time_filter }} | topic=${{ matrix.topic_family || 'mixed' }} | privacy=${{ matrix.privacy_status || 'public' }}"
 
+      - name: Verify YouTube channel token
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN_ACC1: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC1 }}
+          YOUTUBE_REFRESH_TOKEN_ACC2: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC2 }}
+          YOUTUBE_REFRESH_TOKEN_ACC3: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC3 }}
+          YOUTUBE_REFRESH_TOKEN_ACC4: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC4 }}
+          YOUTUBE_REFRESH_TOKEN_ACC5: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC5 }}
+          YOUTUBE_REFRESH_TOKEN_ACC6: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC6 }}
+          YOUTUBE_REFRESH_TOKEN_ACC7: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC7 }}
+        run: |
+          python uploader.py --check-channel-only --account-index ${{ steps.target.outputs.acc_index }}
+
       - name: Fetch viral story from Reddit
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
