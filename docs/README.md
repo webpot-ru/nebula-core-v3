@@ -582,8 +582,8 @@ git add . && git commit -m "message" && git push origin main
 # Trigger pipeline manually
 gh workflow run auto_publish.yml --ref main
 
-# Trigger one manual publish run as unlisted first
-gh workflow run auto_publish.yml --ref main -f channel=acc4 -f time_filter=auto -f video_slot=1 -f privacy_status=unlisted
+# Trigger one manual publish run as unlisted first, scoped to one topic family
+gh workflow run auto_publish.yml --ref main -f channel=acc4 -f time_filter=auto -f topic_family=human_drama -f video_slot=1 -f privacy_status=unlisted
 
 # Trigger live GitHub render dry-run manually; this can spend Reddit/Gemini/AI33 provider usage
 gh workflow run video_dry_run.yml --ref main
