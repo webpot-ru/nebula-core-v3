@@ -13,6 +13,11 @@
         "nosleep", "todayilearned", "gaming", "LetsNotMeet",
         "Glitch_in_the_Matrix", "creepyencounters", "mildlyinteresting", "InternetIsBeautiful"
       ],
+      "topic_mix": [
+        {"family": "dark_curiosity", "weight": 0.45},
+        {"family": "curiosity_facts", "weight": 0.35},
+        {"family": "internet_lore", "weight": 0.20}
+      ],
       "format": ["shorts", "long"],
       "videos_per_day": 2,
       "long_duration_min": 8,
@@ -34,6 +39,11 @@
       "subreddits": [
         "AmItheAsshole", "todayilearned", "offmychest", "relationship_advice",
         "tifu", "prorevenge", "MaliciousCompliance", "mildlyinteresting"
+      ],
+      "topic_mix": [
+        {"family": "human_drama", "weight": 0.40},
+        {"family": "curiosity_facts", "weight": 0.35},
+        {"family": "internet_lore", "weight": 0.25}
       ],
       "format": ["shorts", "long"],
       "videos_per_day": 2,
@@ -57,6 +67,11 @@
         "todayilearned", "explainlikeimfive", "mildlyinteresting", "nosleep",
         "Damnthatsinteresting", "science", "space", "Glitch_in_the_Matrix"
       ],
+      "topic_mix": [
+        {"family": "curiosity_facts", "weight": 0.65},
+        {"family": "internet_lore", "weight": 0.25},
+        {"family": "dark_curiosity", "weight": 0.10}
+      ],
       "format": ["shorts", "long"],
       "videos_per_day": 2,
       "long_duration_min": 8,
@@ -78,6 +93,11 @@
       "subreddits": [
         "AmItheAsshole", "relationship_advice", "confession", "entitledparents",
         "offmychest", "tifu", "prorevenge", "MaliciousCompliance"
+      ],
+      "topic_mix": [
+        {"family": "human_drama", "weight": 0.70},
+        {"family": "internet_lore", "weight": 0.20},
+        {"family": "visual_comedy", "weight": 0.10}
       ],
       "format": ["shorts", "long"],
       "videos_per_day": 2,
@@ -101,6 +121,11 @@
         "todayilearned", "soccer", "offmychest", "relationship_advice",
         "Damnthatsinteresting", "mildlyinteresting", "tifu", "confession"
       ],
+      "topic_mix": [
+        {"family": "curiosity_facts", "weight": 0.40},
+        {"family": "football_culture", "weight": 0.35},
+        {"family": "human_drama", "weight": 0.25}
+      ],
       "format": ["shorts", "long"],
       "videos_per_day": 2,
       "long_duration_min": 8,
@@ -123,6 +148,11 @@
         "UnresolvedMysteries", "nosleep", "gaming", "LetsNotMeet",
         "creepyencounters", "Glitch_in_the_Matrix", "todayilearned", "mildlyinteresting"
       ],
+      "topic_mix": [
+        {"family": "dark_curiosity", "weight": 0.55},
+        {"family": "internet_lore", "weight": 0.30},
+        {"family": "curiosity_facts", "weight": 0.15}
+      ],
       "format": ["shorts", "long"],
       "videos_per_day": 2,
       "long_duration_min": 8,
@@ -144,6 +174,11 @@
       "subreddits": [
         "AmItheAsshole", "soccer", "talesfromyourserver", "relationship_advice",
         "tifu", "confession", "mildlyinteresting", "entitledparents"
+      ],
+      "topic_mix": [
+        {"family": "visual_comedy", "weight": 0.40},
+        {"family": "football_culture", "weight": 0.30},
+        {"family": "human_drama", "weight": 0.30}
       ],
       "format": ["shorts", "long"],
       "videos_per_day": 2,

@@ -352,6 +352,39 @@ let karaokeWords   = [];  // [{word, start, end, el}, ...]
 let karaokeAudio   = null;
 let karaokeRafId   = null;
 let karaokeReady   = false;
+let karaokeActiveIndex = -1;
+
+function syncKaraokeGlobals() {
+  window.karaokeReady = karaokeReady;
+  window.karaokeWords = karaokeWords;
+}
+
+function coerceKaraokeTime(value) {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isTranscriptWord(value) {
+  return value && typeof value === 'object' &&
+    (value.word || value.text) &&
+    (value.start !== undefined || value.startTime !== undefined) &&
+    (value.end !== undefined || value.endTime !== undefined);
+}
+
+function collectTranscriptWords(value, found = []) {
+  if (!value) return found;
+  if (Array.isArray(value)) {
+    value.forEach(item => collectTranscriptWords(item, found));
+    return found;
+  }
+  if (typeof value !== 'object') return found;
+  if (isTranscriptWord(value)) {
+    found.push(value);
+    return found;
+  }
+  Object.values(value).forEach(item => collectTranscriptWords(item, found));
+  return found;
+}
 
 async function applyRenderModeFromQuery() {
   if (!isRenderMode()) return false;
@@ -393,22 +426,22 @@ async function applyRenderModeFromQuery() {
     const tRes = await fetch(transcriptPath, { cache: 'no-store' });
     if (tRes.ok) {
       const transcript = await tRes.json();
-      // Support both flat word array and {words:[]} wrapper formats from AI33
-      const words = Array.isArray(transcript) ? transcript
-                  : (transcript.words || transcript.segments
-                      ? (transcript.words || transcript.segments.flatMap(s => s.words || []))
-                      : null);
+      // Support flat arrays, {words: []}, segment wrappers, and nested AI33 task payloads.
+      const words = collectTranscriptWords(transcript);
       if (words && words.length) {
         karaokeWords = words.map(w => ({
           word:  w.word || w.text || '',
-          start: parseFloat(w.start ?? w.startTime ?? 0),
-          end:   parseFloat(w.end   ?? w.endTime   ?? 0),
+          start: coerceKaraokeTime(w.start ?? w.startTime ?? 0),
+          end:   coerceKaraokeTime(w.end   ?? w.endTime   ?? 0),
           el:    null
-        }));
-        karaokeReady = true;
-        // Pre-load audio element
-        karaokeAudio = new Audio(audioPath);
-        karaokeAudio.preload = 'auto';
+        })).filter(w => w.word && w.end >= w.start);
+        if (karaokeWords.length) {
+          karaokeReady = true;
+          syncKaraokeGlobals();
+          // Pre-load audio element
+          karaokeAudio = new Audio(audioPath);
+          karaokeAudio.preload = 'auto';
+        }
       }
     }
   } catch (_) { /* transcript optional — fall back to typing progress */ }
@@ -475,10 +508,6 @@ function renderTypingAtProgress(progress) {
 // Replaces plain text nodes with per-word <span class="kw"> elements and
 // stitches karaokeWords[].el references so the RAF loop can highlight them.
 function buildKaraokeDOM() {
-  // Collect full narration text from the queue (title + body + comments)
-  const allText = typingQueue.map(q => q.text).join(' ');
-  const rawWords = allText.split(/\s+/).filter(Boolean);
-
   // Render the complete post immediately (no typing animation)
   postTitleText.innerHTML = '';
   postBodyWrapper.style.display = 'none';
@@ -545,6 +574,47 @@ function buildKaraokeDOM() {
   });
 }
 
+function findKaraokeWordIndex(timeSeconds) {
+  let active = -1;
+  for (let i = 0; i < karaokeWords.length; i++) {
+    const word = karaokeWords[i];
+    if (timeSeconds >= word.start && timeSeconds <= word.end) return i;
+    if (timeSeconds > word.end && (i === karaokeWords.length - 1 || timeSeconds < karaokeWords[i + 1].start)) {
+      active = i;
+    }
+  }
+  return active;
+}
+
+function setKaraokeActiveIndex(active) {
+  if (active === karaokeActiveIndex) {
+    return;
+  }
+  if (karaokeActiveIndex >= 0 && karaokeWords[karaokeActiveIndex] && karaokeWords[karaokeActiveIndex].el) {
+    karaokeWords[karaokeActiveIndex].el.classList.remove('kw-active');
+  }
+  if (active >= 0 && karaokeWords[active] && karaokeWords[active].el) {
+    const el = karaokeWords[active].el;
+    el.classList.add('kw-active');
+    el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+  }
+  karaokeActiveIndex = active;
+}
+
+function renderKaraokeAtTime(timeSeconds) {
+  if (!karaokeReady) return false;
+  if (!karaokeWords.some(word => word.el)) {
+    buildKaraokeDOM();
+  }
+  setKaraokeActiveIndex(findKaraokeWordIndex(coerceKaraokeTime(timeSeconds)));
+  scrollCanvasToBottom();
+  return true;
+}
+
+window.renderKaraokeAtTime = renderKaraokeAtTime;
+window.karaokeReady = false;
+window.karaokeWords = karaokeWords;
+
 // ── Karaoke RAF playback loop ──────────────────────────────────────────────
 function startKaraokePlayback() {
   if (!karaokeReady || !karaokeAudio) return;
@@ -555,39 +625,16 @@ function startKaraokePlayback() {
 
   function tick() {
     const t = karaokeAudio.currentTime;
-    // Find the word that should be highlighted at time t
-    let active = -1;
-    for (let i = 0; i < karaokeWords.length; i++) {
-      const w = karaokeWords[i];
-      if (t >= w.start && t <= w.end) { active = i; break; }
-      if (t > w.end && (i === karaokeWords.length - 1 || t < karaokeWords[i + 1].start)) {
-        active = i; // stay on last word while in gap
-      }
-    }
-
-    if (active !== lastHighlighted) {
-      // Remove old highlight
-      if (lastHighlighted >= 0 && karaokeWords[lastHighlighted].el) {
-        karaokeWords[lastHighlighted].el.classList.remove('kw-active');
-      }
-      // Add new highlight
-      if (active >= 0 && karaokeWords[active].el) {
-        const el = karaokeWords[active].el;
-        el.classList.add('kw-active');
-        // Scroll the highlighted word into view
-        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
-      lastHighlighted = active;
-    }
+    const active = findKaraokeWordIndex(t);
+    setKaraokeActiveIndex(active);
+    lastHighlighted = active;
 
     if (!karaokeAudio.ended) {
       karaokeRafId = requestAnimationFrame(tick);
     } else {
       // Hold last word highlighted for 1 sec then clear
       setTimeout(() => {
-        if (lastHighlighted >= 0 && karaokeWords[lastHighlighted].el) {
-          karaokeWords[lastHighlighted].el.classList.remove('kw-active');
-        }
+        setKaraokeActiveIndex(-1);
         document.body.dataset.renderReady = 'done';
       }, 1000);
     }
@@ -599,6 +646,7 @@ function startKaraokePlayback() {
   }).catch(err => {
     console.warn('Karaoke audio play failed, falling back to typing:', err);
     karaokeReady = false;
+    syncKaraokeGlobals();
     renderTypingAtProgress(new URLSearchParams(window.location.search).get('progress') || 0);
     document.body.dataset.renderReady = 'true';
   });
@@ -620,8 +668,15 @@ async function init() {
 
   if (renderMode) {
     if (karaokeReady) {
-      // ✅ Karaoke mode: show all text + highlight words in sync with audio
-      startKaraokePlayback();
+      if (new URLSearchParams(window.location.search).get('capture') === '1') {
+        // Deterministic renderer path: render.py advances the highlight per frame.
+        buildKaraokeDOM();
+        renderKaraokeAtTime(0);
+        document.body.dataset.renderReady = 'karaoke';
+      } else {
+        // Live preview path: show all text + highlight words in sync with audio.
+        startKaraokePlayback();
+      }
     } else {
       // Fallback: classic typing-progress frame (for dry-run renders without audio)
       renderTypingAtProgress(new URLSearchParams(window.location.search).get('progress') || 0);
@@ -861,7 +916,7 @@ function resetTyping() {
   }
 
   state.comments.forEach((comment, index) => {
-    typingQueue.push({
+    const commentTask = {
       type: 'comment',
       text: comment.body,
       setup: () => {
@@ -900,14 +955,14 @@ function resetTyping() {
         postCommentsSection.appendChild(commentCard);
         scrollCanvasToBottom();
 
-        const queueItem = typingQueue[currentQueueIndex];
-        queueItem.element = document.getElementById(`commentText-${comment.id}`);
-        queueItem.cursor = document.getElementById(`commentCursor-${comment.id}`);
-        if (state.cursorBlink) {
-          queueItem.cursor.classList.add('blink');
+        commentTask.element = document.getElementById(`commentText-${comment.id}`);
+        commentTask.cursor = document.getElementById(`commentCursor-${comment.id}`);
+        if (state.cursorBlink && commentTask.cursor) {
+          commentTask.cursor.classList.add('blink');
         }
       }
-    });
+    };
+    typingQueue.push(commentTask);
   });
 
   currentQueueIndex = 0;

@@ -1,6 +1,6 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-06-29
+Last updated: 2026-06-30
 
 ## Current Shape
 
@@ -15,15 +15,15 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - The strongest priority markets are LATAM Spanish and Brazil Portuguese, followed by France, Germany, English, Italy, and opportunistic Russian-speaking/CIS diaspora coverage.
 
 - `index.html`, `style.css`, `app.js` implement the local RedditSim recorder UI.
-- `scraper.py` fetches candidate Reddit stories through PRAW OAuth2 and writes `story_data.json`.
-- `translator_tts.py` builds narration text from `story_data.json` and submits it to AI33 TTS v3.
+- `scraper.py` fetches candidate Reddit stories through PRAW OAuth2, weighted topic-family source planning, local duplicate/signature/similarity guards, velocity scoring, topic-fatigue penalties, and a bounded Gemini quality gate, then writes `story_data.json`.
+- `translator_tts.py` localizes non-English `story_data.json` through VectorEngine Gemini, then builds narration text and submits it to AI33 TTS v3.
 - `metadata_generator.py` generates YouTube title, description, tags, hashtags, SEO keywords, thumbnail text and thumbnail prompt through VectorEngine Gemini.
 - `thumbnail_generator.py` can generate a thumbnail image through VectorEngine image generation, but only with explicit `--confirm-spend`.
 - `storyboard_generator.py` creates a deterministic no-API `storyboard.json` from `story_data.json`.
-- `render.py` opens the existing RedditSim UI in headless Chrome/Chromium, captures deterministic typing-progress screenshots, and uses FFmpeg to render a minimal 9:16 dry-run `final_output.mp4` from `storyboard.json`.
+- `render.py` opens the existing RedditSim UI in headless Chrome/Chromium, captures deterministic typing or karaoke screenshots, and uses FFmpeg to render a 9:16 MP4 from `storyboard.json`. If `narration.mp3` exists, it merges that file as an AAC audio track; if `narration.json` exists, it passes the transcript to RedditSim for bright gold word-level highlighting directly inside the Reddit card text.
 - `uploader.py` is a base YouTube Data API uploader.
 - `.github/workflows/auto_publish.yml` sketches the cloud pipeline, but the end-to-end production path is not fully verified.
-- `.github/workflows/video_dry_run.yml` is a no-spend workflow that renders `final_output.mp4` from `sample_story_data.json` and uploads it as an artifact. It supports manual dispatch and push-triggered runs for renderer/simulator/sample changes.
+- `.github/workflows/video_dry_run.yml` is currently a live manual workflow: it fetches Reddit content, can spend VectorEngine/AI33 credits for quality/localization/TTS, renders `final_output.mp4`, and uploads story, audio, transcript, video, and previews.
 
 ## GitHub Dry-Run Status
 
@@ -36,7 +36,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 ## Verified Locally
 
 - Python syntax check passed for `scraper.py`, `translator_tts.py`, and `uploader.py`.
-- `channels.json` parses as valid JSON, but it is now treated as the current execution config rather than the final content strategy.
+- `channels.json` parses as valid JSON and now includes weighted `topic_mix` per channel; the weights are initial production hypotheses and still need live artifact tuning.
 - `python3 -m py_compile storyboard_generator.py render.py` passed.
 - `python3 storyboard_generator.py --input sample_story_data.json --output storyboard.json` passed and produced 6 scenes.
 - `python3 render.py --storyboard storyboard.json --output final_output.mp4` passed once locally through the RedditSim Chrome DevTools path and captured 8 simulator frames.
@@ -69,20 +69,29 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - Smoke command wrote `/tmp/reddit_vectorengine_metadata_live.json` with `source=vectorengine-gemini`, `model=gemini-3.5-flash`, `channelId=acc4`, `language=es-419`, 79-character Spanish title, 323-character description, 8 tags, 4 hashtags, thumbnail text, thumbnail prompt, SEO keywords, and no risk flags.
 - Thumbnail image generation has only been dry-run checked in this repo. It is connected but not live image-spend verified.
 
+## Current Pipeline Changes
+
+- `translator_tts.py` now translates `title`, `body`, and each comment `body` for non-English channels before TTS. By default it overwrites `story_data.json` so downstream storyboard/render steps see localized text; use `--translated-story-output` to write a separate localized file.
+- The default narration text mirrors visible card text for karaoke alignment: title, body, then comment bodies. `--include-comment-labels` can restore spoken "Comment by user" labels when strict word-level visual sync is not required.
+- `render.py` now auto-detects default `narration.mp3` and `narration.json`, passes them to RedditSim as `audio` and `transcript` query parameters, captures deterministic karaoke frames when transcript words are available, and merges the audio track into `final_output.mp4`. Karaoke mode does not add extra words, lower captions, or overlay text; it highlights the currently spoken word directly in the existing Reddit card text with a bright gold treatment.
+- `style.css` now hides editor/sidebar/HUD/desktop-nav/sidebar/safe-zone widgets under `.clean-mode` and `.render-mode`, including desktop layout states.
+- `.github/workflows/auto_publish.yml` and `.github/workflows/video_dry_run.yml` now pass both `AI33_API_KEY` and `VECTORENGINE_API_KEY` to the TTS/localization step.
+- `scraper.py` now supports `--time auto`, `--topic-family`, `--max-ai-candidates`, `--candidate-limit`, and `--similarity-threshold`. `auto` mode scans capped topic-family source plans rather than only `top/week`, then sends only the top bounded pool to Gemini.
+- `published_history.json` remains backward-compatible with the old `{post_id: [channels]}` shape; the next scraper save migrates future entries to versioned records with story signatures, keyword signatures, topic family, time window, velocity, fatigue penalty, virality score, and AI quality data.
+- `.github/workflows/auto_publish.yml` and `.github/workflows/video_dry_run.yml` now use `time_filter=auto` by default for topic-family windows and set `AI_QUALITY_FAIL_OPEN=0`, explicit `MAX_AI_CANDIDATES`, `STORY_SIMILARITY_THRESHOLD=0.72`, and `TOPIC_FATIGUE_LOOKBACK=10`.
+- `uploader.py` now supports `--privacy-status public|unlisted|private`, merges `tags` + `seo_keywords`, appends returned `hashtags` to the description, and passes metadata language to YouTube. Manual `auto_publish.yml` dispatch defaults to `unlisted`; scheduled runs default to `public`.
+
 ## Known Blockers
 
-- `channels.json` still reflects the older language/subreddit niche plan and must be updated before production publishing.
-- `auto_publish.yml` still points at a production upload flow and must not be treated as safe until localization, audio-aware rendering, MP4 verification, and uploader readback are finished.
-- `translator_tts.py` currently generates narration audio only; it does not translate story text.
-- `render.py` currently creates a silent dry-run MP4 from RedditSim screenshots; it is not yet the final voiceover/subtitle renderer.
-- `uploader.py` is still a base uploader and needs a focused CLI/readback pass before production use.
+- Topic-family weights in `channels.json` are configured but not yet validated against live artifacts or YouTube retention/readback.
+- `auto_publish.yml` still points at a production upload flow and must not be treated as safe until the new localization/audio-aware render path is verified with a full live artifact and uploader readback.
+- `uploader.py` still needs a focused live upload/readback pass before public production use, especially verifying title/description/tags/language on the uploaded YouTube video.
 - There is no project safe-trash helper under `scripts/`, so generated scratch artifacts should not be deleted by agents without adding a safe workflow first.
 
 ## Next Steps
 
-1. Update `channels.json` to match the new audience-first channel strategy in `docs/README.md`.
+1. Run a live topic-discovery artifact check for `--time auto` on priority channels, then tune `topic_mix` weights from candidate variety and Gemini verdicts.
 2. Choose final ElevenLabs or MiniMax voice ids from AI33 Voice Library and update `channels.json` if emotion tags such as `[laughs]` should be supported by default.
-3. Add production localization: `story_data.json` -> `story_localized_<lang>.json`.
-4. Add audio-aware rendering that aligns scenes/captions with `narration_<lang>.mp3`.
-5. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
-6. Fix and verify `uploader.py` CLI account selection before any production upload.
+3. Run a full live workflow artifact check for localized story text, narration audio, audio stream in MP4, clean capture, and karaoke highlighting.
+4. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
+5. Fix and verify `uploader.py` CLI account selection before any production upload.

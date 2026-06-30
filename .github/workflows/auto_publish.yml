@@ -44,17 +44,23 @@ on:
         type: choice
         options: [acc1, acc2, acc3, acc4, acc5, acc6, acc7]
       time_filter:
-        description: 'Reddit top posts time filter'
+        description: 'Reddit top posts time filter, or auto for topic-family windows'
         required: true
-        default: 'week'
+        default: 'auto'
         type: choice
-        options: [day, week, month, year]
+        options: [auto, day, week, month, year]
       video_slot:
         description: 'Which video slot (1=lunch, 2=prime-time)'
         required: false
         default: '1'
         type: choice
         options: ['1', '2']
+      privacy_status:
+        description: 'YouTube privacy for manual runs'
+        required: false
+        default: 'unlisted'
+        type: choice
+        options: [unlisted, private, public]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Map each cron trigger to the correct channel(s) and slot
@@ -74,33 +80,34 @@ jobs:
             CH="${{ github.event.inputs.channel }}"
             SLOT="${{ github.event.inputs.video_slot }}"
             TF="${{ github.event.inputs.time_filter }}"
-            echo "matrix=[{\"channel\":\"${CH}\",\"slot\":\"${SLOT}\",\"time_filter\":\"${TF}\"}]" >> $GITHUB_OUTPUT
+            PRIV="${{ github.event.inputs.privacy_status }}"
+            echo "matrix=[{\"channel\":\"${CH}\",\"slot\":\"${SLOT}\",\"time_filter\":\"${TF}\",\"privacy_status\":\"${PRIV}\"}]" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # Build the publish matrix based on UTC hour
-          # Each entry: {"channel":"accN","slot":"1or2","time_filter":"week"}
+          # Each entry: {"channel":"accN","slot":"1or2","time_filter":"auto"}
           ENTRIES=""
 
           case "$H" in
             1)   # 01:00 UTC → acc2 slot2 (20:00 EST)
-                 ENTRIES='[{"channel":"acc2","slot":"2","time_filter":"week"}]' ;;
+                 ENTRIES='[{"channel":"acc2","slot":"2","time_filter":"auto"}]' ;;
             2)   # 02:00 UTC → acc4 slot2 (20:00 CST)
-                 ENTRIES='[{"channel":"acc4","slot":"2","time_filter":"week"}]' ;;
+                 ENTRIES='[{"channel":"acc4","slot":"2","time_filter":"auto"}]' ;;
             9)   # 09:00 UTC → acc1 slot1 (12:00 MSK)
-                 ENTRIES='[{"channel":"acc1","slot":"1","time_filter":"week"}]' ;;
+                 ENTRIES='[{"channel":"acc1","slot":"1","time_filter":"auto"}]' ;;
             11)  # 11:00 UTC → acc3 + acc6 + acc7 slot1 (12:00 CET)
-                 ENTRIES='[{"channel":"acc3","slot":"1","time_filter":"week"},{"channel":"acc6","slot":"1","time_filter":"week"},{"channel":"acc7","slot":"1","time_filter":"week"}]' ;;
+                 ENTRIES='[{"channel":"acc3","slot":"1","time_filter":"auto"},{"channel":"acc6","slot":"1","time_filter":"auto"},{"channel":"acc7","slot":"1","time_filter":"auto"}]' ;;
             15)  # 15:00 UTC → acc5 slot1 (12:00 BRT)
-                 ENTRIES='[{"channel":"acc5","slot":"1","time_filter":"week"}]' ;;
+                 ENTRIES='[{"channel":"acc5","slot":"1","time_filter":"auto"}]' ;;
             17)  # 17:00 UTC → acc1 slot2 (20:00 MSK) + acc2 slot1 (12:00 EST)
-                 ENTRIES='[{"channel":"acc1","slot":"2","time_filter":"week"},{"channel":"acc2","slot":"1","time_filter":"week"}]' ;;
+                 ENTRIES='[{"channel":"acc1","slot":"2","time_filter":"auto"},{"channel":"acc2","slot":"1","time_filter":"auto"}]' ;;
             18)  # 18:00 UTC → acc4 slot1 (12:00 CST)
-                 ENTRIES='[{"channel":"acc4","slot":"1","time_filter":"week"}]' ;;
+                 ENTRIES='[{"channel":"acc4","slot":"1","time_filter":"auto"}]' ;;
             19)  # 19:00 UTC → acc3 + acc6 + acc7 slot2 (20:00 CET)
-                 ENTRIES='[{"channel":"acc3","slot":"2","time_filter":"week"},{"channel":"acc6","slot":"2","time_filter":"week"},{"channel":"acc7","slot":"2","time_filter":"week"}]' ;;
+                 ENTRIES='[{"channel":"acc3","slot":"2","time_filter":"auto"},{"channel":"acc6","slot":"2","time_filter":"auto"},{"channel":"acc7","slot":"2","time_filter":"auto"}]' ;;
             23)  # 23:00 UTC → acc5 slot2 (20:00 BRT)
-                 ENTRIES='[{"channel":"acc5","slot":"2","time_filter":"week"}]' ;;
+                 ENTRIES='[{"channel":"acc5","slot":"2","time_filter":"auto"}]' ;;
             *)   ENTRIES='[]' ;;
           esac
 
@@ -145,7 +152,8 @@ jobs:
           echo "acc_index=${IDX}"           >> $GITHUB_OUTPUT
           echo "video_slot=${{ matrix.slot }}"        >> $GITHUB_OUTPUT
           echo "time_filter=${{ matrix.time_filter }}" >> $GITHUB_OUTPUT
-          echo "📺 ${CH} | slot=${{ matrix.slot }} | filter=${{ matrix.time_filter }}"
+          echo "privacy_status=${{ matrix.privacy_status || 'public' }}" >> $GITHUB_OUTPUT
+          echo "📺 ${CH} | slot=${{ matrix.slot }} | filter=${{ matrix.time_filter }} | privacy=${{ matrix.privacy_status || 'public' }}"
 
       - name: Fetch viral story from Reddit
         env:
@@ -155,6 +163,10 @@ jobs:
           REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           AI_QUALITY_CHECK: '1'
+          AI_QUALITY_FAIL_OPEN: '0'
+          MAX_AI_CANDIDATES: '12'
+          STORY_SIMILARITY_THRESHOLD: '0.72'
+          TOPIC_FATIGUE_LOOKBACK: '10'
         run: |
           python scraper.py \
             --channel ${{ steps.target.outputs.channel_id }} \
@@ -175,6 +187,7 @@ jobs:
       - name: Translate & Generate AI33 neural voice audio
         env:
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
           python translator_tts.py \
             --channel ${{ steps.target.outputs.channel_id }} \
@@ -206,7 +219,10 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_ACC6: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC6 }}
           YOUTUBE_REFRESH_TOKEN_ACC7: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC7 }}
         run: |
-          python uploader.py final_output.mp4 ${{ steps.target.outputs.acc_index }}
+          python uploader.py \
+            final_output.mp4 \
+            ${{ steps.target.outputs.acc_index }} \
+            --privacy-status ${{ steps.target.outputs.privacy_status }}
 
       - name: Commit and push history update
         if: success()

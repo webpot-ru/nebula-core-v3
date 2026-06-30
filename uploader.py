@@ -2,11 +2,17 @@ import os
 import sys
 import json
 import time
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+import argparse
 
 def get_youtube_service(account_index="1"):
+    try:
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+    except ImportError as exc:
+        print("ERROR: Missing Google YouTube client dependencies. Install requirements.txt first.")
+        print(f"Import error: {exc}")
+        return None
+
     # Read environment variables (GitHub Secrets) for specific account
     client_id = os.environ.get("YOUTUBE_CLIENT_ID")
     client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
@@ -30,7 +36,48 @@ def get_youtube_service(account_index="1"):
 
     return build("youtube", "v3", credentials=creds)
 
-def upload_video(video_file, title, description, account_index="1", category_id="24", privacy_status="public", tags=None):
+def clean_tags(values, limit=25):
+    seen = set()
+    tags = []
+    for value in values or []:
+        tag = str(value).strip().lstrip("#")
+        if not tag:
+            continue
+        key = tag.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        tags.append(tag[:500])
+        if len(tags) >= limit:
+            break
+    return tags
+
+
+def append_hashtags(description, hashtags):
+    active = str(description or "").strip()
+    clean = []
+    for value in hashtags or []:
+        tag = str(value).strip()
+        if not tag:
+            continue
+        tag = tag if tag.startswith("#") else f"#{tag}"
+        if tag.lower() not in {existing.lower() for existing in clean}:
+            clean.append(tag)
+    missing = [tag for tag in clean[:6] if tag.lower() not in active.lower()]
+    if missing:
+        active = f"{active}\n\n{' '.join(missing)}".strip()
+    return active[:5000]
+
+
+def upload_video(video_file, title, description, account_index="1", category_id="24",
+                 privacy_status="public", tags=None, language=None):
+    try:
+        from googleapiclient.http import MediaFileUpload
+    except ImportError as exc:
+        print("ERROR: Missing google-api-python-client. Install requirements.txt first.")
+        print(f"Import error: {exc}")
+        return False
+
     youtube = get_youtube_service(account_index=account_index)
     if not youtube:
         return False
@@ -38,12 +85,19 @@ def upload_video(video_file, title, description, account_index="1", category_id=
     if tags is None:
         tags = ["reddit", "redditstories", "askreddit", "viral", "shorts"]
 
+    snippet = {
+        'title': title[:100],
+        'description': description[:5000],
+        'tags': clean_tags(tags),
+        'categoryId': category_id
+    }
+    if language:
+        snippet['defaultLanguage'] = language
+        snippet['defaultAudioLanguage'] = language
+
     body = {
         'snippet': {
-            'title': title[:100],
-            'description': description[:5000],
-            'tags': tags,
-            'categoryId': category_id
+            **snippet
         },
         'status': {
             'privacyStatus': privacy_status,
@@ -51,7 +105,7 @@ def upload_video(video_file, title, description, account_index="1", category_id=
         }
     }
 
-    print(f"Uploading '{video_file}' to YouTube Account #{account_index}...")
+    print(f"Uploading '{video_file}' to YouTube Account #{account_index} as {privacy_status}...")
     media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
     request = youtube.videos().insert(part=','.join(body.keys()), body=body, media_body=media)
 
@@ -72,14 +126,17 @@ def load_upload_metadata():
     video_title = "Reddit Story"
     video_desc = "Subscribe for more viral Reddit stories!"
     tags = None
+    language = None
 
     if os.path.exists(metadata_file):
         with open(metadata_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         video_title = data.get('youtube_title') or video_title
-        video_desc = data.get('youtube_description') or video_desc
-        tags = data.get('tags') or tags
-        return video_title, video_desc, tags
+        hashtags = data.get('hashtags') or []
+        video_desc = append_hashtags(data.get('youtube_description') or video_desc, hashtags)
+        tags = clean_tags((data.get('tags') or []) + (data.get('seo_keywords') or []))
+        language = data.get('language') or language
+        return video_title, video_desc, tags, language
 
     if os.path.exists(story_file):
         with open(story_file, 'r', encoding='utf-8') as f:
@@ -87,14 +144,32 @@ def load_upload_metadata():
         video_title = data.get('title', video_title)
         video_desc = f"{data.get('title')}\n\nOriginal thread: {data.get('url')}\n\n#reddit #shorts #stories"
 
-    return video_title, video_desc, tags
+    return video_title, video_desc, tags, language
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description="Upload rendered video to YouTube.")
+    parser.add_argument("video", nargs="?", default="final_output.mp4")
+    parser.add_argument("account", nargs="?", default="1")
+    parser.add_argument("--privacy-status", default=os.environ.get("YOUTUBE_PRIVACY_STATUS", "public"),
+                        choices=["public", "unlisted", "private"])
+    parser.add_argument("--category-id", default="24")
+    return parser.parse_args(argv)
 
 if __name__ == '__main__':
-    video_path = sys.argv[1] if len(sys.argv) > 1 else 'final_output.mp4'
-    acc_num = sys.argv[2] if len(sys.argv) > 2 else "1"
-    video_title, video_desc, video_tags = load_upload_metadata()
+    args = parse_args(sys.argv[1:])
+    video_title, video_desc, video_tags, video_language = load_upload_metadata()
 
-    if os.path.exists(video_path):
-        upload_video(video_path, video_title, video_desc, account_index=acc_num, tags=video_tags)
+    if os.path.exists(args.video):
+        upload_video(
+            args.video,
+            video_title,
+            video_desc,
+            account_index=args.account,
+            category_id=args.category_id,
+            privacy_status=args.privacy_status,
+            tags=video_tags,
+            language=video_language,
+        )
     else:
-        print(f"Video file '{video_path}' not found. Please render the video first.")
+        print(f"Video file '{args.video}' not found. Please render the video first.")

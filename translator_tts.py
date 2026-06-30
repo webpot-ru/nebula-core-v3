@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,10 @@ class Ai33Error(RuntimeError):
     pass
 
 
+def normalize_lang_code(value: str | None) -> str:
+    return str(value or "").replace("_", "-").lower()
+
+
 def get_api_key() -> str:
     """Read the AI33 key from env without printing or persisting it."""
     key = os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY")
@@ -100,6 +105,16 @@ def load_channel_config(channel_id: str | None) -> dict[str, Any] | None:
     return None
 
 
+def load_optional_env_files(paths: list[str]) -> int:
+    if not paths:
+        return 0
+    try:
+        from vectorengine_client import load_dotenv_file
+    except ImportError as exc:
+        raise Ai33Error("vectorengine_client.py is required for --env-file support.") from exc
+    return sum(1 for path in paths if load_dotenv_file(path))
+
+
 def load_story(story_path: Path) -> dict[str, Any]:
     if not story_path.exists():
         raise Ai33Error(f"Story data file not found: {story_path}. Run scraper.py first.")
@@ -119,6 +134,171 @@ def normalize_voice_id(voice_id: str) -> str:
     return voice_id
 
 
+def should_translate_story(story: dict[str, Any], lang_code: str, args: argparse.Namespace) -> bool:
+    if args.skip_translation:
+        return False
+
+    normalized_target = normalize_lang_code(lang_code)
+    if normalized_target.startswith("en"):
+        return False
+
+    localization = story.get("localization") if isinstance(story.get("localization"), dict) else {}
+    existing_lang = (
+        story.get("language")
+        or story.get("localized_language")
+        or localization.get("language")
+        or localization.get("target_language")
+    )
+    if normalize_lang_code(existing_lang) == normalized_target and not args.force_translation:
+        return False
+
+    return True
+
+
+def build_translation_prompt(story: dict[str, Any], channel: dict[str, Any], lang_code: str) -> str:
+    comments = [
+        {
+            "index": index,
+            "username": str(comment.get("username") or f"u/commenter_{index + 1}"),
+            "body": str(comment.get("body") or ""),
+        }
+        for index, comment in enumerate(story.get("comments") or [])
+        if isinstance(comment, dict)
+    ]
+    payload = {
+        "title": story.get("title") or "",
+        "body": story.get("body") or "",
+        "comments": comments,
+    }
+    translate_prompt = channel.get("translate_prompt") or "Translate naturally for native speakers."
+    channel_name = channel.get("name") or channel.get("handle") or channel.get("id") or "channel"
+    return f"""
+Translate the Reddit story text for a narrated YouTube video.
+
+Target:
+- channel: {channel_name}
+- language code: {lang_code}
+- region: {channel.get('region', '')}
+- audience: {channel.get('audience', '')}
+- localization instruction: {translate_prompt}
+
+Rules:
+- Translate only the story title, story body, and each comment body.
+- Preserve Reddit usernames, subreddit names, URLs, numbers, and factual details.
+- Keep the same point of view, sequence of events, emotional intensity, and informal Reddit style.
+- Do not summarize, censor, add explanations, or invent facts.
+- Keep line breaks only where they help natural narration.
+- Return strict JSON only, with exactly this shape:
+{{
+  "title": "translated title",
+  "body": "translated body",
+  "comments": [
+    {{"index": 0, "body": "translated comment body"}}
+  ],
+  "language": "{lang_code}"
+}}
+
+Source story JSON:
+{json.dumps(payload, ensure_ascii=False, indent=2)}
+""".strip()
+
+
+def apply_translated_fields(
+    story: dict[str, Any],
+    translated_fields: dict[str, Any],
+    *,
+    channel: dict[str, Any],
+    lang_code: str,
+    model: str,
+) -> dict[str, Any]:
+    localized = dict(story)
+
+    translated_title = str(translated_fields.get("title") or story.get("title") or "").strip()
+    translated_body = str(translated_fields.get("body") or story.get("body") or "").strip()
+    if translated_title:
+        localized["title"] = translated_title
+    if translated_body:
+        localized["body"] = translated_body
+
+    translated_by_index: dict[int, str] = {}
+    for fallback_index, item in enumerate(translated_fields.get("comments") or []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            index = int(item.get("index", fallback_index))
+        except (TypeError, ValueError):
+            index = fallback_index
+        body = str(item.get("body") or "").strip()
+        if body:
+            translated_by_index[index] = body
+
+    localized_comments = []
+    for index, comment in enumerate(story.get("comments") or []):
+        if not isinstance(comment, dict):
+            continue
+        copied = dict(comment)
+        if index in translated_by_index:
+            copied["body"] = translated_by_index[index]
+        localized_comments.append(copied)
+    localized["comments"] = localized_comments
+
+    source_language = (
+        story.get("source_language")
+        or story.get("original_language")
+        or ("en" if normalize_lang_code(story.get("language")) != normalize_lang_code(lang_code) else story.get("language"))
+        or "en"
+    )
+    localized["source_language"] = source_language
+    localized["language"] = lang_code
+    localized["localized_language"] = lang_code
+    localized["localization"] = {
+        "source": "vectorengine-gemini",
+        "model": model,
+        "language": lang_code,
+        "channelId": channel.get("id"),
+        "channelHandle": channel.get("handle"),
+        "translated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return localized
+
+
+def translate_story_text(
+    story: dict[str, Any],
+    *,
+    channel: dict[str, Any],
+    lang_code: str,
+    model: str,
+    temperature: float,
+) -> dict[str, Any]:
+    try:
+        from vectorengine_client import VectorEngineError, call_gemini_json
+    except ImportError as exc:
+        raise Ai33Error("vectorengine_client.py is required for story translation.") from exc
+
+    try:
+        translated_fields = call_gemini_json(
+            prompt=build_translation_prompt(story, channel, lang_code),
+            model=model,
+            temperature=temperature,
+            max_output_tokens=4096,
+        )
+    except VectorEngineError as exc:
+        raise Ai33Error(f"VectorEngine Gemini translation failed: {exc}") from exc
+
+    return apply_translated_fields(
+        story,
+        translated_fields,
+        channel=channel,
+        lang_code=lang_code,
+        model=model,
+    )
+
+
+def save_story(story: dict[str, Any], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(story, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def resolve_lang_and_voice(args: argparse.Namespace) -> tuple[str, str]:
     channel = load_channel_config(args.channel or args.target)
     if channel:
@@ -131,7 +311,7 @@ def resolve_lang_and_voice(args: argparse.Namespace) -> tuple[str, str]:
     return lang, normalize_voice_id(voice_id)
 
 
-def build_narration_text(story: dict[str, Any], lang_code: str) -> str:
+def build_narration_text(story: dict[str, Any], lang_code: str, include_comment_labels: bool = False) -> str:
     parts: list[str] = []
     title = (story.get("title") or "").strip()
     body = (story.get("body") or "").strip()
@@ -146,7 +326,10 @@ def build_narration_text(story: dict[str, Any], lang_code: str) -> str:
         username = (comment.get("username") or "user").strip()
         comment_body = (comment.get("body") or "").strip()
         if comment_body:
-            parts.append(f"{comment_label} {username}: {comment_body}")
+            if include_comment_labels:
+                parts.append(f"{comment_label} {username}: {comment_body}")
+            else:
+                parts.append(comment_body)
 
     narration_text = "\n\n".join(parts).strip()
     if not narration_text:
@@ -337,23 +520,42 @@ def poll_for_audio(
 
 
 def process_story_audio(args: argparse.Namespace) -> None:
+    loaded_env_files = load_optional_env_files(args.env_file)
     lang_code, voice_id = resolve_lang_and_voice(args)
+    channel = load_channel_config(args.channel or args.target) or {"lang": lang_code}
     story_path = Path(args.story).resolve()
     output_path = Path(args.output or f"narration_{lang_code}.mp3").resolve()
 
     story = load_story(story_path)
-    narration_text = build_narration_text(story, lang_code)
+    translation_needed = should_translate_story(story, lang_code, args)
+
+    if translation_needed and not args.dry_run:
+        story = translate_story_text(
+            story,
+            channel=channel,
+            lang_code=lang_code,
+            model=args.translation_model,
+            temperature=args.translation_temperature,
+        )
+        translated_story_path = Path(args.translated_story_output).resolve() if args.translated_story_output else story_path
+        save_story(story, translated_story_path)
+        print(f"Saved localized story text to {translated_story_path}")
+
+    narration_text = build_narration_text(story, lang_code, args.include_comment_labels)
 
     if args.dry_run:
         print("AI33 TTS dry run")
         print(f"  story: {story_path}")
         print(f"  language: {lang_code}")
         print(f"  voice_id: {voice_id}")
+        print(f"  translation: {'needed' if translation_needed else 'skipped'}")
+        print(f"  translation_model: {args.translation_model}")
         print(f"  model_id: {args.model_id or '(omitted)'}")
         print(f"  output: {output_path}")
         print(f"  characters: {len(narration_text)}")
         print(f"  speed: {args.speed:g}")
         print(f"  poll: {not args.no_poll}")
+        print(f"  loadedEnvFileCount: {loaded_env_files}")
         return
 
     api_key = get_api_key()
@@ -416,7 +618,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--channel", "-c", help="Channel id/handle from channels.json.")
     parser.add_argument("--story", default="story_data.json", help="Input story JSON path.")
     parser.add_argument("--output", "-o", help="Output audio file path.")
+    parser.add_argument(
+        "--translated-story-output",
+        help="Where to save localized story JSON. Default: overwrite --story when translation runs.",
+    )
+    parser.add_argument(
+        "--skip-translation",
+        action="store_true",
+        help="Do not translate story text before TTS/storyboard handoff.",
+    )
+    parser.add_argument(
+        "--force-translation",
+        action="store_true",
+        help="Translate even if story metadata already says it is localized for the target language.",
+    )
+    parser.add_argument("--translation-model", default="gemini-3.5-flash", help="VectorEngine Gemini model for story localization.")
+    parser.add_argument("--translation-temperature", type=float, default=0.2, help="Gemini temperature for story localization.")
+    parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load before VectorEngine/AI33 calls.")
     parser.add_argument("--voice-id", help="AI33 prefixed voice_id from Voice Library.")
+    parser.add_argument(
+        "--include-comment-labels",
+        action="store_true",
+        help="Include localized 'Comment by user' labels in narration. Default keeps audio aligned to visible card/comment text for karaoke.",
+    )
     parser.add_argument(
         "--model-id",
         default=AI33_TTS_MODEL_ID,

@@ -21,6 +21,8 @@ DEFAULT_WORKDIR = "build/render"
 DEFAULT_FRAME_COUNT = 8
 DEFAULT_OUTPUT_FPS = 30
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 20
+DEFAULT_AUDIO = "narration.mp3"
+DEFAULT_TRANSCRIPT = "narration.json"
 
 BROWSER_CANDIDATES = [
     "google-chrome",
@@ -162,6 +164,31 @@ def find_ffmpeg_binary(name: str) -> str:
     return binary
 
 
+def probe_media_duration(ffprobe: str, media_path: Path) -> float | None:
+    if not media_path.exists():
+        return None
+    result = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(media_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    try:
+        duration = float(result.stdout.strip())
+    except ValueError:
+        return None
+    return duration if duration > 0 else None
+
+
 def find_browser_binary() -> str:
     for candidate in BROWSER_CANDIDATES:
         if "/" in candidate:
@@ -278,7 +305,7 @@ def wait_for_render_ready(client: CDPClient) -> None:
     expression = """
 (() => {
   if (document.body && document.body.dataset.renderError) return `error:${document.body.dataset.renderError}`;
-  if (document.body && document.body.dataset.renderReady === 'true') return 'ready';
+  if (document.body && ['true', 'karaoke', 'done'].includes(document.body.dataset.renderReady)) return 'ready';
   return document.readyState || 'loading';
 })()
 """
@@ -309,6 +336,13 @@ def storyboard_duration(storyboard: dict[str, Any]) -> float:
     return max(duration, 3.0)
 
 
+def resolve_optional_file(value: str | None) -> Path | None:
+    if not value:
+        return None
+    path = Path(value)
+    return path if path.exists() else None
+
+
 def write_render_story(storyboard: dict[str, Any], workdir: Path) -> Path:
     render_story = storyboard.get("render_story")
     if not isinstance(render_story, dict):
@@ -324,6 +358,8 @@ def capture_redditsim_frames(
     *,
     browser: str,
     story_path: Path,
+    audio_path: Path | None,
+    transcript_path: Path | None,
     workdir: Path,
     duration: float,
     frame_count: int,
@@ -335,23 +371,37 @@ def capture_redditsim_frames(
     frame_count = max(2, frame_count)
     index_url = (PROJECT_ROOT / "index.html").resolve().as_uri()
     story_url = story_path.resolve().as_uri()
-    encoded_story_url = urllib.parse.quote(story_url, safe=":/")
+    query_parts = [
+        ("render", "1"),
+        ("capture", "1"),
+        ("story", story_url),
+    ]
+    if audio_path:
+        query_parts.append(("audio", audio_path.resolve().as_uri()))
+    if transcript_path:
+        query_parts.append(("transcript", transcript_path.resolve().as_uri()))
+    encoded_query = urllib.parse.urlencode(query_parts, quote_via=urllib.parse.quote, safe=":/")
     frames: list[Path] = []
 
     process, client = start_cdp_browser(browser, frames_dir, width, height)
     try:
         # Load index page once
-        initial_url = f"{index_url}?render=1&story={encoded_story_url}"
+        initial_url = f"{index_url}?{encoded_query}"
         client.command("Page.navigate", {"url": initial_url}, timeout=5)
         wait_for_render_ready(client)
 
         for frame_index in range(frame_count):
             progress = frame_index / (frame_count - 1)
             screenshot_path = frames_dir / f"frame_{frame_index:04d}.png"
-            
-            # Update typing animation progress in-memory via JavaScript
+
+            # Update typing/karaoke progress in-memory via JavaScript.
+            timestamp = progress * duration
             client.command("Runtime.evaluate", {
-                "expression": f"renderTypingAtProgress({progress:.6f})",
+                "expression": (
+                    "window.karaokeReady "
+                    f"? renderKaraokeAtTime({timestamp:.6f}) "
+                    f": renderTypingAtProgress({progress:.6f})"
+                ),
                 "returnByValue": True,
             }, timeout=5)
 
@@ -371,10 +421,17 @@ def capture_redditsim_frames(
     return frames
 
 
-def encode_frames(ffmpeg: str, frames_dir: Path, output_path: Path, duration: float, frame_count: int) -> None:
+def encode_frames(
+    ffmpeg: str,
+    frames_dir: Path,
+    output_path: Path,
+    duration: float,
+    frame_count: int,
+    audio_path: Path | None = None,
+) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     input_framerate = max(frame_count / max(duration, 0.1), 0.1)
-    run_command([
+    command = [
         ffmpeg,
         "-hide_banner",
         "-loglevel",
@@ -384,18 +441,37 @@ def encode_frames(ffmpeg: str, frames_dir: Path, output_path: Path, duration: fl
         f"{input_framerate:.6f}",
         "-i",
         str(frames_dir / "frame_%04d.png"),
-        "-t",
-        f"{duration:.3f}",
+    ]
+    if audio_path:
+        command.extend(["-i", str(audio_path)])
+    command.extend([
         "-vf",
         f"fps={DEFAULT_OUTPUT_FPS},format=yuv420p",
         "-c:v",
         "libx264",
         "-preset",
         "veryfast",
+    ])
+    if audio_path:
+        command.extend([
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+        ])
+    command.extend([
+        "-t",
+        f"{duration:.3f}",
         "-movflags",
         "+faststart",
         str(output_path),
     ])
+    run_command(command)
 
 
 def render_redditsim_video(
@@ -406,28 +482,40 @@ def render_redditsim_video(
     frame_count: int,
     width: int,
     height: int,
+    audio_path: Path | None,
+    transcript_path: Path | None,
 ) -> dict[str, Any]:
     ffmpeg = find_ffmpeg_binary("ffmpeg")
+    ffprobe = find_ffmpeg_binary("ffprobe")
     browser = find_browser_binary()
     story_path = write_render_story(storyboard, workdir)
-    duration = storyboard_duration(storyboard)
+    storyboard_sec = storyboard_duration(storyboard)
+    audio_sec = probe_media_duration(ffprobe, audio_path) if audio_path else None
+    duration = audio_sec or storyboard_sec
     frames = capture_redditsim_frames(
         browser=browser,
         story_path=story_path,
+        audio_path=audio_path,
+        transcript_path=transcript_path,
         workdir=workdir,
         duration=duration,
         frame_count=frame_count,
         width=width,
         height=height,
     )
-    encode_frames(ffmpeg, frames[0].parent, output_path, duration, len(frames))
+    encode_frames(ffmpeg, frames[0].parent, output_path, duration, len(frames), audio_path)
 
     return {
         "browser": browser,
         "ffmpeg": ffmpeg,
+        "ffprobe": ffprobe,
         "framesDir": str(frames[0].parent),
         "frameCount": len(frames),
         "durationSec": duration,
+        "storyboardDurationSec": storyboard_sec,
+        "audioDurationSec": audio_sec,
+        "audio": str(audio_path) if audio_path else None,
+        "transcript": str(transcript_path) if transcript_path else None,
         "outputFps": DEFAULT_OUTPUT_FPS,
     }
 
@@ -438,6 +526,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output", "-o", default=DEFAULT_OUTPUT, help="Output MP4 path.")
     parser.add_argument("--workdir", default=DEFAULT_WORKDIR, help="Renderer working directory.")
     parser.add_argument("--frame-count", type=int, default=DEFAULT_FRAME_COUNT, help="Number of RedditSim screenshots to sample across the storyboard.")
+    parser.add_argument("--audio", default=DEFAULT_AUDIO, help="Optional narration audio path to merge into the MP4.")
+    parser.add_argument("--transcript", default=DEFAULT_TRANSCRIPT, help="Optional word-level transcript JSON path for karaoke highlighting.")
     return parser.parse_args(argv)
 
 
@@ -453,6 +543,10 @@ def main(argv: list[str]) -> int:
     height = int(resolution.get("height") or 1920)
     workdir = Path(args.workdir)
     workdir.mkdir(parents=True, exist_ok=True)
+    audio_path = resolve_optional_file(args.audio)
+    transcript_path = resolve_optional_file(args.transcript)
+    if transcript_path and not audio_path:
+        raise RenderError("--transcript was found, but --audio is missing; karaoke render needs both.")
 
     output_path = Path(args.output)
     render_result = render_redditsim_video(
@@ -462,6 +556,8 @@ def main(argv: list[str]) -> int:
         frame_count=args.frame_count,
         width=width,
         height=height,
+        audio_path=audio_path,
+        transcript_path=transcript_path,
     )
     print(json.dumps({
         "status": "ok",

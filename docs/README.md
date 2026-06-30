@@ -4,7 +4,7 @@
 **GitHub**: [github.com/lalishka/nebula-core-v3](https://github.com/lalishka/nebula-core-v3) *(private)*  
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-06-29
+**Last updated**: 2026-06-30
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 
@@ -46,7 +46,7 @@ The system is modeled after the successful **LUNA 2** architecture — orchestra
 
 Status: **supersedes the older "one language = one Reddit niche" plan.**
 
-`channels.json` is still the current execution config for scripts, voices, and scraper inputs. It is **not** the final content strategy. Before production publishing, update it to match the audience-first strategy below.
+`channels.json` is still the current execution config for scripts, voices, scraper inputs, and initial topic weights. Its `topic_mix` entries now follow the audience-first strategy below, but the weights are hypotheses until live artifacts and retention/readback prove them.
 
 ### Strategy Rule
 
@@ -89,8 +89,13 @@ Operational split:
 For Reddit-derived stories only:
 - **Upvotes**: minimum 1,000 unless a market-specific experiment says otherwise.
 - **Comments ratio**: high comment/upvote ratio indicates controversy and discussion potential.
-- **Time window**: `top/week` for validated viral content rather than temporary spikes.
+- **Time window**: `auto` uses topic-family windows such as `day + week` for fresh drama and `week + month` for mystery/lore; manual `day|week|month|year` is still available for experiments.
 - **Body length**: minimum 300 characters for narration depth.
+- **Topic families**: channels now use weighted `topic_mix` values instead of one flat subreddit list. The scraper has rules for `human_drama`, `dark_curiosity`, `curiosity_facts`, `football_culture`, `internet_lore`, and `visual_comedy`.
+- **AI budget**: Gemini quality checks are bounded by `MAX_AI_CANDIDATES` / `--max-ai-candidates`; local Reddit metrics and duplicate guards run before any AI call.
+- **Duplicate guard**: exact Reddit post ids, normalized story signatures, and similar keyword signatures are skipped per channel.
+- **Velocity scoring**: fresh `day/week` candidates get a small bonus for upvotes/hour and comments/hour, so rising stories can beat older high-total posts.
+- **Topic fatigue**: recently repeated topic families receive a penalty so one channel does not publish the same kind of story too many times in a row.
 
 ---
 
@@ -190,11 +195,11 @@ test -s final_output.mp4
 ffprobe final_output.mp4
 ```
 
-`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic typing progress screenshots, and uses FFmpeg to encode them into `final_output.mp4`. It is intentionally minimal: no voiceover, no subtitles, no external API calls, no upload.
+`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic typing/karaoke screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. If `narration.json` exists, the renderer passes it into RedditSim so the current word is highlighted directly inside the existing Reddit card text. Karaoke mode does not add extra caption words, lower subtitle strips, or overlay text.
 
-The GitHub dry-run workflow is `.github/workflows/video_dry_run.yml`. It can be run manually and also runs on pushes that touch the renderer/simulator/sample files. It installs FFmpeg, uses the runner browser, builds `storyboard.json`, renders `final_output.mp4`, verifies the file with `ffprobe`, creates preview PNGs, and uploads all outputs as the `chonkertalks-dry-run-video` artifact.
+The GitHub dry-run workflow is `.github/workflows/video_dry_run.yml`. The current workflow fetches a live Reddit story and calls AI33 for narration/transcript, so it uses configured secrets and can spend provider credits. It installs FFmpeg, uses the runner browser, builds `storyboard.json`, renders `final_output.mp4`, verifies the file with `ffprobe`, creates preview PNGs, and uploads video, story, storyboard, narration, transcript, and previews as an artifact.
 
-Current GitHub verification status: pending. Manual run `28385737068` failed with `startup_failure` before jobs/logs/artifacts were created. Fix the workflow startup issue before treating GitHub dry-run rendering as verified.
+Current GitHub verification status: previously recovered after the `startup_failure` ownership/billing issue; see `docs/PROJECT_STATE.md` for the latest verified run and artifact notes.
 
 ---
 
@@ -247,8 +252,14 @@ python3 scraper.py nosleep
 # Use a specific channel's subreddit strategy
 python3 scraper.py --channel acc4
 
-# Custom time filter
-python3 scraper.py --channel acc1 --time month
+# Topic-family auto mode: searches weighted topic families and their time windows
+python3 scraper.py --channel acc4 --time auto
+
+# Force one topic family for experiments
+python3 scraper.py --channel acc4 --topic-family human_drama
+
+# Custom time filter and hard Gemini budget
+python3 scraper.py --channel acc1 --time month --max-ai-candidates 8 --similarity-threshold 0.72
 
 # Custom output file
 python3 scraper.py --channel acc3 --output story_ru.json
@@ -260,7 +271,8 @@ python3 scraper.py --channel acc3 --output story_ru.json
 |---|---|
 | `get_reddit()` | Authenticates with Reddit via PRAW OAuth2 |
 | `virality_score(post)` | Scores post virality 0–100 based on 5 signals |
-| `fetch_best_story(subreddits)` | Scans all subreddits, picks highest-scoring post |
+| `build_topic_sources(...)` | Builds topic-family + time-window source plans from `channels.json` |
+| `fetch_best_story(subreddits)` | Scans topic sources, dedupes, ranks, and AI-checks a bounded candidate pool |
 | `fetch_top_comments(reddit, post_id)` | Fetches top 3 comments (excludes AutoModerator) |
 | `load_channel_config(channel_id)` | Reads subreddit list from channels.json |
 
@@ -274,6 +286,8 @@ python3 scraper.py --channel acc3 --output story_ru.json
 | Comments > 1,000 | +15 | High engagement signal |
 | Body length > 500 chars | +10 | Enough content for full 5–10 min video |
 
+The final candidate score also includes a small topic-weight boost, time-window freshness adjustment, velocity bonus, and topic-fatigue penalty. Gemini then receives Reddit metrics, velocity, topic-family rules, story signature, and duplicate context. It must return `viral_potential`, `novelty`, `duplicate_risk`, `legal_risk`, and a `PUBLISH | REWRITE | SKIP` verdict.
+
 ### Output Format `story_data.json`
 
 ```json
@@ -285,6 +299,12 @@ python3 scraper.py --channel acc3 --output story_ru.json
   "upvotes": "18.4k",
   "comments_count": "2.1k",
   "virality_score": 90,
+  "velocity_bonus": 5,
+  "fatigue_penalty": 0,
+  "topic_family": "human_drama",
+  "time_window": "week",
+  "story_signature": "ab12cd34ef56ab78",
+  "keyword_signature": "attend family refusing sister wedding",
   "url": "https://reddit.com/r/AmItheAsshole/comments/...",
   "comments": [
     {
@@ -311,6 +331,10 @@ python3 translator_tts.py es --output narration_es.mp3
 python3 translator_tts.py --channel acc4 --output narration_es.mp3
 python3 translator_tts.py ru --voice-id edge_ru-RU-DmitryNeural
 ```
+
+Before TTS, the script now localizes `story_data.json` for non-English target channels through VectorEngine Gemini using the channel's `translate_prompt`. It translates the story `title`, story `body`, and each comment `body`, preserves usernames/metadata, writes localization metadata into the story JSON, and by default overwrites `--story` so `storyboard_generator.py` and `render.py` consume the translated text. Use `--translated-story-output story_localized_<lang>.json` to keep the original file untouched, `--skip-translation` for an explicit no-localization run, or `--force-translation` to refresh existing localized text.
+
+For karaoke sync, the default narration text mirrors visible card text: title, body, then comment bodies. If a voiceover should explicitly say localized "Comment by user" labels, pass `--include-comment-labels`; that can reduce word-level visual alignment unless the rendered DOM also includes those labels.
 
 The script sends multipart FormData to:
 
@@ -371,7 +395,7 @@ python3 translator_tts.py es --dry-run
 python3 translator_tts.py es --output narration_es.mp3
 ```
 
-Live audio generation spends AI33 credits, so run it intentionally.
+Live translation and audio generation can spend VectorEngine and AI33 credits, so run them intentionally.
 
 ### Live Smoke Result
 
@@ -425,6 +449,14 @@ Output shape:
 
 `uploader.py` prefers `youtube_metadata.json` when present, then falls back to `story_data.json`.
 
+SEO/upload handling:
+- `youtube_title` is trimmed to YouTube's 100-character limit.
+- `youtube_description` is trimmed to 5,000 characters and must include the original Reddit URL.
+- `hashtags` are appended to the upload description if Gemini returned them separately.
+- `tags` and `seo_keywords` are merged into YouTube tags with duplicate removal and a 25-tag cap.
+- `language` is passed to YouTube as `defaultLanguage` and `defaultAudioLanguage` when present.
+- Manual `auto_publish.yml` runs default to `privacy_status=unlisted`; scheduled runs default to `public`.
+
 ### VectorEngine Thumbnail Images
 
 `thumbnail_generator.py` uses `youtube_metadata.json.thumbnail_prompt` and VectorEngine image generation:
@@ -462,19 +494,20 @@ Each account has its own **refresh token** stored in GitHub Secrets.
 
 ### Dry-Run Render Workflow
 
-`video_dry_run.yml` is the safe workflow to run first. It can be triggered manually or by pushes touching the dry-run renderer/simulator/sample files, and it does not use secrets:
+`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit and AI33 secrets, so it is not a no-spend fixture-only workflow:
 
 ```text
-sample_story_data.json
+scraper.py
+  -> story_data.json
+  -> translator_tts.py
+  -> narration.mp3 + narration.json
   -> storyboard_generator.py
   -> render.py
   -> final_output.mp4
   -> artifact upload
 ```
 
-It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `ffprobe`, then uploads the MP4 and storyboard as a GitHub Actions artifact.
-
-Current blocker: run `28385737068` failed at workflow startup before any job logs existed, so no artifact has been produced yet.
+It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `ffprobe`, then uploads the MP4, story, storyboard, narration, transcript, render story, and preview PNGs as a GitHub Actions artifact.
 
 ### Production Publish Workflow
 
@@ -484,15 +517,13 @@ Planned production flow:
 ```
 scraper.py → story_data.json
     ↓
-localize_story.py → story_localized_<lang>.json
-    ↓
 metadata_generator.py → youtube_metadata.json via VectorEngine
     ↓
-translator_tts.py → narration_<lang>.mp3 via AI33
+translator_tts.py → localized story_data.json + narration.mp3 + narration.json via VectorEngine + AI33
     ↓
 storyboard_generator.py → storyboard.json
     ↓
-render.py → final_output.mp4
+render.py → final_output.mp4 with audio track + karaoke highlight when transcript exists
     ↓
 uploader.py → YouTube video published
 ```
@@ -526,6 +557,15 @@ uploader.py → YouTube video published
 | `AI33_API_KEY` | ✅ Set | AI33 TTS v3 |
 | `VECTORENGINE_API_KEY` | ✅ Set | VectorEngine Gemini and image generation |
 
+Useful scraper budget env vars:
+- `MAX_AI_CANDIDATES` — hard cap on Gemini quality checks per scrape; default `12`, dry-run workflow uses `8`.
+- `CANDIDATE_LIMIT_PER_SOURCE` — Reddit posts fetched per subreddit/window source; default `25`.
+- `MAX_SUBREDDITS_PER_TOPIC` — subreddits scanned per topic family; default `4`.
+- `MAX_TIME_WINDOWS_PER_TOPIC` — time windows scanned per topic family in `auto` mode; default `2`.
+- `AI_QUALITY_FAIL_OPEN` — default `0`; if VectorEngine fails, candidates are skipped instead of silently publishing.
+- `STORY_SIMILARITY_THRESHOLD` — keyword-overlap duplicate threshold; default `0.72`.
+- `TOPIC_FATIGUE_LOOKBACK` — recent channel history entries considered for topic fatigue; default `10`.
+
 ---
 
 ## 11. Local Development
@@ -542,7 +582,10 @@ git add . && git commit -m "message" && git push origin main
 # Trigger pipeline manually
 gh workflow run auto_publish.yml --ref main
 
-# Trigger no-spend dry-run render manually
+# Trigger one manual publish run as unlisted first
+gh workflow run auto_publish.yml --ref main -f channel=acc4 -f time_filter=auto -f video_slot=1 -f privacy_status=unlisted
+
+# Trigger live GitHub render dry-run manually; this can spend Reddit/Gemini/AI33 provider usage
 gh workflow run video_dry_run.yml --ref main
 
 # Check secrets
@@ -550,6 +593,12 @@ gh secret list
 
 # Generate narration through AI33 without spending credits
 python3 translator_tts.py es --dry-run
+
+# Test topic-family source planning without Gemini spend
+AI_QUALITY_CHECK=0 python3 scraper.py --channel acc4 --time auto --max-ai-candidates 0 --output /tmp/story_data_check.json
+
+# Run bounded Gemini quality checks for topic discovery (spends VectorEngine credits)
+VECTORENGINE_API_KEY=... python3 scraper.py --channel acc4 --time auto --max-ai-candidates 8
 
 # Generate narration through AI33 (spends AI33 credits)
 AI33_API_KEY=... python3 translator_tts.py es --output narration_es.mp3
@@ -580,26 +629,26 @@ ffprobe final_output.mp4
 - [x] GitHub private repo `nebula-core-v3`
 - [x] YouTube OAuth for all 7 accounts
 - [x] GitHub Secrets baseline documented; live readback still required before production runs
-- [x] `channels.json` — initial execution config; content strategy now supersedes the old niche plan
-- [x] `scraper.py` — **fully rewritten with PRAW OAuth2 + virality scoring**
+- [x] `channels.json` — execution config now includes weighted `topic_mix` per channel
+- [x] `scraper.py` — **PRAW OAuth2 + virality scoring + topic-family search + bounded Gemini quality gate**
 - [x] `translator_tts.py` switched to AI33 TTS v3, `uploader.py` base script
 - [x] `metadata_generator.py` connected to VectorEngine Gemini for SEO metadata
 - [x] `thumbnail_generator.py` connected to VectorEngine image generation behind explicit spend confirmation
 - [x] `storyboard_generator.py` and `render.py` create a no-spend dry-run `final_output.mp4`
-- [x] GitHub Actions workflow `video_dry_run.yml` renders and uploads a dry-run MP4 artifact
+- [x] GitHub Actions workflow `video_dry_run.yml` renders and uploads a live dry-run MP4 artifact
 - [x] GitHub Actions workflow `auto_publish.yml`
 - [x] Scrapers research & comparison documentation
 - [x] Reddit App registered: **red 2025** (Complex_Lack4476)
 - [x] Verified GitHub dry-run rendering (`chonkertalks-dry-run-video` artifact generated)
 
 ### 🔄 Next Steps (Priority Order)
-- [ ] **1. Update `channels.json` to match the new audience-first strategy** before production publishing
-- [ ] **2. Select final ElevenLabs/MiniMax voices** from AI33 Voice Library for each channel if emotion tags should be default
-- [ ] **3. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2
-- [ ] **4. Add production localization + audio-aware render path** before enabling YouTube upload
+- [ ] **1. Live topic-discovery artifact check** for `auto` mode: confirm candidate variety, AI verdicts, and duplicate history migration.
+- [ ] **2. Select final ElevenLabs/MiniMax voices** from AI33 Voice Library for each channel if emotion tags should be default.
+- [ ] **3. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2.
+- [ ] **4. Verify uploader.py account selection/readback** before enabling production YouTube upload.
 
 ### 🔮 Future
-- [ ] Browser-captured scene templates, animated captions, and audio-aware timing
+- [ ] Broader source discovery beyond Reddit: YouTube comments, Google Trends, TikTok/Shorts trend scouts, and RSS/news sources behind explicit spend/API boundaries
 - [ ] Custom Chonker cat avatars per language
 - [ ] Analytics readback — track best performing content per language
 - [ ] Auto A/B test thumbnails
