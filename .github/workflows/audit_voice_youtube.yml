@@ -64,10 +64,16 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build/audit/youtube-mapping
-          python uploader.py \
-            --check-channel-only \
-            --account-index ${{ matrix.account }} 2>&1 \
-            | tee build/audit/youtube-mapping/acc${{ matrix.account }}.log
+          {
+            echo "== OAuth scopes =="
+            python uploader.py \
+              --check-token-scopes-only \
+              --account-index ${{ matrix.account }}
+            echo "== Channel mapping =="
+            python uploader.py \
+              --check-channel-only \
+              --account-index ${{ matrix.account }}
+          } 2>&1 | tee build/audit/youtube-mapping/acc${{ matrix.account }}.log
 
       - name: Upload mapping log
         if: always()

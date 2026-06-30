@@ -42,6 +42,47 @@ def get_youtube_service(account_index="1"):
     return build("youtube", "v3", credentials=creds)
 
 
+def get_youtube_oauth_scopes(account_index="1"):
+    import requests
+
+    client_id = os.environ.get("YOUTUBE_CLIENT_ID")
+    client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
+    token_env_var = f"YOUTUBE_REFRESH_TOKEN_ACC{account_index}"
+    refresh_token = os.environ.get(token_env_var) or os.environ.get("YOUTUBE_REFRESH_TOKEN")
+
+    if not client_id or not client_secret or not refresh_token:
+        raise UploadError(
+            f"Missing YouTube API credentials for Account {account_index}. "
+            f"Need YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, and {token_env_var}."
+        )
+
+    response = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        },
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        message = payload.get("error_description") or payload.get("error") or response.text[:300]
+        raise UploadError(f"OAuth token refresh failed ({response.status_code}): {message}")
+
+    payload = response.json()
+    scopes = sorted(str(payload.get("scope") or "").split())
+    print(
+        "Verified OAuth token scopes: "
+        f"Account #{account_index} -> {', '.join(scopes) if scopes else '(scope not returned)'}"
+    )
+    return scopes
+
+
 def load_expected_channel(account_index="1"):
     channel_id = f"acc{account_index}"
     config_path = Path(__file__).with_name("channels.json")
@@ -283,6 +324,11 @@ def parse_args(argv):
         help="Verify the authenticated YouTube account against channels.json and exit without uploading.",
     )
     parser.add_argument(
+        "--check-token-scopes-only",
+        action="store_true",
+        help="Refresh the account token and print granted OAuth scopes without uploading.",
+    )
+    parser.add_argument(
         "--skip-channel-check",
         action="store_true",
         help="Disable channels.json vs authenticated YouTube channel preflight. Use only for emergency manual recovery.",
@@ -292,6 +338,18 @@ def parse_args(argv):
 if __name__ == '__main__':
     args = parse_args(sys.argv[1:])
     account_index = args.account_index or args.account
+
+    if args.check_token_scopes_only:
+        try:
+            scopes = get_youtube_oauth_scopes(account_index)
+            print(json.dumps({"status": "ok", "account": account_index, "scopes": scopes}, ensure_ascii=False, indent=2))
+            sys.exit(0)
+        except UploadError as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(1)
+        except Exception as exc:
+            print(f"ERROR: YouTube OAuth scope check failed: {exc}")
+            sys.exit(1)
 
     if args.check_channel_only:
         try:
