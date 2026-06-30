@@ -106,8 +106,8 @@
       "videos_per_day": 2,
       "long_duration_min": 8,
       "long_duration_max": 18,
-      "tts_voice": "edge_es-MX-JorgeNeural",
-      "comment_tts_voice": "edge_es-MX-DaliaNeural",
+      "tts_voice": "elevenlabs_22VndfJPBU7AZORAZZTT",
+      "comment_tts_voice": "elevenlabs_8mBRP99B2Ng2QwsJMFQl",
       "tts_provider": "ai33",
       "translate_prompt": "Traduce al español latinoamericano neutro (sin regionalismos fuertes de un solo país). Usa un tono conversacional juvenil. No uses vosotros ni expresiones exclusivas de España.",
       "priority": "high"
@@ -134,8 +134,8 @@
       "videos_per_day": 2,
       "long_duration_min": 8,
       "long_duration_max": 18,
-      "tts_voice": "edge_pt-BR-AntonioNeural",
-      "comment_tts_voice": "edge_pt-BR-FranciscaNeural",
+      "tts_voice": "elevenlabs_dX7gRq1dIvLTgUaWpEFn",
+      "comment_tts_voice": "elevenlabs_4r3G9XKliGgVZLKMgjik",
       "tts_provider": "ai33",
       "translate_prompt": "Traduza para português brasileiro coloquial. Use gírias leves, referências ao futebol quando apropriado e tom de conversa informal. Mantenha as emoções do texto original.",
       "priority": "high"

@@ -363,19 +363,52 @@ kokoro_...
 python3 translator_tts.py --channel acc4 --check-voice-config --require-voice-prefix elevenlabs_
 ```
 
-Until both `tts_voice` and `comment_tts_voice` start with `elevenlabs_`, the publish workflow fails early. The temporary values currently present are:
+Until both `tts_voice` and `comment_tts_voice` start with `elevenlabs_`, the publish workflow fails early for that channel. Current configured values are:
 
 | Channel | Narrator `tts_voice` | Comment `comment_tts_voice` |
 |---|---|---|
 | Russia | `edge_ru-RU-DmitryNeural` | `edge_ru-RU-SvetlanaNeural` |
 | English | `edge_en-US-ChristopherNeural` | `edge_en-US-JennyNeural` |
 | Germany | `edge_de-DE-ConradNeural` | `edge_de-DE-KatjaNeural` |
-| LATAM | `edge_es-MX-JorgeNeural` | `edge_es-MX-DaliaNeural` |
-| Brazil | `edge_pt-BR-AntonioNeural` | `edge_pt-BR-FranciscaNeural` |
+| LATAM | `elevenlabs_22VndfJPBU7AZORAZZTT` | `elevenlabs_8mBRP99B2Ng2QwsJMFQl` |
+| Brazil | `elevenlabs_dX7gRq1dIvLTgUaWpEFn` | `elevenlabs_4r3G9XKliGgVZLKMgjik` |
 | France | `edge_fr-FR-HenriNeural` | `edge_fr-FR-DeniseNeural` |
 | Italy | `edge_it-IT-DiegoNeural` | `edge_it-IT-IsabellaNeural` |
 
-To enable publishing, replace those temporary values with AI33 ElevenLabs voice IDs from AI33 Voice Library. Paste the returned prefixed `voice_id` values into `tts_voice` and `comment_tts_voice`, or pass them with `--voice-id` / `--comment-voice-id` for a one-off local test.
+To enable publishing for the remaining channels, replace the temporary Edge values with AI33 ElevenLabs voice IDs from AI33 Voice Library. Paste the returned prefixed `voice_id` values into `tts_voice` and `comment_tts_voice`, or pass them with `--voice-id` / `--comment-voice-id` for a one-off local test.
+
+Voice selection is per channel and per narration role. There is no requirement to find one universal voice for all languages; each channel can use its own narrator/comment pair as long as both configured IDs match the target language and start with `elevenlabs_`.
+
+Current ElevenLabs candidates collected from AI33 Voice Library screenshots:
+
+| Raw ElevenLabs ID | AI33 `voice_id` | Screenshot languages | Safe channel fit | Do not use for |
+|---|---|---|---|---|
+| `cCYjmrGZaI86GUJ7F2Nn` | `elevenlabs_cCYjmrGZaI86GUJ7F2Nn` | English, French, Norwegian, Czech, Hindi, Croatian, Russian, Arabic, Tamil, Vietnamese, Malay, Indonesian, Polish, Turkish, Dutch, Romanian, Chinese, Portuguese | Candidate for English, French, Russian, and possibly Portuguese after accent check | LATAM Spanish, German, Italian |
+| `nzFihrBIvB34imQBuxub` | `elevenlabs_nzFihrBIvB34imQBuxub` | English, Slovak, French, Hindi, Croatian, Hungarian, Tamil, Norwegian, Russian, Vietnamese, Indonesian, Malay, Romanian, Turkish | Candidate for English, French, and Russian | LATAM Spanish, Brazil Portuguese, German, Italian |
+| `BIvP0GN1cAtSRTxNHnWS` | `elevenlabs_BIvP0GN1cAtSRTxNHnWS` | English, Spanish, Russian, Slovak, Romanian, Croatian, Polish, Italian, Danish | Candidate for LATAM Spanish, Italian, English, and Russian | Brazil Portuguese, French, German |
+| `93nuHbke4dTER9x2pDwE` | `elevenlabs_93nuHbke4dTER9x2pDwE` | French, Portuguese, Hindi, Polish, Spanish, Russian, Croatian, Korean, Slovak, Malay, Chinese, Ukrainian, Romanian, Swedish, Tamil, English | Candidate for LATAM Spanish, French, Portuguese, English, and Russian | German, Italian |
+| `22VndfJPBU7AZORAZZTT` | `elevenlabs_22VndfJPBU7AZORAZZTT` | User-provided AI33 Voice Library readback: Spanish with Latin accent | Active `acc4` LATAM Spanish narrator | Pending sound test |
+| `8mBRP99B2Ng2QwsJMFQl` | `elevenlabs_8mBRP99B2Ng2QwsJMFQl` | User-provided AI33 Voice Library readback: Spanish with Latin accent | Active `acc4` LATAM Spanish comments | Pending sound test |
+| `dX7gRq1dIvLTgUaWpEFn` | `elevenlabs_dX7gRq1dIvLTgUaWpEFn` | User-provided AI33 Voice Library readback: Portuguese with Brazilian accent | Active `acc5` Brazil Portuguese narrator | Pending sound test |
+| `4r3G9XKliGgVZLKMgjik` | `elevenlabs_4r3G9XKliGgVZLKMgjik` | User-provided AI33 Voice Library readback: Portuguese with Brazilian accent | Active `acc5` Brazil Portuguese comments | Pending sound test |
+
+The Spanish and Brazilian Portuguese pairs are active in `channels.json` right now: `22VndfJPBU7AZORAZZTT` / `8mBRP99B2Ng2QwsJMFQl` for `acc4`, and `dX7gRq1dIvLTgUaWpEFn` / `4r3G9XKliGgVZLKMgjik` for `acc5`. The other candidate IDs are documented for selection but not yet configured. A single voice ID is only one role; each remaining channel still needs a separate narrator/comment pair before production publishing. Do not configure a voice on a channel whose target language is missing from the AI33/ElevenLabs language list.
+
+Verification note: the ElevenLabs public voice metadata endpoint returns `401` for these voice IDs without an authorized API key, so accent/language labels must be confirmed from AI33 Voice Library UI/readback or a short AI33 sound test. The local project preflight accepts the prefixed IDs and verifies that `acc4` will pass the `elevenlabs_` publish guard.
+
+For no-audio metadata readback through the repository secret, use the manual workflow `.github/workflows/voice_metadata_check.yml`. It calls AI33 voice metadata endpoints with `AI33_API_KEY`, prints only sanitized metadata for requested voice IDs, and does not call `/v3/text-to-speech`.
+
+Current candidate coverage:
+
+| Channel | Candidate status |
+|---|---|
+| `acc1` Russian | Enough candidates for a narrator/comment pair, pending sound test |
+| `acc2` English | Enough candidates for a narrator/comment pair, pending sound test |
+| `acc3` German | No confirmed candidate yet |
+| `acc4` LATAM Spanish | Spanish Latin-accent narrator/comment pair configured in `channels.json` from user-provided AI33 UI readback, pending sound test |
+| `acc5` Brazil Portuguese | Brazilian-accent narrator/comment pair configured in `channels.json` from user-provided AI33 UI readback, pending sound test |
+| `acc6` French | Enough candidates for a narrator/comment pair, pending sound test |
+| `acc7` Italian | One confirmed-language candidate, still needs a second Italian voice for comments |
 
 For ElevenLabs-backed voices, `translator_tts.py` sends `model_id=eleven_v3` by default. Override only intentionally:
 

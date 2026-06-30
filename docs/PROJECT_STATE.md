@@ -62,7 +62,12 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - `translator_tts.py` now uses `POST https://api.ai33.pro/v3/text-to-speech` with multipart FormData and `xi-api-key`.
 - `translator_tts.py` sends `model_id=eleven_v3` by default; override with `--model-id` or `AI33_TTS_MODEL_ID` only intentionally.
 - The expected secret is `AI33_API_KEY`; `A133_API_KEY` is accepted only as a compatibility fallback for older local notes.
-- `channels.json` still contains temporary `edge_...` narrator/comment voice ids. This does not satisfy the product requirement to use ElevenLabs v3 through AI33. `auto_publish.yml` now fails early unless both voices start with `elevenlabs_`, so no new publish run should spend Gemini/AI33 credits with Edge voices.
+- `channels.json` still contains temporary `edge_...` narrator/comment voice ids for every channel except `acc4` LATAM Spanish and `acc5` Brazil Portuguese. `auto_publish.yml` fails early unless both voices for the selected channel start with `elevenlabs_`, so channels still on Edge should not spend Gemini/AI33 credits.
+- Raw ElevenLabs candidate ids provided from AI33 Voice Library screenshots/readback must be written with AI33 prefixes in this repo: `elevenlabs_cCYjmrGZaI86GUJ7F2Nn`, `elevenlabs_nzFihrBIvB34imQBuxub`, `elevenlabs_BIvP0GN1cAtSRTxNHnWS`, `elevenlabs_93nuHbke4dTER9x2pDwE`, `elevenlabs_22VndfJPBU7AZORAZZTT`, `elevenlabs_8mBRP99B2Ng2QwsJMFQl`, `elevenlabs_dX7gRq1dIvLTgUaWpEFn`, and `elevenlabs_4r3G9XKliGgVZLKMgjik`.
+- Voice selection is per channel and per role; there is no need to find one universal voice for every language. `acc4` now has a Spanish Latin-accent narrator/comment pair in `channels.json` from user-provided AI33 UI readback: `elevenlabs_22VndfJPBU7AZORAZZTT` for title/body narration and `elevenlabs_8mBRP99B2Ng2QwsJMFQl` for comments. The public ElevenLabs metadata endpoint returned `401` without auth, so this still needs a short AI33 sound test before public use.
+- `acc5` now has a Brazilian-accent narrator/comment pair in `channels.json` from user-provided AI33 UI readback: `elevenlabs_dX7gRq1dIvLTgUaWpEFn` for title/body narration and `elevenlabs_4r3G9XKliGgVZLKMgjik` for comments. The public ElevenLabs metadata endpoint returned `401` without auth, so this still needs a short AI33 sound test before public use.
+- `.github/workflows/voice_metadata_check.yml` and `scripts/check_ai33_voice_metadata.py` provide a no-audio readback path for AI33 voice metadata through the repository `AI33_API_KEY` secret. The workflow should print only sanitized metadata for requested voice IDs and must not call `/v3/text-to-speech`.
+- Current remaining coverage: Russian, English, and French have enough candidates for narrator/comment pairs pending sound tests; Italian has one confirmed-language candidate and still needs a second voice for comment narration; German has no confirmed candidate yet.
 - Live AI33 v3 smoke passed on 2026-06-29 using the gitignored LUNA2 local env key as a one-off user-approved read. The secret was not printed or copied into this repo.
 - The first smoke submitted an ElevenLabs-prefixed voice id (`elevenlabs_21m00Tcm4TlvDq8ikWAM`) with text containing `[sighs]`, `[laughs]`, and `[whispers]`; AI33 returned `task_id=3f489e0b-3b73-40c2-95fd-071ee694055c`, task polling returned `status=done`, and `/tmp/reddit_ai33_laugh_sigh.mp3` was written.
 - A second smoke explicitly sent `model_id=eleven_v3` with `[laughs]` and `[sighs]`; AI33 returned `task_id=08c146ad-82a0-4efb-a4e2-f8ec65254852` and wrote `/tmp/reddit_ai33_eleven_v3_laugh.mp3`.
@@ -98,14 +103,14 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 
 - Topic-family weights in `channels.json` are configured but not yet validated against retention/readback.
 - Public scheduled publishing is blocked until all `YOUTUBE_REFRESH_TOKEN_ACC1-7` values are audited against `channels.json`. User/browser readback showed videos landing on the wrong target channel; new uploads should fail before upload if the token resolves to the wrong authenticated channel.
-- Public/manual `auto_publish.yml` is also blocked until `channels.json` uses real `elevenlabs_...` narrator/comment voice ids for the selected channel.
+- Public/manual `auto_publish.yml` is still blocked for channels that keep `edge_...` voices. `acc4` now passes the ElevenLabs-prefix requirement but still needs a short sound test before public use.
 - `uploader.py` still needs authenticated YouTube metadata readback before public production use, especially verifying title/description/tags/language and channel id after upload.
 - There is no project safe-trash helper under `scripts/`, so generated scratch artifacts should not be deleted by agents without adding a safe workflow first.
 
 ## Next Steps
 
 1. Audit every YouTube refresh token against `channels.json` and replace any token whose authenticated channel does not match the expected handle/name before any public scheduled run.
-2. Replace the temporary `edge_...` voices in `channels.json` with real AI33 `elevenlabs_...` narrator/comment pairs. Use a small AI33 Voice Library bake-off if the correct IDs are not already known.
+2. Run short user-approved AI33 sound tests for the active `acc4` Spanish pair and `acc5` Brazil Portuguese pair, then replace temporary `edge_...` voices for the remaining channels. Still find one more Italian voice and two German voices.
 3. Add authenticated uploader readback for title, description, tags, language, privacy, channel id, and optionally thumbnail state.
 4. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
 5. Tune `topic_mix` weights from live candidate variety, Gemini verdicts, and YouTube retention once account mapping is safe.

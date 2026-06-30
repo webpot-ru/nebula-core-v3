@@ -1,0 +1,49 @@
+name: AI33 Voice Metadata Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      voice_ids:
+        description: 'Comma-separated raw or AI33-prefixed voice IDs to inspect'
+        required: true
+        default: '22VndfJPBU7AZORAZZTT,8mBRP99B2Ng2QwsJMFQl,dX7gRq1dIvLTgUaWpEFn,4r3G9XKliGgVZLKMgjik'
+      include_list_endpoints:
+        description: 'Also query list endpoints and filter locally'
+        required: true
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Check AI33 voice metadata
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          VOICE_IDS: ${{ github.event.inputs.voice_ids }}
+          INCLUDE_LIST_ENDPOINTS: ${{ github.event.inputs.include_list_endpoints }}
+        run: |
+          ARGS=()
+          IFS=',' read -ra IDS <<< "$VOICE_IDS"
+          for ID in "${IDS[@]}"; do
+            CLEAN="$(echo "$ID" | xargs)"
+            if [ -n "$CLEAN" ]; then
+              ARGS+=(--voice-id "$CLEAN")
+            fi
+          done
+          if [ "$INCLUDE_LIST_ENDPOINTS" = "true" ]; then
+            ARGS+=(--include-list-endpoints)
+          fi
+          python scripts/check_ai33_voice_metadata.py "${ARGS[@]}"
