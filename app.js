@@ -347,6 +347,12 @@ function applyStoryData(story) {
   })).filter(comment => comment.body.trim());
 }
 
+// ── Karaoke state ──────────────────────────────────────────────────────────
+let karaokeWords   = [];  // [{word, start, end, el}, ...]
+let karaokeAudio   = null;
+let karaokeRafId   = null;
+let karaokeReady   = false;
+
 async function applyRenderModeFromQuery() {
   if (!isRenderMode()) return false;
 
@@ -360,25 +366,53 @@ async function applyRenderModeFromQuery() {
     applyStoryData(await response.json());
   }
 
-  state.aspectRatio = 'ratio-9-16';
-  state.layoutStyle = 'layout-mobile';
-  state.theme = params.get('theme') || 'theme-reddit-midnight';
-  state.background = params.get('background') || 'bg-dark-aurora';
-  state.safeZone = 'sz-none';
-  state.showTopbar = false;
-  state.showLeftSidebar = false;
+  state.aspectRatio  = 'ratio-9-16';
+  state.layoutStyle  = 'layout-mobile';
+  state.theme        = params.get('theme')      || 'theme-reddit-midnight';
+  state.background   = params.get('background') || 'bg-dark-aurora';
+  state.safeZone     = 'sz-none';
+  state.showTopbar   = false;
+  state.showLeftSidebar  = false;
   state.showRightSidebar = false;
-  state.soundEnabled = false;
+  state.soundEnabled     = false;
   state.simulateMistakes = false;
-  state.cursorBlink = true;
-  state.typingSpeed = 70;
-  state.jitter = 0;
+  state.cursorBlink      = true;
+  state.typingSpeed      = 70;
+  state.jitter           = 0;
   state.punctuationDelay = 0;
-  state.cleanMode = true;
+  state.cleanMode        = true;
 
   syncDOMFromState();
   appContainer.classList.add('clean-mode', 'render-mode');
   exitCleanIndicator.style.opacity = '0';
+
+  // ── Try to load AI33 word-level transcript for karaoke mode ──────────────
+  const transcriptPath = params.get('transcript') || 'narration.json';
+  const audioPath      = params.get('audio')      || 'narration.mp3';
+  try {
+    const tRes = await fetch(transcriptPath, { cache: 'no-store' });
+    if (tRes.ok) {
+      const transcript = await tRes.json();
+      // Support both flat word array and {words:[]} wrapper formats from AI33
+      const words = Array.isArray(transcript) ? transcript
+                  : (transcript.words || transcript.segments
+                      ? (transcript.words || transcript.segments.flatMap(s => s.words || []))
+                      : null);
+      if (words && words.length) {
+        karaokeWords = words.map(w => ({
+          word:  w.word || w.text || '',
+          start: parseFloat(w.start ?? w.startTime ?? 0),
+          end:   parseFloat(w.end   ?? w.endTime   ?? 0),
+          el:    null
+        }));
+        karaokeReady = true;
+        // Pre-load audio element
+        karaokeAudio = new Audio(audioPath);
+        karaokeAudio.preload = 'auto';
+      }
+    }
+  } catch (_) { /* transcript optional — fall back to typing progress */ }
+
   return true;
 }
 
@@ -437,6 +471,139 @@ function renderTypingAtProgress(progress) {
   scrollCanvasToBottom();
 }
 
+// ── Karaoke DOM builder ────────────────────────────────────────────────────
+// Replaces plain text nodes with per-word <span class="kw"> elements and
+// stitches karaokeWords[].el references so the RAF loop can highlight them.
+function buildKaraokeDOM() {
+  // Collect full narration text from the queue (title + body + comments)
+  const allText = typingQueue.map(q => q.text).join(' ');
+  const rawWords = allText.split(/\s+/).filter(Boolean);
+
+  // Render the complete post immediately (no typing animation)
+  postTitleText.innerHTML = '';
+  postBodyWrapper.style.display = 'none';
+  postCommentsSection.innerHTML = '';
+
+  let wordIdx = 0;
+
+  function wrapWordsIntoEl(text, container) {
+    container.innerHTML = '';
+    const tokens = text.split(/(\s+)/);
+    tokens.forEach(token => {
+      if (/^\s+$/.test(token)) {
+        container.appendChild(document.createTextNode(token));
+        return;
+      }
+      const span = document.createElement('span');
+      span.className = 'kw';
+      span.textContent = token;
+      container.appendChild(span);
+      // Align with karaokeWords by index (best-effort)
+      if (karaokeWords[wordIdx]) {
+        karaokeWords[wordIdx].el = span;
+        wordIdx++;
+      }
+    });
+  }
+
+  // Title
+  if (state.postTitle.trim()) {
+    wrapWordsIntoEl(state.postTitle, postTitleText);
+  }
+
+  // Body
+  if (state.postBody.trim()) {
+    postBodyWrapper.style.display = 'block';
+    wrapWordsIntoEl(state.postBody, postBodyText);
+  }
+
+  // Comments
+  state.comments.forEach(comment => {
+    if (!comment.body.trim()) return;
+    const colors = ['#0079D3','#FF4500','#FFB000','#00D474','#D01416','#7193FF','#FF8717'];
+    const avatarBg = colors[comment.id % colors.length];
+    const initial  = comment.username.replace(/^u\//, '').charAt(0) || 'u';
+    const card = document.createElement('div');
+    card.className = 'comment-card';
+    card.innerHTML = `
+      <div class="comment-header">
+        <div class="comment-avatar" style="background-color:${avatarBg}">${initial}</div>
+        <span class="comment-author">${comment.username}</span>
+        <span class="comment-time">${comment.time}</span>
+      </div>
+      <div class="comment-body" id="kb-comment-${comment.id}"></div>
+      <div class="comment-footer">
+        <div class="upvotes-action">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M12 4l-8 8h6v8h4v-8h6z"></path></svg>
+          <span>${comment.upvotes}</span>
+        </div>
+        <span>Reply</span><span>Share</span>
+      </div>`;
+    postCommentsSection.appendChild(card);
+    const bodyEl = document.getElementById(`kb-comment-${comment.id}`);
+    wrapWordsIntoEl(comment.body, bodyEl);
+  });
+}
+
+// ── Karaoke RAF playback loop ──────────────────────────────────────────────
+function startKaraokePlayback() {
+  if (!karaokeReady || !karaokeAudio) return;
+
+  buildKaraokeDOM();
+
+  let lastHighlighted = -1;
+
+  function tick() {
+    const t = karaokeAudio.currentTime;
+    // Find the word that should be highlighted at time t
+    let active = -1;
+    for (let i = 0; i < karaokeWords.length; i++) {
+      const w = karaokeWords[i];
+      if (t >= w.start && t <= w.end) { active = i; break; }
+      if (t > w.end && (i === karaokeWords.length - 1 || t < karaokeWords[i + 1].start)) {
+        active = i; // stay on last word while in gap
+      }
+    }
+
+    if (active !== lastHighlighted) {
+      // Remove old highlight
+      if (lastHighlighted >= 0 && karaokeWords[lastHighlighted].el) {
+        karaokeWords[lastHighlighted].el.classList.remove('kw-active');
+      }
+      // Add new highlight
+      if (active >= 0 && karaokeWords[active].el) {
+        const el = karaokeWords[active].el;
+        el.classList.add('kw-active');
+        // Scroll the highlighted word into view
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+      lastHighlighted = active;
+    }
+
+    if (!karaokeAudio.ended) {
+      karaokeRafId = requestAnimationFrame(tick);
+    } else {
+      // Hold last word highlighted for 1 sec then clear
+      setTimeout(() => {
+        if (lastHighlighted >= 0 && karaokeWords[lastHighlighted].el) {
+          karaokeWords[lastHighlighted].el.classList.remove('kw-active');
+        }
+        document.body.dataset.renderReady = 'done';
+      }, 1000);
+    }
+  }
+
+  karaokeAudio.play().then(() => {
+    karaokeRafId = requestAnimationFrame(tick);
+    document.body.dataset.renderReady = 'karaoke';
+  }).catch(err => {
+    console.warn('Karaoke audio play failed, falling back to typing:', err);
+    karaokeReady = false;
+    renderTypingAtProgress(new URLSearchParams(window.location.search).get('progress') || 0);
+    document.body.dataset.renderReady = 'true';
+  });
+}
+
 // Initialise settings on page load
 async function init() {
   // Sync checkbox UI elements with initial state defaults on page load
@@ -450,9 +617,16 @@ async function init() {
   applyStyles();
   resetTyping();
   setupEventListeners();
+
   if (renderMode) {
-    renderTypingAtProgress(new URLSearchParams(window.location.search).get('progress') || 0);
-    document.body.dataset.renderReady = 'true';
+    if (karaokeReady) {
+      // ✅ Karaoke mode: show all text + highlight words in sync with audio
+      startKaraokePlayback();
+    } else {
+      // Fallback: classic typing-progress frame (for dry-run renders without audio)
+      renderTypingAtProgress(new URLSearchParams(window.location.search).get('progress') || 0);
+      document.body.dataset.renderReady = 'true';
+    }
   }
 }
 

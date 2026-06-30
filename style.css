@@ -986,6 +986,29 @@ input[type="range"]::-webkit-slider-thumb:hover {
   50% { background-color: var(--accent-color) }
 }
 
+/* ── Karaoke word-highlight ──────────────────────────────────────────────── */
+/* Every word in karaoke mode is wrapped in a <span class="kw"> */
+.kw {
+  display: inline;
+  border-radius: 3px;
+  padding: 0 1px;
+  transition: background-color 0.08s ease, color 0.08s ease, transform 0.08s ease;
+  will-change: background-color, color;
+}
+
+/* The word currently being spoken */
+.kw-active {
+  background-color: #FFD700;        /* gold highlight */
+  color: #0d0d0d;                   /* dark text for contrast on gold */
+  border-radius: 4px;
+  padding: 0 3px;
+  transform: scale(1.05);
+  display: inline-block;
+  box-shadow: 0 0 8px rgba(255, 215, 0, 0.55);
+  font-weight: 700;
+}
+
+
 /* Post Footer actions */
 .post-footer {
   display: flex;
