@@ -440,6 +440,16 @@ def resolve_lang_and_voice(args: argparse.Namespace) -> tuple[str, str]:
     return lang, normalize_voice_id(voice_id)
 
 
+def require_voice_prefix(voice_id: str, required_prefix: str | None, role: str) -> None:
+    if not required_prefix:
+        return
+    if not voice_id.startswith(required_prefix):
+        raise Ai33Error(
+            f"{role} voice must use {required_prefix} for this workflow. "
+            f"Configured voice_id={voice_id!r}."
+        )
+
+
 def resolve_comment_voice(
     args: argparse.Namespace,
     channel: dict[str, Any],
@@ -455,6 +465,23 @@ def resolve_comment_voice(
         or narrator_voice_id
     )
     return normalize_voice_id(voice_id)
+
+
+def check_voice_config(args: argparse.Namespace) -> None:
+    lang_code, voice_id = resolve_lang_and_voice(args)
+    channel = load_channel_config(args.channel or args.target) or {"lang": lang_code}
+    comment_voice_id = resolve_comment_voice(args, channel, lang_code, voice_id)
+    required_prefix = args.require_voice_prefix or os.environ.get("AI33_REQUIRED_VOICE_PREFIX")
+    require_voice_prefix(voice_id, required_prefix, "Narrator")
+    require_voice_prefix(comment_voice_id, required_prefix, "Comment")
+    print(json.dumps({
+        "status": "ok",
+        "channel": channel.get("id") or args.channel or args.target,
+        "language": lang_code,
+        "requiredVoicePrefix": required_prefix,
+        "tts_voice": voice_id,
+        "comment_tts_voice": comment_voice_id,
+    }, ensure_ascii=False, indent=2))
 
 
 def build_narration_text(story: dict[str, Any], lang_code: str, include_comment_labels: bool = False) -> str:
@@ -1131,6 +1158,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load before VectorEngine/AI33 calls.")
     parser.add_argument("--voice-id", help="AI33 prefixed voice_id from Voice Library.")
     parser.add_argument("--comment-voice-id", help="AI33 prefixed voice_id for comment segments.")
+    parser.add_argument("--check-voice-config", action="store_true", help="Validate configured narrator/comment voices and exit without reading story or calling AI33.")
+    parser.add_argument("--require-voice-prefix", help="Require narrator and comment voice IDs to start with this prefix, for example elevenlabs_.")
     parser.add_argument(
         "--single-voice",
         action="store_true",
@@ -1174,6 +1203,9 @@ def build_parser() -> argparse.ArgumentParser:
 if __name__ == "__main__":
     try:
         parsed_args = build_parser().parse_args()
+        if parsed_args.check_voice_config:
+            check_voice_config(parsed_args)
+            sys.exit(0)
         if not 0.5 <= parsed_args.speed <= 1.5:
             raise Ai33Error("--speed must be between 0.5 and 1.5.")
         process_story_audio(parsed_args)

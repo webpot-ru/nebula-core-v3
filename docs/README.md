@@ -357,7 +357,13 @@ edge_...
 kokoro_...
 ```
 
-`channels.json` is the current source of truth for per-channel TTS voice ids. The current defaults use Edge-backed voices routed through AI33 for a low-risk baseline, with a second same-language voice for Reddit comments:
+`channels.json` is the current source of truth for per-channel TTS voice ids. It currently still contains temporary Edge-backed voices, but production publishing requires real ElevenLabs voices through AI33. `auto_publish.yml` runs this early preflight before Reddit/Gemini/AI33 spend:
+
+```bash
+python3 translator_tts.py --channel acc4 --check-voice-config --require-voice-prefix elevenlabs_
+```
+
+Until both `tts_voice` and `comment_tts_voice` start with `elevenlabs_`, the publish workflow fails early. The temporary values currently present are:
 
 | Channel | Narrator `tts_voice` | Comment `comment_tts_voice` |
 |---|---|---|
@@ -369,7 +375,7 @@ kokoro_...
 | France | `edge_fr-FR-HenriNeural` | `edge_fr-FR-DeniseNeural` |
 | Italy | `edge_it-IT-DiegoNeural` | `edge_it-IT-IsabellaNeural` |
 
-To upgrade a channel to better ElevenLabs v3 or MiniMax voices, first run a small voice bake-off from AI33 Voice Library and paste the returned prefixed `voice_id` values into `tts_voice` and `comment_tts_voice`, or pass them with `--voice-id` / `--comment-voice-id`.
+To enable publishing, replace those temporary values with AI33 ElevenLabs voice IDs from AI33 Voice Library. Paste the returned prefixed `voice_id` values into `tts_voice` and `comment_tts_voice`, or pass them with `--voice-id` / `--comment-voice-id` for a one-off local test.
 
 For ElevenLabs-backed voices, `translator_tts.py` sends `model_id=eleven_v3` by default. Override only intentionally:
 

@@ -178,6 +178,13 @@ jobs:
         run: |
           python uploader.py --check-channel-only --account-index ${{ steps.target.outputs.acc_index }}
 
+      - name: Verify ElevenLabs voice config
+        run: |
+          python translator_tts.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --check-voice-config \
+            --require-voice-prefix elevenlabs_
+
       - name: Fetch viral story from Reddit
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
