@@ -1,126 +1,44 @@
 import json
-import os
 import random
-import re
 import sys
-import time
-import urllib.request
-import urllib.error
-
+import os
+import re
 
 # ─────────────────────────────────────────────
-#  Reddit scraper — uses public JSON API (no OAuth needed)
-#  Falls back to old.reddit.com if main endpoint returns 4xx.
+#  PRAW-based Reddit scraper with virality scoring
+#  Requires env vars: REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET,
+#                     REDDIT_USERNAME, REDDIT_PASSWORD
 # ─────────────────────────────────────────────
 
-_USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0",
-]
-
-
-def _http_get_json(url: str, retries: int = 3) -> dict:
-    """Fetch a URL and return parsed JSON, rotating user-agents on failure."""
-    last_err = None
-    for attempt in range(retries):
-        ua = _USER_AGENTS[attempt % len(_USER_AGENTS)]
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": ua,
-                "Accept": "application/json",
-                "Accept-Language": "en-US,en;q=0.9",
-            }
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                raw = resp.read()
-                return json.loads(raw)
-        except urllib.error.HTTPError as e:
-            last_err = e
-            if e.code in (429, 503):
-                time.sleep(3 * (attempt + 1))   # back-off on rate-limit
-            else:
-                break
-        except Exception as e:
-            last_err = e
-            time.sleep(2)
-    raise last_err or RuntimeError(f"Failed to fetch {url}")
-
-
-class _FakePost:
-    """Lightweight object that mimics a praw.models.Submission."""
-    def __init__(self, data: dict):
-        d = data.get("data", data)
-        self.id           = d.get("id", "")
-        self.title        = d.get("title", "")
-        self.selftext     = d.get("selftext", "")
-        self.score        = int(d.get("score", 0))
-        self.num_comments = int(d.get("num_comments", 0))
-        self.upvote_ratio = float(d.get("upvote_ratio", 0.9))
-        self.author       = str(d.get("author", "anonymous"))
-        self.subreddit    = str(d.get("subreddit", ""))
-        self.url          = "https://www.reddit.com" + d.get("permalink", "")
-        self.over_18      = bool(d.get("over_18", False))
-        self.is_self      = bool(d.get("is_self", True))
-        self.stickied     = bool(d.get("stickied", False))
-
-    def __repr__(self):
-        return f"<Post score={self.score} title={self.title[:40]!r}>"
-
-
-def fetch_subreddit_top(subreddit: str, time_filter: str = "week", limit: int = 25) -> list:
-    """
-    Return a list of _FakePost objects for the top posts in a subreddit.
-    Uses Reddit's public JSON endpoint — no authentication needed.
-    """
-    base_urls = [
-        f"https://www.reddit.com/r/{subreddit}/top.json?t={time_filter}&limit={limit}&raw_json=1",
-        f"https://old.reddit.com/r/{subreddit}/top.json?t={time_filter}&limit={limit}&raw_json=1",
-    ]
-    for url in base_urls:
-        try:
-            data = _http_get_json(url)
-            children = data.get("data", {}).get("children", [])
-            posts = [_FakePost(c) for c in children if c.get("kind") == "t3"]
-            if posts:
-                return posts
-        except Exception as e:
-            print(f"    [{subreddit}] endpoint failed ({e}), trying next...")
-            time.sleep(1)
-    return []
-
-
-def fetch_post_comments(post_url: str, limit: int = 3) -> list[dict]:
-    """Fetch top comments for a post via public JSON API."""
-    comments_url = post_url.rstrip("/") + ".json?limit=10&raw_json=1"
+def get_reddit():
+    """Authenticate with Reddit via PRAW (script app or read-only public access)."""
     try:
-        data = _http_get_json(comments_url)
-        if not isinstance(data, list) or len(data) < 2:
-            return []
-        comment_listing = data[1].get("data", {}).get("children", [])
-        results = []
-        for c in comment_listing:
-            if c.get("kind") != "t1":
-                continue
-            d = c["data"]
-            body = (d.get("body") or "").strip()
-            if not body or body == "[deleted]":
-                continue
-            results.append({
-                "username": f"u/{d.get('author', 'anonymous')}",
-                "body":     body[:300],
-                "upvotes":  format_count(int(d.get("score", 1))),
-                "time":     "recently",
-            })
-            if len(results) >= limit:
-                break
-        return results
-    except Exception:
-        return []
+        import praw
+    except ImportError:
+        os.system("pip3 install praw -q")
+        import praw
 
+    client_id = os.environ.get("REDDIT_CLIENT_ID", "JYA8zMAO2b1GTIZnHoITbg")
+    client_secret = os.environ.get("REDDIT_CLIENT_SECRET", "kKDnjQmqAidycdvliILdPvoMq15w_A")
+    username = os.environ.get("REDDIT_USERNAME", "Complex_Lack4476")
+    password = os.environ.get("REDDIT_PASSWORD", "")
 
+    if not password:
+        # Read-only mode for public data (does not require username/password)
+        return praw.Reddit(
+            client_id=client_id,
+            client_secret=client_secret,
+            user_agent="macos:ChonkerTalksBot:v1.0 (read-only)"
+        )
+    else:
+        # Authenticated script mode
+        return praw.Reddit(
+            client_id=client_id,
+            client_secret=client_secret,
+            username=username,
+            password=password,
+            user_agent=f"macos:ChonkerTalksBot:v1.0 (by /u/{username})"
+        )
 
 
 def format_count(n):
@@ -337,6 +255,7 @@ def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
     -------
     dict  - story payload ready for story_data.json
     """
+    reddit = get_reddit()
     history = load_history()
 
     # ── Phase 1: collect ALL candidates, sorted by virality score ──────────
@@ -344,28 +263,30 @@ def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
 
     for sub_name in subreddits:
         print(f"  Scanning r/{sub_name} (top/{time_filter})...")
-        posts = fetch_subreddit_top(sub_name, time_filter=time_filter, limit=30)
-        if not posts:
-            print(f"    No posts returned for r/{sub_name}")
-            continue
-        for post in posts:
-            if post.stickied:
-                continue
-            if post.id in history and channel_id in history.get(post.id, []):
-                continue
-            if post.score < min_upvotes:
-                continue
-            body = post.selftext or ""
-            if len(body) < min_body_length:
-                continue
-            if body in ("[removed]", "[deleted]"):
-                continue
+        try:
+            subreddit = reddit.subreddit(sub_name)
+            for post in subreddit.top(time_filter=time_filter, limit=30):
+                if post.stickied:
+                    continue
+                if post.id in history and channel_id in history[post.id]:
+                    continue
+                if post.score < min_upvotes:
+                    continue
+                body = post.selftext or ""
+                if len(body) < min_body_length:
+                    continue
+                if body in ("[removed]", "[deleted]"):
+                    continue
 
-            score = virality_score(post)
-            print(f"    [{score:3d}] {post.score:>6} ups | "
-                  f"{post.num_comments:>5} comments | "
-                  f"{post.title[:55]}")
-            candidates.append((score, post))
+                score = virality_score(post)
+                print(f"    [{score:3d}] {post.score:>6} ups | "
+                      f"{post.num_comments:>5} comments | "
+                      f"{post.title[:55]}")
+                candidates.append((score, post))
+
+        except Exception as e:
+            print(f"  Error scanning r/{sub_name}: {e}")
+            continue
 
     if not candidates:
         print("No suitable story found.")
@@ -421,7 +342,9 @@ def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
     print(f"   {format_count(chosen_post.score)} upvotes | "
           f"{format_count(chosen_post.num_comments)} comments")
 
-    comments = fetch_post_comments(chosen_post.url, limit=comment_limit)
+    comments = fetch_top_comments(
+        reddit, chosen_post.id, str(chosen_post.subreddit), limit=comment_limit
+    )
 
     # If AI suggested a better hook, store it so translator_tts.py can use it
     hook_override = ai_result.get("hook_suggestion") or None
