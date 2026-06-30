@@ -23,6 +23,7 @@
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_ru-RU-DmitryNeural",
+      "comment_tts_voice": "edge_ru-RU-SvetlanaNeural",
       "tts_provider": "ai33",
       "translate_prompt": "Переведи на русский язык, сохранив разговорный стиль и эмоции оригинала. Адаптируй сленг Reddit под молодёжную речь.",
       "priority": "high"
@@ -50,6 +51,7 @@
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_en-US-ChristopherNeural",
+      "comment_tts_voice": "edge_en-US-JennyNeural",
       "tts_provider": "ai33",
       "translate_prompt": null,
       "priority": "medium"
@@ -77,6 +79,7 @@
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_de-DE-ConradNeural",
+      "comment_tts_voice": "edge_de-DE-KatjaNeural",
       "tts_provider": "ai33",
       "translate_prompt": "Übersetze ins Deutsche. Behalte den umgangssprachlichen Reddit-Stil bei. Verwende natürliche Jugendsprache.",
       "priority": "high"
@@ -104,6 +107,7 @@
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_es-MX-JorgeNeural",
+      "comment_tts_voice": "edge_es-MX-DaliaNeural",
       "tts_provider": "ai33",
       "translate_prompt": "Traduce al español latinoamericano neutro (sin regionalismos fuertes de un solo país). Usa un tono conversacional juvenil. No uses vosotros ni expresiones exclusivas de España.",
       "priority": "high"
@@ -131,6 +135,7 @@
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_pt-BR-AntonioNeural",
+      "comment_tts_voice": "edge_pt-BR-FranciscaNeural",
       "tts_provider": "ai33",
       "translate_prompt": "Traduza para português brasileiro coloquial. Use gírias leves, referências ao futebol quando apropriado e tom de conversa informal. Mantenha as emoções do texto original.",
       "priority": "high"
@@ -158,6 +163,7 @@
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_fr-FR-HenriNeural",
+      "comment_tts_voice": "edge_fr-FR-DeniseNeural",
       "tts_provider": "ai33",
       "translate_prompt": "Traduis en français courant. Garde le style Reddit familier. Utilise un ton naturel de jeune adulte, pas littéraire. Adapte le vocabulaire mystère/true crime.",
       "priority": "high"
@@ -185,6 +191,7 @@
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_it-IT-DiegoNeural",
+      "comment_tts_voice": "edge_it-IT-IsabellaNeural",
       "tts_provider": "ai33",
       "translate_prompt": "Traduci in italiano colloquiale. Mantieni lo stile informale di Reddit, usa espressioni naturali giovanili e adatta il tono ai contesti drammatici o calcistici.",
       "priority": "medium"

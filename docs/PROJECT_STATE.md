@@ -16,7 +16,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 
 - `index.html`, `style.css`, `app.js` implement the local RedditSim recorder UI.
 - `scraper.py` fetches candidate Reddit stories through PRAW OAuth2, weighted topic-family source planning, local duplicate/signature/similarity guards, velocity scoring, topic-fatigue penalties, and a bounded Gemini quality gate, then writes `story_data.json`.
-- `translator_tts.py` localizes non-English `story_data.json` through VectorEngine Gemini, sanitizes narration/card text so raw URLs are replaced with localized on-screen-link phrases, then builds narration text and submits it to AI33 TTS v3.
+- `translator_tts.py` localizes non-English `story_data.json` through VectorEngine Gemini, sanitizes narration/card text so raw URLs are replaced with localized on-screen-link phrases, then builds narration text and submits it to AI33 TTS v3. Channels can use separate `tts_voice` and `comment_tts_voice` roles; the script concatenates role segments into one `narration.mp3` and writes combined word timings for karaoke.
 - `metadata_generator.py` generates YouTube title, description, tags, hashtags, SEO keywords, thumbnail text and thumbnail prompt through VectorEngine Gemini.
 - `thumbnail_generator.py` can generate a thumbnail image through VectorEngine image generation, but only with explicit `--confirm-spend`.
 - `storyboard_generator.py` creates a deterministic no-API `storyboard.json` from `story_data.json`.
@@ -62,7 +62,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - `translator_tts.py` now uses `POST https://api.ai33.pro/v3/text-to-speech` with multipart FormData and `xi-api-key`.
 - `translator_tts.py` sends `model_id=eleven_v3` by default; override with `--model-id` or `AI33_TTS_MODEL_ID` only intentionally.
 - The expected secret is `AI33_API_KEY`; `A133_API_KEY` is accepted only as a compatibility fallback for older local notes.
-- `channels.json` uses `tts_provider: "ai33"` and prefixed `edge_...` voice ids as the current baseline.
+- `channels.json` uses `tts_provider: "ai33"` and prefixed `edge_...` voice ids as the current baseline. Each channel now has a narrator `tts_voice` and a same-language `comment_tts_voice` so Reddit comments are read with a distinct voice.
 - Live AI33 v3 smoke passed on 2026-06-29 using the gitignored LUNA2 local env key as a one-off user-approved read. The secret was not printed or copied into this repo.
 - The first smoke submitted an ElevenLabs-prefixed voice id (`elevenlabs_21m00Tcm4TlvDq8ikWAM`) with text containing `[sighs]`, `[laughs]`, and `[whispers]`; AI33 returned `task_id=3f489e0b-3b73-40c2-95fd-071ee694055c`, task polling returned `status=done`, and `/tmp/reddit_ai33_laugh_sigh.mp3` was written.
 - A second smoke explicitly sent `model_id=eleven_v3` with `[laughs]` and `[sighs]`; AI33 returned `task_id=08c146ad-82a0-4efb-a4e2-f8ec65254852` and wrote `/tmp/reddit_ai33_eleven_v3_laugh.mp3`.
@@ -83,6 +83,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 
 - `translator_tts.py` now translates `title`, `body`, and each comment `body` for non-English channels before TTS. By default it overwrites `story_data.json` so downstream storyboard/render steps see localized text; use `--translated-story-output` to write a separate localized file.
 - The default narration text mirrors visible card text for karaoke alignment: title, body, then comment bodies. `--include-comment-labels` can restore spoken "Comment by user" labels when strict word-level visual sync is not required.
+- If `comment_tts_voice` differs from `tts_voice`, `translator_tts.py` now runs multi-voice TTS: title/body use the narrator voice, comment bodies use the comment voice, FFmpeg concatenates the MP3 segments, and `narration.json` is rewritten with combined offset word timings. `--single-voice` disables this and `--comment-voice-id` overrides the configured comment voice.
 - `translator_tts.py` now replaces raw URLs and service link lines such as `Original thread: https://...` with localized phrases such as "el enlace está en pantalla" before TTS and storyboard handoff. This keeps screen text and narration aligned while avoiding robotic URL reading.
 - `render.py` now auto-detects default `narration.mp3` and `narration.json`, passes them to RedditSim as `audio`, `transcript`, and `karaoke=1` query parameters, captures deterministic karaoke frames when transcript words are available, and merges the audio track into `final_output.mp4`. If transcript/audio are provided but karaoke cannot initialize, render fails instead of falling back to typewriter animation. Karaoke mode does not add extra words, lower captions, or overlay text; it highlights the currently spoken word directly in the existing Reddit card text with a bright gold treatment.
 - `style.css` now hides editor/sidebar/HUD/desktop-nav/sidebar/safe-zone widgets under `.clean-mode` and `.render-mode`, including desktop layout states.
@@ -102,7 +103,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 ## Next Steps
 
 1. Audit every YouTube refresh token against `channels.json` and replace any token whose authenticated channel does not match the expected handle/name before any public scheduled run.
-2. Choose final ElevenLabs or MiniMax voice ids from AI33 Voice Library and update `channels.json` if emotion tags such as `[laughs]` should be supported by default.
+2. Run an AI33 Voice Library bake-off for final ElevenLabs/MiniMax narrator/comment pairs if emotion tags such as `[laughs]` should be supported by default.
 3. Add authenticated uploader readback for title, description, tags, language, privacy, channel id, and optionally thumbnail state.
 4. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
 5. Tune `topic_mix` weights from live candidate variety, Gemini verdicts, and YouTube retention once account mapping is safe.

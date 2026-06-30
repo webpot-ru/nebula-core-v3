@@ -330,11 +330,14 @@ The final candidate score also includes a small topic-weight boost, time-window 
 python3 translator_tts.py es --output narration_es.mp3
 python3 translator_tts.py --channel acc4 --output narration_es.mp3
 python3 translator_tts.py ru --voice-id edge_ru-RU-DmitryNeural
+python3 translator_tts.py --channel acc4 --comment-voice-id edge_es-MX-DaliaNeural --output narration.mp3
 ```
 
 Before TTS, the script now localizes `story_data.json` for non-English target channels through VectorEngine Gemini using the channel's `translate_prompt`. It translates the story `title`, story `body`, and each comment `body`, preserves usernames/metadata, writes localization metadata into the story JSON, and by default overwrites `--story` so `storyboard_generator.py` and `render.py` consume the translated text. Use `--translated-story-output story_localized_<lang>.json` to keep the original file untouched, `--skip-translation` for an explicit no-localization run, or `--force-translation` to refresh existing localized text.
 
-For karaoke sync, the default narration text mirrors visible card text: title, body, then comment bodies. If a voiceover should explicitly say localized "Comment by user" labels, pass `--include-comment-labels`; that can reduce word-level visual alignment unless the rendered DOM also includes those labels.
+For karaoke sync, the default narration text mirrors visible card text: title, body, then comment bodies. If `channels.json` defines `comment_tts_voice`, `translator_tts.py` automatically splits narration into role segments: title/body use `tts_voice`, comments use `comment_tts_voice`, then FFmpeg concatenates the segments into one `narration.mp3` and writes a combined `narration.json` with shifted word timings. If a voiceover should explicitly say localized "Comment by user" labels, pass `--include-comment-labels`; that can reduce word-level visual alignment unless the rendered DOM also includes those labels.
+
+Use `--single-voice` to force one voice for the full narration. Use `--comment-voice-id` for a one-off override without editing `channels.json`.
 
 The script sends multipart FormData to:
 
@@ -354,19 +357,19 @@ edge_...
 kokoro_...
 ```
 
-`channels.json` is the current source of truth for per-channel TTS voice ids. The current defaults use Edge-backed voices routed through AI33 for a low-risk baseline:
+`channels.json` is the current source of truth for per-channel TTS voice ids. The current defaults use Edge-backed voices routed through AI33 for a low-risk baseline, with a second same-language voice for Reddit comments:
 
-| Channel | AI33 voice_id |
-|---|---|
-| 🇷🇺 Russia | `edge_ru-RU-DmitryNeural` |
-| 🇬🇧 English | `edge_en-US-ChristopherNeural` |
-| 🇩🇪 Germany | `edge_de-DE-ConradNeural` |
-| 🌎 LATAM | `edge_es-MX-JorgeNeural` |
-| 🇧🇷 Brazil | `edge_pt-BR-AntonioNeural` |
-| 🇫🇷 France | `edge_fr-FR-HenriNeural` |
-| 🇮🇹 Italy | `edge_it-IT-DiegoNeural` |
+| Channel | Narrator `tts_voice` | Comment `comment_tts_voice` |
+|---|---|---|
+| Russia | `edge_ru-RU-DmitryNeural` | `edge_ru-RU-SvetlanaNeural` |
+| English | `edge_en-US-ChristopherNeural` | `edge_en-US-JennyNeural` |
+| Germany | `edge_de-DE-ConradNeural` | `edge_de-DE-KatjaNeural` |
+| LATAM | `edge_es-MX-JorgeNeural` | `edge_es-MX-DaliaNeural` |
+| Brazil | `edge_pt-BR-AntonioNeural` | `edge_pt-BR-FranciscaNeural` |
+| France | `edge_fr-FR-HenriNeural` | `edge_fr-FR-DeniseNeural` |
+| Italy | `edge_it-IT-DiegoNeural` | `edge_it-IT-IsabellaNeural` |
 
-To upgrade a channel to ElevenLabs v3 or MiniMax, first read AI33 Voice Library and paste the returned prefixed `voice_id` into `channels.json` or pass it with `--voice-id`.
+To upgrade a channel to better ElevenLabs v3 or MiniMax voices, first run a small voice bake-off from AI33 Voice Library and paste the returned prefixed `voice_id` values into `tts_voice` and `comment_tts_voice`, or pass them with `--voice-id` / `--comment-voice-id`.
 
 For ElevenLabs-backed voices, `translator_tts.py` sends `model_id=eleven_v3` by default. Override only intentionally:
 

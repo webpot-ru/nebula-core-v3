@@ -4,6 +4,8 @@ import binascii
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -37,6 +39,18 @@ VOICE_IDS = {
     "pt-BR": "edge_pt-BR-AntonioNeural",
     "fr": "edge_fr-FR-HenriNeural",
     "it": "edge_it-IT-DiegoNeural",
+}
+
+COMMENT_VOICE_IDS = {
+    "ru": "edge_ru-RU-SvetlanaNeural",
+    "en": "edge_en-US-JennyNeural",
+    "de": "edge_de-DE-KatjaNeural",
+    "es": "edge_es-MX-DaliaNeural",
+    "es-419": "edge_es-MX-DaliaNeural",
+    "pt": "edge_pt-BR-FranciscaNeural",
+    "pt-BR": "edge_pt-BR-FranciscaNeural",
+    "fr": "edge_fr-FR-DeniseNeural",
+    "it": "edge_it-IT-IsabellaNeural",
 }
 
 COMMENT_LABELS = {
@@ -426,6 +440,23 @@ def resolve_lang_and_voice(args: argparse.Namespace) -> tuple[str, str]:
     return lang, normalize_voice_id(voice_id)
 
 
+def resolve_comment_voice(
+    args: argparse.Namespace,
+    channel: dict[str, Any],
+    lang_code: str,
+    narrator_voice_id: str,
+) -> str:
+    voice_id = (
+        args.comment_voice_id
+        or channel.get("comment_tts_voice")
+        or channel.get("comment_voice")
+        or COMMENT_VOICE_IDS.get(lang_code)
+        or COMMENT_VOICE_IDS.get(lang_code[:2])
+        or narrator_voice_id
+    )
+    return normalize_voice_id(voice_id)
+
+
 def build_narration_text(story: dict[str, Any], lang_code: str, include_comment_labels: bool = False) -> str:
     parts: list[str] = []
     title = (story.get("title") or "").strip()
@@ -450,6 +481,52 @@ def build_narration_text(story: dict[str, Any], lang_code: str, include_comment_
     if not narration_text:
         raise Ai33Error("story_data.json does not contain title, body, or comments text.")
     return narration_text
+
+
+def build_narration_segments(
+    story: dict[str, Any],
+    lang_code: str,
+    *,
+    include_comment_labels: bool = False,
+) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
+    narrator_parts: list[str] = []
+    title = (story.get("title") or "").strip()
+    body = (story.get("body") or "").strip()
+
+    if title:
+        narrator_parts.append(title)
+    if body:
+        narrator_parts.append(body)
+    if narrator_parts:
+        segments.append({
+            "role": "narrator",
+            "index": 0,
+            "text": "\n\n".join(narrator_parts).strip(),
+        })
+
+    comment_label = COMMENT_LABELS.get(lang_code, COMMENT_LABELS.get(lang_code[:2], "Comment by"))
+    for index, comment in enumerate(story.get("comments", [])):
+        if not isinstance(comment, dict):
+            continue
+        username = (comment.get("username") or "user").strip()
+        comment_body = (comment.get("body") or "").strip()
+        if not comment_body:
+            continue
+        if include_comment_labels:
+            text = f"{comment_label} {username}: {comment_body}"
+        else:
+            text = comment_body
+        segments.append({
+            "role": "comment",
+            "index": index,
+            "username": username,
+            "text": text,
+        })
+
+    if not segments:
+        raise Ai33Error("story_data.json does not contain title, body, or comments text.")
+    return segments
 
 
 def bool_form(value: bool) -> str:
@@ -634,12 +711,239 @@ def poll_for_audio(
     )
 
 
+def find_binary(name: str) -> str:
+    path = shutil.which(name)
+    if not path:
+        raise Ai33Error(f"Missing required binary: {name}. Install it or keep single-voice mode.")
+    return path
+
+
+def run_command(command: list[str]) -> None:
+    try:
+        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        raise Ai33Error(f"Command failed: {' '.join(command)}\n{stderr[:1000]}") from exc
+
+
+def probe_audio_duration(ffprobe: str, path: Path) -> float:
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    try:
+        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        duration = float(result.stdout.strip())
+        return max(duration, 0.0)
+    except (subprocess.CalledProcessError, ValueError) as exc:
+        raise Ai33Error(f"Could not read audio duration for {path}.") from exc
+
+
+def concat_audio_segments(segment_paths: list[Path], output_path: Path) -> None:
+    if not segment_paths:
+        raise Ai33Error("No audio segments to concatenate.")
+    if len(segment_paths) == 1:
+        output_path.write_bytes(segment_paths[0].read_bytes())
+        return
+
+    ffmpeg = find_binary("ffmpeg")
+    command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y"]
+    for path in segment_paths:
+        command.extend(["-i", str(path)])
+    command.extend([
+        "-filter_complex",
+        f"concat=n={len(segment_paths)}:v=0:a=1",
+        "-c:a",
+        "libmp3lame",
+        "-q:a",
+        "2",
+        str(output_path),
+    ])
+    run_command(command)
+
+
+def first_present(payload: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return payload[key]
+    return None
+
+
+def coerce_seconds(value: Any, key: str = "") -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if "ms" in key.lower() or parsed > 1000:
+        return parsed / 1000
+    return parsed
+
+
+def normalize_transcript_word(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+
+    word = first_present(value, ("word", "text", "punctuated_word", "token", "value"))
+    if not word:
+        return None
+
+    start_key = ""
+    start_raw = None
+    for key in ("start", "startTime", "start_time", "startMs", "start_ms", "begin", "beginTime", "begin_time", "beginMs", "begin_ms", "offset", "offsetMs", "offset_ms"):
+        if key in value and value[key] is not None:
+            start_key = key
+            start_raw = value[key]
+            break
+    end_key = ""
+    end_raw = None
+    for key in ("end", "endTime", "end_time", "endMs", "end_ms", "finish", "finishTime", "finish_time", "stop", "stopTime", "stop_time"):
+        if key in value and value[key] is not None:
+            end_key = key
+            end_raw = value[key]
+            break
+
+    start = coerce_seconds(start_raw, start_key)
+    end = coerce_seconds(end_raw, end_key)
+    if end is None and start is not None:
+        for key in ("duration", "durationTime", "duration_time", "durationMs", "duration_ms"):
+            if key in value and value[key] is not None:
+                duration = coerce_seconds(value[key], key)
+                if duration is not None:
+                    end = start + duration
+                    break
+    if start is None or end is None or end < start:
+        return None
+
+    return {
+        "word": str(word),
+        "start": round(start, 3),
+        "end": round(end, 3),
+    }
+
+
+def collect_transcript_words(value: Any, found: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    if found is None:
+        found = []
+    normalized = normalize_transcript_word(value)
+    if normalized:
+        found.append(normalized)
+        return found
+    if isinstance(value, dict):
+        for item in value.values():
+            collect_transcript_words(item, found)
+    elif isinstance(value, list):
+        for item in value:
+            collect_transcript_words(item, found)
+    return found
+
+
+def write_combined_transcript(
+    *,
+    output_path: Path,
+    segment_payloads: list[dict[str, Any]],
+    segment_specs: list[dict[str, Any]],
+    segment_durations: list[float],
+    narrator_voice_id: str,
+    comment_voice_id: str,
+) -> None:
+    words: list[dict[str, Any]] = []
+    segments: list[dict[str, Any]] = []
+    offset = 0.0
+
+    for index, (payload, spec, duration) in enumerate(zip(segment_payloads, segment_specs, segment_durations)):
+        raw_words = collect_transcript_words(payload)
+        if raw_words:
+            for word in raw_words:
+                shifted = dict(word)
+                shifted["start"] = round(float(word["start"]) + offset, 3)
+                shifted["end"] = round(float(word["end"]) + offset, 3)
+                shifted["segment"] = index
+                shifted["role"] = spec.get("role")
+                words.append(shifted)
+        segments.append({
+            "index": index,
+            "role": spec.get("role"),
+            "username": spec.get("username"),
+            "start": round(offset, 3),
+            "end": round(offset + duration, 3),
+            "duration": round(duration, 3),
+            "voice_id": spec.get("voice_id"),
+            "word_count": len(raw_words),
+        })
+        offset += duration
+
+    if not words:
+        raise Ai33Error("AI33 did not return usable word timings for multi-voice narration.")
+
+    output = {
+        "version": 1,
+        "source": "translator_tts_multi_voice",
+        "narrator_voice_id": narrator_voice_id,
+        "comment_voice_id": comment_voice_id,
+        "duration": round(offset, 3),
+        "segments": segments,
+        "words": words,
+    }
+    output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def generate_tts_audio(
+    *,
+    api_key: str,
+    text: str,
+    voice_id: str,
+    output_path: Path,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    payload = post_tts_task(
+        api_key=api_key,
+        text=text,
+        voice_id=voice_id,
+        model_id=args.model_id,
+        speed=args.speed,
+        file_name=output_path.name,
+        with_transcript=args.with_transcript,
+        context_chaining=args.context_chaining,
+        receive_url=args.receive_url,
+        pronunciation_dictionary_id=args.pronunciation_dictionary_id,
+    )
+
+    if write_audio_from_payload(payload, output_path, api_key):
+        return payload
+
+    task_id = payload.get("task_id")
+    if not task_id:
+        raise Ai33Error(f"AI33 response did not include audio or task_id: {json.dumps(payload)[:800]}")
+
+    print(f"AI33 task_id={task_id}")
+    if args.no_poll:
+        task_path = output_path.with_suffix(".ai33-task.json")
+        task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        raise Ai33Error("Multi-voice narration requires polling so audio segments can be concatenated.")
+
+    return poll_for_audio(
+        api_key=api_key,
+        task_id=task_id,
+        output_path=output_path,
+        timeout_seconds=args.timeout,
+        poll_interval=args.poll_interval,
+    )
+
+
 def process_story_audio(args: argparse.Namespace) -> None:
     loaded_env_files = load_optional_env_files(args.env_file)
     lang_code, voice_id = resolve_lang_and_voice(args)
     channel = load_channel_config(args.channel or args.target) or {"lang": lang_code}
+    comment_voice_id = resolve_comment_voice(args, channel, lang_code, voice_id)
     story_path = Path(args.story).resolve()
     output_path = Path(args.output or f"narration_{lang_code}.mp3").resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     story = load_story(story_path)
     translation_needed = should_translate_story(story, lang_code, args)
@@ -665,25 +969,90 @@ def process_story_audio(args: argparse.Namespace) -> None:
         if sanitization_changes:
             print(f"Sanitized {sanitization_changes} link/service token(s) for narration/karaoke.")
 
+    narration_segments = build_narration_segments(
+        story,
+        lang_code,
+        include_comment_labels=args.include_comment_labels,
+    )
+    has_comment_segments = any(segment.get("role") == "comment" for segment in narration_segments)
+    use_multi_voice = (
+        not args.single_voice
+        and has_comment_segments
+        and comment_voice_id != voice_id
+    )
     narration_text = build_narration_text(story, lang_code, args.include_comment_labels)
+    narration_chars = sum(len(segment["text"]) for segment in narration_segments) if use_multi_voice else len(narration_text)
 
     if args.dry_run:
         print("AI33 TTS dry run")
         print(f"  story: {story_path}")
         print(f"  language: {lang_code}")
         print(f"  voice_id: {voice_id}")
+        print(f"  comment_voice_id: {comment_voice_id}")
+        print(f"  voice_mode: {'multi_voice' if use_multi_voice else 'single_voice'}")
+        print(f"  segments: {len(narration_segments)}")
         print(f"  translation: {'needed' if translation_needed else 'skipped'}")
         print(f"  translation_model: {args.translation_model}")
         print(f"  narration_sanitization_changes: {sanitization_changes}")
         print(f"  model_id: {args.model_id or '(omitted)'}")
         print(f"  output: {output_path}")
-        print(f"  characters: {len(narration_text)}")
+        print(f"  characters: {narration_chars}")
         print(f"  speed: {args.speed:g}")
         print(f"  poll: {not args.no_poll}")
         print(f"  loadedEnvFileCount: {loaded_env_files}")
         return
 
     api_key = get_api_key()
+
+    if use_multi_voice:
+        ffprobe = find_binary("ffprobe")
+        segment_dir = output_path.parent / f"{output_path.stem}_segments"
+        segment_dir.mkdir(parents=True, exist_ok=True)
+        segment_paths: list[Path] = []
+        segment_payloads: list[dict[str, Any]] = []
+        segment_durations: list[float] = []
+
+        print(
+            "Submitting AI33 multi-voice TTS: "
+            f"narrator={voice_id}, comments={comment_voice_id}, "
+            f"segments={len(narration_segments)}, chars={narration_chars}"
+        )
+        for index, segment in enumerate(narration_segments):
+            role = str(segment.get("role") or "narrator")
+            segment_voice_id = voice_id if role == "narrator" else comment_voice_id
+            segment["voice_id"] = segment_voice_id
+            segment_path = segment_dir / f"{output_path.stem}_{index:02d}_{role}.mp3"
+            print(
+                f"  Segment {index + 1}/{len(narration_segments)} "
+                f"role={role} voice_id={segment_voice_id} chars={len(segment['text'])}"
+            )
+            payload = generate_tts_audio(
+                api_key=api_key,
+                text=segment["text"],
+                voice_id=segment_voice_id,
+                output_path=segment_path,
+                args=args,
+            )
+            segment_paths.append(segment_path)
+            segment_payloads.append(payload)
+            segment_durations.append(probe_audio_duration(ffprobe, segment_path))
+
+        concat_audio_segments(segment_paths, output_path)
+        print(f"Saved multi-voice audio to {output_path}")
+
+        if args.with_transcript:
+            transcript_path = output_path.with_suffix(".json")
+            write_combined_transcript(
+                output_path=transcript_path,
+                segment_payloads=segment_payloads,
+                segment_specs=narration_segments,
+                segment_durations=segment_durations,
+                narrator_voice_id=voice_id,
+                comment_voice_id=comment_voice_id,
+            )
+            print(f"Saved combined transcript/metadata to {transcript_path}")
+        return
+
     print(f"Submitting AI33 TTS task: voice_id={voice_id}, chars={len(narration_text)}")
     payload = post_tts_task(
         api_key=api_key,
@@ -761,6 +1130,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--translation-temperature", type=float, default=0.2, help="Gemini temperature for story localization.")
     parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load before VectorEngine/AI33 calls.")
     parser.add_argument("--voice-id", help="AI33 prefixed voice_id from Voice Library.")
+    parser.add_argument("--comment-voice-id", help="AI33 prefixed voice_id for comment segments.")
+    parser.add_argument(
+        "--single-voice",
+        action="store_true",
+        help="Use one voice for the full narration even when comment_tts_voice is configured.",
+    )
     parser.add_argument(
         "--include-comment-labels",
         action="store_true",
