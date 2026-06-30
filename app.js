@@ -606,10 +606,50 @@ function resetTyping() {
   hudStatus.textContent = 'Ready';
   hudStatus.style.color = '#10b981';
 
-  postTitleText.textContent = '';
-  postBodyText.textContent = '';
-  postBodyWrapper.style.display = 'none';
-  postCommentsSection.innerHTML = '';
+  if (isRenderMode()) {
+    postTitleText.textContent = '';
+    postBodyText.textContent = '';
+    postBodyWrapper.style.display = 'none';
+    postCommentsSection.innerHTML = '';
+  } else {
+    postTitleText.textContent = state.postTitle;
+    if (state.postBody.trim()) {
+      postBodyText.textContent = state.postBody;
+      postBodyWrapper.style.display = 'block';
+    } else {
+      postBodyText.textContent = '';
+      postBodyWrapper.style.display = 'none';
+    }
+    
+    // Render comments fully for local preview
+    postCommentsSection.innerHTML = '';
+    state.comments.forEach(comment => {
+      const card = document.createElement('div');
+      card.className = 'comment-card';
+      const colors = ['#0079D3', '#FF4500', '#FFB000', '#00D474', '#D01416', '#7193FF', '#FF8717'];
+      const avatarBg = colors[comment.id % colors.length];
+      const commentFirstLetter = comment.username.replace(/^u\//, '').charAt(0) || 'u';
+      card.innerHTML = `
+        <div class="comment-header">
+          <div class="comment-avatar" style="background-color: ${avatarBg}">${commentFirstLetter}</div>
+          <span class="comment-author">${comment.username}</span>
+          <span class="comment-time">${comment.time}</span>
+        </div>
+        <div class="comment-body">
+          <span>${comment.body}</span>
+        </div>
+        <div class="comment-footer">
+          <div class="upvotes-action">
+            <svg viewBox="0 0 24 24" class="icon"><path d="M12 4l-8 8h6v8h4v-8h6z"></path></svg>
+            <span>${comment.upvotes}</span>
+          </div>
+          <span>Reply</span>
+          <span>Share</span>
+        </div>
+      `;
+      postCommentsSection.appendChild(card);
+    });
+  }
 
   postTitleCursor.classList.add('active');
   postBodyCursor.classList.remove('active');
@@ -698,6 +738,15 @@ function resetTyping() {
 // Start typing sequence loop
 function startTyping() {
   if (typingQueue.length === 0) return;
+  
+  if (currentQueueIndex === 0 && currentTextIndex === 0) {
+    postTitleText.textContent = '';
+    postBodyText.textContent = '';
+    postBodyWrapper.style.display = 'none';
+    postCommentsSection.innerHTML = '';
+    postTitleCursor.classList.add('active');
+    postBodyCursor.classList.remove('active');
+  }
   
   state.isPlaying = true;
   playPauseBtn.textContent = 'Pause Animation';
