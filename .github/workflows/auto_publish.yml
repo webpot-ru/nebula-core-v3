@@ -176,8 +176,8 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_ACC6: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC6 }}
           YOUTUBE_REFRESH_TOKEN_ACC7: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC7 }}
         run: |
-          python scratch/check_scopes.py
           python uploader.py --check-channel-only --account-index ${{ steps.target.outputs.acc_index }}
+
 
 
       - name: Verify ElevenLabs voice config
