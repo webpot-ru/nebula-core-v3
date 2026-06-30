@@ -101,6 +101,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - `style.css` now hides editor/sidebar/HUD/desktop-nav/sidebar/safe-zone widgets under `.clean-mode` and `.render-mode`, including desktop layout states. The 16:9 render layout uses a wide clean Reddit card with horizontal-specific spacing so long-form output is not a vertical canvas with empty side filler.
 - `.github/workflows/auto_publish.yml` and `.github/workflows/video_dry_run.yml` now pass both `AI33_API_KEY` and `VECTORENGINE_API_KEY` to the TTS/localization step.
 - `.github/workflows/audit_voice_youtube.yml` is a manual audit workflow for two isolated checks: short AI33 voice samples through `scripts/generate_ai33_voice_samples.py`, and YouTube refresh-token mapping via `uploader.py --check-channel-only` for `acc1` through `acc7`. It does not fetch Reddit, call VectorEngine, render video, or upload to YouTube.
+- Audit run `28457170166` on 2026-06-30 generated all 14 AI33 voice samples successfully and uploaded the `ai33-voice-samples` artifact. The first YouTube mapping attempt failed for every account with Google `403 insufficient authentication scopes`; the repository secrets contain refresh tokens, but those tokens were not authorized with a scope that permits `channels.list(mine=true)`.
 - `scraper.py` now supports `--time auto`, `--topic-family`, `--max-ai-candidates`, `--candidate-limit`, and `--similarity-threshold`. `auto` mode scans capped topic-family source plans rather than only `top/week`, then sends only the top bounded pool to Gemini.
 - `published_history.json` remains backward-compatible with the old `{post_id: [channels]}` shape; the next scraper save migrates future entries to versioned records with story signatures, keyword signatures, topic family, time window, velocity, fatigue penalty, virality score, and AI quality data.
 - `.github/workflows/auto_publish.yml` now supports manual `topic_family` test runs and uses `privacy_status=unlisted` by default for manual dispatch. Scheduled cron entries are also temporarily `unlisted` until the YouTube token/channel mapping is verified. The workflow and `video_dry_run.yml` use `time_filter=auto` by default for topic-family windows and set `AI_QUALITY_FAIL_OPEN=0`, explicit `MAX_AI_CANDIDATES`, `STORY_SIMILARITY_THRESHOLD=0.72`, and `TOPIC_FATIGUE_LOOKBACK=10`.
@@ -109,16 +110,16 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 ## Known Blockers
 
 - Topic-family weights in `channels.json` are configured but not yet validated against retention/readback.
-- Public scheduled publishing is blocked until all `YOUTUBE_REFRESH_TOKEN_ACC1-7` values are audited against `channels.json`. User/browser readback showed videos landing on the wrong target channel; new uploads should fail before upload if the token resolves to the wrong authenticated channel. The isolated audit workflow is prepared locally but must be pushed to GitHub before it can read repository Secrets.
+- Public scheduled publishing is blocked until all `YOUTUBE_REFRESH_TOKEN_ACC1-7` values are reissued with sufficient YouTube Data API scopes and audited against `channels.json`. User/browser readback showed videos landing on the wrong target channel; current tokens cannot be mapped because `channels.list(mine=true)` returns `403 insufficient authentication scopes`.
 - Public/manual `auto_publish.yml` no longer has an Edge-voice blocker in `channels.json`; all seven channels pass the ElevenLabs-prefix requirement. Public use is still blocked until short sound tests and YouTube token/channel mapping are verified through the isolated audit workflow or equivalent local env readback.
 - `uploader.py` still needs authenticated YouTube metadata readback before public production use, especially verifying title/description/tags/language and channel id after upload.
 - There is no project safe-trash helper under `scripts/`, so generated scratch artifacts should not be deleted by agents without adding a safe workflow first.
 
 ## Next Steps
 
-1. Push and run `.github/workflows/audit_voice_youtube.yml`; review the `youtube-mapping-acc*` logs and `ai33-voice-samples` artifact.
-2. Replace any YouTube refresh token whose authenticated channel does not match the expected handle/name before any public scheduled run.
-3. Listen to the active narrator/comment pairs on all seven channels, then keep or adjust any voices that sound unnatural.
+1. Listen to `build/audit/run_28457170166/ai33-voice-samples/20260630T154616Z/voice_samples_review.html` and decide which voices to keep or replace.
+2. Reissue every `YOUTUBE_REFRESH_TOKEN_ACC1-7` with YouTube upload plus read-only/channel-read permission, then rerun `.github/workflows/audit_voice_youtube.yml` with `check_youtube_mapping=true` and `generate_voice_samples=false`.
+3. Replace any YouTube refresh token whose authenticated channel does not match the expected handle/name before any public scheduled run.
 4. Add authenticated uploader readback for title, description, tags, language, privacy, channel id, and optionally thumbnail state.
 5. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
 6. Tune `topic_mix` weights from live candidate variety, Gemini verdicts, and YouTube retention once account mapping is safe.

@@ -66,7 +66,7 @@ jobs:
           mkdir -p build/audit/youtube-mapping
           python uploader.py \
             --check-channel-only \
-            --account-index ${{ matrix.account }} \
+            --account-index ${{ matrix.account }} 2>&1 \
             | tee build/audit/youtube-mapping/acc${{ matrix.account }}.log
 
       - name: Upload mapping log

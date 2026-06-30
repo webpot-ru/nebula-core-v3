@@ -301,6 +301,9 @@ if __name__ == '__main__':
         except UploadError as exc:
             print(f"ERROR: {exc}")
             sys.exit(1)
+        except Exception as exc:
+            print(f"ERROR: YouTube account verification failed: {exc}")
+            sys.exit(1)
 
     video_title, video_desc, video_tags, video_language = load_upload_metadata()
 

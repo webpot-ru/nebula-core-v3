@@ -418,6 +418,8 @@ For no-audio metadata readback through the repository secret, use the manual wor
 
 For audible review, use the manual workflow `.github/workflows/audit_voice_youtube.yml` with `generate_voice_samples=true`. It generates short AI33 samples for the configured narrator/comment voices and uploads them as the `ai33-voice-samples` artifact. This spends AI33 TTS credits but does not call Reddit, VectorEngine, render, or YouTube upload.
 
+Latest sample artifact: run `28457170166` generated all 14 configured narrator/comment samples on 2026-06-30. The downloaded local review page is `build/audit/run_28457170166/ai33-voice-samples/20260630T154616Z/voice_samples_review.html`.
+
 Current candidate coverage:
 
 | Channel | Candidate status |
@@ -520,6 +522,7 @@ SEO/upload handling:
 - Manual `auto_publish.yml` runs default to `privacy_status=unlisted`; scheduled runs are also temporarily `unlisted` until YouTube account-token mapping is audited.
 - `uploader.py --check-channel-only --account-index N` calls `channels.list(mine=true)` and verifies the authenticated channel against `channels.json`; `auto_publish.yml` runs this as an early preflight before Reddit/Gemini/AI33/render spend.
 - For a mapping-only audit across all accounts, use `.github/workflows/audit_voice_youtube.yml` with `check_youtube_mapping=true`. It runs `uploader.py --check-channel-only` for `acc1` through `acc7`, uploads per-account logs, and does not continue into Reddit/Gemini/AI33/render/upload.
+- Current blocker: audit run `28457170166` reached YouTube with repository secrets, but all accounts returned `403 insufficient authentication scopes` for `channels.list(mine=true)`. Reissue `YOUTUBE_REFRESH_TOKEN_ACC1-7` with YouTube upload plus read/channel access before rerunning the mapping audit.
 - Before upload, `uploader.py` repeats the same channel check; a mismatch blocks `videos.insert`.
 - After upload, `uploader.py` calls `videos.list(part=snippet,status)` to read back channel id, privacy, and language.
 - Public oEmbed readback can confirm the uploaded title and channel handle for unlisted videos, but authenticated YouTube Data API readback is still needed for description, tags, language, and final status.
