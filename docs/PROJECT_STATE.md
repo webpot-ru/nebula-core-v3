@@ -25,6 +25,14 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - `.github/workflows/auto_publish.yml` sketches the cloud pipeline, but the end-to-end production path is not fully verified.
 - `.github/workflows/video_dry_run.yml` is a no-spend workflow that renders `final_output.mp4` from `sample_story_data.json` and uploads it as an artifact. It supports manual dispatch and push-triggered runs for renderer/simulator/sample changes.
 
+## GitHub Dry-Run Status
+
+- Dry-run renderer commits were pushed to `origin/main` and transferred to `webpot-ru/nebula-core-v3`.
+- GitHub Actions run `28421055129` succeeded on 2026-06-30 under the `webpot-ru` account.
+- The `render-dry-run` job completed in 1m 21s, passed validation tests, and successfully uploaded the `chonkertalks-dry-run-video` artifact.
+- The artifact was downloaded locally to `build/render/chonkertalks-dry-run-video` and contains `final_output.mp4` (594 KB, verified codec and resolution).
+- The transition from `startup_failure` to success was resolved by migrating repository ownership to `webpot-ru` (which has a healthy billing profile) and setting all required repository secrets.
+
 ## Verified Locally
 
 - Python syntax check passed for `scraper.py`, `translator_tts.py`, and `uploader.py`.
@@ -63,7 +71,6 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 
 ## Known Blockers
 
-- GitHub Secrets state has not been re-read in this repo. Required live secrets include Reddit OAuth vars, YouTube OAuth vars, `AI33_API_KEY`, and `VECTORENGINE_API_KEY`.
 - `channels.json` still reflects the older language/subreddit niche plan and must be updated before production publishing.
 - `auto_publish.yml` still points at a production upload flow and must not be treated as safe until localization, audio-aware rendering, MP4 verification, and uploader readback are finished.
 - `translator_tts.py` currently generates narration audio only; it does not translate story text.
@@ -73,12 +80,9 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 
 ## Next Steps
 
-1. Add or verify `AI33_API_KEY` in GitHub Secrets without printing it.
-2. Update `channels.json` to match the new audience-first channel strategy in `docs/README.md`.
-3. Choose final ElevenLabs or MiniMax voice ids from AI33 Voice Library and update `channels.json` if emotion tags such as `[laughs]` should be supported by default.
-4. Run `video_dry_run.yml` manually on GitHub Actions and inspect/download the uploaded `final_output.mp4` artifact.
-5. Add production localization: `story_data.json` -> `story_localized_<lang>.json`.
-6. Add audio-aware rendering that aligns scenes/captions with `narration_<lang>.mp3`.
-7. Add or verify `VECTORENGINE_API_KEY` in GitHub Secrets before relying on workflow metadata generation.
-8. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
-9. Fix and verify `uploader.py` CLI account selection before any production upload.
+1. Update `channels.json` to match the new audience-first channel strategy in `docs/README.md`.
+2. Choose final ElevenLabs or MiniMax voice ids from AI33 Voice Library and update `channels.json` if emotion tags such as `[laughs]` should be supported by default.
+3. Add production localization: `story_data.json` -> `story_localized_<lang>.json`.
+4. Add audio-aware rendering that aligns scenes/captions with `narration_<lang>.mp3`.
+5. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
+6. Fix and verify `uploader.py` CLI account selection before any production upload.

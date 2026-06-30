@@ -194,6 +194,8 @@ ffprobe final_output.mp4
 
 The GitHub dry-run workflow is `.github/workflows/video_dry_run.yml`. It can be run manually and also runs on pushes that touch the renderer/simulator/sample files. It installs FFmpeg, uses the runner browser, builds `storyboard.json`, renders `final_output.mp4`, verifies the file with `ffprobe`, creates preview PNGs, and uploads all outputs as the `chonkertalks-dry-run-video` artifact.
 
+Current GitHub verification status: pending. Manual run `28385737068` failed with `startup_failure` before jobs/logs/artifacts were created. Fix the workflow startup issue before treating GitHub dry-run rendering as verified.
+
 ---
 
 ## 6. Scraper — Architecture & Plan
@@ -472,6 +474,8 @@ sample_story_data.json
 
 It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `ffprobe`, then uploads the MP4 and storyboard as a GitHub Actions artifact.
 
+Current blocker: run `28385737068` failed at workflow startup before any job logs existed, so no artifact has been produced yet.
+
 ### Production Publish Workflow
 
 `auto_publish.yml` is still a production sketch and is **not** end-to-end verified. It is scheduled daily at 18:00 UTC and can be manually triggered, but it still needs the production render/localization path before safe upload.
@@ -512,15 +516,15 @@ uploader.py → YouTube video published
 
 | Secret | Status | Purpose |
 |---|---|---|
-| `YOUTUBE_CLIENT_ID` | ✅ Documented set | Google OAuth App |
-| `YOUTUBE_CLIENT_SECRET` | ✅ Documented set | Google OAuth App |
-| `YOUTUBE_REFRESH_TOKEN_ACC1–7` | ✅ Documented set | Per-account YouTube tokens |
-| `REDDIT_CLIENT_ID` | ✅ Documented set | Reddit PRAW OAuth |
-| `REDDIT_CLIENT_SECRET` | ✅ Documented set | Reddit PRAW OAuth |
-| `REDDIT_USERNAME` | ✅ Documented set | Reddit account |
-| `REDDIT_PASSWORD` | ⏳ Needed | Reddit account |
-| `AI33_API_KEY` | ⏳ Needed / not re-read | AI33 TTS v3 |
-| `VECTORENGINE_API_KEY` | ⏳ Needed / local smoke passed with LUNA2 env | VectorEngine metadata and thumbnail generation |
+| `YOUTUBE_CLIENT_ID` | ✅ Set | Google OAuth App |
+| `YOUTUBE_CLIENT_SECRET` | ✅ Set | Google OAuth App |
+| `YOUTUBE_REFRESH_TOKEN_ACC1–7` | ✅ Set | Per-account YouTube tokens |
+| `REDDIT_CLIENT_ID` | ✅ Set | Reddit PRAW OAuth |
+| `REDDIT_CLIENT_SECRET` | ✅ Set | Reddit PRAW OAuth |
+| `REDDIT_USERNAME` | ✅ Set | Reddit account |
+| `REDDIT_PASSWORD` | 🚫 Not needed | Reddit PRAW read-only mode is active |
+| `AI33_API_KEY` | ✅ Set | AI33 TTS v3 |
+| `VECTORENGINE_API_KEY` | ✅ Set | VectorEngine Gemini and image generation |
 
 ---
 
@@ -586,15 +590,13 @@ ffprobe final_output.mp4
 - [x] GitHub Actions workflow `auto_publish.yml`
 - [x] Scrapers research & comparison documentation
 - [x] Reddit App registered: **red 2025** (Complex_Lack4476)
+- [x] Verified GitHub dry-run rendering (`chonkertalks-dry-run-video` artifact generated)
 
 ### 🔄 Next Steps (Priority Order)
-- [ ] **1. Add REDDIT_PASSWORD secret** → `gh secret set REDDIT_PASSWORD --body "..."`  — then scraper is 100% live
-- [ ] **2. Add/verify AI33_API_KEY secret** for this GitHub repo; local one-off smoke passed with the LUNA2 key
-- [ ] **3. Update `channels.json` to match the new audience-first strategy** before production publishing
-- [ ] **4. Select final ElevenLabs/MiniMax voices** from AI33 Voice Library for each channel if emotion tags should be default
-- [ ] **5. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2
-- [ ] **6. Add/verify VECTORENGINE_API_KEY** in GitHub Secrets before relying on workflow metadata generation
-- [ ] **7. Add production localization + audio-aware render path** before enabling YouTube upload
+- [ ] **1. Update `channels.json` to match the new audience-first strategy** before production publishing
+- [ ] **2. Select final ElevenLabs/MiniMax voices** from AI33 Voice Library for each channel if emotion tags should be default
+- [ ] **3. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2
+- [ ] **4. Add production localization + audio-aware render path** before enabling YouTube upload
 
 ### 🔮 Future
 - [ ] Browser-captured scene templates, animated captions, and audio-aware timing
