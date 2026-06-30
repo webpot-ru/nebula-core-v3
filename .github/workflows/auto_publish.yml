@@ -33,6 +33,8 @@ on:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -111,3 +113,12 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_ACC7: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC7 }}
         run: |
           python uploader.py final_output.mp4 ${{ steps.target.outputs.acc_index }}
+
+      - name: Commit and Push History Update
+        if: success()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add published_history.json
+          git commit -m "chore: update published history [skip ci]" || echo "No changes to commit"
+          git push origin main || echo "No changes to push"

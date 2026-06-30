@@ -10,20 +10,23 @@ import os
 # ─────────────────────────────────────────────
 
 def get_reddit():
-    """Authenticate with Reddit via PRAW OAuth2."""
+    """Authenticate with Reddit via PRAW (script app, read-only for public data).
+
+    Reddit 2026 requires username even for script-type apps.
+    user_agent must follow: platform:app_id:version (by u/username)
+    """
     try:
         import praw
     except ImportError:
-        print("Installing praw...")
         os.system("pip3 install praw -q")
         import praw
 
     return praw.Reddit(
         client_id=os.environ["REDDIT_CLIENT_ID"],
         client_secret=os.environ["REDDIT_CLIENT_SECRET"],
-        username=os.environ.get("REDDIT_USERNAME", ""),
+        username=os.environ.get("REDDIT_USERNAME", "Complex_Lack4476"),
         password=os.environ.get("REDDIT_PASSWORD", ""),
-        user_agent="ChonkerTalksBot/1.0 (by u/Complex_Lack4476)"
+        user_agent="macos:ChonkerTalksBot:v1.0 (by /u/Complex_Lack4476)"
     )
 
 
@@ -101,8 +104,38 @@ def fetch_top_comments(reddit, post_id, subreddit, limit=3):
         return []
 
 
+HISTORY_FILE = os.path.join(os.path.dirname(__file__), "published_history.json")
+
+
+def load_history() -> dict[str, list[str]]:
+    if not os.path.exists(HISTORY_FILE):
+        return {}
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except Exception as e:
+        print(f"  Warning: could not load history: {e}")
+    return {}
+
+
+def save_history(post_id: str, channel_id: str) -> None:
+    history = load_history()
+    if post_id not in history:
+        history[post_id] = []
+    if channel_id not in history[post_id]:
+        history[post_id].append(channel_id)
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+        print(f"  Saved post {post_id} to history for channel {channel_id}")
+    except Exception as e:
+        print(f"  Warning: could not save history: {e}")
+
+
 def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
-                     min_body_length=300, comment_limit=3):
+                     min_body_length=300, comment_limit=3, channel_id="default"):
     """
     Search multiple subreddits for the most viral post.
 
@@ -113,6 +146,7 @@ def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
     min_upvotes    : int        - minimum upvote threshold
     min_body_length: int        - minimum post body length in characters
     comment_limit  : int        - number of top comments to fetch
+    channel_id     : str        - active channel index for duplicate protection
 
     Returns
     -------
@@ -121,6 +155,7 @@ def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
     reddit = get_reddit()
     best_post = None
     best_score = -1
+    history = load_history()
 
     for sub_name in subreddits:
         print(f"  Scanning r/{sub_name} (top/{time_filter})...")
@@ -129,6 +164,8 @@ def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
             for post in subreddit.top(time_filter=time_filter, limit=30):
                 # Hard filters
                 if post.stickied:
+                    continue
+                if post.id in history and channel_id in history[post.id]:
                     continue
                 if post.score < min_upvotes:
                     continue
@@ -245,10 +282,12 @@ if __name__ == "__main__":
 
     print(f"Time filter: top/{args.time} | Min upvotes: {args.min_upvotes}\n")
 
+    channel_key = args.channel or "default"
     story = fetch_best_story(
         subreddits=subreddits,
         time_filter=args.time,
-        min_upvotes=args.min_upvotes
+        min_upvotes=args.min_upvotes,
+        channel_id=channel_key
     )
 
     if story:
@@ -256,6 +295,7 @@ if __name__ == "__main__":
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(story, f, ensure_ascii=False, indent=2)
         print(f"\n💾 Saved → {output_path}")
+        save_history(story["post_id"], channel_key)
     else:
         print("\n❌ No story found. Try a different subreddit or time filter.")
         sys.exit(1)
