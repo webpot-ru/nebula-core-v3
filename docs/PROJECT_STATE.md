@@ -22,7 +22,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - `storyboard_generator.py` creates a deterministic no-API `storyboard.json` from `story_data.json`.
 - `render.py` opens the existing RedditSim UI in headless Chrome/Chromium, captures deterministic typing or karaoke screenshots, and uses FFmpeg to render a 9:16 MP4 from `storyboard.json`. If `narration.mp3` exists, it merges that file as an AAC audio track; if `narration.json` exists, it passes the transcript to RedditSim for bright gold word-level highlighting directly inside the Reddit card text.
 - `uploader.py` is a base YouTube Data API uploader.
-- `.github/workflows/auto_publish.yml` sketches the cloud pipeline, but the end-to-end production path is not fully verified.
+- `.github/workflows/auto_publish.yml` runs the cloud publish pipeline. The first full live smoke succeeded as an unlisted upload, but account-token/channel mapping is not yet safe for public scheduled publishing.
 - `.github/workflows/video_dry_run.yml` is currently a live manual workflow: it fetches Reddit content, can spend VectorEngine/AI33 credits for quality/localization/TTS, renders `final_output.mp4`, and uploads story, audio, transcript, video, and previews.
 
 ## GitHub Dry-Run Status
@@ -32,6 +32,16 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - The `render-dry-run` job completed in 1m 21s, passed validation tests, and successfully uploaded the `chonkertalks-dry-run-video` artifact.
 - The artifact was downloaded locally to `build/render/chonkertalks-dry-run-video` and contains `final_output.mp4` (594 KB, verified codec and resolution).
 - The transition from `startup_failure` to success was resolved by migrating repository ownership to `webpot-ru` (which has a healthy billing profile) and setting all required repository secrets.
+
+## Live Publish Smoke Status
+
+- Manual `auto_publish.yml` run `28441721783` succeeded on 2026-06-30 for `acc4`, `video_slot=1`, `time_filter=auto`, `topic_family=human_drama`, `privacy_status=unlisted`.
+- The selected story was `r/AmItheAsshole` / `top/week`: "AITA for being blunt with my boyfriend about why he isn't getting hire..." with about 7.3k upvotes and 1.5k comments. Gemini quality gate approved it as `REWRITE` after skipping one malformed-JSON quality response.
+- Localization/TTS succeeded: `story_data.json` was localized to Spanish (`es-419`), AI33 voice `edge_es-MX-JorgeNeural` produced `narration.mp3`, and `narration.json` was saved.
+- Render succeeded: `final_output.mp4`, 1080x1920, 300 captured frames, 237.672s total duration, with `audioDurationSec=237.672`, `audio=narration.mp3`, and `transcript=narration.json`.
+- Upload succeeded as unlisted with YouTube video id `cFX2tZmLrAs`; public oEmbed readback returned the Spanish title "¿Soy la mala por decirle a mi novio la verdad de por qué nadie lo contrata?".
+- Important blocker: oEmbed readback reports `author_url=https://www.youtube.com/@ChonkerTalksDe` and `author_name=CHONKER TALKS auf Deutsch`, while `channels.json` expects `acc4` to be `@ChonkerTalksES` / `CHONKER TALKS en español`. Treat `YOUTUBE_REFRESH_TOKEN_ACC4` as mis-mapped until refreshed or audited.
+- The workflow committed the published-history update to `origin/main` as `d54da14 chore: history [acc4] slot=1 [skip ci]`.
 
 ## Verified Locally
 
@@ -78,20 +88,20 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - `.github/workflows/auto_publish.yml` and `.github/workflows/video_dry_run.yml` now pass both `AI33_API_KEY` and `VECTORENGINE_API_KEY` to the TTS/localization step.
 - `scraper.py` now supports `--time auto`, `--topic-family`, `--max-ai-candidates`, `--candidate-limit`, and `--similarity-threshold`. `auto` mode scans capped topic-family source plans rather than only `top/week`, then sends only the top bounded pool to Gemini.
 - `published_history.json` remains backward-compatible with the old `{post_id: [channels]}` shape; the next scraper save migrates future entries to versioned records with story signatures, keyword signatures, topic family, time window, velocity, fatigue penalty, virality score, and AI quality data.
-- `.github/workflows/auto_publish.yml` now supports manual `topic_family` test runs and uses `privacy_status=unlisted` by default for manual dispatch. The workflow and `video_dry_run.yml` use `time_filter=auto` by default for topic-family windows and set `AI_QUALITY_FAIL_OPEN=0`, explicit `MAX_AI_CANDIDATES`, `STORY_SIMILARITY_THRESHOLD=0.72`, and `TOPIC_FATIGUE_LOOKBACK=10`.
+- `.github/workflows/auto_publish.yml` now supports manual `topic_family` test runs and uses `privacy_status=unlisted` by default for manual dispatch. Scheduled cron entries are also temporarily `unlisted` until the YouTube token/channel mapping is verified. The workflow and `video_dry_run.yml` use `time_filter=auto` by default for topic-family windows and set `AI_QUALITY_FAIL_OPEN=0`, explicit `MAX_AI_CANDIDATES`, `STORY_SIMILARITY_THRESHOLD=0.72`, and `TOPIC_FATIGUE_LOOKBACK=10`.
 - `uploader.py` now supports `--privacy-status public|unlisted|private`, merges `tags` + `seo_keywords`, appends returned `hashtags` to the description, and passes metadata language to YouTube. Manual `auto_publish.yml` dispatch defaults to `unlisted`; scheduled runs default to `public`.
 
 ## Known Blockers
 
-- Topic-family weights in `channels.json` are configured but not yet validated against live artifacts or YouTube retention/readback.
-- `auto_publish.yml` still points at a production upload flow and must not be treated as safe until the new localization/audio-aware render path is verified with a full live artifact and uploader readback.
-- `uploader.py` still needs a focused live upload/readback pass before public production use, especially verifying title/description/tags/language on the uploaded YouTube video.
+- Topic-family weights in `channels.json` are configured but not yet validated against retention/readback.
+- Public scheduled publishing is blocked until all `YOUTUBE_REFRESH_TOKEN_ACC1-7` values are audited against `channels.json`. The first `acc4` live smoke uploaded a Spanish video to the German channel handle.
+- `uploader.py` still needs authenticated YouTube metadata readback before public production use, especially verifying title/description/tags/language and channel id after upload.
 - There is no project safe-trash helper under `scripts/`, so generated scratch artifacts should not be deleted by agents without adding a safe workflow first.
 
 ## Next Steps
 
-1. Run a live topic-discovery artifact check for `--time auto` on priority channels, then tune `topic_mix` weights from candidate variety and Gemini verdicts.
+1. Audit every YouTube refresh token against `channels.json` and replace the mis-mapped `YOUTUBE_REFRESH_TOKEN_ACC4` before any public scheduled run.
 2. Choose final ElevenLabs or MiniMax voice ids from AI33 Voice Library and update `channels.json` if emotion tags such as `[laughs]` should be supported by default.
-3. Run a full live workflow artifact check for localized story text, narration audio, audio stream in MP4, clean capture, and karaoke highlighting.
+3. Add authenticated uploader readback for title, description, tags, language, privacy, channel id, and optionally thumbnail state.
 4. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
-5. Fix and verify `uploader.py` CLI account selection before any production upload.
+5. Tune `topic_mix` weights from live candidate variety, Gemini verdicts, and YouTube retention once account mapping is safe.

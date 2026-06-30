@@ -92,29 +92,30 @@ jobs:
             exit 0
           fi
 
-          # Build the publish matrix based on UTC hour
-          # Each entry: {"channel":"accN","slot":"1or2","time_filter":"auto"}
+          # Build the publish matrix based on UTC hour.
+          # Scheduled runs stay unlisted until account-token readback is verified.
+          # Each entry: {"channel":"accN","slot":"1or2","time_filter":"auto","privacy_status":"unlisted"}
           ENTRIES=""
 
           case "$H" in
             1)   # 01:00 UTC → acc2 slot2 (20:00 EST)
-                 ENTRIES='[{"channel":"acc2","slot":"2","time_filter":"auto"}]' ;;
+                 ENTRIES='[{"channel":"acc2","slot":"2","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             2)   # 02:00 UTC → acc4 slot2 (20:00 CST)
-                 ENTRIES='[{"channel":"acc4","slot":"2","time_filter":"auto"}]' ;;
+                 ENTRIES='[{"channel":"acc4","slot":"2","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             9)   # 09:00 UTC → acc1 slot1 (12:00 MSK)
-                 ENTRIES='[{"channel":"acc1","slot":"1","time_filter":"auto"}]' ;;
+                 ENTRIES='[{"channel":"acc1","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             11)  # 11:00 UTC → acc3 + acc6 + acc7 slot1 (12:00 CET)
-                 ENTRIES='[{"channel":"acc3","slot":"1","time_filter":"auto"},{"channel":"acc6","slot":"1","time_filter":"auto"},{"channel":"acc7","slot":"1","time_filter":"auto"}]' ;;
+                 ENTRIES='[{"channel":"acc3","slot":"1","time_filter":"auto","privacy_status":"unlisted"},{"channel":"acc6","slot":"1","time_filter":"auto","privacy_status":"unlisted"},{"channel":"acc7","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             15)  # 15:00 UTC → acc5 slot1 (12:00 BRT)
-                 ENTRIES='[{"channel":"acc5","slot":"1","time_filter":"auto"}]' ;;
+                 ENTRIES='[{"channel":"acc5","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             17)  # 17:00 UTC → acc1 slot2 (20:00 MSK) + acc2 slot1 (12:00 EST)
-                 ENTRIES='[{"channel":"acc1","slot":"2","time_filter":"auto"},{"channel":"acc2","slot":"1","time_filter":"auto"}]' ;;
+                 ENTRIES='[{"channel":"acc1","slot":"2","time_filter":"auto","privacy_status":"unlisted"},{"channel":"acc2","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             18)  # 18:00 UTC → acc4 slot1 (12:00 CST)
-                 ENTRIES='[{"channel":"acc4","slot":"1","time_filter":"auto"}]' ;;
+                 ENTRIES='[{"channel":"acc4","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             19)  # 19:00 UTC → acc3 + acc6 + acc7 slot2 (20:00 CET)
-                 ENTRIES='[{"channel":"acc3","slot":"2","time_filter":"auto"},{"channel":"acc6","slot":"2","time_filter":"auto"},{"channel":"acc7","slot":"2","time_filter":"auto"}]' ;;
+                 ENTRIES='[{"channel":"acc3","slot":"2","time_filter":"auto","privacy_status":"unlisted"},{"channel":"acc6","slot":"2","time_filter":"auto","privacy_status":"unlisted"},{"channel":"acc7","slot":"2","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             23)  # 23:00 UTC → acc5 slot2 (20:00 BRT)
-                 ENTRIES='[{"channel":"acc5","slot":"2","time_filter":"auto"}]' ;;
+                 ENTRIES='[{"channel":"acc5","slot":"2","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             *)   ENTRIES='[]' ;;
           esac
 

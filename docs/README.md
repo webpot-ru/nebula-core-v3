@@ -455,7 +455,8 @@ SEO/upload handling:
 - `hashtags` are appended to the upload description if Gemini returned them separately.
 - `tags` and `seo_keywords` are merged into YouTube tags with duplicate removal and a 25-tag cap.
 - `language` is passed to YouTube as `defaultLanguage` and `defaultAudioLanguage` when present.
-- Manual `auto_publish.yml` runs default to `privacy_status=unlisted`; scheduled runs default to `public`.
+- Manual `auto_publish.yml` runs default to `privacy_status=unlisted`; scheduled runs are also temporarily `unlisted` until YouTube account-token mapping is audited.
+- Public oEmbed readback can confirm the uploaded title and channel handle for unlisted videos, but authenticated YouTube Data API readback is still needed for description, tags, language, and final status.
 
 ### VectorEngine Thumbnail Images
 
@@ -511,7 +512,9 @@ It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `f
 
 ### Production Publish Workflow
 
-`auto_publish.yml` is still a production sketch and is **not** end-to-end verified. It is scheduled daily at 18:00 UTC and can be manually triggered, but it still needs the production render/localization path before safe upload.
+`auto_publish.yml` has passed one end-to-end unlisted live smoke, but it is **not safe for public scheduled publishing yet**. The 2026-06-30 `acc4` smoke verified localization, AI33 narration, audio-aware render, YouTube upload, and history commit, but public oEmbed showed the video under `@ChonkerTalksDe` while `channels.json` expects `acc4` to be `@ChonkerTalksES`.
+
+Until all `YOUTUBE_REFRESH_TOKEN_ACC1-7` values are audited against the expected channel handles, scheduled runs stay `unlisted`. Manual `public` is still available only when intentionally passed in `workflow_dispatch`.
 
 Planned production flow:
 ```
@@ -549,7 +552,7 @@ uploader.py → YouTube video published
 |---|---|---|
 | `YOUTUBE_CLIENT_ID` | ✅ Set | Google OAuth App |
 | `YOUTUBE_CLIENT_SECRET` | ✅ Set | Google OAuth App |
-| `YOUTUBE_REFRESH_TOKEN_ACC1–7` | ✅ Set | Per-account YouTube tokens |
+| `YOUTUBE_REFRESH_TOKEN_ACC1–7` | ⚠️ Set, mapping unverified | Per-account YouTube tokens; `acc4` live smoke resolved to `@ChonkerTalksDe`, not expected `@ChonkerTalksES` |
 | `REDDIT_CLIENT_ID` | ✅ Set | Reddit PRAW OAuth |
 | `REDDIT_CLIENT_SECRET` | ✅ Set | Reddit PRAW OAuth |
 | `REDDIT_USERNAME` | ✅ Set | Reddit account |
@@ -584,6 +587,8 @@ gh workflow run auto_publish.yml --ref main
 
 # Trigger one manual publish run as unlisted first, scoped to one topic family
 gh workflow run auto_publish.yml --ref main -f channel=acc4 -f time_filter=auto -f topic_family=human_drama -f video_slot=1 -f privacy_status=unlisted
+
+# Do not use privacy_status=public until token-to-channel readback matches channels.json
 
 # Trigger live GitHub render dry-run manually; this can spend Reddit/Gemini/AI33 provider usage
 gh workflow run video_dry_run.yml --ref main
@@ -627,8 +632,8 @@ ffprobe final_output.mp4
 - [x] Reddit Simulator (typewriter, 3 themes, safe zones, keyboard sounds)
 - [x] Desktop + Mobile dual layout
 - [x] GitHub private repo `nebula-core-v3`
-- [x] YouTube OAuth for all 7 accounts
-- [x] GitHub Secrets baseline documented; live readback still required before production runs
+- [x] YouTube OAuth secrets exist for all 7 accounts
+- [ ] YouTube refresh-token mapping audited against expected channel handles
 - [x] `channels.json` — execution config now includes weighted `topic_mix` per channel
 - [x] `scraper.py` — **PRAW OAuth2 + virality scoring + topic-family search + bounded Gemini quality gate**
 - [x] `translator_tts.py` switched to AI33 TTS v3, `uploader.py` base script
@@ -642,10 +647,10 @@ ffprobe final_output.mp4
 - [x] Verified GitHub dry-run rendering (`chonkertalks-dry-run-video` artifact generated)
 
 ### 🔄 Next Steps (Priority Order)
-- [ ] **1. Live topic-discovery artifact check** for `auto` mode: confirm candidate variety, AI verdicts, and duplicate history migration.
+- [ ] **1. Audit YouTube token mapping** for `YOUTUBE_REFRESH_TOKEN_ACC1-7`; replace the mis-mapped `acc4` token before public scheduled publishing.
 - [ ] **2. Select final ElevenLabs/MiniMax voices** from AI33 Voice Library for each channel if emotion tags should be default.
 - [ ] **3. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2.
-- [ ] **4. Verify uploader.py account selection/readback** before enabling production YouTube upload.
+- [ ] **4. Add authenticated uploader readback** for title, description, tags, language, privacy, and channel id after upload.
 
 ### 🔮 Future
 - [ ] Broader source discovery beyond Reddit: YouTube comments, Google Trends, TikTok/Shorts trend scouts, and RSS/news sources behind explicit spend/API boundaries
