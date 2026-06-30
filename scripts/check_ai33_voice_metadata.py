@@ -129,34 +129,40 @@ def auth_headers(api_key: str) -> list[tuple[str, dict[str, str]]]:
     ]
 
 
-def build_urls(base_url: str, voice_id: str) -> list[tuple[str, str]]:
+def build_urls(base_url: str, voice_id: str, provider: str) -> list[tuple[str, str]]:
     raw = raw_voice_id(voice_id)
     prefixed = prefixed_voice_id(voice_id)
     ids = [prefixed, raw]
     urls: list[tuple[str, str]] = []
-    for endpoint in ("voices", "voice-library"):
-        for candidate in ids:
-            quoted = urllib.parse.quote(candidate, safe="")
-            urls.append((f"{endpoint}/{candidate}", f"{base_url}/v3/{endpoint}/{quoted}"))
-            urls.append(
-                (
-                    f"{endpoint}?voice_id={candidate}",
-                    f"{base_url}/v3/{endpoint}?voice_id={quoted}",
-                )
+    for candidate in ids:
+        quoted = urllib.parse.quote(candidate, safe="")
+        provider_qs = urllib.parse.urlencode({"provider": provider})
+        urls.append(
+            (
+                f"voices?provider={provider}&voice_id={candidate}",
+                f"{base_url}/v3/voices?{provider_qs}&voice_id={quoted}",
             )
+        )
+        urls.append(
+            (
+                f"voices?provider={provider}&id={candidate}",
+                f"{base_url}/v3/voices?{provider_qs}&id={quoted}",
+            )
+        )
+        for search_param in ("search", "q", "query"):
             urls.append(
                 (
-                    f"{endpoint}?id={candidate}",
-                    f"{base_url}/v3/{endpoint}?id={quoted}",
+                    f"voices?provider={provider}&{search_param}={candidate}",
+                    f"{base_url}/v3/voices?{provider_qs}&{search_param}={quoted}",
                 )
             )
     return urls
 
 
-def build_list_urls(base_url: str) -> list[tuple[str, str]]:
+def build_list_urls(base_url: str, provider: str) -> list[tuple[str, str]]:
+    provider_qs = urllib.parse.urlencode({"provider": provider, "page_size": "100"})
     return [
-        ("voices", f"{base_url}/v3/voices"),
-        ("voice-library", f"{base_url}/v3/voice-library"),
+        (f"voices?provider={provider}", f"{base_url}/v3/voices?{provider_qs}"),
     ]
 
 
@@ -165,6 +171,7 @@ def main() -> int:
     parser.add_argument("--voice-id", action="append", required=True, help="Raw or AI33-prefixed voice id.")
     parser.add_argument("--base-url", default=os.environ.get("AI33_API_BASE", "https://api.ai33.pro"))
     parser.add_argument("--api-key-env", default="AI33_API_KEY")
+    parser.add_argument("--provider", default="elevenlabs")
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--include-list-endpoints", action="store_true")
     args = parser.parse_args()
@@ -192,9 +199,9 @@ def main() -> int:
 
     targets: list[tuple[str, str]] = []
     for voice_id in voice_ids:
-        targets.extend(build_urls(base_url, voice_id))
+        targets.extend(build_urls(base_url, voice_id, args.provider))
     if args.include_list_endpoints:
-        targets.extend(build_list_urls(base_url))
+        targets.extend(build_list_urls(base_url, args.provider))
 
     for auth_name, headers in auth_headers(api_key):
         for label, url in targets:
