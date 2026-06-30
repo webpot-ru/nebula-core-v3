@@ -2,9 +2,33 @@ name: Reddit Video Auto-Publish Pipeline
 
 on:
   schedule:
-    # Run once daily at 18:00 UTC (Adjust time as preferred)
+    # Daily automation runs. You can dispatch runs for other channels using local CLI orchestrators.
     - cron: '0 18 * * *'
-  workflow_dispatch: # Allows manual triggering from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Channel ID to publish to (acc1 to acc7)'
+        required: true
+        default: 'acc1'
+        type: choice
+        options:
+          - acc1
+          - acc2
+          - acc3
+          - acc4
+          - acc5
+          - acc6
+          - acc7
+      time_filter:
+        description: 'Reddit top posts time filter'
+        required: true
+        default: 'week'
+        type: choice
+        options:
+          - day
+          - week
+          - month
+          - year
 
 jobs:
   build-and-publish:
@@ -12,10 +36,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -23,16 +47,58 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          if ! command -v google-chrome >/dev/null 2>&1 && ! command -v google-chrome-stable >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
+            sudo apt-get install -y chromium
+          fi
+
+      - name: Resolve Target Channel
+        id: target
+        run: |
+          # Use workflow input if manually triggered, otherwise fallback to acc1 for daily cron
+          CHANNEL_ID="${{ github.event.inputs.channel || 'acc1' }}"
+          TIME_FILTER="${{ github.event.inputs.time_filter || 'week' }}"
+          
+          # Extract the digits from the channel ID to get the YouTube account index (e.g. acc4 -> 4)
+          ACC_INDEX="${CHANNEL_ID//[!0-9]/}"
+          
+          echo "channel_id=${CHANNEL_ID}" >> $GITHUB_OUTPUT
+          echo "time_filter=${TIME_FILTER}" >> $GITHUB_OUTPUT
+          echo "acc_index=${ACC_INDEX}" >> $GITHUB_OUTPUT
 
       - name: Fetch viral story from Reddit
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
+          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
         run: |
-          python scraper.py AskReddit
+          python scraper.py --channel ${{ steps.target.outputs.channel_id }} --time ${{ steps.target.outputs.time_filter }}
 
-      - name: Generate translation & neural voice audio
+      - name: Generate VectorEngine SEO metadata
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
-          python translator_tts.py es
+          python metadata_generator.py --channel ${{ steps.target.outputs.channel_id }} --confirm-spend --output youtube_metadata.json
 
-      - name: Upload video to YouTube
+      - name: Translate & Generate AI33 neural voice audio
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+        run: |
+          # translator_tts accepts --channel, resolving language and voice from channels.json
+          python translator_tts.py --channel ${{ steps.target.outputs.channel_id }} --with-transcript --output narration.mp3
+
+      - name: Generate storyboard JSON
+        run: |
+          python storyboard_generator.py --input story_data.json --output storyboard.json
+
+      - name: Render dynamic MP4 video
+        run: |
+          # Renders with smooth 30fps animation, automatically syncing duration with narration.mp3
+          python render.py --storyboard storyboard.json --output final_output.mp4 --frame-count 300
+
+      - name: Upload video to YouTube channel
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -44,4 +110,4 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_ACC6: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC6 }}
           YOUTUBE_REFRESH_TOKEN_ACC7: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC7 }}
         run: |
-          python uploader.py final_output.mp4 1
+          python uploader.py final_output.mp4 ${{ steps.target.outputs.acc_index }}
