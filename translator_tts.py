@@ -3,6 +3,7 @@ import base64
 import binascii
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -44,10 +45,33 @@ COMMENT_LABELS = {
     "de": "Kommentar von",
     "es": "Comentario de",
     "es-419": "Comentario de",
-    "pt": "Comentario de",
-    "pt-BR": "Comentario de",
+    "pt": "Comentário de",
+    "pt-BR": "Comentário de",
     "fr": "Commentaire de",
     "it": "Commento di",
+}
+
+LINK_PLACEHOLDERS = {
+    "ru": "ссылка на экране",
+    "en": "the link is on screen",
+    "de": "den Link siehst du auf dem Bildschirm",
+    "es": "el enlace está en pantalla",
+    "es-419": "el enlace está en pantalla",
+    "pt": "o link está na tela",
+    "pt-BR": "o link está na tela",
+    "fr": "le lien est affiché à l'écran",
+    "it": "il link è sullo schermo",
+}
+
+URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>)\]]+")
+MARKDOWN_LINK_RE = re.compile(r"\[([^\]\n]{0,120})\]\(((?:https?://|www\.)[^\s)]+)\)")
+GENERIC_LINK_LABELS = {
+    "link", "here", "this", "source", "url", "proof", "screenshot",
+    "enlace", "aquí", "esto", "fuente", "captura",
+    "ссылка", "тут", "здесь", "источник", "скрин",
+    "link", "hier", "quelle", "beweis",
+    "lien", "ici", "source", "preuve",
+    "link", "qui", "fonte", "prova",
 }
 
 AUDIO_URL_KEYS = {
@@ -299,6 +323,97 @@ def save_story(story: dict[str, Any], path: Path) -> None:
     path.write_text(json.dumps(story, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def localized_link_placeholder(lang_code: str) -> str:
+    return LINK_PLACEHOLDERS.get(lang_code) or LINK_PLACEHOLDERS.get(lang_code[:2]) or LINK_PLACEHOLDERS["en"]
+
+
+def normalize_link_label(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+
+
+def clean_text_for_narration_and_karaoke(text: Any, lang_code: str) -> tuple[str, int]:
+    original = str(text or "")
+    if not original:
+        return "", 0
+
+    placeholder = localized_link_placeholder(lang_code)
+    changes = 0
+
+    def replace_markdown(match: re.Match[str]) -> str:
+        nonlocal changes
+        changes += 1
+        label = re.sub(r"\s+", " ", match.group(1).strip())
+        if not label or normalize_link_label(label) in GENERIC_LINK_LABELS:
+            return placeholder
+        return f"{label} ({placeholder})"
+
+    cleaned = MARKDOWN_LINK_RE.sub(replace_markdown, original)
+
+    def replace_url(_: re.Match[str]) -> str:
+        nonlocal changes
+        changes += 1
+        return placeholder
+
+    cleaned = URL_RE.sub(replace_url, cleaned)
+    escaped_placeholder = re.escape(placeholder)
+    service_prefixes = (
+        r"original\s+(?:thread|post|source)|reddit\s+thread|source|link|url|"
+        r"enlace|fuente|ссылка|источник|quelle|lien|fonte"
+    )
+    cleaned = re.sub(
+        rf"(?im)^\s*(?:{service_prefixes})\s*:?\s*{escaped_placeholder}\s*$",
+        placeholder,
+        cleaned,
+    )
+    cleaned = re.sub(
+        rf"(?:{escaped_placeholder})(?:[\s,.;:!?-]+{escaped_placeholder})+",
+        placeholder,
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, changes
+
+
+def sanitize_story_for_narration_and_karaoke(
+    story: dict[str, Any],
+    lang_code: str,
+) -> tuple[dict[str, Any], int]:
+    sanitized = dict(story)
+    total_changes = 0
+
+    for field in ("title", "body"):
+        cleaned, changes = clean_text_for_narration_and_karaoke(sanitized.get(field), lang_code)
+        if changes:
+            sanitized[field] = cleaned
+            total_changes += changes
+
+    comments = []
+    for comment in story.get("comments") or []:
+        if not isinstance(comment, dict):
+            continue
+        copied = dict(comment)
+        cleaned, changes = clean_text_for_narration_and_karaoke(copied.get("body"), lang_code)
+        if changes:
+            copied["body"] = cleaned
+            total_changes += changes
+        comments.append(copied)
+    if comments:
+        sanitized["comments"] = comments
+
+    if total_changes:
+        sanitized["narration_sanitization"] = {
+            "version": 1,
+            "source": "translator_tts",
+            "language": lang_code,
+            "link_placeholder": localized_link_placeholder(lang_code),
+            "changes": total_changes,
+            "sanitized_at": datetime.now(timezone.utc).isoformat(),
+        }
+    return sanitized, total_changes
+
+
 def resolve_lang_and_voice(args: argparse.Namespace) -> tuple[str, str]:
     channel = load_channel_config(args.channel or args.target)
     if channel:
@@ -528,6 +643,7 @@ def process_story_audio(args: argparse.Namespace) -> None:
 
     story = load_story(story_path)
     translation_needed = should_translate_story(story, lang_code, args)
+    translated_story_path = Path(args.translated_story_output).resolve() if args.translated_story_output else story_path
 
     if translation_needed and not args.dry_run:
         story = translate_story_text(
@@ -537,9 +653,17 @@ def process_story_audio(args: argparse.Namespace) -> None:
             model=args.translation_model,
             temperature=args.translation_temperature,
         )
-        translated_story_path = Path(args.translated_story_output).resolve() if args.translated_story_output else story_path
+
+    sanitization_changes = 0
+    if not args.preserve_raw_links:
+        story, sanitization_changes = sanitize_story_for_narration_and_karaoke(story, lang_code)
+
+    if not args.dry_run and (translation_needed or sanitization_changes):
         save_story(story, translated_story_path)
-        print(f"Saved localized story text to {translated_story_path}")
+        action = "localized" if translation_needed else "narration-safe"
+        print(f"Saved {action} story text to {translated_story_path}")
+        if sanitization_changes:
+            print(f"Sanitized {sanitization_changes} link/service token(s) for narration/karaoke.")
 
     narration_text = build_narration_text(story, lang_code, args.include_comment_labels)
 
@@ -550,6 +674,7 @@ def process_story_audio(args: argparse.Namespace) -> None:
         print(f"  voice_id: {voice_id}")
         print(f"  translation: {'needed' if translation_needed else 'skipped'}")
         print(f"  translation_model: {args.translation_model}")
+        print(f"  narration_sanitization_changes: {sanitization_changes}")
         print(f"  model_id: {args.model_id or '(omitted)'}")
         print(f"  output: {output_path}")
         print(f"  characters: {len(narration_text)}")
@@ -640,6 +765,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--include-comment-labels",
         action="store_true",
         help="Include localized 'Comment by user' labels in narration. Default keeps audio aligned to visible card/comment text for karaoke.",
+    )
+    parser.add_argument(
+        "--preserve-raw-links",
+        action="store_true",
+        help="Keep raw URLs in story text and narration. Default replaces URLs with localized on-screen-link phrases.",
     )
     parser.add_argument(
         "--model-id",

@@ -380,6 +380,7 @@ def capture_redditsim_frames(
         query_parts.append(("audio", audio_path.resolve().as_uri()))
     if transcript_path:
         query_parts.append(("transcript", transcript_path.resolve().as_uri()))
+        query_parts.append(("karaoke", "1"))
     encoded_query = urllib.parse.urlencode(query_parts, quote_via=urllib.parse.quote, safe=":/")
     frames: list[Path] = []
 
@@ -396,14 +397,23 @@ def capture_redditsim_frames(
 
             # Update typing/karaoke progress in-memory via JavaScript.
             timestamp = progress * duration
-            client.command("Runtime.evaluate", {
-                "expression": (
-                    "window.karaokeReady "
-                    f"? renderKaraokeAtTime({timestamp:.6f}) "
-                    f": renderTypingAtProgress({progress:.6f})"
-                ),
+            if transcript_path:
+                expression = (
+                    "(() => { "
+                    "if (!window.karaokeReady) { throw new Error('Karaoke transcript is required but not ready.'); } "
+                    f"return renderKaraokeAtTime({timestamp:.6f}); "
+                    "})()"
+                )
+            else:
+                expression = f"renderTypingAtProgress({progress:.6f})"
+            evaluation = client.command("Runtime.evaluate", {
+                "expression": expression,
                 "returnByValue": True,
             }, timeout=5)
+            if evaluation.get("exceptionDetails"):
+                details = evaluation["exceptionDetails"]
+                description = details.get("exception", {}).get("description") or details.get("text") or "unknown JavaScript error"
+                raise RenderError(f"RedditSim frame update failed: {description}")
 
             screenshot = client.command("Page.captureScreenshot", {
                 "format": "png",

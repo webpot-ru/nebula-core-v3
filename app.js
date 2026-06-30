@@ -353,6 +353,7 @@ let karaokeAudio   = null;
 let karaokeRafId   = null;
 let karaokeReady   = false;
 let karaokeActiveIndex = -1;
+let karaokeRequired = false;
 
 function syncKaraokeGlobals() {
   window.karaokeReady = karaokeReady;
@@ -364,11 +365,52 @@ function coerceKaraokeTime(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function transcriptTokenText(value) {
+  return value && (
+    value.word ||
+    value.text ||
+    value.punctuated_word ||
+    value.token ||
+    value.value ||
+    ''
+  );
+}
+
+function transcriptTimeValue(value, keys) {
+  for (const key of keys) {
+    if (value[key] === undefined || value[key] === null) continue;
+    const parsed = parseFloat(value[key]);
+    if (!Number.isFinite(parsed)) continue;
+    return key.toLowerCase().includes('ms') || parsed > 1000 ? parsed / 1000 : parsed;
+  }
+  return null;
+}
+
+function normalizeTranscriptWord(value) {
+  const token = String(transcriptTokenText(value) || '').trim();
+  if (!token) return null;
+
+  const start = transcriptTimeValue(value, [
+    'start', 'startTime', 'start_time', 'startMs', 'start_ms',
+    'begin', 'beginTime', 'begin_time', 'beginMs', 'begin_ms',
+    'offset', 'offsetMs', 'offset_ms'
+  ]);
+  let end = transcriptTimeValue(value, [
+    'end', 'endTime', 'end_time', 'endMs', 'end_ms',
+    'finish', 'finishTime', 'finish_time', 'stop', 'stopTime', 'stop_time'
+  ]);
+  if (end === null && start !== null) {
+    const duration = transcriptTimeValue(value, ['duration', 'durationTime', 'duration_time', 'durationMs', 'duration_ms']);
+    if (duration !== null) end = start + duration;
+  }
+  if (start === null || end === null || end < start) return null;
+
+  return { word: token, start, end, el: null };
+}
+
 function isTranscriptWord(value) {
   return value && typeof value === 'object' &&
-    (value.word || value.text) &&
-    (value.start !== undefined || value.startTime !== undefined) &&
-    (value.end !== undefined || value.endTime !== undefined);
+    normalizeTranscriptWord(value) !== null;
 }
 
 function collectTranscriptWords(value, found = []) {
@@ -390,6 +432,8 @@ async function applyRenderModeFromQuery() {
   if (!isRenderMode()) return false;
 
   const params = new URLSearchParams(window.location.search);
+  karaokeRequired = params.get('karaoke') === '1' || params.has('transcript') || params.has('audio');
+  window.karaokeRequired = karaokeRequired;
   const storyPath = params.get('story');
   if (storyPath) {
     const response = await fetch(storyPath, { cache: 'no-store' });
@@ -429,12 +473,7 @@ async function applyRenderModeFromQuery() {
       // Support flat arrays, {words: []}, segment wrappers, and nested AI33 task payloads.
       const words = collectTranscriptWords(transcript);
       if (words && words.length) {
-        karaokeWords = words.map(w => ({
-          word:  w.word || w.text || '',
-          start: coerceKaraokeTime(w.start ?? w.startTime ?? 0),
-          end:   coerceKaraokeTime(w.end   ?? w.endTime   ?? 0),
-          el:    null
-        })).filter(w => w.word && w.end >= w.start);
+        karaokeWords = words.map(normalizeTranscriptWord).filter(Boolean);
         if (karaokeWords.length) {
           karaokeReady = true;
           syncKaraokeGlobals();
@@ -443,8 +482,18 @@ async function applyRenderModeFromQuery() {
           karaokeAudio.preload = 'auto';
         }
       }
+    } else if (karaokeRequired) {
+      throw new Error(`Karaoke transcript could not be loaded: ${transcriptPath}`);
     }
-  } catch (_) { /* transcript optional — fall back to typing progress */ }
+    if (karaokeRequired && !karaokeReady) {
+      throw new Error(`Karaoke transcript had no usable word timings: ${transcriptPath}`);
+    }
+  } catch (error) {
+    if (karaokeRequired) {
+      throw error;
+    }
+    /* transcript optional — fall back to typing progress */
+  }
 
   return true;
 }
@@ -678,6 +727,9 @@ async function init() {
         startKaraokePlayback();
       }
     } else {
+      if (karaokeRequired) {
+        throw new Error('Karaoke render was required, but transcript/audio did not initialize.');
+      }
       // Fallback: classic typing-progress frame (for dry-run renders without audio)
       renderTypingAtProgress(new URLSearchParams(window.location.search).get('progress') || 0);
       document.body.dataset.renderReady = 'true';

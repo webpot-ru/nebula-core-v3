@@ -16,12 +16,12 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 
 - `index.html`, `style.css`, `app.js` implement the local RedditSim recorder UI.
 - `scraper.py` fetches candidate Reddit stories through PRAW OAuth2, weighted topic-family source planning, local duplicate/signature/similarity guards, velocity scoring, topic-fatigue penalties, and a bounded Gemini quality gate, then writes `story_data.json`.
-- `translator_tts.py` localizes non-English `story_data.json` through VectorEngine Gemini, then builds narration text and submits it to AI33 TTS v3.
+- `translator_tts.py` localizes non-English `story_data.json` through VectorEngine Gemini, sanitizes narration/card text so raw URLs are replaced with localized on-screen-link phrases, then builds narration text and submits it to AI33 TTS v3.
 - `metadata_generator.py` generates YouTube title, description, tags, hashtags, SEO keywords, thumbnail text and thumbnail prompt through VectorEngine Gemini.
 - `thumbnail_generator.py` can generate a thumbnail image through VectorEngine image generation, but only with explicit `--confirm-spend`.
 - `storyboard_generator.py` creates a deterministic no-API `storyboard.json` from `story_data.json`.
-- `render.py` opens the existing RedditSim UI in headless Chrome/Chromium, captures deterministic typing or karaoke screenshots, and uses FFmpeg to render a 9:16 MP4 from `storyboard.json`. If `narration.mp3` exists, it merges that file as an AAC audio track; if `narration.json` exists, it passes the transcript to RedditSim for bright gold word-level highlighting directly inside the Reddit card text.
-- `uploader.py` is a base YouTube Data API uploader.
+- `render.py` opens the existing RedditSim UI in headless Chrome/Chromium, captures deterministic typing or karaoke screenshots, and uses FFmpeg to render a 9:16 MP4 from `storyboard.json`. If `narration.mp3` exists, it merges that file as an AAC audio track; if `narration.json` exists, it requires karaoke mode and passes the transcript to RedditSim for bright gold word-level highlighting directly inside the Reddit card text.
+- `uploader.py` is a YouTube Data API uploader with a fail-closed channel-token preflight against `channels.json` and post-upload metadata readback.
 - `.github/workflows/auto_publish.yml` runs the cloud publish pipeline. The first full live smoke succeeded as an unlisted upload, but account-token/channel mapping is not yet safe for public scheduled publishing.
 - `.github/workflows/video_dry_run.yml` is currently a live manual workflow: it fetches Reddit content, can spend VectorEngine/AI33 credits for quality/localization/TTS, renders `final_output.mp4`, and uploads story, audio, transcript, video, and previews.
 
@@ -40,7 +40,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - Localization/TTS succeeded: `story_data.json` was localized to Spanish (`es-419`), AI33 voice `edge_es-MX-JorgeNeural` produced `narration.mp3`, and `narration.json` was saved.
 - Render succeeded: `final_output.mp4`, 1080x1920, 300 captured frames, 237.672s total duration, with `audioDurationSec=237.672`, `audio=narration.mp3`, and `transcript=narration.json`.
 - Upload succeeded as unlisted with YouTube video id `cFX2tZmLrAs`; public oEmbed readback returned the Spanish title "¿Soy la mala por decirle a mi novio la verdad de por qué nadie lo contrata?".
-- Important blocker: oEmbed readback reports `author_url=https://www.youtube.com/@ChonkerTalksDe` and `author_name=CHONKER TALKS auf Deutsch`, while `channels.json` expects `acc4` to be `@ChonkerTalksES` / `CHONKER TALKS en español`. Treat `YOUTUBE_REFRESH_TOKEN_ACC4` as mis-mapped until refreshed or audited.
+- Important blocker: public/user readback showed videos landing on the wrong channel for the requested account. Treat all `YOUTUBE_REFRESH_TOKEN_ACC1-7` mappings as unverified until `uploader.py` preflight confirms the authenticated channel for each token against `channels.json`.
 - The workflow committed the published-history update to `origin/main` as `d54da14 chore: history [acc4] slot=1 [skip ci]`.
 
 ## Verified Locally
@@ -83,24 +83,25 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 
 - `translator_tts.py` now translates `title`, `body`, and each comment `body` for non-English channels before TTS. By default it overwrites `story_data.json` so downstream storyboard/render steps see localized text; use `--translated-story-output` to write a separate localized file.
 - The default narration text mirrors visible card text for karaoke alignment: title, body, then comment bodies. `--include-comment-labels` can restore spoken "Comment by user" labels when strict word-level visual sync is not required.
-- `render.py` now auto-detects default `narration.mp3` and `narration.json`, passes them to RedditSim as `audio` and `transcript` query parameters, captures deterministic karaoke frames when transcript words are available, and merges the audio track into `final_output.mp4`. Karaoke mode does not add extra words, lower captions, or overlay text; it highlights the currently spoken word directly in the existing Reddit card text with a bright gold treatment.
+- `translator_tts.py` now replaces raw URLs and service link lines such as `Original thread: https://...` with localized phrases such as "el enlace está en pantalla" before TTS and storyboard handoff. This keeps screen text and narration aligned while avoiding robotic URL reading.
+- `render.py` now auto-detects default `narration.mp3` and `narration.json`, passes them to RedditSim as `audio`, `transcript`, and `karaoke=1` query parameters, captures deterministic karaoke frames when transcript words are available, and merges the audio track into `final_output.mp4`. If transcript/audio are provided but karaoke cannot initialize, render fails instead of falling back to typewriter animation. Karaoke mode does not add extra words, lower captions, or overlay text; it highlights the currently spoken word directly in the existing Reddit card text with a bright gold treatment.
 - `style.css` now hides editor/sidebar/HUD/desktop-nav/sidebar/safe-zone widgets under `.clean-mode` and `.render-mode`, including desktop layout states.
 - `.github/workflows/auto_publish.yml` and `.github/workflows/video_dry_run.yml` now pass both `AI33_API_KEY` and `VECTORENGINE_API_KEY` to the TTS/localization step.
 - `scraper.py` now supports `--time auto`, `--topic-family`, `--max-ai-candidates`, `--candidate-limit`, and `--similarity-threshold`. `auto` mode scans capped topic-family source plans rather than only `top/week`, then sends only the top bounded pool to Gemini.
 - `published_history.json` remains backward-compatible with the old `{post_id: [channels]}` shape; the next scraper save migrates future entries to versioned records with story signatures, keyword signatures, topic family, time window, velocity, fatigue penalty, virality score, and AI quality data.
 - `.github/workflows/auto_publish.yml` now supports manual `topic_family` test runs and uses `privacy_status=unlisted` by default for manual dispatch. Scheduled cron entries are also temporarily `unlisted` until the YouTube token/channel mapping is verified. The workflow and `video_dry_run.yml` use `time_filter=auto` by default for topic-family windows and set `AI_QUALITY_FAIL_OPEN=0`, explicit `MAX_AI_CANDIDATES`, `STORY_SIMILARITY_THRESHOLD=0.72`, and `TOPIC_FATIGUE_LOOKBACK=10`.
-- `uploader.py` now supports `--privacy-status public|unlisted|private`, merges `tags` + `seo_keywords`, appends returned `hashtags` to the description, and passes metadata language to YouTube. Manual `auto_publish.yml` dispatch defaults to `unlisted`; scheduled runs default to `public`.
+- `uploader.py` now supports `--privacy-status public|unlisted|private`, merges `tags` + `seo_keywords`, appends returned `hashtags` to the description, passes metadata language to YouTube, verifies the authenticated YouTube channel before upload, and reads back uploaded video metadata afterward. Manual and scheduled `auto_publish.yml` runs stay `unlisted` until token mappings are proven.
 
 ## Known Blockers
 
 - Topic-family weights in `channels.json` are configured but not yet validated against retention/readback.
-- Public scheduled publishing is blocked until all `YOUTUBE_REFRESH_TOKEN_ACC1-7` values are audited against `channels.json`. The first `acc4` live smoke uploaded a Spanish video to the German channel handle.
+- Public scheduled publishing is blocked until all `YOUTUBE_REFRESH_TOKEN_ACC1-7` values are audited against `channels.json`. User/browser readback showed videos landing on the wrong target channel; new uploads should fail before upload if the token resolves to the wrong authenticated channel.
 - `uploader.py` still needs authenticated YouTube metadata readback before public production use, especially verifying title/description/tags/language and channel id after upload.
 - There is no project safe-trash helper under `scripts/`, so generated scratch artifacts should not be deleted by agents without adding a safe workflow first.
 
 ## Next Steps
 
-1. Audit every YouTube refresh token against `channels.json` and replace the mis-mapped `YOUTUBE_REFRESH_TOKEN_ACC4` before any public scheduled run.
+1. Audit every YouTube refresh token against `channels.json` and replace any token whose authenticated channel does not match the expected handle/name before any public scheduled run.
 2. Choose final ElevenLabs or MiniMax voice ids from AI33 Voice Library and update `channels.json` if emotion tags such as `[laughs]` should be supported by default.
 3. Add authenticated uploader readback for title, description, tags, language, privacy, channel id, and optionally thumbnail state.
 4. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
