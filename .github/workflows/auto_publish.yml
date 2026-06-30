@@ -147,15 +147,6 @@ jobs:
           echo "time_filter=${{ matrix.time_filter }}" >> $GITHUB_OUTPUT
           echo "📺 ${CH} | slot=${{ matrix.slot }} | filter=${{ matrix.time_filter }}"
 
-      - name: Diagnostic Reddit Check
-        env:
-          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
-          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
-          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
-          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
-        run: |
-          python scratch/diagnose_reddit.py
-
       - name: Fetch viral story from Reddit
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
@@ -169,6 +160,7 @@ jobs:
             --channel ${{ steps.target.outputs.channel_id }} \
             --time ${{ steps.target.outputs.time_filter }} \
             --video-slot ${{ steps.target.outputs.video_slot }}
+
 
 
       - name: Generate VectorEngine SEO metadata
