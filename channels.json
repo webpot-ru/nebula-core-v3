@@ -9,8 +9,12 @@
       "audience": "Россия, русскоязычная диаспора за рубежом",
       "niche": "dark_curiosity_facts",
       "niche_label": "Dark Curiosity + Tech/Gaming/Facts",
-      "subreddits": ["nosleep", "todayilearned", "gaming", "LetsNotMeet"],
+      "subreddits": [
+        "nosleep", "todayilearned", "gaming", "LetsNotMeet",
+        "Glitch_in_the_Matrix", "creepyencounters", "mildlyinteresting", "InternetIsBeautiful"
+      ],
       "format": ["shorts", "long"],
+      "videos_per_day": 2,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_ru-RU-DmitryNeural",
@@ -27,8 +31,12 @@
       "audience": "USA, UK, Canada, Australia",
       "niche": "spectacle_curiosity_drama",
       "niche_label": "Spectacle / Curiosity + Internet Lore + Drama",
-      "subreddits": ["AmItheAsshole", "todayilearned", "offmychest", "relationship_advice"],
+      "subreddits": [
+        "AmItheAsshole", "todayilearned", "offmychest", "relationship_advice",
+        "tifu", "prorevenge", "MaliciousCompliance", "mildlyinteresting"
+      ],
       "format": ["shorts", "long"],
+      "videos_per_day": 2,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_en-US-ChristopherNeural",
@@ -45,8 +53,12 @@
       "audience": "Германия, Австрия, Швейцария",
       "niche": "science_curiosity_tech",
       "niche_label": "Science / Curiosity / Experiments + Strange Facts",
-      "subreddits": ["todayilearned", "explainlikeimfive", "mildlyinteresting", "nosleep"],
+      "subreddits": [
+        "todayilearned", "explainlikeimfive", "mildlyinteresting", "nosleep",
+        "Damnthatsinteresting", "science", "space", "Glitch_in_the_Matrix"
+      ],
       "format": ["shorts", "long"],
+      "videos_per_day": 2,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_de-DE-ConradNeural",
@@ -63,8 +75,12 @@
       "audience": "México, Argentina, Colombia, Chile, Perú, Centroamérica",
       "niche": "human_drama_scandals",
       "niche_label": "Human Drama + Entitled Scandals + Internet Lore",
-      "subreddits": ["AmItheAsshole", "relationship_advice", "confession", "entitledparents"],
+      "subreddits": [
+        "AmItheAsshole", "relationship_advice", "confession", "entitledparents",
+        "offmychest", "tifu", "prorevenge", "MaliciousCompliance"
+      ],
       "format": ["shorts", "long"],
+      "videos_per_day": 2,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_es-MX-JorgeNeural",
@@ -81,8 +97,12 @@
       "audience": "Brasil",
       "niche": "curiosities_football_drama",
       "niche_label": "Curiosities + Football Culture + Emotional Stories",
-      "subreddits": ["todayilearned", "soccer", "offmychest", "relationship_advice"],
+      "subreddits": [
+        "todayilearned", "soccer", "offmychest", "relationship_advice",
+        "Damnthatsinteresting", "mildlyinteresting", "tifu", "confession"
+      ],
       "format": ["shorts", "long"],
+      "videos_per_day": 2,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_pt-BR-AntonioNeural",
@@ -99,8 +119,12 @@
       "audience": "France, Belgique, Canada",
       "niche": "mystery_true_stories",
       "niche_label": "Mystery / True Stories + Pop Culture + Gaming Lore",
-      "subreddits": ["UnresolvedMysteries", "nosleep", "gaming", "LetsNotMeet"],
+      "subreddits": [
+        "UnresolvedMysteries", "nosleep", "gaming", "LetsNotMeet",
+        "creepyencounters", "Glitch_in_the_Matrix", "todayilearned", "mildlyinteresting"
+      ],
       "format": ["shorts", "long"],
+      "videos_per_day": 2,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_fr-FR-HenriNeural",
@@ -117,8 +141,12 @@
       "audience": "Italia",
       "niche": "comedy_football_drama",
       "niche_label": "Visual Comedy / Food Identity + Football + Human Drama",
-      "subreddits": ["AmItheAsshole", "soccer", "talesfromyourserver", "relationship_advice"],
+      "subreddits": [
+        "AmItheAsshole", "soccer", "talesfromyourserver", "relationship_advice",
+        "tifu", "confession", "mildlyinteresting", "entitledparents"
+      ],
       "format": ["shorts", "long"],
+      "videos_per_day": 2,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "edge_it-IT-DiegoNeural",

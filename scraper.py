@@ -235,7 +235,7 @@ def save_history(post_id: str, channel_id: str) -> None:
 
 def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
                      min_body_length=300, comment_limit=3, channel_id="default",
-                     channel_config=None):
+                     channel_config=None, skip_rank=0):
     """
     Search multiple subreddits for the most viral post, then run an AI quality
     gate (Gemini via VectorEngine) to confirm the story fits the channel niche.
@@ -249,6 +249,7 @@ def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
     comment_limit  : int        - number of top comments to fetch
     channel_id     : str        - active channel index for duplicate protection
     channel_config : dict|None  - full channel dict from channels.json (for AI check)
+    skip_rank      : int        - skip the top-N AI-approved candidates (for multi-slot daily publishing)
 
     Returns
     -------
@@ -298,6 +299,7 @@ def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
     chosen_post  = None
     chosen_score = -1
     ai_result    = {}
+    approved_count = 0   # counts how many candidates passed AI check
 
     for rank, (score, post) in enumerate(candidates):
         print(f"\n🤖 [AI quality check] #{rank+1} candidate: {post.title[:60]}")
@@ -319,7 +321,13 @@ def fetch_best_story(subreddits, time_filter="week", min_upvotes=1000,
             print("   ⛔ Skipped by AI — trying next candidate...")
             continue
 
-        # PUBLISH or REWRITE both qualify
+        # This candidate passed AI check — count it
+        if approved_count < skip_rank:
+            print(f"   ⏭️  Slot offset: skipping approved candidate #{approved_count+1} (reserved for earlier slot)")
+            approved_count += 1
+            continue
+
+        # PUBLISH or REWRITE at the right slot position — take it
         chosen_post  = post
         chosen_score = score
         ai_result    = qc
@@ -405,6 +413,10 @@ if __name__ == "__main__":
                         help="Minimum upvotes threshold (default: 1000)")
     parser.add_argument("--output", "-o", default="story_data.json",
                         help="Output JSON file (default: story_data.json)")
+    parser.add_argument("--video-slot", "-s", type=int, default=1,
+                        help="Which video slot of the day (1=first/morning, 2=second/evening). "
+                             "Slot N skips the top N-1 AI-approved candidates so each slot "
+                             "gets a unique story. (default: 1)")
     args = parser.parse_args()
 
     # Determine subreddits to scan
@@ -425,12 +437,16 @@ if __name__ == "__main__":
     print(f"Time filter: top/{args.time} | Min upvotes: {args.min_upvotes}\n")
 
     channel_key = args.channel or "default"
+    skip_rank = max(0, args.video_slot - 1)   # slot 1→skip 0, slot 2→skip 1, etc.
+    if skip_rank:
+        print(f"Video slot #{args.video_slot}: will skip {skip_rank} already-approved candidate(s).")
     story = fetch_best_story(
         subreddits=subreddits,
         time_filter=args.time,
         min_upvotes=args.min_upvotes,
         channel_id=channel_key,
-        channel_config=channel if not args.subreddit else {}
+        channel_config=channel if not args.subreddit else {},
+        skip_rank=skip_rank
     )
 
     if story:

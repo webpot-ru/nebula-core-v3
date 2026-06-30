@@ -2,14 +2,16 @@ name: Reddit Video Auto-Publish Pipeline
 
 on:
   schedule:
-    # Daily automation runs. You can dispatch runs for other channels using local CLI orchestrators.
+    # Morning batch: publish first video of the day for ALL 7 channels
+    - cron: '0 6 * * *'
+    # Evening batch: publish second video of the day for ALL 7 channels
     - cron: '0 18 * * *'
   workflow_dispatch:
     inputs:
       channel:
         description: 'Channel ID to publish to (acc1 to acc7)'
         required: true
-        default: 'acc1'
+        default: 'acc4'
         type: choice
         options:
           - acc1
@@ -29,12 +31,54 @@ on:
           - week
           - month
           - year
+      video_slot:
+        description: 'Which video of the day (1=morning, 2=evening)'
+        required: false
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
 
 jobs:
+  # ── Determine which channels to publish to based on trigger ────────────
+  resolve-channels:
+    runs-on: ubuntu-latest
+    outputs:
+      channels: ${{ steps.channels.outputs.list }}
+      video_slot: ${{ steps.channels.outputs.slot }}
+      time_filter: ${{ steps.channels.outputs.time_filter }}
+    steps:
+      - id: channels
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual run: single channel only
+            echo "list=[\"${{ github.event.inputs.channel }}\"]" >> $GITHUB_OUTPUT
+            echo "slot=${{ github.event.inputs.video_slot || '1' }}" >> $GITHUB_OUTPUT
+            echo "time_filter=${{ github.event.inputs.time_filter || 'week' }}" >> $GITHUB_OUTPUT
+          else
+            # Scheduled run: all 7 channels in parallel
+            echo 'list=["acc1","acc2","acc3","acc4","acc5","acc6","acc7"]' >> $GITHUB_OUTPUT
+            # Morning cron (6:00) = slot 1, Evening cron (18:00) = slot 2
+            HOUR=$(date -u +%H)
+            if [ "$HOUR" -lt "12" ]; then
+              echo "slot=1" >> $GITHUB_OUTPUT
+            else
+              echo "slot=2" >> $GITHUB_OUTPUT
+            fi
+            echo "time_filter=week" >> $GITHUB_OUTPUT
+          fi
+
+  # ── Build and publish one video per channel (parallel matrix) ──────────
   build-and-publish:
+    needs: resolve-channels
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    strategy:
+      fail-fast: false   # if one channel fails, others keep going
+      matrix:
+        channel: ${{ fromJson(needs.resolve-channels.outputs.channels) }}
 
     steps:
       - name: Checkout repository
@@ -49,56 +93,75 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          sudo apt-get update
+          sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
-          if ! command -v google-chrome >/dev/null 2>&1 && ! command -v google-chrome-stable >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
+          if ! command -v google-chrome >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
             sudo apt-get install -y chromium
           fi
 
-      - name: Resolve Target Channel
+      - name: Resolve channel metadata
         id: target
         run: |
-          # Use workflow input if manually triggered, otherwise fallback to acc1 for daily cron
-          CHANNEL_ID="${{ github.event.inputs.channel || 'acc1' }}"
-          TIME_FILTER="${{ github.event.inputs.time_filter || 'week' }}"
-          
-          # Extract the digits from the channel ID to get the YouTube account index (e.g. acc4 -> 4)
+          CHANNEL_ID="${{ matrix.channel }}"
           ACC_INDEX="${CHANNEL_ID//[!0-9]/}"
-          
-          echo "channel_id=${CHANNEL_ID}" >> $GITHUB_OUTPUT
-          echo "time_filter=${TIME_FILTER}" >> $GITHUB_OUTPUT
-          echo "acc_index=${ACC_INDEX}" >> $GITHUB_OUTPUT
+          SLOT="${{ needs.resolve-channels.outputs.video_slot }}"
+          TIME_FILTER="${{ needs.resolve-channels.outputs.time_filter }}"
 
+          echo "channel_id=${CHANNEL_ID}" >> $GITHUB_OUTPUT
+          echo "acc_index=${ACC_INDEX}"   >> $GITHUB_OUTPUT
+          echo "video_slot=${SLOT}"       >> $GITHUB_OUTPUT
+          echo "time_filter=${TIME_FILTER}" >> $GITHUB_OUTPUT
+
+          echo "📺 Channel: ${CHANNEL_ID} | Slot: ${SLOT} | Filter: ${TIME_FILTER}"
+
+      # ── Video slot offset: slot 2 skips the story used in slot 1 ─────
+      # We use --min-rank to skip the top-N posts already published today.
+      # Slot 1 → skip 0 (take the #1 story), Slot 2 → skip 1 (take #2 story)
       - name: Fetch viral story from Reddit
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
           REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
           REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          AI_QUALITY_CHECK: '1'
         run: |
-          python scraper.py --channel ${{ steps.target.outputs.channel_id }} --time ${{ steps.target.outputs.time_filter }}
+          SLOT="${{ steps.target.outputs.video_slot }}"
+          python scraper.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --time ${{ steps.target.outputs.time_filter }} \
+            --video-slot ${SLOT}
 
       - name: Generate VectorEngine SEO metadata
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
-          python metadata_generator.py --channel ${{ steps.target.outputs.channel_id }} --confirm-spend --output youtube_metadata.json
+          python metadata_generator.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --confirm-spend \
+            --output youtube_metadata.json
 
       - name: Translate & Generate AI33 neural voice audio
         env:
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
         run: |
-          # translator_tts accepts --channel, resolving language and voice from channels.json
-          python translator_tts.py --channel ${{ steps.target.outputs.channel_id }} --with-transcript --output narration.mp3
+          python translator_tts.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --with-transcript \
+            --output narration.mp3
 
       - name: Generate storyboard JSON
         run: |
-          python storyboard_generator.py --input story_data.json --output storyboard.json
+          python storyboard_generator.py \
+            --input story_data.json \
+            --output storyboard.json
 
       - name: Render dynamic MP4 video
         run: |
-          # Renders with smooth 30fps animation, automatically syncing duration with narration.mp3
-          python render.py --storyboard storyboard.json --output final_output.mp4 --frame-count 300
+          python render.py \
+            --storyboard storyboard.json \
+            --output final_output.mp4 \
+            --frame-count 300
 
       - name: Upload video to YouTube channel
         env:
@@ -114,11 +177,12 @@ jobs:
         run: |
           python uploader.py final_output.mp4 ${{ steps.target.outputs.acc_index }}
 
-      - name: Commit and Push History Update
+      - name: Commit and push history update
         if: success()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
           git add published_history.json
-          git commit -m "chore: update published history [skip ci]" || echo "No changes to commit"
-          git push origin main || echo "No changes to push"
+          git commit -m "chore: update history [${{ steps.target.outputs.channel_id }}] slot=${{ steps.target.outputs.video_slot }} [skip ci]" || echo "No changes"
+          git push origin main || echo "Push skipped (no changes)"
