@@ -64,21 +64,37 @@ def upload_video(video_file, title, description, account_index="1", category_id=
     print(f"SUCCESS! Video uploaded. Video ID: {response.get('id')}")
     return True
 
-if __name__ == '__main__':
-    video_path = sys.argv[1] if len(sys.argv) > 1 else 'final_output.mp4'
-    acc_num = sys.argv[2] if len(sys.argv) > 3 else "1"
-    
+
+def load_upload_metadata():
+    metadata_file = os.path.join(os.path.dirname(__file__), 'youtube_metadata.json')
     story_file = os.path.join(os.path.dirname(__file__), 'story_data.json')
+
     video_title = "Reddit Story"
     video_desc = "Subscribe for more viral Reddit stories!"
-    
+    tags = None
+
+    if os.path.exists(metadata_file):
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        video_title = data.get('youtube_title') or video_title
+        video_desc = data.get('youtube_description') or video_desc
+        tags = data.get('tags') or tags
+        return video_title, video_desc, tags
+
     if os.path.exists(story_file):
         with open(story_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            video_title = data.get('title', video_title)
-            video_desc = f"{data.get('title')}\n\nOriginal thread: {data.get('url')}\n\n#reddit #shorts #stories"
+        video_title = data.get('title', video_title)
+        video_desc = f"{data.get('title')}\n\nOriginal thread: {data.get('url')}\n\n#reddit #shorts #stories"
+
+    return video_title, video_desc, tags
+
+if __name__ == '__main__':
+    video_path = sys.argv[1] if len(sys.argv) > 1 else 'final_output.mp4'
+    acc_num = sys.argv[2] if len(sys.argv) > 2 else "1"
+    video_title, video_desc, video_tags = load_upload_metadata()
 
     if os.path.exists(video_path):
-        upload_video(video_path, video_title, video_desc, account_index=acc_num)
+        upload_video(video_path, video_title, video_desc, account_index=acc_num, tags=video_tags)
     else:
         print(f"Video file '{video_path}' not found. Please render the video first.")
