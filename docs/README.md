@@ -186,7 +186,16 @@ sample_story_data.json or story_data.json
   -> final_output.mp4
 ```
 
-This path does **not** call Reddit, AI33, VectorEngine, or YouTube. It is only a proof that the project can create a 9:16 MP4 artifact locally and in GitHub Actions.
+This path does **not** call Reddit, AI33, VectorEngine, or YouTube. It is only a proof that the project can create an MP4 artifact locally and in GitHub Actions.
+
+Generated previews and scratch files must not be deleted directly. Move them into project Trash with:
+
+```bash
+bash scripts/move-to-trash.sh build/render/example_preview.png
+find build/render -type f -name '*.png' -print0 | bash scripts/move-to-trash.sh --stdin0
+```
+
+The helper preserves project-relative paths under `Trash/<timestamp>/...`; only the user should permanently empty Trash.
 
 ```bash
 python3 storyboard_generator.py --input sample_story_data.json --output storyboard.json
@@ -196,6 +205,8 @@ ffprobe final_output.mp4
 ```
 
 `render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic typing/karaoke screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. If `narration.json` exists, the renderer passes it into RedditSim so the current word is highlighted directly inside the existing Reddit card text. Karaoke mode does not add extra caption words, lower subtitle strips, or overlay text.
+
+Render orientation is duration-aware. In default `--orientation auto` mode, videos up to 180 seconds render as vertical Shorts (`1080x1920`, mobile layout), while videos longer than 180 seconds render as horizontal long-form video (`1920x1080`, desktop layout). Both modes use the same in-text karaoke highlight; horizontal render fills the 16:9 viewport with a clean centered Reddit card and hides editor/sidebar widgets. Override only intentionally with `--orientation vertical` or `--orientation horizontal`.
 
 The GitHub dry-run workflow is `.github/workflows/video_dry_run.yml`. The current workflow fetches a live Reddit story and calls AI33 for narration/transcript, so it uses configured secrets and can spend provider credits. It installs FFmpeg, uses the runner browser, builds `storyboard.json`, renders `final_output.mp4`, verifies the file with `ffprobe`, creates preview PNGs, and uploads video, story, storyboard, narration, transcript, and previews as an artifact.
 
@@ -329,8 +340,8 @@ The final candidate score also includes a small topic-weight boost, time-window 
 ```bash
 python3 translator_tts.py es --output narration_es.mp3
 python3 translator_tts.py --channel acc4 --output narration_es.mp3
-python3 translator_tts.py ru --voice-id edge_ru-RU-DmitryNeural
-python3 translator_tts.py --channel acc4 --comment-voice-id edge_es-MX-DaliaNeural --output narration.mp3
+python3 translator_tts.py ru --voice-id elevenlabs_rQOBu7YxCDxGiFdTm28w
+python3 translator_tts.py --channel acc3 --comment-voice-id elevenlabs_LB5G0Z4EP98YaEgL654m --output narration.mp3
 ```
 
 Before TTS, the script now localizes `story_data.json` for non-English target channels through VectorEngine Gemini using the channel's `translate_prompt`. It translates the story `title`, story `body`, and each comment `body`, preserves usernames/metadata, writes localization metadata into the story JSON, and by default overwrites `--story` so `storyboard_generator.py` and `render.py` consume the translated text. Use `--translated-story-output story_localized_<lang>.json` to keep the original file untouched, `--skip-translation` for an explicit no-localization run, or `--force-translation` to refresh existing localized text.
@@ -347,68 +358,77 @@ Header: xi-api-key: $AI33_API_KEY
 Fields: text, voice_id, model_id, speed, with_transcript, context_chaining, file_name
 ```
 
-`voice_id` must already include an AI33 provider prefix:
+Production channel `voice_id` values must use the ElevenLabs AI33 provider prefix:
 
 ```text
 elevenlabs_...
-minimax_...
-clone_...
-edge_...
-kokoro_...
 ```
 
-`channels.json` is the current source of truth for per-channel TTS voice ids. It currently still contains temporary Edge-backed voices, but production publishing requires real ElevenLabs voices through AI33. `auto_publish.yml` runs this early preflight before Reddit/Gemini/AI33 spend:
+`channels.json` is the current source of truth for per-channel TTS voice ids. All configured channels now use ElevenLabs-prefixed AI33 voice ids; Edge values should be treated only as historical placeholders. `auto_publish.yml` runs this early preflight before Reddit/Gemini/AI33 spend:
 
 ```bash
 python3 translator_tts.py --channel acc4 --check-voice-config --require-voice-prefix elevenlabs_
 ```
 
-Until both `tts_voice` and `comment_tts_voice` start with `elevenlabs_`, the publish workflow fails early for that channel. Current configured values are:
+The publish workflow remains fail-closed: if either `tts_voice` or `comment_tts_voice` stops using an `elevenlabs_` prefix, it fails early for that channel. Current configured values are:
 
 | Channel | Narrator `tts_voice` | Comment `comment_tts_voice` |
 |---|---|---|
-| Russia | `edge_ru-RU-DmitryNeural` | `edge_ru-RU-SvetlanaNeural` |
-| English | `edge_en-US-ChristopherNeural` | `edge_en-US-JennyNeural` |
-| Germany | `edge_de-DE-ConradNeural` | `edge_de-DE-KatjaNeural` |
+| Russia | `elevenlabs_rQOBu7YxCDxGiFdTm28w` | `elevenlabs_ymDCYd8puC7gYjxIamPt` |
+| English | `elevenlabs_sB7vwSCyX0tQmU24cW2C` | `elevenlabs_DODLEQrClDo8wCz460ld` |
+| Germany | `elevenlabs_aTTiK3YzK3dXETpuDE2h` | `elevenlabs_LB5G0Z4EP98YaEgL654m` |
 | LATAM | `elevenlabs_22VndfJPBU7AZORAZZTT` | `elevenlabs_8mBRP99B2Ng2QwsJMFQl` |
 | Brazil | `elevenlabs_dX7gRq1dIvLTgUaWpEFn` | `elevenlabs_4r3G9XKliGgVZLKMgjik` |
-| France | `edge_fr-FR-HenriNeural` | `edge_fr-FR-DeniseNeural` |
-| Italy | `edge_it-IT-DiegoNeural` | `edge_it-IT-IsabellaNeural` |
+| France | `elevenlabs_wufFsVwuYBePWKO6dMMN` | `elevenlabs_i6ke7jvmGEVUyV4zjSaT` |
+| Italy | `elevenlabs_ImsA1Fn5TNc843fFdz99` | `elevenlabs_RXoaSpLaWTEckJgPUBG3` |
 
-To enable publishing for the remaining channels, replace the temporary Edge values with AI33 ElevenLabs voice IDs from AI33 Voice Library. Paste the returned prefixed `voice_id` values into `tts_voice` and `comment_tts_voice`, or pass them with `--voice-id` / `--comment-voice-id` for a one-off local test.
+Before public publishing, run short user-approved AI33 sound tests for each active narrator/comment pair. For one-off experiments, pass `--voice-id` / `--comment-voice-id` without editing `channels.json`.
 
 Voice selection is per channel and per narration role. There is no requirement to find one universal voice for all languages; each channel can use its own narrator/comment pair as long as both configured IDs match the target language and start with `elevenlabs_`.
 
-Current ElevenLabs candidates collected from AI33 Voice Library screenshots:
+Current ElevenLabs candidates collected from AI33 Voice Library screenshots and metadata readback:
 
-| Raw ElevenLabs ID | AI33 `voice_id` | Screenshot languages | Safe channel fit | Do not use for |
+| Raw ElevenLabs ID | AI33 `voice_id` | Verified catalog metadata | Safe channel fit | Do not use for |
 |---|---|---|---|---|
-| `cCYjmrGZaI86GUJ7F2Nn` | `elevenlabs_cCYjmrGZaI86GUJ7F2Nn` | English, French, Norwegian, Czech, Hindi, Croatian, Russian, Arabic, Tamil, Vietnamese, Malay, Indonesian, Polish, Turkish, Dutch, Romanian, Chinese, Portuguese | Candidate for English, French, Russian, and possibly Portuguese after accent check | LATAM Spanish, German, Italian |
-| `nzFihrBIvB34imQBuxub` | `elevenlabs_nzFihrBIvB34imQBuxub` | English, Slovak, French, Hindi, Croatian, Hungarian, Tamil, Norwegian, Russian, Vietnamese, Indonesian, Malay, Romanian, Turkish | Candidate for English, French, and Russian | LATAM Spanish, Brazil Portuguese, German, Italian |
-| `BIvP0GN1cAtSRTxNHnWS` | `elevenlabs_BIvP0GN1cAtSRTxNHnWS` | English, Spanish, Russian, Slovak, Romanian, Croatian, Polish, Italian, Danish | Candidate for LATAM Spanish, Italian, English, and Russian | Brazil Portuguese, French, German |
-| `93nuHbke4dTER9x2pDwE` | `elevenlabs_93nuHbke4dTER9x2pDwE` | French, Portuguese, Hindi, Polish, Spanish, Russian, Croatian, Korean, Slovak, Malay, Chinese, Ukrainian, Romanian, Swedish, Tamil, English | Candidate for LATAM Spanish, French, Portuguese, English, and Russian | German, Italian |
+| `cCYjmrGZaI86GUJ7F2Nn` | `elevenlabs_cCYjmrGZaI86GUJ7F2Nn` | AI33 readback verified: English `en-US` / `american`, male, middle-aged; also supports Russian `ru-RU` / `ru-standard`, French `fr-FR` / `fr-quebec`, Portuguese `pt-BR` / `pt-brazilian` | Strong candidate for English and Russian; secondary candidate for French/Portuguese if accent is acceptable | LATAM Spanish, German, Italian |
+| `sB7vwSCyX0tQmU24cW2C` | `elevenlabs_sB7vwSCyX0tQmU24cW2C` | AI33 readback verified: English `en-US` / `american`, male, middle-aged; name `Jon - Natural Authority` | Active `acc2` English narrator | Pending sound test |
+| `nzFihrBIvB34imQBuxub` | `elevenlabs_nzFihrBIvB34imQBuxub` | AI33 readback verified: English `en-US` / `american`, male, young; also supports Russian `ru-RU` / `ru-standard`, French `fr-FR` / `fr-quebec` | English spare/young alternate; possible Russian spare | LATAM Spanish, Brazil Portuguese, German, Italian |
+| `DODLEQrClDo8wCz460ld` | `elevenlabs_DODLEQrClDo8wCz460ld` | AI33 readback verified: English `en-US` / `american`, female, middle-aged; name `Lauren - Friendly, Comforting and Soft` | Active `acc2` English comments | Pending sound test |
+| `BIvP0GN1cAtSRTxNHnWS` | `elevenlabs_BIvP0GN1cAtSRTxNHnWS` | AI33 readback verified: English `en-GB` / `german`, female, young; also supports Russian `ru-RU` / `standard`, Italian `it-IT` / `standard`; Spanish is `es-ES` / `peninsular` | Candidate for Italian and Russian; possible English character/comment voice only after sound test | LATAM Spanish, Brazil Portuguese, French, German |
+| `93nuHbke4dTER9x2pDwE` | `elevenlabs_93nuHbke4dTER9x2pDwE` | AI33 readback verified: French `fr-CA` / `quebec`, male, middle-aged; also supports Portuguese `pt-BR` / `brazilian`, Russian `ru-RU` / `standard`, English `en-US` / `southern`; Spanish is `es-ES` / `peninsular` | French Canada/Québec spare; not main France-standard narrator | LATAM Spanish, German, Italian |
+| `wufFsVwuYBePWKO6dMMN` | `elevenlabs_wufFsVwuYBePWKO6dMMN` | AI33 readback verified: French `fr-FR` / `standard`, male, middle-aged; name `Rudy - Narrator` | Active `acc6` France-standard French narrator | Pending sound test |
+| `i6ke7jvmGEVUyV4zjSaT` | `elevenlabs_i6ke7jvmGEVUyV4zjSaT` | AI33 readback verified: French `fr-FR` / `parisian`, female, young; name `Emilie - Pro` | Active `acc6` French comments | Pending sound test |
+| `ymDCYd8puC7gYjxIamPt` | `elevenlabs_ymDCYd8puC7gYjxIamPt` | AI33 readback verified: Russian `ru-RU` / `standard`, female, middle-aged | Active `acc1` Russian comments | Pending sound test |
+| `rQOBu7YxCDxGiFdTm28w` | `elevenlabs_rQOBu7YxCDxGiFdTm28w` | AI33 readback verified: Russian `ru-RU` / `standard`, male, middle-aged | Active `acc1` Russian narrator | Pending sound test |
+| `LB5G0Z4EP98YaEgL654m` | `elevenlabs_LB5G0Z4EP98YaEgL654m` | AI33 readback verified: German `de-DE` / `standard`, female, young | Active `acc3` German comments | Pending sound test |
+| `aTTiK3YzK3dXETpuDE2h` | `elevenlabs_aTTiK3YzK3dXETpuDE2h` | AI33 readback verified: German `de-DE` / `standard`, male, young | Active `acc3` German narrator | Pending sound test |
+| `5KvpaGteYkNayiswuX2h` | `elevenlabs_5KvpaGteYkNayiswuX2h` | AI33 readback verified: German `de-DE` / `standard`, male, old | German spare narrator/character voice; possible authoritative explainer tone | Pending sound test |
+| `ImsA1Fn5TNc843fFdz99` | `elevenlabs_ImsA1Fn5TNc843fFdz99` | AI33 readback verified: Italian `it-IT` / `standard`, male, young; name `Davide - Sports Commentator` | Active `acc7` Italian narrator | Pending sound test |
+| `RXoaSpLaWTEckJgPUBG3` | `elevenlabs_RXoaSpLaWTEckJgPUBG3` | AI33 readback verified: Italian `it-IT` / `standard`, female, middle-aged; name `Tiziana - Smart, Balanced and Credible` | Active `acc7` Italian comments | Pending sound test |
 | `22VndfJPBU7AZORAZZTT` | `elevenlabs_22VndfJPBU7AZORAZZTT` | AI33 readback verified: Spanish, `es-AR`, `latin american`, female, young | Active `acc4` LATAM Spanish narrator | Pending sound test |
 | `8mBRP99B2Ng2QwsJMFQl` | `elevenlabs_8mBRP99B2Ng2QwsJMFQl` | AI33 readback verified: Spanish, `es-AR`, `latin american`, male, old | Active `acc4` LATAM Spanish comments | Pending sound test |
 | `dX7gRq1dIvLTgUaWpEFn` | `elevenlabs_dX7gRq1dIvLTgUaWpEFn` | AI33 readback verified: Portuguese, `pt-BR`, `brazilian`, male, middle-aged | Active `acc5` Brazil Portuguese narrator | Pending sound test |
 | `4r3G9XKliGgVZLKMgjik` | `elevenlabs_4r3G9XKliGgVZLKMgjik` | AI33 readback verified: Portuguese, `pt-BR`, `brazilian`, male, middle-aged | Active `acc5` Brazil Portuguese comments | Pending sound test |
 
-The Spanish and Brazilian Portuguese pairs are active in `channels.json` right now: `22VndfJPBU7AZORAZZTT` / `8mBRP99B2Ng2QwsJMFQl` for `acc4`, and `dX7gRq1dIvLTgUaWpEFn` / `4r3G9XKliGgVZLKMgjik` for `acc5`. The other candidate IDs are documented for selection but not yet configured. A single voice ID is only one role; each remaining channel still needs a separate narrator/comment pair before production publishing. Do not configure a voice on a channel whose target language is missing from the AI33/ElevenLabs language list.
+All seven channels now have active ElevenLabs-prefixed narrator/comment pairs in `channels.json`. A single voice ID is only one role; each channel should keep separate narrator and comment voices before production publishing. Do not configure a voice on a channel whose target language is missing from the AI33/ElevenLabs language list.
 
 Verification note: the AI33 metadata endpoint is `GET /v3/voices?provider=elevenlabs&search=<voice_id>`. This confirms catalog labels such as language, locale, accent, gender, and age; it does not synthesize audio, so a short AI33 sound test is still required before public production use.
 
 For no-audio metadata readback through the repository secret, use the manual workflow `.github/workflows/voice_metadata_check.yml`. It calls AI33 voice metadata endpoints with `AI33_API_KEY`, prints only sanitized metadata for requested voice IDs, and does not call `/v3/text-to-speech`.
 
+For audible review, use the manual workflow `.github/workflows/audit_voice_youtube.yml` with `generate_voice_samples=true`. It generates short AI33 samples for the configured narrator/comment voices and uploads them as the `ai33-voice-samples` artifact. This spends AI33 TTS credits but does not call Reddit, VectorEngine, render, or YouTube upload.
+
 Current candidate coverage:
 
 | Channel | Candidate status |
 |---|---|
-| `acc1` Russian | Enough candidates for a narrator/comment pair, pending sound test |
-| `acc2` English | Enough candidates for a narrator/comment pair, pending sound test |
-| `acc3` German | No confirmed candidate yet |
+| `acc1` Russian | Standard Russian narrator/comment pair configured in `channels.json`, pending sound test |
+| `acc2` English | US English narrator/comment pair configured in `channels.json`, with one young male spare, pending sound test |
+| `acc3` German | Standard German narrator/comment pair configured in `channels.json`, with one spare German male voice, pending sound test |
 | `acc4` LATAM Spanish | Spanish Latin-accent narrator/comment pair configured in `channels.json` from user-provided AI33 UI readback, pending sound test |
 | `acc5` Brazil Portuguese | Brazilian-accent narrator/comment pair configured in `channels.json` from user-provided AI33 UI readback, pending sound test |
-| `acc6` French | Enough candidates for a narrator/comment pair, pending sound test |
-| `acc7` Italian | One confirmed-language candidate, still needs a second Italian voice for comments |
+| `acc6` French | France-standard / Parisian narrator/comment pair configured in `channels.json`, with one Québec male spare, pending sound test |
+| `acc7` Italian | Standard Italian narrator/comment pair configured in `channels.json`, pending sound test |
 
 For ElevenLabs-backed voices, `translator_tts.py` sends `model_id=eleven_v3` by default. Override only intentionally:
 
@@ -443,7 +463,7 @@ Live translation and audio generation can spend VectorEngine and AI33 credits, s
 
 On 2026-06-29, user-approved local smokes used the gitignored LUNA2 AI33 key without printing or copying it into this repo. The first test submitted an ElevenLabs-prefixed voice id with `[sighs]`, `[laughs]`, and `[whispers]` tags. A second test explicitly sent `model_id=eleven_v3` with `[laughs]` and `[sighs]`; AI33 returned `task_id=08c146ad-82a0-4efb-a4e2-f8ec65254852`, `/v3/task/{task_id}` polling returned `status=done`, and the output file was a valid 5.64s MP3 at `/tmp/reddit_ai33_eleven_v3_laugh.mp3`.
 
-Important distinction: the smoke used an `elevenlabs_...` voice. The current `channels.json` defaults are `edge_...` voices routed through AI33 as a low-risk baseline; if emotional sound tags like laughter should be default behavior, choose final `elevenlabs_...` or `minimax_...` voices from AI33 Voice Library and update `channels.json`.
+Important distinction: the smoke used an `elevenlabs_...` voice, and current `channels.json` production channel voices are also `elevenlabs_...`. Older Edge placeholders are historical only and should not be reintroduced unless the project explicitly changes provider strategy.
 
 ### Translation Prompts per Channel
 
@@ -499,6 +519,7 @@ SEO/upload handling:
 - `language` is passed to YouTube as `defaultLanguage` and `defaultAudioLanguage` when present.
 - Manual `auto_publish.yml` runs default to `privacy_status=unlisted`; scheduled runs are also temporarily `unlisted` until YouTube account-token mapping is audited.
 - `uploader.py --check-channel-only --account-index N` calls `channels.list(mine=true)` and verifies the authenticated channel against `channels.json`; `auto_publish.yml` runs this as an early preflight before Reddit/Gemini/AI33/render spend.
+- For a mapping-only audit across all accounts, use `.github/workflows/audit_voice_youtube.yml` with `check_youtube_mapping=true`. It runs `uploader.py --check-channel-only` for `acc1` through `acc7`, uploads per-account logs, and does not continue into Reddit/Gemini/AI33/render/upload.
 - Before upload, `uploader.py` repeats the same channel check; a mismatch blocks `videos.insert`.
 - After upload, `uploader.py` calls `videos.list(part=snippet,status)` to read back channel id, privacy, and language.
 - Public oEmbed readback can confirm the uploaded title and channel handle for unlisted videos, but authenticated YouTube Data API readback is still needed for description, tags, language, and final status.
@@ -577,6 +598,8 @@ render.py → final_output.mp4 with audio track + required karaoke highlight whe
     ↓
 uploader.py → channel preflight, YouTube upload, metadata readback
 ```
+
+`render.py` uses `--orientation auto` by default: narration/storyboard duration up to 180 seconds stays vertical 9:16 for Shorts, and anything longer than 180 seconds becomes horizontal 16:9 for long-form YouTube. The horizontal path keeps the same word-level karaoke treatment on the Reddit card text and does not add side panels or extra captions.
 
 ### ⚠️ Orchestration Rule (CRITICAL)
 

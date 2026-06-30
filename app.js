@@ -122,6 +122,8 @@ const postCommentsSection = document.getElementById('postCommentsSection');
 const hudStatus = document.getElementById('hudStatus');
 const exitCleanIndicator = document.getElementById('exitCleanIndicator');
 const appContainer = document.querySelector('.app-container');
+const renderAspectRatios = new Set(['ratio-9-16', 'ratio-16-9', 'ratio-1-1']);
+const renderLayoutStyles = new Set(['layout-mobile', 'layout-desktop']);
 
 // Sound Synthesis Function
 function initAudio() {
@@ -443,8 +445,14 @@ async function applyRenderModeFromQuery() {
     applyStoryData(await response.json());
   }
 
-  state.aspectRatio  = 'ratio-9-16';
-  state.layoutStyle  = 'layout-mobile';
+  const requestedAspect = params.get('aspect') || params.get('aspectRatio') || 'ratio-9-16';
+  const requestedLayout = params.get('layout') || params.get('layoutStyle');
+  state.aspectRatio = renderAspectRatios.has(requestedAspect) ? requestedAspect : 'ratio-9-16';
+  if (requestedLayout && renderLayoutStyles.has(requestedLayout)) {
+    state.layoutStyle = requestedLayout;
+  } else {
+    state.layoutStyle = state.aspectRatio === 'ratio-16-9' ? 'layout-desktop' : 'layout-mobile';
+  }
   state.theme        = params.get('theme')      || 'theme-reddit-midnight';
   state.background   = params.get('background') || 'bg-dark-aurora';
   state.safeZone     = 'sz-none';
@@ -656,7 +664,6 @@ function renderKaraokeAtTime(timeSeconds) {
     buildKaraokeDOM();
   }
   setKaraokeActiveIndex(findKaraokeWordIndex(coerceKaraokeTime(timeSeconds)));
-  scrollCanvasToBottom();
   return true;
 }
 

@@ -23,6 +23,21 @@ DEFAULT_OUTPUT_FPS = 30
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 20
 DEFAULT_AUDIO = "narration.mp3"
 DEFAULT_TRANSCRIPT = "narration.json"
+LONG_FORM_THRESHOLD_SECONDS = 180.0
+VERTICAL_PROFILE = {
+    "format": "shorts",
+    "width": 1080,
+    "height": 1920,
+    "aspect": "ratio-9-16",
+    "layout": "layout-mobile",
+}
+HORIZONTAL_PROFILE = {
+    "format": "long",
+    "width": 1920,
+    "height": 1080,
+    "aspect": "ratio-16-9",
+    "layout": "layout-desktop",
+}
 
 BROWSER_CANDIDATES = [
     "google-chrome",
@@ -336,6 +351,36 @@ def storyboard_duration(storyboard: dict[str, Any]) -> float:
     return max(duration, 3.0)
 
 
+def resolve_render_profile(
+    storyboard: dict[str, Any],
+    duration: float,
+    orientation: str,
+    long_form_threshold_sec: float,
+) -> dict[str, Any]:
+    if orientation == "horizontal":
+        return dict(HORIZONTAL_PROFILE)
+    if orientation == "vertical":
+        return dict(VERTICAL_PROFILE)
+    if duration > long_form_threshold_sec:
+        return dict(HORIZONTAL_PROFILE)
+
+    resolution = storyboard.get("resolution") or {}
+    try:
+        width = int(resolution.get("width") or VERTICAL_PROFILE["width"])
+        height = int(resolution.get("height") or VERTICAL_PROFILE["height"])
+    except (TypeError, ValueError):
+        width = int(VERTICAL_PROFILE["width"])
+        height = int(VERTICAL_PROFILE["height"])
+
+    if width > height:
+        profile = dict(HORIZONTAL_PROFILE)
+    else:
+        profile = dict(VERTICAL_PROFILE)
+    profile["width"] = width
+    profile["height"] = height
+    return profile
+
+
 def resolve_optional_file(value: str | None) -> Path | None:
     if not value:
         return None
@@ -365,6 +410,8 @@ def capture_redditsim_frames(
     frame_count: int,
     width: int,
     height: int,
+    aspect_ratio: str,
+    layout_style: str,
 ) -> list[Path]:
     frames_dir = workdir / f"frames_{time.time_ns()}"
     frames_dir.mkdir(parents=True, exist_ok=True)
@@ -375,6 +422,8 @@ def capture_redditsim_frames(
         ("render", "1"),
         ("capture", "1"),
         ("story", story_url),
+        ("aspect", aspect_ratio),
+        ("layout", layout_style),
     ]
     if audio_path:
         query_parts.append(("audio", audio_path.resolve().as_uri()))
@@ -490,8 +539,8 @@ def render_redditsim_video(
     output_path: Path,
     workdir: Path,
     frame_count: int,
-    width: int,
-    height: int,
+    orientation: str,
+    long_form_threshold_sec: float,
     audio_path: Path | None,
     transcript_path: Path | None,
 ) -> dict[str, Any]:
@@ -502,6 +551,9 @@ def render_redditsim_video(
     storyboard_sec = storyboard_duration(storyboard)
     audio_sec = probe_media_duration(ffprobe, audio_path) if audio_path else None
     duration = audio_sec or storyboard_sec
+    render_profile = resolve_render_profile(storyboard, duration, orientation, long_form_threshold_sec)
+    width = int(render_profile["width"])
+    height = int(render_profile["height"])
     frames = capture_redditsim_frames(
         browser=browser,
         story_path=story_path,
@@ -512,6 +564,8 @@ def render_redditsim_video(
         frame_count=frame_count,
         width=width,
         height=height,
+        aspect_ratio=str(render_profile["aspect"]),
+        layout_style=str(render_profile["layout"]),
     )
     encode_frames(ffmpeg, frames[0].parent, output_path, duration, len(frames), audio_path)
 
@@ -527,6 +581,11 @@ def render_redditsim_video(
         "audio": str(audio_path) if audio_path else None,
         "transcript": str(transcript_path) if transcript_path else None,
         "outputFps": DEFAULT_OUTPUT_FPS,
+        "renderFormat": render_profile["format"],
+        "resolution": f"{width}x{height}",
+        "aspectRatio": render_profile["aspect"],
+        "layoutStyle": render_profile["layout"],
+        "longFormThresholdSec": long_form_threshold_sec,
     }
 
 
@@ -538,6 +597,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--frame-count", type=int, default=DEFAULT_FRAME_COUNT, help="Number of RedditSim screenshots to sample across the storyboard.")
     parser.add_argument("--audio", default=DEFAULT_AUDIO, help="Optional narration audio path to merge into the MP4.")
     parser.add_argument("--transcript", default=DEFAULT_TRANSCRIPT, help="Optional word-level transcript JSON path for karaoke highlighting.")
+    parser.add_argument(
+        "--orientation",
+        choices=["auto", "vertical", "horizontal"],
+        default="auto",
+        help="Render orientation. In auto mode, videos longer than --long-form-threshold-sec render as horizontal 16:9.",
+    )
+    parser.add_argument(
+        "--long-form-threshold-sec",
+        type=float,
+        default=LONG_FORM_THRESHOLD_SECONDS,
+        help="Duration threshold above which --orientation auto renders horizontal 16:9 video.",
+    )
     return parser.parse_args(argv)
 
 
@@ -548,9 +619,6 @@ def main(argv: list[str]) -> int:
     if not scenes:
         raise RenderError(f"{args.storyboard} has no scenes.")
 
-    resolution = storyboard.get("resolution") or {}
-    width = int(resolution.get("width") or 1080)
-    height = int(resolution.get("height") or 1920)
     workdir = Path(args.workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     audio_path = resolve_optional_file(args.audio)
@@ -564,8 +632,8 @@ def main(argv: list[str]) -> int:
         output_path=output_path,
         workdir=workdir,
         frame_count=args.frame_count,
-        width=width,
-        height=height,
+        orientation=args.orientation,
+        long_form_threshold_sec=args.long_form_threshold_sec,
         audio_path=audio_path,
         transcript_path=transcript_path,
     )
@@ -574,7 +642,6 @@ def main(argv: list[str]) -> int:
         "storyboard": args.storyboard,
         "output": str(output_path),
         "sceneCount": len(scenes),
-        "resolution": f"{width}x{height}",
         "captureFrameCount": args.frame_count,
         **render_result,
     }, ensure_ascii=False, indent=2))

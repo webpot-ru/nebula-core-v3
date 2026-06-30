@@ -1,0 +1,115 @@
+name: Voice Samples and YouTube Mapping Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      check_youtube_mapping:
+        description: 'Run YouTube refresh-token to channel mapping audit'
+        required: true
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      generate_voice_samples:
+        description: 'Generate short AI33 voice samples for configured voices'
+        required: true
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      channels:
+        description: 'Comma-separated channel IDs for voice samples, or all'
+        required: true
+        default: 'all'
+      model_id:
+        description: 'AI33 TTS model_id'
+        required: true
+        default: 'eleven_v3'
+
+jobs:
+  youtube-mapping:
+    if: ${{ github.event.inputs.check_youtube_mapping == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        account: [1, 2, 3, 4, 5, 6, 7]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify YouTube channel token
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN_ACC1: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC1 }}
+          YOUTUBE_REFRESH_TOKEN_ACC2: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC2 }}
+          YOUTUBE_REFRESH_TOKEN_ACC3: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC3 }}
+          YOUTUBE_REFRESH_TOKEN_ACC4: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC4 }}
+          YOUTUBE_REFRESH_TOKEN_ACC5: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC5 }}
+          YOUTUBE_REFRESH_TOKEN_ACC6: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC6 }}
+          YOUTUBE_REFRESH_TOKEN_ACC7: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC7 }}
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/audit/youtube-mapping
+          python uploader.py \
+            --check-channel-only \
+            --account-index ${{ matrix.account }} \
+            | tee build/audit/youtube-mapping/acc${{ matrix.account }}.log
+
+      - name: Upload mapping log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: youtube-mapping-acc${{ matrix.account }}
+          path: build/audit/youtube-mapping/acc${{ matrix.account }}.log
+          if-no-files-found: warn
+
+  voice-samples:
+    if: ${{ github.event.inputs.generate_voice_samples == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate AI33 voice samples
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+        run: |
+          python scripts/generate_ai33_voice_samples.py \
+            --channels "${{ github.event.inputs.channels }}" \
+            --model-id "${{ github.event.inputs.model_id }}" \
+            --output-dir build/voice_samples
+
+      - name: Upload voice samples
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai33-voice-samples
+          path: build/voice_samples
+          if-no-files-found: error
