@@ -1,5 +1,48 @@
 {
-  "1uevouc": [
-    "acc4"
-  ]
+  "version": 2,
+  "posts": {
+    "1uevouc": {
+      "channels": {
+        "acc4": {}
+      }
+    },
+    "1ugidh2": {
+      "channels": {
+        "acc4": {
+          "published_at": "2026-06-30T11:44:15.494726+00:00"
+        }
+      },
+      "title": "AITA for being blunt with my boyfriend about why he isn't getting hired anywhere?",
+      "subreddit": "r/AmItheAsshole",
+      "url": "https://reddit.com/r/AmItheAsshole/comments/1ugidh2/aita_for_being_blunt_with_my_boyfriend_about_why/",
+      "story_signature": "e03fa42a6c456636",
+      "keyword_signature": "2024 anywhere been being blunt boyfriend business couple decided friendship getting gotten helped hired insurance into",
+      "topic_family": "human_drama",
+      "topic_label": "Human drama / moral conflict",
+      "time_window": "week",
+      "virality_score": 100,
+      "base_virality_score": 80,
+      "velocity": {
+        "age_hours": 87.07,
+        "upvotes_per_hour": 84.36,
+        "comments_per_hour": 16.98
+      },
+      "fatigue_penalty": 0,
+      "ai_quality": {
+        "verdict": "REWRITE",
+        "niche_fit": 8,
+        "hook_strength": 5,
+        "narrative_arc": 8,
+        "translation": 9,
+        "viral_potential": 8,
+        "novelty": 6,
+        "duplicate_risk": 3,
+        "legal_risk": 1,
+        "topic_family": "Human drama / moral conflict",
+        "shorts_hook_type": "controversy",
+        "reason": "The story has great viral potential and fits the niche, but the opening needs to be rewritten to immediately grab attention on Shorts.",
+        "hook_suggestion": "Como gerente de Recursos Humanos, le dije a mi novio la dolorosa verdad de por qué nadie lo contrata y ahora me acusa de destruir su autoestima."
+      }
+    }
+  }
 }
