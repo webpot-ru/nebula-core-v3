@@ -340,17 +340,21 @@ def capture_redditsim_frames(
 
     process, client = start_cdp_browser(browser, frames_dir, width, height)
     try:
+        # Load index page once
+        initial_url = f"{index_url}?render=1&story={encoded_story_url}"
+        client.command("Page.navigate", {"url": initial_url}, timeout=5)
+        wait_for_render_ready(client)
+
         for frame_index in range(frame_count):
             progress = frame_index / (frame_count - 1)
             screenshot_path = frames_dir / f"frame_{frame_index:04d}.png"
-            url = (
-                f"{index_url}?render=1"
-                f"&story={encoded_story_url}"
-                f"&progress={progress:.6f}"
-            )
-            client.command("Page.navigate", {"url": url}, timeout=5)
-            wait_for_render_ready(client)
-            time.sleep(0.1)
+            
+            # Update typing animation progress in-memory via JavaScript
+            client.command("Runtime.evaluate", {
+                "expression": f"renderTypingAtProgress({progress:.6f})",
+                "returnByValue": True,
+            }, timeout=5)
+
             screenshot = client.command("Page.captureScreenshot", {
                 "format": "png",
                 "fromSurface": True,

@@ -395,6 +395,12 @@ function renderTypingAtProgress(progress) {
   postTitleCursor.classList.remove('active');
   postBodyCursor.classList.remove('active');
 
+  // Reset elements before applying progress state
+  postTitleText.textContent = '';
+  postBodyText.textContent = '';
+  postBodyWrapper.style.display = 'none';
+  postCommentsSection.innerHTML = '';
+
   typingQueue.forEach((item, index) => {
     const availableChars = Math.max(0, remainingChars);
     const visibleChars = Math.min(availableChars, item.text.length);
