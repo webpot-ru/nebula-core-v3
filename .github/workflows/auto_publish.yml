@@ -1,11 +1,40 @@
 name: Reddit Video Auto-Publish Pipeline
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Publishing schedule — optimised for each audience's prime-time (local 20:00)
+# and lunch-time (local 12:00), converted to UTC:
+#
+#  acc1 🇷🇺 Russia   MSK=UTC+3  → 09:00 UTC (12:00 MSK) / 17:00 UTC (20:00 MSK)
+#  acc2 🇺🇸 English  EST=UTC-5  → 17:00 UTC (12:00 EST) / 01:00 UTC (20:00 EST)
+#  acc3 🇩🇪 Germany  CET=UTC+1  → 11:00 UTC (12:00 CET) / 19:00 UTC (20:00 CET)
+#  acc4 🇲🇽 LATAM    CST=UTC-6  → 18:00 UTC (12:00 CST) / 02:00 UTC (20:00 CST)
+#  acc5 🇧🇷 Brazil   BRT=UTC-3  → 15:00 UTC (12:00 BRT) / 23:00 UTC (20:00 BRT)
+#  acc6 🇫🇷 France   CET=UTC+1  → 11:00 UTC (12:00 CET) / 19:00 UTC (20:00 CET)
+#  acc7 🇮🇹 Italy    CET=UTC+1  → 11:00 UTC (12:00 CET) / 19:00 UTC (20:00 CET)
+# ─────────────────────────────────────────────────────────────────────────────
+
 on:
   schedule:
-    # Morning batch: publish first video of the day for ALL 7 channels
-    - cron: '0 6 * * *'
-    # Evening batch: publish second video of the day for ALL 7 channels
-    - cron: '0 18 * * *'
+    # ── acc1 Russia (MSK) ────────────────────────────────────────────────────
+    - cron: '0 9 * * *'    # slot 1 → 12:00 MSK
+    - cron: '0 17 * * *'   # slot 2 → 20:00 MSK ★ prime-time
+
+    # ── acc2 English (EST) ───────────────────────────────────────────────────
+    - cron: '0 17 * * *'   # slot 1 → 12:00 EST  (shared with acc1 slot2 run)
+    - cron: '0 1 * * *'    # slot 2 → 20:00 EST ★ prime-time
+
+    # ── acc3 Germany / acc6 France / acc7 Italy (CET) ────────────────────────
+    - cron: '0 11 * * *'   # slot 1 → 12:00 CET
+    - cron: '0 19 * * *'   # slot 2 → 20:00 CET ★ prime-time
+
+    # ── acc4 LATAM (CST) ─────────────────────────────────────────────────────
+    - cron: '0 18 * * *'   # slot 1 → 12:00 CST
+    - cron: '0 2 * * *'    # slot 2 → 20:00 CST ★ prime-time
+
+    # ── acc5 Brazil (BRT) ────────────────────────────────────────────────────
+    - cron: '0 15 * * *'   # slot 1 → 12:00 BRT
+    - cron: '0 23 * * *'   # slot 2 → 20:00 BRT ★ prime-time
+
   workflow_dispatch:
     inputs:
       channel:
@@ -13,72 +42,80 @@ on:
         required: true
         default: 'acc4'
         type: choice
-        options:
-          - acc1
-          - acc2
-          - acc3
-          - acc4
-          - acc5
-          - acc6
-          - acc7
+        options: [acc1, acc2, acc3, acc4, acc5, acc6, acc7]
       time_filter:
         description: 'Reddit top posts time filter'
         required: true
         default: 'week'
         type: choice
-        options:
-          - day
-          - week
-          - month
-          - year
+        options: [day, week, month, year]
       video_slot:
-        description: 'Which video of the day (1=morning, 2=evening)'
+        description: 'Which video slot (1=lunch, 2=prime-time)'
         required: false
         default: '1'
         type: choice
-        options:
-          - '1'
-          - '2'
+        options: ['1', '2']
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Map each cron trigger to the correct channel(s) and slot
+# ─────────────────────────────────────────────────────────────────────────────
 jobs:
-  # ── Determine which channels to publish to based on trigger ────────────
-  resolve-channels:
+  resolve:
     runs-on: ubuntu-latest
     outputs:
-      channels: ${{ steps.channels.outputs.list }}
-      video_slot: ${{ steps.channels.outputs.slot }}
-      time_filter: ${{ steps.channels.outputs.time_filter }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - id: channels
+      - id: plan
         run: |
+          HOUR=$(date -u +%H)   # current UTC hour (leading zero stripped below)
+          H=${HOUR#0}            # strip leading zero so bash treats it as decimal
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual run: single channel only
-            echo "list=[\"${{ github.event.inputs.channel }}\"]" >> $GITHUB_OUTPUT
-            echo "slot=${{ github.event.inputs.video_slot || '1' }}" >> $GITHUB_OUTPUT
-            echo "time_filter=${{ github.event.inputs.time_filter || 'week' }}" >> $GITHUB_OUTPUT
-          else
-            # Scheduled run: all 7 channels in parallel
-            echo 'list=["acc1","acc2","acc3","acc4","acc5","acc6","acc7"]' >> $GITHUB_OUTPUT
-            # Morning cron (6:00) = slot 1, Evening cron (18:00) = slot 2
-            HOUR=$(date -u +%H)
-            if [ "$HOUR" -lt "12" ]; then
-              echo "slot=1" >> $GITHUB_OUTPUT
-            else
-              echo "slot=2" >> $GITHUB_OUTPUT
-            fi
-            echo "time_filter=week" >> $GITHUB_OUTPUT
+            CH="${{ github.event.inputs.channel }}"
+            SLOT="${{ github.event.inputs.video_slot }}"
+            TF="${{ github.event.inputs.time_filter }}"
+            echo "matrix=[{\"channel\":\"${CH}\",\"slot\":\"${SLOT}\",\"time_filter\":\"${TF}\"}]" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-  # ── Build and publish one video per channel (parallel matrix) ──────────
-  build-and-publish:
-    needs: resolve-channels
+          # Build the publish matrix based on UTC hour
+          # Each entry: {"channel":"accN","slot":"1or2","time_filter":"week"}
+          ENTRIES=""
+
+          case "$H" in
+            1)   # 01:00 UTC → acc2 slot2 (20:00 EST)
+                 ENTRIES='[{"channel":"acc2","slot":"2","time_filter":"week"}]' ;;
+            2)   # 02:00 UTC → acc4 slot2 (20:00 CST)
+                 ENTRIES='[{"channel":"acc4","slot":"2","time_filter":"week"}]' ;;
+            9)   # 09:00 UTC → acc1 slot1 (12:00 MSK)
+                 ENTRIES='[{"channel":"acc1","slot":"1","time_filter":"week"}]' ;;
+            11)  # 11:00 UTC → acc3 + acc6 + acc7 slot1 (12:00 CET)
+                 ENTRIES='[{"channel":"acc3","slot":"1","time_filter":"week"},{"channel":"acc6","slot":"1","time_filter":"week"},{"channel":"acc7","slot":"1","time_filter":"week"}]' ;;
+            15)  # 15:00 UTC → acc5 slot1 (12:00 BRT)
+                 ENTRIES='[{"channel":"acc5","slot":"1","time_filter":"week"}]' ;;
+            17)  # 17:00 UTC → acc1 slot2 (20:00 MSK) + acc2 slot1 (12:00 EST)
+                 ENTRIES='[{"channel":"acc1","slot":"2","time_filter":"week"},{"channel":"acc2","slot":"1","time_filter":"week"}]' ;;
+            18)  # 18:00 UTC → acc4 slot1 (12:00 CST)
+                 ENTRIES='[{"channel":"acc4","slot":"1","time_filter":"week"}]' ;;
+            19)  # 19:00 UTC → acc3 + acc6 + acc7 slot2 (20:00 CET)
+                 ENTRIES='[{"channel":"acc3","slot":"2","time_filter":"week"},{"channel":"acc6","slot":"2","time_filter":"week"},{"channel":"acc7","slot":"2","time_filter":"week"}]' ;;
+            23)  # 23:00 UTC → acc5 slot2 (20:00 BRT)
+                 ENTRIES='[{"channel":"acc5","slot":"2","time_filter":"week"}]' ;;
+            *)   ENTRIES='[]' ;;
+          esac
+
+          echo "matrix=${ENTRIES}" >> $GITHUB_OUTPUT
+
+  publish:
+    needs: resolve
+    if: ${{ needs.resolve.outputs.matrix != '[]' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     strategy:
-      fail-fast: false   # if one channel fails, others keep going
+      fail-fast: false
       matrix:
-        channel: ${{ fromJson(needs.resolve-channels.outputs.channels) }}
+        include: ${{ fromJson(needs.resolve.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
@@ -102,21 +139,14 @@ jobs:
       - name: Resolve channel metadata
         id: target
         run: |
-          CHANNEL_ID="${{ matrix.channel }}"
-          ACC_INDEX="${CHANNEL_ID//[!0-9]/}"
-          SLOT="${{ needs.resolve-channels.outputs.video_slot }}"
-          TIME_FILTER="${{ needs.resolve-channels.outputs.time_filter }}"
+          CH="${{ matrix.channel }}"
+          IDX="${CH//[!0-9]/}"
+          echo "channel_id=${CH}"           >> $GITHUB_OUTPUT
+          echo "acc_index=${IDX}"           >> $GITHUB_OUTPUT
+          echo "video_slot=${{ matrix.slot }}"        >> $GITHUB_OUTPUT
+          echo "time_filter=${{ matrix.time_filter }}" >> $GITHUB_OUTPUT
+          echo "📺 ${CH} | slot=${{ matrix.slot }} | filter=${{ matrix.time_filter }}"
 
-          echo "channel_id=${CHANNEL_ID}" >> $GITHUB_OUTPUT
-          echo "acc_index=${ACC_INDEX}"   >> $GITHUB_OUTPUT
-          echo "video_slot=${SLOT}"       >> $GITHUB_OUTPUT
-          echo "time_filter=${TIME_FILTER}" >> $GITHUB_OUTPUT
-
-          echo "📺 Channel: ${CHANNEL_ID} | Slot: ${SLOT} | Filter: ${TIME_FILTER}"
-
-      # ── Video slot offset: slot 2 skips the story used in slot 1 ─────
-      # We use --min-rank to skip the top-N posts already published today.
-      # Slot 1 → skip 0 (take the #1 story), Slot 2 → skip 1 (take #2 story)
       - name: Fetch viral story from Reddit
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
@@ -126,11 +156,10 @@ jobs:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           AI_QUALITY_CHECK: '1'
         run: |
-          SLOT="${{ steps.target.outputs.video_slot }}"
           python scraper.py \
             --channel ${{ steps.target.outputs.channel_id }} \
             --time ${{ steps.target.outputs.time_filter }} \
-            --video-slot ${SLOT}
+            --video-slot ${{ steps.target.outputs.video_slot }}
 
       - name: Generate VectorEngine SEO metadata
         env:
@@ -184,5 +213,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main || true
           git add published_history.json
-          git commit -m "chore: update history [${{ steps.target.outputs.channel_id }}] slot=${{ steps.target.outputs.video_slot }} [skip ci]" || echo "No changes"
-          git push origin main || echo "Push skipped (no changes)"
+          git commit -m "chore: history [${{ steps.target.outputs.channel_id }}] slot=${{ steps.target.outputs.video_slot }} [skip ci]" || echo "No changes"
+          git push origin main || echo "No changes"
