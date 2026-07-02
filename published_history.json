@@ -236,6 +236,44 @@
         "reason": "The story fits the dark curiosity niche well with strong metrics and low legal risk, making it suitable for publication.",
         "hook_suggestion": null
       }
+    },
+    "1ul5qps": {
+      "channels": {
+        "acc2": {
+          "published_at": "2026-07-02T17:37:26.653281+00:00"
+        }
+      },
+      "title": "AITA for getting an extra order of fries for my girlfriend?",
+      "subreddit": "r/AmItheAsshole",
+      "url": "https://reddit.com/r/AmItheAsshole/comments/1ul5qps/aita_for_getting_an_extra_order_of_fries_for_my/",
+      "story_signature": "53e12497d5bc9c02",
+      "keyword_signature": "absolutely already always argument bandit being burger crazy extra fail feel french fries fucked getting girlfriend",
+      "topic_family": "human_drama",
+      "topic_label": "Human drama / moral conflict",
+      "time_window": "day",
+      "virality_score": 102,
+      "base_virality_score": 80,
+      "velocity": {
+        "age_hours": 15.03,
+        "upvotes_per_hour": 446.49,
+        "comments_per_hour": 77.96
+      },
+      "fatigue_penalty": 0,
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 8,
+        "hook_strength": 8,
+        "narrative_arc": 7,
+        "translation": 10,
+        "viral_potential": 9,
+        "novelty": 6,
+        "duplicate_risk": 4,
+        "legal_risk": 1,
+        "topic_family": "Human drama / moral conflict",
+        "shorts_hook_type": "controversy",
+        "reason": "This is a classic, highly relatable relationship conflict with two arguable sides that will drive massive engagement and debate in the comments section.",
+        "hook_suggestion": null
+      }
     }
   }
 }
