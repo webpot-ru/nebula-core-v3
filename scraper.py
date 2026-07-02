@@ -165,9 +165,8 @@ TOPIC_FAMILY_PRESETS = {
 
 FALLBACK_TOPIC_MIX_BY_NICHE = {
     "dark_curiosity_facts": [
-        {"family": "dark_curiosity", "weight": 0.45},
-        {"family": "curiosity_facts", "weight": 0.35},
-        {"family": "internet_lore", "weight": 0.20},
+        {"family": "dark_curiosity", "weight": 0.55},
+        {"family": "curiosity_facts", "weight": 0.45},
     ],
     "spectacle_curiosity_drama": [
         {"family": "human_drama", "weight": 0.40},
@@ -328,6 +327,8 @@ def ai_quality_check(
     body_preview = (post_body or "")[:800]
     topic_label = topic_context.get("label") or topic_context.get("family") or "Unspecified"
     topic_rules = topic_context.get("quality_rules") or "Use the channel profile and Reddit metrics."
+    channel_exclusions = channel_topic_exclusions(channel)
+    exclusion_text = ", ".join(channel_exclusions) if channel_exclusions else "none configured"
 
     prompt = f"""
 You are a YouTube content strategist. Evaluate this Reddit story for a specific channel.
@@ -341,6 +342,9 @@ CHANNEL PROFILE:
 TOPIC FAMILY:
   Family : {topic_label}
   Rules  : {topic_rules}
+
+CHANNEL EXCLUSIONS:
+  Hard exclusions: {exclusion_text}
 
 REDDIT METRICS:
   Subreddit        : {post_metadata.get('subreddit', 'unknown')}
@@ -376,6 +380,7 @@ SCORE each dimension from 1 (very poor) to 10 (excellent):
 8. legal_risk      — Risk of copyright/privacy/harmful content issues (1 = no risk, 10 = high risk)
 
 HARD SKIP conditions:
+  - SKIP posts whose title/body matches any configured channel exclusion above.
   - If the selected family is human_drama, SKIP posts that are news, product announcements, gaming/tech updates, link-only discussions, generic opinion prompts, or broad community debates without a first-person human conflict.
   - SKIP posts where the body cannot stand alone as a narrated story without opening an external link, image, video, screenshot, or article.
   - SKIP posts whose strongest appeal is only that the Reddit metrics are high.
@@ -663,6 +668,29 @@ def channel_topic_mix(channel_config: dict | None) -> list[dict]:
     return FALLBACK_TOPIC_MIX_BY_NICHE.get(channel_config.get("niche"), [])
 
 
+def channel_topic_exclusions(channel_config: dict | None) -> list[str]:
+    if not channel_config:
+        return []
+    values = channel_config.get("topic_exclusions") or []
+    if not isinstance(values, list):
+        return []
+    return [
+        re.sub(r"\s+", " ", str(value).casefold()).strip()
+        for value in values
+        if str(value or "").strip()
+    ]
+
+
+def matching_topic_exclusion(title: str, body: str, exclusions: list[str]) -> str | None:
+    if not exclusions:
+        return None
+    haystack = re.sub(r"\s+", " ", f"{title or ''}\n{body or ''}".casefold())
+    for exclusion in exclusions:
+        if exclusion and exclusion in haystack:
+            return exclusion
+    return None
+
+
 def build_topic_sources(
     subreddits: list[str],
     time_filter: str,
@@ -756,6 +784,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
     seen_signatures = set()
     seen_keyword_signatures = []
     recent_records = recent_channel_records(history, channel_id)
+    topic_exclusions = channel_topic_exclusions(channel_config)
     sources = build_topic_sources(
         subreddits=subreddits,
         time_filter=time_filter,
@@ -783,6 +812,10 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                         if post.score < source_min_upvotes:
                             continue
                         if len(body) < source_min_body:
+                            continue
+                        excluded_term = matching_topic_exclusion(post.title, body, topic_exclusions)
+                        if excluded_term:
+                            print(f"    skip topic exclusion ({excluded_term}) | {post.title[:55]}")
                             continue
 
                         keyword_signature = topic_keyword_signature(post.title, body)

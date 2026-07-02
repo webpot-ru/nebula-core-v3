@@ -762,11 +762,190 @@ const KARAOKE_LINK_PLACEHOLDER_RUNS = [
   ['il', 'link', 'è', 'sullo', 'schermo']
 ].map(phrase => phrase.map(normalizeKaraokeToken));
 
+const RU_UNITS_MASC = {
+  0: 'ноль',
+  1: 'один',
+  2: 'два',
+  3: 'три',
+  4: 'четыре',
+  5: 'пять',
+  6: 'шесть',
+  7: 'семь',
+  8: 'восемь',
+  9: 'девять'
+};
+const RU_UNITS_FEM = { ...RU_UNITS_MASC, 1: 'одна', 2: 'две' };
+const RU_TEENS = {
+  10: 'десять',
+  11: 'одиннадцать',
+  12: 'двенадцать',
+  13: 'тринадцать',
+  14: 'четырнадцать',
+  15: 'пятнадцать',
+  16: 'шестнадцать',
+  17: 'семнадцать',
+  18: 'восемнадцать',
+  19: 'девятнадцать'
+};
+const RU_TENS = {
+  20: 'двадцать',
+  30: 'тридцать',
+  40: 'сорок',
+  50: 'пятьдесят',
+  60: 'шестьдесят',
+  70: 'семьдесят',
+  80: 'восемьдесят',
+  90: 'девяносто'
+};
+const RU_HUNDREDS = {
+  100: 'сто',
+  200: 'двести',
+  300: 'триста',
+  400: 'четыреста',
+  500: 'пятьсот',
+  600: 'шестьсот',
+  700: 'семьсот',
+  800: 'восемьсот',
+  900: 'девятьсот'
+};
+const RU_SCALES = [
+  [1000000000, ['миллиард', 'миллиарда', 'миллиардов'], 'masc'],
+  [1000000, ['миллион', 'миллиона', 'миллионов'], 'masc'],
+  [1000, ['тысяча', 'тысячи', 'тысяч'], 'fem']
+];
+
+function ruPluralForm(number, forms) {
+  const value = Math.abs(Number(number) || 0);
+  const lastTwo = value % 100;
+  const last = value % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return forms[2];
+  if (last === 1) return forms[0];
+  if (last >= 2 && last <= 4) return forms[1];
+  return forms[2];
+}
+
+function ruGroupToWords(number, gender = 'masc') {
+  const value = Number(number) || 0;
+  if (value <= 0) return [];
+  const words = [];
+  const hundreds = Math.floor(value / 100) * 100;
+  if (hundreds) words.push(RU_HUNDREDS[hundreds]);
+
+  const remainder = value % 100;
+  if (remainder >= 10 && remainder <= 19) {
+    words.push(RU_TEENS[remainder]);
+    return words;
+  }
+
+  const tens = Math.floor(remainder / 10) * 10;
+  if (tens) words.push(RU_TENS[tens]);
+
+  const units = remainder % 10;
+  if (units) {
+    const unitWords = gender === 'fem' ? RU_UNITS_FEM : RU_UNITS_MASC;
+    words.push(unitWords[units]);
+  }
+  return words;
+}
+
+function ruIntToWords(number) {
+  const value = Number(number) || 0;
+  if (value === 0) return RU_UNITS_MASC[0];
+  if (value < 0) return `минус ${ruIntToWords(Math.abs(value))}`;
+
+  let remaining = value;
+  const words = [];
+  RU_SCALES.forEach(([scaleValue, forms, gender]) => {
+    const group = Math.floor(remaining / scaleValue);
+    if (!group) return;
+    words.push(...ruGroupToWords(group, gender));
+    words.push(ruPluralForm(group, forms));
+    remaining %= scaleValue;
+  });
+  words.push(...ruGroupToWords(remaining, 'masc'));
+  return words.join(' ');
+}
+
+function ruDigitsToWords(value) {
+  return String(value || '')
+    .split('')
+    .filter(char => /\d/.test(char))
+    .map(char => RU_UNITS_MASC[Number(char)])
+    .join(' ');
+}
+
+function russianSpokenNumberWordsForToken(value) {
+  const token = String(value || '')
+    .trim()
+    .replace(/^[^\d]+/g, '')
+    .replace(/[),.;:!?"'»”’\]]+$/gu, '');
+  const match = token.match(/^(\d{1,3}(?:[ ,]\d{3})+|\d+)([+%])?$/);
+  if (!match) return [];
+
+  const compact = match[1].replace(/[ ,]/g, '');
+  if (Number(compact) > 999999999999) return [];
+  if (!/^\d+$/.test(compact)) return [];
+
+  const spoken = compact.length > 1 && compact.startsWith('0')
+    ? ruDigitsToWords(compact)
+    : ruIntToWords(Number(compact));
+  if (!spoken) return [];
+
+  let phrase = spoken;
+  if (match[2] === '+') {
+    phrase = `более чем ${spoken}`;
+  } else if (match[2] === '%') {
+    phrase = `${spoken} ${ruPluralForm(Number(compact), ['процент', 'процента', 'процентов'])}`;
+  }
+  return phrase.split(/\s+/).map(normalizeKaraokeToken).filter(Boolean);
+}
+
 function isVisibleLinkToken(value) {
   const token = String(value || '').trim().replace(/[),.;:!?]+$/g, '');
   if (!token) return false;
   return /^(?:https?:\/\/|www\.)/i.test(token) ||
     /^[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+(?:[/?#]|$)/iu.test(token);
+}
+
+function hasVisibleNarrationAliasToken(value) {
+  return russianSpokenNumberWordsForToken(value).length > 0;
+}
+
+function spacedNumberAliasForUnits(units, index) {
+  const first = String(units[index]?.token || '').trim();
+  if (!/^\d{1,3}$/.test(first)) return null;
+
+  const parts = [first];
+  let end = index + 1;
+  while (end < units.length) {
+    const previousSpace = String(units[end - 1]?.spaceAfter || '');
+    const token = String(units[end]?.token || '').trim().replace(/[),.;:!?"'»”’\]]+$/gu, '');
+    const isLastDecoratedGroup = /^\d{3}[+%]?$/.test(token);
+    if (!/^\s+$/.test(previousSpace) || !isLastDecoratedGroup) {
+      break;
+    }
+    parts.push(token);
+    end += 1;
+    if (/[+%]$/.test(token)) {
+      break;
+    }
+  }
+
+  if (parts.length < 2) return null;
+  const aliasToken = parts.join(' ');
+  return russianSpokenNumberWordsForToken(aliasToken).length
+    ? { length: parts.length, token: aliasToken }
+    : null;
+}
+
+function narrationAliasForUnits(units, index) {
+  const spacedNumberAlias = spacedNumberAliasForUnits(units, index);
+  if (spacedNumberAlias) return spacedNumberAlias;
+  const token = units[index]?.token;
+  if (isVisibleLinkToken(token) || hasVisibleNarrationAliasToken(token)) {
+    return { length: 1, token };
+  }
+  return null;
 }
 
 function matchLinkPlaceholderRun(expectedIndex, wordLimit) {
@@ -783,6 +962,18 @@ function matchLinkPlaceholderRun(expectedIndex, wordLimit) {
     if (matches) return phrase.length;
   }
   return 0;
+}
+
+function matchNumberPlaceholderRun(expectedIndex, wordLimit, token) {
+  const phrase = russianSpokenNumberWordsForToken(token);
+  if (!phrase.length || expectedIndex + phrase.length > wordLimit) return 0;
+  for (let offset = 0; offset < phrase.length; offset++) {
+    const word = karaokeWords[expectedIndex + offset];
+    if (!word || word.el || normalizeKaraokeToken(word.word) !== phrase[offset]) {
+      return 0;
+    }
+  }
+  return phrase.length;
 }
 
 function karaokePhraseBoundaryAfter(unit) {
@@ -828,15 +1019,19 @@ function planKaraokeGroups(units) {
   let index = 0;
 
   while (index < units.length) {
-    if (isVisibleLinkToken(units[index].token)) {
-      groups.push({ start: index, end: index + 1 });
-      index += 1;
+    const alias = narrationAliasForUnits(units, index);
+    if (alias) {
+      groups.push({ start: index, end: index + alias.length, aliasToken: alias.token });
+      index += alias.length;
       continue;
     }
 
     let end = index + 1;
     while (end < units.length && end - index < KARAOKE_GROUP_MAX_WORDS) {
-      if (karaokePhraseBoundaryAfter(units[end - 1]) || isVisibleLinkToken(units[end].token)) {
+      if (
+        karaokePhraseBoundaryAfter(units[end - 1]) ||
+        narrationAliasForUnits(units, end)
+      ) {
         break;
       }
 
@@ -882,6 +1077,14 @@ function assignKaraokeWordToSpan(span, token, expectedIndex, wordLimit) {
       }
       return expectedIndex + placeholderLength;
     }
+  }
+
+  const numberPlaceholderLength = matchNumberPlaceholderRun(expectedIndex, wordLimit, token);
+  if (numberPlaceholderLength) {
+    for (let offset = 0; offset < numberPlaceholderLength; offset++) {
+      karaokeWords[expectedIndex + offset].el = span;
+    }
+    return expectedIndex + numberPlaceholderLength;
   }
 
   const tokenNorm = normalizeKaraokeToken(token);
@@ -940,10 +1143,15 @@ function buildKaraokeDOM(slideIndex = activeRenderSlideIndex >= 0 ? activeRender
       for (let index = group.start; index < group.end; index++) {
         const unit = units[index];
         groupSpan.appendChild(document.createTextNode(unit.token));
-        wordIdx = assignKaraokeWordToSpan(groupSpan, unit.token, wordIdx, wordLimit);
+        if (!group.aliasToken) {
+          wordIdx = assignKaraokeWordToSpan(groupSpan, unit.token, wordIdx, wordLimit);
+        }
         if (index < group.end - 1) {
           groupSpan.appendChild(document.createTextNode(unit.spaceAfter || ' '));
         }
+      }
+      if (group.aliasToken) {
+        wordIdx = assignKaraokeWordToSpan(groupSpan, group.aliasToken, wordIdx, wordLimit);
       }
       if (units[group.end - 1]?.spaceAfter) {
         container.appendChild(document.createTextNode(units[group.end - 1].spaceAfter));

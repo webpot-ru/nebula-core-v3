@@ -21,6 +21,7 @@ AI33_TTS_URL = os.environ.get(
     f"{AI33_API_BASE}/v3/text-to-speech",
 )
 AI33_TTS_MODEL_ID = os.environ.get("AI33_TTS_MODEL_ID", "eleven_v3")
+AI33_VOICE_SETTINGS_JSON = os.environ.get("AI33_VOICE_SETTINGS_JSON")
 AI33_TASK_URL_TEMPLATE = os.environ.get(
     "AI33_TASK_URL_TEMPLATE",
     f"{AI33_API_BASE}/v3/task/{{task_id}}",
@@ -88,6 +89,67 @@ GENERIC_LINK_LABELS = {
     "lien", "ici", "source", "preuve",
     "link", "qui", "fonte", "prova",
 }
+
+NARRATION_NUMBER_RE = re.compile(
+    r"(?<![\w./:@-])(?P<number>(?:\d{1,3}(?:[ ,]\d{3})+|\d+))(?P<suffix>[+%])?(?![\w./:@-])",
+    flags=re.UNICODE,
+)
+
+RU_UNITS_MASC = {
+    0: "ноль",
+    1: "один",
+    2: "два",
+    3: "три",
+    4: "четыре",
+    5: "пять",
+    6: "шесть",
+    7: "семь",
+    8: "восемь",
+    9: "девять",
+}
+RU_UNITS_FEM = {
+    **RU_UNITS_MASC,
+    1: "одна",
+    2: "две",
+}
+RU_TEENS = {
+    10: "десять",
+    11: "одиннадцать",
+    12: "двенадцать",
+    13: "тринадцать",
+    14: "четырнадцать",
+    15: "пятнадцать",
+    16: "шестнадцать",
+    17: "семнадцать",
+    18: "восемнадцать",
+    19: "девятнадцать",
+}
+RU_TENS = {
+    20: "двадцать",
+    30: "тридцать",
+    40: "сорок",
+    50: "пятьдесят",
+    60: "шестьдесят",
+    70: "семьдесят",
+    80: "восемьдесят",
+    90: "девяносто",
+}
+RU_HUNDREDS = {
+    100: "сто",
+    200: "двести",
+    300: "триста",
+    400: "четыреста",
+    500: "пятьсот",
+    600: "шестьсот",
+    700: "семьсот",
+    800: "восемьсот",
+    900: "девятьсот",
+}
+RU_SCALES = (
+    (1_000_000_000, ("миллиард", "миллиарда", "миллиардов"), "masc"),
+    (1_000_000, ("миллион", "миллиона", "миллионов"), "masc"),
+    (1_000, ("тысяча", "тысячи", "тысяч"), "fem"),
+)
 
 AUDIO_URL_KEYS = {
     "audio_url",
@@ -389,6 +451,111 @@ def normalize_link_label(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
 
 
+def ru_plural_form(number: int, forms: tuple[str, str, str]) -> str:
+    last_two = abs(number) % 100
+    last = abs(number) % 10
+    if 11 <= last_two <= 14:
+        return forms[2]
+    if last == 1:
+        return forms[0]
+    if 2 <= last <= 4:
+        return forms[1]
+    return forms[2]
+
+
+def ru_group_to_words(number: int, gender: str = "masc") -> list[str]:
+    if not 0 <= number <= 999:
+        raise ValueError("ru_group_to_words supports only 0..999")
+    if number == 0:
+        return []
+
+    words: list[str] = []
+    hundreds = (number // 100) * 100
+    if hundreds:
+        words.append(RU_HUNDREDS[hundreds])
+
+    remainder = number % 100
+    if 10 <= remainder <= 19:
+        words.append(RU_TEENS[remainder])
+        return words
+
+    tens = (remainder // 10) * 10
+    if tens:
+        words.append(RU_TENS[tens])
+
+    units = remainder % 10
+    if units:
+        unit_words = RU_UNITS_FEM if gender == "fem" else RU_UNITS_MASC
+        words.append(unit_words[units])
+    return words
+
+
+def ru_int_to_words(number: int) -> str:
+    if number == 0:
+        return RU_UNITS_MASC[0]
+    if number < 0:
+        return "минус " + ru_int_to_words(abs(number))
+
+    remaining = number
+    words: list[str] = []
+    for scale_value, scale_forms, gender in RU_SCALES:
+        group = remaining // scale_value
+        if group:
+            words.extend(ru_group_to_words(group, gender))
+            words.append(ru_plural_form(group, scale_forms))
+            remaining %= scale_value
+
+    words.extend(ru_group_to_words(remaining, "masc"))
+    return " ".join(words)
+
+
+def ru_digits_to_words(value: str) -> str:
+    return " ".join(RU_UNITS_MASC[int(char)] for char in value if char.isdigit())
+
+
+def ru_percent_word(number: int) -> str:
+    return ru_plural_form(number, ("процент", "процента", "процентов"))
+
+
+def spoken_ru_number_token(match: re.Match[str]) -> str:
+    raw_number = match.group("number")
+    suffix = match.group("suffix") or ""
+    compact = re.sub(r"[\s,]", "", raw_number)
+    if not compact.isdigit():
+        return match.group(0)
+    if len(compact) > 1 and compact.startswith("0"):
+        spoken = ru_digits_to_words(compact)
+    else:
+        number = int(compact)
+        if number > 999_999_999_999:
+            return match.group(0)
+        spoken = ru_int_to_words(number)
+
+    if suffix == "+":
+        return f"более чем {spoken}"
+    if suffix == "%":
+        number_for_plural = int(compact) if compact.isdigit() else 0
+        return f"{spoken} {ru_percent_word(number_for_plural)}"
+    return spoken
+
+
+def spell_numbers_for_narration(text: str, lang_code: str) -> tuple[str, int]:
+    normalized_lang = normalize_lang_code(lang_code)
+    if not normalized_lang.startswith("ru") or not text:
+        return text, 0
+
+    changes = 0
+
+    def replace_number(match: re.Match[str]) -> str:
+        nonlocal changes
+        replacement = spoken_ru_number_token(match)
+        if replacement != match.group(0):
+            changes += 1
+        return replacement
+
+    return NARRATION_NUMBER_RE.sub(replace_number, text), changes
+
+
 def clean_text_for_narration_and_karaoke(text: Any, lang_code: str) -> tuple[str, int]:
     original = str(text or "")
     if not original:
@@ -413,6 +580,8 @@ def clean_text_for_narration_and_karaoke(text: Any, lang_code: str) -> tuple[str
         return placeholder
 
     cleaned = URL_RE.sub(replace_url, cleaned)
+    cleaned, number_changes = spell_numbers_for_narration(cleaned, lang_code)
+    changes += number_changes
     escaped_placeholder = re.escape(placeholder)
     service_prefixes = (
         r"original\s+(?:thread|post|source)|reddit\s+thread|source|link|url|"
@@ -465,10 +634,11 @@ def sanitize_story_for_narration_and_karaoke(
 
     if total_changes:
         sanitized["narration_sanitization"] = {
-            "version": 2,
+            "version": 3,
             "source": "translator_tts",
             "language": lang_code,
             "link_placeholder": localized_link_placeholder(lang_code),
+            "number_normalization": "ru_integer_words" if normalize_lang_code(lang_code).startswith("ru") else "off",
             "changes": total_changes,
             "mode": "narration_fields_only",
             "display_fields_preserved": True,
@@ -688,12 +858,32 @@ def request_json(response: requests.Response, context: str) -> dict[str, Any]:
         raise Ai33Error(f"{context} returned non-JSON response: {safe_response_text(response)}") from exc
 
 
+def normalize_voice_settings_json(value: str | None) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise Ai33Error(f"voice_settings must be valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise Ai33Error("voice_settings must be a JSON object.")
+    return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
+
+
+def resolve_voice_settings_json(args: argparse.Namespace) -> str | None:
+    return normalize_voice_settings_json(
+        args.voice_settings_json or AI33_VOICE_SETTINGS_JSON
+    )
+
+
 def post_tts_task(
     *,
     api_key: str,
     text: str,
     voice_id: str,
     model_id: str | None,
+    voice_settings_json: str | None,
     speed: float,
     file_name: str,
     with_transcript: bool,
@@ -711,6 +901,8 @@ def post_tts_task(
     }
     if model_id:
         fields["model_id"] = model_id
+    if voice_settings_json:
+        fields["voice_settings"] = voice_settings_json
     if receive_url:
         fields["receive_url"] = receive_url
     if pronunciation_dictionary_id is not None:
@@ -1299,6 +1491,7 @@ def generate_tts_audio(
             text=text,
             voice_id=voice_id,
             model_id=args.model_id,
+            voice_settings_json=resolve_voice_settings_json(args),
             speed=args.speed,
             file_name=output_path.name,
             with_transcript=args.with_transcript,
@@ -1370,7 +1563,10 @@ def process_story_audio(args: argparse.Namespace) -> None:
         action = "localized" if translation_needed else "narration-prepared"
         print(f"Saved {action} story text to {translated_story_path}")
         if sanitization_changes:
-            print(f"Prepared {sanitization_changes} link/service token(s) as narration-only placeholders.")
+            print(
+                f"Prepared {sanitization_changes} link/service/number token(s) "
+                "as narration-only placeholders."
+            )
 
     narration_segments = build_narration_segments(
         story,
@@ -1400,6 +1596,7 @@ def process_story_audio(args: argparse.Namespace) -> None:
         print(f"  translation_model: {args.translation_model}")
         print(f"  narration_sanitization_changes: {sanitization_changes}")
         print(f"  model_id: {args.model_id or '(omitted)'}")
+        print(f"  voice_settings: {'provided' if resolve_voice_settings_json(args) else '(omitted)'}")
         print(f"  output: {output_path}")
         print(f"  characters: {narration_chars}")
         print(f"  speed: {args.speed:g}")
@@ -1470,6 +1667,7 @@ def process_story_audio(args: argparse.Namespace) -> None:
         text=narration_text,
         voice_id=voice_id,
         model_id=args.model_id,
+        voice_settings_json=resolve_voice_settings_json(args),
         speed=args.speed,
         file_name=output_path.name,
         with_transcript=args.with_transcript,
@@ -1564,6 +1762,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=AI33_TTS_MODEL_ID,
         help="AI33/ElevenLabs model_id sent with TTS requests (default: eleven_v3).",
     )
+    parser.add_argument(
+        "--voice-settings-json",
+        help=(
+            "Optional JSON object forwarded to AI33/ElevenLabs as voice_settings. "
+            "Can also be set with AI33_VOICE_SETTINGS_JSON."
+        ),
+    )
     parser.add_argument("--speed", type=float, default=1.0, help="AI33 speed, 0.5 to 1.5.")
     parser.add_argument("--with-transcript", action="store_true", help="Request transcript metadata.")
     parser.add_argument(
@@ -1616,6 +1821,7 @@ if __name__ == "__main__":
             raise Ai33Error("--tts-retry-delay must be 0 or greater.")
         if parsed_args.tts_segment_max_chars < 500:
             raise Ai33Error("--tts-segment-max-chars must be at least 500.")
+        resolve_voice_settings_json(parsed_args)
         process_story_audio(parsed_args)
     except Ai33Error as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

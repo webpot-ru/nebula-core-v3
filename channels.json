@@ -8,15 +8,24 @@
       "region": "RU/CIS",
       "audience": "Россия, русскоязычная диаспора за рубежом",
       "niche": "dark_curiosity_facts",
-      "niche_label": "Dark Curiosity + Tech/Gaming/Facts",
+      "niche_label": "Dark Curiosity + Strange Facts",
       "subreddits": [
-        "nosleep", "todayilearned", "gaming", "LetsNotMeet",
+        "nosleep", "todayilearned", "LetsNotMeet",
         "Glitch_in_the_Matrix", "creepyencounters", "mildlyinteresting", "InternetIsBeautiful"
       ],
       "topic_mix": [
-        {"family": "dark_curiosity", "weight": 0.45},
-        {"family": "curiosity_facts", "weight": 0.35},
-        {"family": "internet_lore", "weight": 0.20}
+        {"family": "dark_curiosity", "weight": 0.55},
+        {"family": "curiosity_facts", "weight": 0.45}
+      ],
+      "topic_exclusions": [
+        "minecraft",
+        "game server",
+        "gaming server",
+        "server admin",
+        "players run",
+        "video game",
+        "gaming",
+        "game world"
       ],
       "format": ["shorts", "long"],
       "videos_per_day": 2,
