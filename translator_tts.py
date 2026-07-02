@@ -1074,6 +1074,35 @@ def collect_transcript_words(value: Any, found: list[dict[str, Any]] | None = No
     return found
 
 
+def estimate_transcript_words(text: str, duration: float) -> list[dict[str, Any]]:
+    tokens = re.findall(r"\S+", text or "")
+    if not tokens or duration <= 0:
+        return []
+
+    weights = [max(len(token.strip()), 1) for token in tokens]
+    total_weight = sum(weights)
+    if total_weight <= 0:
+        return []
+
+    words: list[dict[str, Any]] = []
+    cursor = 0.0
+    for index, (token, weight) in enumerate(zip(tokens, weights)):
+        if index == len(tokens) - 1:
+            end = duration
+        else:
+            end = cursor + (duration * weight / total_weight)
+        if end < cursor:
+            end = cursor
+        words.append({
+            "word": token,
+            "start": round(cursor, 3),
+            "end": round(end, 3),
+            "timing_source": "estimated",
+        })
+        cursor = end
+    return words
+
+
 TIMING_SHAPE_KEYS = {
     "alignment",
     "normalized_alignment",
@@ -1136,25 +1165,41 @@ def write_combined_transcript(
     segments: list[dict[str, Any]] = []
     offset = 0.0
     missing_timing_segments: list[int] = []
+    estimated_timing_segments: list[int] = []
     missing_timing_debug: list[dict[str, Any]] = []
 
     for index, (payload, spec, duration) in enumerate(zip(segment_payloads, segment_specs, segment_durations)):
         raw_words = collect_transcript_words(payload)
-        if raw_words:
-            for word in raw_words:
+        segment_words = raw_words
+        timing_source = "ai33"
+        if not segment_words:
+            segment_words = estimate_transcript_words(str(spec.get("text") or ""), duration)
+            if segment_words:
+                timing_source = "estimated"
+                estimated_timing_segments.append(index)
+                missing_timing_debug.append({
+                    "segment": index,
+                    "role": spec.get("role"),
+                    "fallback": "estimated_from_segment_text_and_audio_duration",
+                    "payload_shape": summarize_timing_payload_shape(payload),
+                })
+            else:
+                timing_source = "missing"
+                missing_timing_segments.append(index)
+                missing_timing_debug.append({
+                    "segment": index,
+                    "role": spec.get("role"),
+                    "payload_shape": summarize_timing_payload_shape(payload),
+                })
+        if segment_words:
+            for word in segment_words:
                 shifted = dict(word)
                 shifted["start"] = round(float(word["start"]) + offset, 3)
                 shifted["end"] = round(float(word["end"]) + offset, 3)
                 shifted["segment"] = index
                 shifted["role"] = spec.get("role")
+                shifted.setdefault("timing_source", timing_source)
                 words.append(shifted)
-        else:
-            missing_timing_segments.append(index)
-            missing_timing_debug.append({
-                "segment": index,
-                "role": spec.get("role"),
-                "payload_shape": summarize_timing_payload_shape(payload),
-            })
         segments.append({
             "index": index,
             "role": spec.get("role"),
@@ -1163,7 +1208,8 @@ def write_combined_transcript(
             "end": round(offset + duration, 3),
             "duration": round(duration, 3),
             "voice_id": spec.get("voice_id"),
-            "word_count": len(raw_words),
+            "word_count": len(segment_words),
+            "timing_source": timing_source,
         })
         offset += duration
 
@@ -1182,6 +1228,11 @@ def write_combined_transcript(
         warnings.append(
             "AI33 returned word timings for only part of the multi-voice narration; partial timings are not used for karaoke."
         )
+    elif estimated_timing_segments:
+        timing_status = "estimated"
+        warnings.append(
+            "AI33 did not return usable word timings for every segment; estimated timings were generated from segment text and audio duration."
+        )
 
     output = {
         "version": 1,
@@ -1193,13 +1244,16 @@ def write_combined_transcript(
         "segments": segments,
         "words": usable_words,
     }
+    if estimated_timing_segments:
+        output["estimated_timing_segments"] = estimated_timing_segments
     if missing_timing_segments:
         output["missing_timing_segments"] = missing_timing_segments
+    if missing_timing_debug:
         output["timing_debug"] = missing_timing_debug
     if warnings:
         output["warnings"] = warnings
     output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
-    return timing_status == "ok"
+    return timing_status in {"ok", "estimated"}
 
 
 def generate_tts_audio(
