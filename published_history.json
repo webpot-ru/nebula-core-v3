@@ -241,6 +241,9 @@
       "channels": {
         "acc2": {
           "published_at": "2026-07-02T17:37:26.653281+00:00"
+        },
+        "acc4": {
+          "published_at": "2026-07-02T18:32:23.405086+00:00"
         }
       },
       "title": "AITA for getting an extra order of fries for my girlfriend?",
@@ -251,28 +254,28 @@
       "topic_family": "human_drama",
       "topic_label": "Human drama / moral conflict",
       "time_window": "day",
-      "virality_score": 102,
+      "virality_score": 97,
       "base_virality_score": 80,
       "velocity": {
-        "age_hours": 15.03,
-        "upvotes_per_hour": 446.49,
-        "comments_per_hour": 77.96
+        "age_hours": 15.95,
+        "upvotes_per_hour": 444.1,
+        "comments_per_hour": 76.81
       },
-      "fatigue_penalty": 0,
+      "fatigue_penalty": 8,
       "ai_quality": {
-        "verdict": "PUBLISH",
+        "verdict": "REWRITE",
         "niche_fit": 8,
-        "hook_strength": 8,
-        "narrative_arc": 7,
-        "translation": 10,
-        "viral_potential": 9,
+        "hook_strength": 5,
+        "narrative_arc": 8,
+        "translation": 9,
+        "viral_potential": 8,
         "novelty": 6,
-        "duplicate_risk": 4,
+        "duplicate_risk": 5,
         "legal_risk": 1,
         "topic_family": "Human drama / moral conflict",
         "shorts_hook_type": "controversy",
-        "reason": "This is a classic, highly relatable relationship conflict with two arguable sides that will drive massive engagement and debate in the comments section.",
-        "hook_suggestion": null
+        "reason": "The story fits the channel's drama niche perfectly and has high viral potential due to the highly relatable 'fry stealer' debate, but the opening sentence needs a stronger, more immediate hook for Shorts.",
+        "hook_suggestion": "Mi novia siempre me roba la comida, así que decidí darle una lección en un restaurante y ahora toda su familia me odia."
       }
     }
   }
