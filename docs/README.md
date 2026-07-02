@@ -466,6 +466,8 @@ python3 translator_tts.py es --output narration_es.mp3
 
 Live translation and audio generation can spend VectorEngine and AI33 credits, so run them intentionally.
 
+`vectorengine_client.py` retries Gemini JSON calls by default on transient request/API/empty-text failures. Set `VECTORENGINE_GEMINI_RETRIES=0` only when debugging raw provider behavior.
+
 ### Live Smoke Result
 
 On 2026-06-29, user-approved local smokes used the gitignored LUNA2 AI33 key without printing or copying it into this repo. The first test submitted an ElevenLabs-prefixed voice id with `[sighs]`, `[laughs]`, and `[whispers]` tags. A second test explicitly sent `model_id=eleven_v3` with `[laughs]` and `[sighs]`; AI33 returned `task_id=08c146ad-82a0-4efb-a4e2-f8ec65254852`, `/v3/task/{task_id}` polling returned `status=done`, and the output file was a valid 5.64s MP3 at `/tmp/reddit_ai33_eleven_v3_laugh.mp3`.

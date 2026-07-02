@@ -13,6 +13,7 @@ DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_TIMEOUT_SECONDS = 120
 DEFAULT_IMAGE_TIMEOUT_SECONDS = 300
+DEFAULT_GEMINI_RETRIES = int(os.environ.get("VECTORENGINE_GEMINI_RETRIES", "2"))
 
 
 class VectorEngineError(RuntimeError):
@@ -122,6 +123,7 @@ def call_gemini_json(
     temperature: float = 0.35,
     max_output_tokens: int = 1800,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    retries: int | None = None,
 ) -> dict[str, Any]:
     if not prompt:
         raise VectorEngineError("VectorEngine Gemini prompt is required.")
@@ -142,26 +144,38 @@ def call_gemini_json(
             "maxOutputTokens": max_output_tokens,
         },
     }
-    response = requests.post(
-        endpoint,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json=body,
-        timeout=timeout_seconds,
-    )
-    if not response.ok:
-        raise VectorEngineError(
-            f"VectorEngine Gemini HTTP {response.status_code}: {safe_response_text(response)}"
-        )
+    attempts = max(1, int(DEFAULT_GEMINI_RETRIES if retries is None else retries) + 1)
+    last_error: Exception | None = None
 
-    try:
-        response_data = response.json()
-    except ValueError as exc:
-        raise VectorEngineError(f"VectorEngine Gemini returned non-JSON: {response.text[:500]}") from exc
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=timeout_seconds,
+            )
+            if not response.ok:
+                raise VectorEngineError(
+                    f"VectorEngine Gemini HTTP {response.status_code}: {safe_response_text(response)}"
+                )
 
-    return parse_json_object(extract_text_from_gemini_response(response_data))
+            try:
+                response_data = response.json()
+            except ValueError as exc:
+                raise VectorEngineError(f"VectorEngine Gemini returned non-JSON: {response.text[:500]}") from exc
+
+            return parse_json_object(extract_text_from_gemini_response(response_data))
+        except (requests.RequestException, VectorEngineError) as exc:
+            last_error = exc
+            if attempt >= attempts:
+                break
+            time.sleep(min(20, 3 * attempt))
+
+    raise VectorEngineError(str(last_error or "VectorEngine Gemini request failed."))
 
 
 def call_image_generation(
