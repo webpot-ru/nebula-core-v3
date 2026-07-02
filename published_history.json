@@ -195,6 +195,44 @@
         "reason": "The story has strong drama but needs a localized hook for the Italian audience, as legal name changes after marriage work differently in Italy compared to the US.",
         "hook_suggestion": "Mio marito vuole il divorzio e ora pretende che io cancelli il suo cognome da tutte le mie pubblicazioni scientifiche e dalla mia laurea."
       }
+    },
+    "1tzak21": {
+      "channels": {
+        "acc1": {
+          "published_at": "2026-07-02T12:52:40.646762+00:00"
+        }
+      },
+      "title": "I know you’re not supposed to meet people from Reddit.",
+      "subreddit": "r/nosleep",
+      "url": "https://reddit.com/r/nosleep/comments/1tzak21/i_know_youre_not_supposed_to_meet_people_from/",
+      "story_signature": "fe1815bb7f77c235",
+      "keyword_signature": "added bored both choice cute definitely eyeliner eyes finally gotten haircut knew know lonely made match",
+      "topic_family": "dark_curiosity",
+      "topic_label": "Dark curiosity / scary true-feeling story",
+      "time_window": "month",
+      "virality_score": 23,
+      "base_virality_score": 20,
+      "velocity": {
+        "age_hours": 600.62,
+        "upvotes_per_hour": 3.9,
+        "comments_per_hour": 0.13
+      },
+      "fatigue_penalty": 2,
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 7,
+        "hook_strength": 7,
+        "narrative_arc": 8,
+        "translation": 8,
+        "viral_potential": 7,
+        "novelty": 6,
+        "duplicate_risk": 3,
+        "legal_risk": 2,
+        "topic_family": "Dark curiosity / scary true-feeling story",
+        "shorts_hook_type": "mystery",
+        "reason": "The story fits the dark curiosity niche well with strong metrics and low legal risk, making it suitable for publication.",
+        "hook_suggestion": null
+      }
     }
   }
 }
