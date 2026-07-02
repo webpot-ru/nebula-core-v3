@@ -162,6 +162,9 @@
       "channels": {
         "acc7": {
           "published_at": "2026-07-02T11:50:51.919433+00:00"
+        },
+        "acc5": {
+          "published_at": "2026-07-02T15:48:45.530555+00:00"
         }
       },
       "title": "AITA for refusing to change my name?",
@@ -171,29 +174,29 @@
       "keyword_signature": "academia background built change computer conferences fighting husband keep last left legal married name papers presented",
       "topic_family": "human_drama",
       "topic_label": "Human drama / moral conflict",
-      "time_window": "day",
-      "virality_score": 101,
+      "time_window": "week",
+      "virality_score": 97,
       "base_virality_score": 80,
       "velocity": {
-        "age_hours": 22.87,
-        "upvotes_per_hour": 228.75,
-        "comments_per_hour": 59.68
+        "age_hours": 26.84,
+        "upvotes_per_hour": 202.75,
+        "comments_per_hour": 51.9
       },
       "fatigue_penalty": 0,
       "ai_quality": {
-        "verdict": "REWRITE",
-        "niche_fit": 5,
-        "hook_strength": 5,
+        "verdict": "PUBLISH",
+        "niche_fit": 6,
+        "hook_strength": 7,
         "narrative_arc": 8,
-        "translation": 6,
-        "viral_potential": 7,
-        "novelty": 5,
+        "translation": 9,
+        "viral_potential": 8,
+        "novelty": 6,
         "duplicate_risk": 3,
         "legal_risk": 1,
-        "topic_family": "Human drama / moral conflict",
+        "topic_family": "human_drama",
         "shorts_hook_type": "identity",
-        "reason": "The story has strong drama but needs a localized hook for the Italian audience, as legal name changes after marriage work differently in Italy compared to the US.",
-        "hook_suggestion": "Mio marito vuole il divorzio e ora pretende che io cancelli il suo cognome da tutte le mie pubblicazioni scientifiche e dalla mia laurea."
+        "reason": "The story fits the emotional drama niche with a strong conflict about professional identity versus marital spite, backed by high Reddit engagement metrics.",
+        "hook_suggestion": null
       }
     },
     "1tzak21": {
