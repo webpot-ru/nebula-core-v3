@@ -176,7 +176,8 @@ jobs:
           YOUTUBE_REFRESH_TOKEN_ACC6: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC6 }}
           YOUTUBE_REFRESH_TOKEN_ACC7: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC7 }}
         run: |
-          python scratch/check_video_status.py
+          python scratch/print_client_id_prefix.py
+
 
 
 
