@@ -43,6 +43,44 @@
         "reason": "The story has great viral potential and fits the niche, but the opening needs to be rewritten to immediately grab attention on Shorts.",
         "hook_suggestion": "Como gerente de Recursos Humanos, le dije a mi novio la dolorosa verdad de por qué nadie lo contrata y ahora me acusa de destruir su autoestima."
       }
+    },
+    "1ujrn33": {
+      "channels": {
+        "acc1": {
+          "published_at": "2026-07-02T07:30:00.702917+00:00"
+        }
+      },
+      "title": "I work at the Unclaimed Baggage Center in Alabama. I know what really happened to Flight 702.",
+      "subreddit": "r/nosleep",
+      "url": "https://reddit.com/r/nosleep/comments/1ujrn33/i_work_at_the_unclaimed_baggage_center_in_alabama/",
+      "story_signature": "d5e4afeeb91829dc",
+      "keyword_signature": "again airline alabama baggage billion center checked damaged each flight flights happened know lost luggage many",
+      "topic_family": "dark_curiosity",
+      "topic_label": "Dark curiosity / scary true-feeling story",
+      "time_window": "week",
+      "virality_score": 44,
+      "base_virality_score": 35,
+      "velocity": {
+        "age_hours": 40.49,
+        "upvotes_per_hour": 32.28,
+        "comments_per_hour": 1.63
+      },
+      "fatigue_penalty": 0,
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 8,
+        "hook_strength": 7,
+        "narrative_arc": 8,
+        "translation": 7,
+        "viral_potential": 8,
+        "novelty": 8,
+        "duplicate_risk": 2,
+        "legal_risk": 2,
+        "topic_family": "Dark curiosity / scary true-feeling story",
+        "shorts_hook_type": "mystery",
+        "reason": "The story offers a highly engaging and unique premise about a real-world location that fits the dark curiosity niche perfectly with strong viral potential.",
+        "hook_suggestion": null
+      }
     }
   }
 }
