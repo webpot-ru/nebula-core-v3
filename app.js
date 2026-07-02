@@ -435,8 +435,13 @@ let karaokeAudio   = null;
 let karaokeRafId   = null;
 let karaokeReady   = false;
 let karaokeActiveIndex = -1;
+let karaokeActiveIndexes = [];
 let karaokeRequired = false;
 let activeRenderSlideIndex = -1;
+const KARAOKE_GROUP_MIN_WORDS = 2;
+const KARAOKE_GROUP_MAX_WORDS = 5;
+const KARAOKE_GROUP_TARGET_CHARS = 24;
+const KARAOKE_GROUP_MAX_CHARS = 34;
 
 function syncKaraokeGlobals() {
   window.karaokeReady = karaokeReady;
@@ -488,7 +493,13 @@ function normalizeTranscriptWord(value) {
   }
   if (start === null || end === null || end < start) return null;
 
-  return { word: token, start, end, el: null };
+  return {
+    word: token,
+    start,
+    end,
+    el: null,
+    timingSource: value.timing_source || value.timingSource || value.source || ''
+  };
 }
 
 function isTranscriptWord(value) {
@@ -741,6 +752,115 @@ function normalizeKaraokeToken(value) {
     .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
 }
 
+const KARAOKE_LINK_PLACEHOLDER_RUNS = [
+  ['ссылка', 'на', 'экране'],
+  ['the', 'link', 'is', 'on', 'screen'],
+  ['den', 'link', 'siehst', 'du', 'auf', 'dem', 'bildschirm'],
+  ['el', 'enlace', 'está', 'en', 'pantalla'],
+  ['o', 'link', 'está', 'na', 'tela'],
+  ['le', 'lien', 'est', 'affiché', 'à', "l'écran"],
+  ['il', 'link', 'è', 'sullo', 'schermo']
+].map(phrase => phrase.map(normalizeKaraokeToken));
+
+function isVisibleLinkToken(value) {
+  const token = String(value || '').trim().replace(/[),.;:!?]+$/g, '');
+  if (!token) return false;
+  return /^(?:https?:\/\/|www\.)/i.test(token) ||
+    /^[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+(?:[/?#]|$)/iu.test(token);
+}
+
+function matchLinkPlaceholderRun(expectedIndex, wordLimit) {
+  for (const phrase of KARAOKE_LINK_PLACEHOLDER_RUNS) {
+    if (expectedIndex + phrase.length > wordLimit) continue;
+    let matches = true;
+    for (let offset = 0; offset < phrase.length; offset++) {
+      const word = karaokeWords[expectedIndex + offset];
+      if (!word || word.el || normalizeKaraokeToken(word.word) !== phrase[offset]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return phrase.length;
+  }
+  return 0;
+}
+
+function karaokePhraseBoundaryAfter(unit) {
+  const token = String(unit?.token || '');
+  const trailingSpace = String(unit?.spaceAfter || '');
+  if (/\n/.test(trailingSpace)) return true;
+  return /[.,;:!?…。！？،؛؟]+(?:["')\]}»”’]+)?$/u.test(token);
+}
+
+function karaokePhraseChars(units, start, end) {
+  let text = '';
+  for (let index = start; index < end; index++) {
+    text += String(units[index]?.token || '');
+    if (index < end - 1) {
+      text += String(units[index]?.spaceAfter || ' ').replace(/\s+/g, ' ');
+    }
+  }
+  return text.trim().length;
+}
+
+function splitTextForKaraoke(text) {
+  const tokens = String(text || '').split(/(\s+)/).filter(token => token.length);
+  const units = [];
+  let leadingText = '';
+
+  tokens.forEach(token => {
+    if (/^\s+$/.test(token)) {
+      if (units.length) {
+        units[units.length - 1].spaceAfter += token;
+      } else {
+        leadingText += token;
+      }
+      return;
+    }
+    units.push({ token, spaceAfter: '' });
+  });
+
+  return { leadingText, units };
+}
+
+function planKaraokeGroups(units) {
+  const groups = [];
+  let index = 0;
+
+  while (index < units.length) {
+    if (isVisibleLinkToken(units[index].token)) {
+      groups.push({ start: index, end: index + 1 });
+      index += 1;
+      continue;
+    }
+
+    let end = index + 1;
+    while (end < units.length && end - index < KARAOKE_GROUP_MAX_WORDS) {
+      if (karaokePhraseBoundaryAfter(units[end - 1]) || isVisibleLinkToken(units[end].token)) {
+        break;
+      }
+
+      const nextChars = karaokePhraseChars(units, index, end + 1);
+      const currentWords = end - index;
+      if (currentWords >= KARAOKE_GROUP_MIN_WORDS && nextChars > KARAOKE_GROUP_MAX_CHARS) {
+        break;
+      }
+      if (currentWords >= KARAOKE_GROUP_MIN_WORDS && karaokePhraseChars(units, index, end) >= KARAOKE_GROUP_TARGET_CHARS) {
+        break;
+      }
+      if (nextChars > KARAOKE_GROUP_MAX_CHARS && currentWords >= 1) {
+        break;
+      }
+      end += 1;
+    }
+
+    groups.push({ start: index, end });
+    index = end;
+  }
+
+  return groups;
+}
+
 function slideIndexForWordIndex(wordIndex) {
   const slides = currentSlides();
   if (wordIndex < 0) return Math.max(0, activeRenderSlideIndex);
@@ -754,6 +874,16 @@ function slideIndexForWordIndex(wordIndex) {
 }
 
 function assignKaraokeWordToSpan(span, token, expectedIndex, wordLimit) {
+  if (isVisibleLinkToken(token)) {
+    const placeholderLength = matchLinkPlaceholderRun(expectedIndex, wordLimit);
+    if (placeholderLength) {
+      for (let offset = 0; offset < placeholderLength; offset++) {
+        karaokeWords[expectedIndex + offset].el = span;
+      }
+      return expectedIndex + placeholderLength;
+    }
+  }
+
   const tokenNorm = normalizeKaraokeToken(token);
   const maxLookahead = Math.min(wordLimit, expectedIndex + 8);
   if (tokenNorm) {
@@ -781,6 +911,7 @@ function buildKaraokeDOM(slideIndex = activeRenderSlideIndex >= 0 ? activeRender
   const slide = slides[Math.max(0, Math.min(slides.length - 1, slideIndex))];
   karaokeWords.forEach(word => { word.el = null; });
   karaokeActiveIndex = -1;
+  karaokeActiveIndexes = [];
 
   if (postFooter) {
     postFooter.style.display = slideShowsPostFooter(slide) ? 'flex' : 'none';
@@ -796,17 +927,27 @@ function buildKaraokeDOM(slideIndex = activeRenderSlideIndex >= 0 ? activeRender
 
   function wrapWordsIntoEl(text, container) {
     container.innerHTML = '';
-    const tokens = text.split(/(\s+)/);
-    tokens.forEach(token => {
-      if (/^\s+$/.test(token)) {
-        container.appendChild(document.createTextNode(token));
-        return;
+    const { leadingText, units } = splitTextForKaraoke(text);
+    if (leadingText) {
+      container.appendChild(document.createTextNode(leadingText));
+    }
+
+    planKaraokeGroups(units).forEach(group => {
+      const groupSpan = document.createElement('span');
+      groupSpan.className = 'kw kw-group';
+      container.appendChild(groupSpan);
+
+      for (let index = group.start; index < group.end; index++) {
+        const unit = units[index];
+        groupSpan.appendChild(document.createTextNode(unit.token));
+        wordIdx = assignKaraokeWordToSpan(groupSpan, unit.token, wordIdx, wordLimit);
+        if (index < group.end - 1) {
+          groupSpan.appendChild(document.createTextNode(unit.spaceAfter || ' '));
+        }
       }
-      const span = document.createElement('span');
-      span.className = 'kw';
-      span.textContent = token;
-      container.appendChild(span);
-      wordIdx = assignKaraokeWordToSpan(span, token, wordIdx, wordLimit);
+      if (units[group.end - 1]?.spaceAfter) {
+        container.appendChild(document.createTextNode(units[group.end - 1].spaceAfter));
+      }
     });
   }
 
@@ -840,18 +981,48 @@ function findKaraokeWordIndex(timeSeconds) {
   return active;
 }
 
+function karaokeGroupIndexes(active) {
+  if (active < 0 || !karaokeWords[active]) return [];
+  const activeEl = karaokeWords[active].el;
+  if (!activeEl) return [];
+  const slides = currentSlides();
+  const slideIndex = slideIndexForWordIndex(active);
+  const slide = slides[Math.max(0, Math.min(slides.length - 1, slideIndex))] || {};
+  const slideStart = Math.max(0, Number(slide.wordStart) || 0);
+  const slideEnd = Math.min(
+    karaokeWords.length,
+    Math.max(slideStart + 1, Number(slide.wordEnd) || karaokeWords.length)
+  );
+  const indexes = [];
+  for (let index = slideStart; index < slideEnd; index++) {
+    if (karaokeWords[index] && karaokeWords[index].el === activeEl) {
+      indexes.push(index);
+    }
+  }
+  return indexes;
+}
+
 function setKaraokeActiveIndex(active) {
-  if (active === karaokeActiveIndex) {
+  const nextIndexes = karaokeGroupIndexes(active);
+  if (
+    active === karaokeActiveIndex &&
+    nextIndexes.length === karaokeActiveIndexes.length &&
+    nextIndexes.every((index, offset) => index === karaokeActiveIndexes[offset])
+  ) {
     return;
   }
-  if (karaokeActiveIndex >= 0 && karaokeWords[karaokeActiveIndex] && karaokeWords[karaokeActiveIndex].el) {
-    karaokeWords[karaokeActiveIndex].el.classList.remove('kw-active');
-  }
-  if (active >= 0 && karaokeWords[active] && karaokeWords[active].el) {
-    const el = karaokeWords[active].el;
-    el.classList.add('kw-active');
-  }
+  karaokeActiveIndexes.forEach(index => {
+    if (karaokeWords[index] && karaokeWords[index].el) {
+      karaokeWords[index].el.classList.remove('kw-active');
+    }
+  });
+  nextIndexes.forEach(index => {
+    if (karaokeWords[index] && karaokeWords[index].el) {
+      karaokeWords[index].el.classList.add('kw-active');
+    }
+  });
   karaokeActiveIndex = active;
+  karaokeActiveIndexes = nextIndexes;
 }
 
 function renderKaraokeAtTime(timeSeconds) {
@@ -918,15 +1089,12 @@ async function init() {
 
   if (renderMode) {
     if (karaokeReady) {
-      if (new URLSearchParams(window.location.search).get('capture') === '1') {
-        // Deterministic renderer path: render.py advances the highlight per frame.
-        buildKaraokeDOM();
-        renderKaraokeAtTime(0);
-        document.body.dataset.renderReady = 'karaoke';
-      } else {
-        // Live preview path: show all text + highlight words in sync with audio.
-        startKaraokePlayback();
-      }
+      // Deterministic renderer path: render.py advances the highlight per frame.
+      // Do not start browser audio playback here; autoplay failures must not
+      // disable karaoke during headless capture.
+      buildKaraokeDOM();
+      renderKaraokeAtTime(coerceKaraokeTime(new URLSearchParams(window.location.search).get('time') || 0));
+      document.body.dataset.renderReady = 'karaoke';
     } else {
       if (karaokeRequired) {
         throw new Error('Karaoke render was required, but transcript/audio did not initialize.');

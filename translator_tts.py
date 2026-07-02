@@ -442,9 +442,11 @@ def sanitize_story_for_narration_and_karaoke(
     total_changes = 0
 
     for field in ("title", "body"):
+        narration_field = f"narration_{field}"
         cleaned, changes = clean_text_for_narration_and_karaoke(sanitized.get(field), lang_code)
-        if changes:
-            sanitized[field] = cleaned
+        existing_narration = str(sanitized.get(narration_field) or "").strip()
+        if changes or existing_narration:
+            sanitized[narration_field] = cleaned
             total_changes += changes
 
     comments = []
@@ -453,8 +455,9 @@ def sanitize_story_for_narration_and_karaoke(
             continue
         copied = dict(comment)
         cleaned, changes = clean_text_for_narration_and_karaoke(copied.get("body"), lang_code)
-        if changes:
-            copied["body"] = cleaned
+        existing_narration = str(copied.get("narration_body") or "").strip()
+        if changes or existing_narration:
+            copied["narration_body"] = cleaned
             total_changes += changes
         comments.append(copied)
     if comments:
@@ -462,11 +465,13 @@ def sanitize_story_for_narration_and_karaoke(
 
     if total_changes:
         sanitized["narration_sanitization"] = {
-            "version": 1,
+            "version": 2,
             "source": "translator_tts",
             "language": lang_code,
             "link_placeholder": localized_link_placeholder(lang_code),
             "changes": total_changes,
+            "mode": "narration_fields_only",
+            "display_fields_preserved": True,
             "sanitized_at": datetime.now(timezone.utc).isoformat(),
         }
     return sanitized, total_changes
@@ -528,10 +533,20 @@ def check_voice_config(args: argparse.Namespace) -> None:
     }, ensure_ascii=False, indent=2))
 
 
+def narration_field_text(container: dict[str, Any], field: str) -> str:
+    if not isinstance(container, dict):
+        return ""
+    narration_key = f"narration_{field}"
+    value = container.get(narration_key)
+    if value is None or not str(value).strip():
+        value = container.get(field)
+    return str(value or "").strip()
+
+
 def build_narration_text(story: dict[str, Any], lang_code: str, include_comment_labels: bool = False) -> str:
     parts: list[str] = []
-    title = (story.get("title") or "").strip()
-    body = (story.get("body") or "").strip()
+    title = narration_field_text(story, "title")
+    body = narration_field_text(story, "body")
 
     if title:
         parts.append(title)
@@ -540,8 +555,10 @@ def build_narration_text(story: dict[str, Any], lang_code: str, include_comment_
 
     comment_label = COMMENT_LABELS.get(lang_code, COMMENT_LABELS.get(lang_code[:2], "Comment by"))
     for comment in story.get("comments", []):
+        if not isinstance(comment, dict):
+            continue
         username = (comment.get("username") or "user").strip()
-        comment_body = (comment.get("body") or "").strip()
+        comment_body = narration_field_text(comment, "body")
         if comment_body:
             if include_comment_labels:
                 parts.append(f"{comment_label} {username}: {comment_body}")
@@ -610,8 +627,8 @@ def build_narration_segments(
 ) -> list[dict[str, Any]]:
     segments: list[dict[str, Any]] = []
     narrator_parts: list[str] = []
-    title = (story.get("title") or "").strip()
-    body = (story.get("body") or "").strip()
+    title = narration_field_text(story, "title")
+    body = narration_field_text(story, "body")
 
     if title:
         narrator_parts.append(title)
@@ -632,7 +649,7 @@ def build_narration_segments(
         if not isinstance(comment, dict):
             continue
         username = (comment.get("username") or "user").strip()
-        comment_body = (comment.get("body") or "").strip()
+        comment_body = narration_field_text(comment, "body")
         if not comment_body:
             continue
         if include_comment_labels:
@@ -1350,10 +1367,10 @@ def process_story_audio(args: argparse.Namespace) -> None:
 
     if not args.dry_run and (translation_needed or sanitization_changes):
         save_story(story, translated_story_path)
-        action = "localized" if translation_needed else "narration-safe"
+        action = "localized" if translation_needed else "narration-prepared"
         print(f"Saved {action} story text to {translated_story_path}")
         if sanitization_changes:
-            print(f"Sanitized {sanitization_changes} link/service token(s) for narration/karaoke.")
+            print(f"Prepared {sanitization_changes} link/service token(s) as narration-only placeholders.")
 
     narration_segments = build_narration_segments(
         story,

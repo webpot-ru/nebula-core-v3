@@ -103,7 +103,10 @@ TOPIC_FAMILY_PRESETS = {
         "time_windows": ["day", "week", "month"],
         "min_upvotes": 1200,
         "min_body_length": 450,
-        "quality_rules": "Prioritize a clear conflict, two arguable sides, escalation, and a first sentence that can stop a Shorts scroll."
+        "quality_rules": (
+            "Prioritize a clear personal conflict, two arguable sides, escalation, and a first sentence that can stop a Shorts scroll. "
+            "Reject news, product announcements, gaming/tech updates, link-only discussions, generic opinion prompts, and posts without a standalone human story."
+        )
     },
     "dark_curiosity": {
         "label": "Dark curiosity / scary true-feeling story",
@@ -371,6 +374,11 @@ SCORE each dimension from 1 (very poor) to 10 (excellent):
 6. novelty         — Is it meaningfully different from common/repeated Reddit tropes?
 7. duplicate_risk  — Risk this is a repeat/repost/same old trope (1 = fresh, 10 = likely duplicate)
 8. legal_risk      — Risk of copyright/privacy/harmful content issues (1 = no risk, 10 = high risk)
+
+HARD SKIP conditions:
+  - If the selected family is human_drama, SKIP posts that are news, product announcements, gaming/tech updates, link-only discussions, generic opinion prompts, or broad community debates without a first-person human conflict.
+  - SKIP posts where the body cannot stand alone as a narrated story without opening an external link, image, video, screenshot, or article.
+  - SKIP posts whose strongest appeal is only that the Reddit metrics are high.
 
 VERDICT rules:
   PUBLISH  → niche_fit >= 6 AND hook_strength >= 6 AND viral_potential >= 6 AND novelty >= 5 AND duplicate_risk <= 6 AND legal_risk <= 5
@@ -664,6 +672,8 @@ def build_topic_sources(
     mix = channel_topic_mix(channel_config)
     if topic_family:
         mix = [item for item in mix if item.get("family") == topic_family]
+        if not mix and topic_family in TOPIC_FAMILY_PRESETS:
+            mix = [{"family": topic_family, "weight": 1.0}]
 
     if not mix:
         windows = ["week"] if time_filter == "auto" else [time_filter]

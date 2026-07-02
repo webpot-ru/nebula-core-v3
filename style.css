@@ -987,25 +987,37 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* ── Karaoke word-highlight ──────────────────────────────────────────────── */
-/* Every word in karaoke mode is wrapped in a <span class="kw"> */
+/* Karaoke phrases are wrapped in stable inline spans. */
 .kw {
   display: inline;
-  border-radius: 3px;
-  padding: 0 1px;
-  transition: background-color 0.08s ease, color 0.08s ease, transform 0.08s ease;
+  border-radius: 0.18em;
+  padding: 0 0.09em;
+  line-height: inherit;
+  font: inherit;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition: color 0.08s ease, background-color 0.08s ease, box-shadow 0.08s ease;
   will-change: background-color, color;
+}
+
+.kw-group {
+  white-space: nowrap;
 }
 
 /* The word currently being spoken */
 .kw-active {
-  background-color: #FFD700;        /* gold highlight */
-  color: #0d0d0d;                   /* dark text for contrast on gold */
-  border-radius: 4px;
-  padding: 0 3px;
-  transform: scale(1.05);
-  display: inline-block;
-  box-shadow: 0 0 8px rgba(255, 215, 0, 0.55);
-  font-weight: 700;
+  display: inline;
+  background-color: #ffd700;
+  color: #111111;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  padding: 0 0.09em;
+  transform: none;
+  box-shadow:
+    0 0 0 0.08em rgba(255, 215, 0, 0.92),
+    0 0 0.34em rgba(255, 215, 0, 0.68);
 }
 
 .app-container.render-mode .kw {
@@ -1014,11 +1026,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .app-container.render-mode .reddit-card .kw-active {
   background-color: #ffd700;
-  color: #0d0d0d;
-  border-radius: 4px;
-  padding: 0 4px;
-  box-shadow: 0 0 14px rgba(255, 215, 0, 0.72);
-  font-weight: 800;
+  color: #111111;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  padding: 0 0.09em;
+  transform: none;
+  box-shadow:
+    0 0 0 0.09em rgba(255, 215, 0, 0.96),
+    0 0 0.42em rgba(255, 215, 0, 0.74);
 }
 
 

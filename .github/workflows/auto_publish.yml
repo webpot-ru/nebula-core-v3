@@ -50,11 +50,11 @@ on:
         type: choice
         options: [auto, day, week, month, year]
       topic_family:
-        description: 'Optional single topic family for manual test runs'
+        description: 'Topic strategy for manual test runs'
         required: false
-        default: 'human_drama'
+        default: 'channel_mix'
         type: choice
-        options: [human_drama, dark_curiosity, curiosity_facts, football_culture, internet_lore, visual_comedy]
+        options: [channel_mix, human_drama, dark_curiosity, curiosity_facts, football_culture, internet_lore, visual_comedy]
       video_slot:
         description: 'Which video slot (1=lunch, 2=prime-time)'
         required: false
@@ -87,6 +87,9 @@ jobs:
             SLOT="${{ github.event.inputs.video_slot }}"
             TF="${{ github.event.inputs.time_filter }}"
             TOPIC="${{ github.event.inputs.topic_family }}"
+            if [ "$TOPIC" = "channel_mix" ]; then
+              TOPIC=""
+            fi
             PRIV="${{ github.event.inputs.privacy_status }}"
             echo "matrix=[{\"channel\":\"${CH}\",\"slot\":\"${SLOT}\",\"time_filter\":\"${TF}\",\"topic_family\":\"${TOPIC}\",\"privacy_status\":\"${PRIV}\"}]" >> $GITHUB_OUTPUT
             exit 0
