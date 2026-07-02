@@ -20,7 +20,7 @@ DEFAULT_OUTPUT = "final_output.mp4"
 DEFAULT_WORKDIR = "build/render"
 DEFAULT_FRAME_COUNT = 8
 DEFAULT_OUTPUT_FPS = 30
-DEFAULT_BROWSER_TIMEOUT_SECONDS = 20
+DEFAULT_BROWSER_TIMEOUT_SECONDS = 45
 DEFAULT_AUDIO = "narration.mp3"
 DEFAULT_TRANSCRIPT = "narration.json"
 LONG_FORM_THRESHOLD_SECONDS = 180.0
@@ -388,14 +388,92 @@ def resolve_optional_file(value: str | None) -> Path | None:
     return path if path.exists() else None
 
 
+def first_present(payload: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return payload[key]
+    return None
+
+
+def coerce_transcript_seconds(value: Any, key: str = "") -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if "ms" in key.lower() or parsed > 1000:
+        return parsed / 1000
+    return parsed
+
+
+def normalize_transcript_word(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    word = first_present(value, ("word", "text", "punctuated_word", "token", "value"))
+    if not word:
+        return None
+
+    start_key = ""
+    start_raw = None
+    for key in ("start", "startTime", "start_time", "startMs", "start_ms", "begin", "beginTime", "begin_time", "beginMs", "begin_ms", "offset", "offsetMs", "offset_ms"):
+        if key in value and value[key] is not None:
+            start_key = key
+            start_raw = value[key]
+            break
+    end_key = ""
+    end_raw = None
+    for key in ("end", "endTime", "end_time", "endMs", "end_ms", "finish", "finishTime", "finish_time", "stop", "stopTime", "stop_time"):
+        if key in value and value[key] is not None:
+            end_key = key
+            end_raw = value[key]
+            break
+
+    start = coerce_transcript_seconds(start_raw, start_key)
+    end = coerce_transcript_seconds(end_raw, end_key)
+    if end is None and start is not None:
+        for key in ("duration", "durationTime", "duration_time", "durationMs", "duration_ms"):
+            if key in value and value[key] is not None:
+                duration = coerce_transcript_seconds(value[key], key)
+                if duration is not None:
+                    end = start + duration
+                    break
+    if start is None or end is None or end < start:
+        return None
+    return {"word": str(word), "start": start, "end": end}
+
+
+def count_transcript_words(value: Any) -> int:
+    if normalize_transcript_word(value):
+        return 1
+    if isinstance(value, dict):
+        return sum(count_transcript_words(item) for item in value.values())
+    if isinstance(value, list):
+        return sum(count_transcript_words(item) for item in value)
+    return 0
+
+
+def transcript_word_count(path: Path) -> int:
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return 0
+    if isinstance(data, dict) and str(data.get("timing_status") or "").lower() in {"missing", "partial"}:
+        return 0
+    return count_transcript_words(data)
+
+
 def write_render_story(storyboard: dict[str, Any], workdir: Path) -> Path:
     render_story = storyboard.get("render_story")
     if not isinstance(render_story, dict):
         raise RenderError(
             "storyboard.json has no render_story object. Regenerate it with storyboard_generator.py."
         )
+    render_payload = dict(render_story)
+    render_slides = storyboard.get("render_slides")
+    if isinstance(render_slides, list) and render_slides and not isinstance(render_payload.get("slides"), list):
+        render_payload["slides"] = render_slides
     story_path = workdir / "render_story.json"
-    story_path.write_text(json.dumps(render_story, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    story_path.write_text(json.dumps(render_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return story_path
 
 
@@ -521,7 +599,10 @@ def encode_frames(
             "aac",
             "-b:a",
             "192k",
-            "-shortest",
+            "-ar",
+            "48000",
+            "-af",
+            "aresample=async=1:first_pts=0",
         ])
     command.extend([
         "-t",
@@ -543,6 +624,7 @@ def render_redditsim_video(
     long_form_threshold_sec: float,
     audio_path: Path | None,
     transcript_path: Path | None,
+    transcript_word_count_value: int,
 ) -> dict[str, Any]:
     ffmpeg = find_ffmpeg_binary("ffmpeg")
     ffprobe = find_ffmpeg_binary("ffprobe")
@@ -580,6 +662,8 @@ def render_redditsim_video(
         "audioDurationSec": audio_sec,
         "audio": str(audio_path) if audio_path else None,
         "transcript": str(transcript_path) if transcript_path else None,
+        "transcriptWordCount": transcript_word_count_value,
+        "karaokeEnabled": bool(transcript_path),
         "outputFps": DEFAULT_OUTPUT_FPS,
         "renderFormat": render_profile["format"],
         "resolution": f"{width}x{height}",
@@ -623,6 +707,14 @@ def main(argv: list[str]) -> int:
     workdir.mkdir(parents=True, exist_ok=True)
     audio_path = resolve_optional_file(args.audio)
     transcript_path = resolve_optional_file(args.transcript)
+    transcript_words = transcript_word_count(transcript_path) if transcript_path else 0
+    if transcript_path and transcript_words <= 0:
+        print(
+            f"WARNING: {transcript_path} has no usable word timings; "
+            "rendering clean slide-progress frames and keeping narration audio.",
+            file=sys.stderr,
+        )
+        transcript_path = None
     if transcript_path and not audio_path:
         raise RenderError("--transcript was found, but --audio is missing; karaoke render needs both.")
 
@@ -636,6 +728,7 @@ def main(argv: list[str]) -> int:
         long_form_threshold_sec=args.long_form_threshold_sec,
         audio_path=audio_path,
         transcript_path=transcript_path,
+        transcript_word_count_value=transcript_words if transcript_path else 0,
     )
     print(json.dumps({
         "status": "ok",

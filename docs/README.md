@@ -204,7 +204,9 @@ test -s final_output.mp4
 ffprobe final_output.mp4
 ```
 
-`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic typing/karaoke screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. If `narration.json` exists, the renderer passes it into RedditSim so the current word is highlighted directly inside the existing Reddit card text. Karaoke mode does not add extra caption words, lower subtitle strips, or overlay text.
+`storyboard_generator.py` now emits `render_slides` for the simulator. The first story screen contains the title/body only, comment screens contain only comments that fit, and long story text advances as new centered card screens rather than a scrolling page. The slide text limits are intentionally conservative because render-mode fonts are sized for mobile Shorts and 16:9 readability.
+
+`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic slide-progress/karaoke screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. If `narration.json` exists and contains usable word timings, the renderer passes it into RedditSim so the current word is highlighted directly inside the currently visible Reddit card text. If AI33 returns missing or partial timings, the renderer disables karaoke and falls back to clean slide-progress frames while still merging the voiceover audio. Karaoke mode does not add extra caption words, lower subtitle strips, or overlay text.
 
 Render orientation is duration-aware. In default `--orientation auto` mode, videos up to 180 seconds render as vertical Shorts (`1080x1920`, mobile layout), while videos longer than 180 seconds render as horizontal long-form video (`1920x1080`, desktop layout). Both modes use the same in-text karaoke highlight; horizontal render fills the 16:9 viewport with a clean centered Reddit card and hides editor/sidebar widgets. Override only intentionally with `--orientation vertical` or `--orientation horizontal`.
 
@@ -346,7 +348,7 @@ python3 translator_tts.py --channel acc3 --comment-voice-id elevenlabs_LB5G0Z4EP
 
 Before TTS, the script now localizes `story_data.json` for non-English target channels through VectorEngine Gemini using the channel's `translate_prompt`. It translates the story `title`, story `body`, and each comment `body`, preserves usernames/metadata, writes localization metadata into the story JSON, and by default overwrites `--story` so `storyboard_generator.py` and `render.py` consume the translated text. Use `--translated-story-output story_localized_<lang>.json` to keep the original file untouched, `--skip-translation` for an explicit no-localization run, or `--force-translation` to refresh existing localized text.
 
-For karaoke sync, the default narration text mirrors visible card text: title, body, then comment bodies. If `channels.json` defines `comment_tts_voice`, `translator_tts.py` automatically splits narration into role segments: title/body use `tts_voice`, comments use `comment_tts_voice`, then FFmpeg concatenates the segments into one `narration.mp3` and writes a combined `narration.json` with shifted word timings. If a voiceover should explicitly say localized "Comment by user" labels, pass `--include-comment-labels`; that can reduce word-level visual alignment unless the rendered DOM also includes those labels.
+For karaoke sync, the default narration text mirrors visible card text: title, body, then comment bodies. If `channels.json` defines `comment_tts_voice`, `translator_tts.py` automatically splits narration into role segments: title/body use `tts_voice`, comments use `comment_tts_voice`, then FFmpeg concatenates the segments into one `narration.mp3` and writes a combined `narration.json` with shifted word timings when AI33 returns them. Missing or partial AI33 word timings no longer fail the TTS step; the transcript metadata is saved with `timing_status` and `render.py` falls back to clean slide-progress frames with audio. If a voiceover should explicitly say localized "Comment by user" labels, pass `--include-comment-labels`; that can reduce word-level visual alignment unless the rendered DOM also includes those labels.
 
 Use `--single-voice` to force one voice for the full narration. Use `--comment-voice-id` for a one-off override without editing `channels.json`.
 
@@ -519,10 +521,10 @@ SEO/upload handling:
 - `hashtags` are appended to the upload description if Gemini returned them separately.
 - `tags` and `seo_keywords` are merged into YouTube tags with duplicate removal and a 25-tag cap.
 - `language` is passed to YouTube as `defaultLanguage` and `defaultAudioLanguage` when present.
-- Manual `auto_publish.yml` runs default to `privacy_status=unlisted`; scheduled runs are also temporarily `unlisted` until YouTube account-token mapping is audited.
+- Manual `auto_publish.yml` runs default to `privacy_status=unlisted`; scheduled runs should stay `unlisted` until one post-fix live artifact is reviewed end to end.
 - `uploader.py --check-channel-only --account-index N` calls `channels.list(mine=true)` and verifies the authenticated channel against `channels.json`; `auto_publish.yml` runs this as an early preflight before Reddit/Gemini/AI33/render spend.
 - For a mapping-only audit across all accounts, use `.github/workflows/audit_voice_youtube.yml` with `check_youtube_mapping=true`. It runs `uploader.py --check-channel-only` for `acc1` through `acc7`, uploads per-account logs, and does not continue into Reddit/Gemini/AI33/render/upload.
-- Current blocker: scope-aware audit run `28459324708` proved every current `YOUTUBE_REFRESH_TOKEN_ACC1-7` has only `https://www.googleapis.com/auth/youtube.upload`. No token currently includes `https://www.googleapis.com/auth/youtube.readonly`, so `channels.list(mine=true)` returns `403 insufficient authentication scopes`. Logs are downloaded under `build/audit/run_28459324708/youtube-mapping-acc*/acc*.log`. Reissue the refresh tokens with YouTube upload plus read/channel access before rerunning the mapping audit.
+- Historical blocker: scope-aware audit run `28459324708` proved the then-current `YOUTUBE_REFRESH_TOKEN_ACC1-7` values had only `https://www.googleapis.com/auth/youtube.upload`, so `channels.list(mine=true)` returned `403 insufficient authentication scopes`. Per current user-provided state on 2026-07-02, all seven OAuth credentials/scopes were reissued and verified after that audit. Keep the channel preflight enabled before any spend/upload.
 - Before upload, `uploader.py` repeats the same channel check; a mismatch blocks `videos.insert`.
 - After upload, `uploader.py` calls `videos.list(part=snippet,status)` to read back channel id, privacy, and language.
 - Public oEmbed readback can confirm the uploaded title and channel handle for unlisted videos, but authenticated YouTube Data API readback is still needed for description, tags, language, and final status.
@@ -583,10 +585,10 @@ owns the exact expected channel shown by the script. The helper requests
 `youtube.upload`, `youtube.readonly`, and `youtube.force-ssl` by default. Add
 `--include-analytics` only if the analytics-read scope is intentionally needed.
 
-After all seven secrets are replaced, rerun `.github/workflows/audit_voice_youtube.yml`
+If the secrets are ever replaced again, rerun `.github/workflows/audit_voice_youtube.yml`
 with `check_youtube_mapping=true` and `generate_voice_samples=false`. The audit
 must show the new scopes and then match every authenticated channel against
-`channels.json` before public/scheduled publishing is safe.
+`channels.json` before trusting the new token set for public/scheduled publishing.
 
 ---
 
@@ -611,9 +613,9 @@ It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `f
 
 ### Production Publish Workflow
 
-`auto_publish.yml` has passed one end-to-end unlisted live smoke, but it is **not safe for public scheduled publishing yet**. The 2026-06-30 smoke verified localization, AI33 narration, audio-aware render, YouTube upload, and history commit, but readback/user review showed videos landing on the wrong channel for the requested account.
+`auto_publish.yml` has passed one end-to-end unlisted live smoke, but public scheduled publishing should still wait for one post-fix unlisted review. The 2026-06-30 smoke verified localization, AI33 narration, audio-aware render, YouTube upload, and history commit, but readback/user review showed videos landing on the wrong channel for the requested account. Per current user-provided state on 2026-07-02, the OAuth/channel mapping issue has been resolved; the next gate is artifact quality review after the render/TTS fixes.
 
-Until all `YOUTUBE_REFRESH_TOKEN_ACC1-7` values are audited against the expected channel handles, scheduled runs stay `unlisted`. Manual `public` is still available only when intentionally passed in `workflow_dispatch`, but the early token preflight still blocks mismatched accounts.
+YouTube refresh tokens are no longer the active blocker; the early token preflight still blocks mismatched accounts. After the 2026-07-02 render/TTS fallback fixes, keep the next run `unlisted` until one live artifact is inspected for translated text, voiceover audio, clean UI, and karaoke highlight when AI33 word timings are present.
 
 Planned production flow:
 ```
@@ -625,14 +627,14 @@ translator_tts.py → localized story_data.json + narration.mp3 + narration.json
     ↓
 translator_tts.py → narration-safe card text; raw URLs become localized "link on screen" phrases
     ↓
-storyboard_generator.py → storyboard.json
+storyboard_generator.py → storyboard.json with centered render_slides
     ↓
-render.py → final_output.mp4 with audio track + required karaoke highlight when transcript exists
+render.py → final_output.mp4 with audio track + karaoke highlight when usable transcript word timings exist, otherwise clean slide-progress frames with audio
     ↓
 uploader.py → channel preflight, YouTube upload, metadata readback
 ```
 
-`render.py` uses `--orientation auto` by default: narration/storyboard duration up to 180 seconds stays vertical 9:16 for Shorts, and anything longer than 180 seconds becomes horizontal 16:9 for long-form YouTube. The horizontal path keeps the same word-level karaoke treatment on the Reddit card text and does not add side panels or extra captions.
+`render.py` uses `--orientation auto` by default: narration/storyboard duration up to 180 seconds stays vertical 9:16 for Shorts, and anything longer than 180 seconds becomes horizontal 16:9 for long-form YouTube. The horizontal path keeps the same word-level karaoke treatment on the Reddit card text and does not add side panels or extra captions. Both orientations use larger render-mode text and slide chunking so the card stays readable instead of squeezing a long post onto one screen.
 
 ### ⚠️ Orchestration Rule (CRITICAL)
 
@@ -740,13 +742,14 @@ ffprobe final_output.mp4
 - [x] Desktop + Mobile dual layout
 - [x] GitHub private repo `nebula-core-v3`
 - [x] YouTube OAuth secrets exist for all 7 accounts
-- [ ] YouTube refresh-token mapping audited against expected channel handles
+- [x] YouTube refresh-token mapping reported verified against expected channel handles after the 2026-06-30 scope reissue
 - [x] `channels.json` — execution config now includes weighted `topic_mix` per channel
 - [x] `scraper.py` — **PRAW OAuth2 + virality scoring + topic-family search + bounded Gemini quality gate**
 - [x] `translator_tts.py` switched to AI33 TTS v3, `uploader.py` base script
 - [x] `metadata_generator.py` connected to VectorEngine Gemini for SEO metadata
 - [x] `thumbnail_generator.py` connected to VectorEngine image generation behind explicit spend confirmation
 - [x] `storyboard_generator.py` and `render.py` create a no-spend dry-run `final_output.mp4`
+- [x] Slide-based RedditSim rendering: first story screen without comments, comment-only screens, long story chunking, in-text karaoke highlight, and larger render-mode fonts
 - [x] GitHub Actions workflow `video_dry_run.yml` renders and uploads a live dry-run MP4 artifact
 - [x] GitHub Actions workflow `auto_publish.yml`
 - [x] Scrapers research & comparison documentation
@@ -754,7 +757,7 @@ ffprobe final_output.mp4
 - [x] Verified GitHub dry-run rendering (`chonkertalks-dry-run-video` artifact generated)
 
 ### 🔄 Next Steps (Priority Order)
-- [ ] **1. Audit YouTube token mapping** for `YOUTUBE_REFRESH_TOKEN_ACC1-7`; replace any token that resolves to the wrong channel before public scheduled publishing.
+- [ ] **1. Run one post-fix unlisted live smoke** and inspect channel, language, translated card text, voiceover audio, clean slide render, karaoke timing, SEO metadata, and uploaded metadata readback before public scheduled publishing.
 - [ ] **2. Select final ElevenLabs/MiniMax voices** from AI33 Voice Library for each channel if emotion tags should be default.
 - [ ] **3. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2.
 - [ ] **4. Add authenticated uploader readback** for title, description, tags, language, privacy, and channel id after upload.

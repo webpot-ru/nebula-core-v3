@@ -1571,14 +1571,16 @@ input[type="range"]::-webkit-slider-thumb:hover {
 /* ========================================= */
 /* CLEAN RECORDING MODE IN APP */
 /* ========================================= */
-.app-container.clean-mode .sidebar {
+.app-container.clean-mode .sidebar,
+.app-container.render-mode .sidebar {
   transform: translateX(-100%);
   width: 0;
   min-width: 0;
   position: absolute;
 }
 
-.app-container.clean-mode .canvas-viewport {
+.app-container.clean-mode .canvas-viewport,
+.app-container.render-mode .canvas-viewport {
   width: 100vw;
   height: 100vh;
   padding: 0;
@@ -1597,8 +1599,22 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: none;
 }
 
+.app-container.clean-mode .sidebar,
+.app-container.render-mode .sidebar,
 .app-container.clean-mode #controlSidebar,
 .app-container.render-mode #controlSidebar,
+.app-container.clean-mode .sidebar-header,
+.app-container.render-mode .sidebar-header,
+.app-container.clean-mode .tabs,
+.app-container.render-mode .tabs,
+.app-container.clean-mode .tab-content-container,
+.app-container.render-mode .tab-content-container,
+.app-container.clean-mode .playback-controls,
+.app-container.render-mode .playback-controls,
+.app-container.clean-mode .sidebar-footer,
+.app-container.render-mode .sidebar-footer,
+.app-container.clean-mode .exit-clean-indicator,
+.app-container.render-mode .exit-clean-indicator,
 .app-container.clean-mode .canvas-hud,
 .app-container.render-mode .canvas-hud,
 .app-container.clean-mode #resetBtn,
@@ -1614,8 +1630,22 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .app-container.clean-mode .desktop-right-sidebar,
 .app-container.render-mode .desktop-right-sidebar,
 .app-container.clean-mode .safe-zone-overlay,
-.app-container.render-mode .safe-zone-overlay {
+.app-container.render-mode .safe-zone-overlay,
+.app-container.clean-mode .sz-layer,
+.app-container.render-mode .sz-layer,
+.app-container.clean-mode .nav-icon-btn,
+.app-container.render-mode .nav-icon-btn {
   display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.app-container.karaoke-mode .cursor,
+body.karaoke-mode .cursor {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
 }
 
 .app-container.clean-mode .desktop-main-layout,
@@ -1674,7 +1704,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .app-container.render-mode .canvas-container.ratio-16-9 .desktop-center-feed {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   padding: 56px 84px;
 }
 
@@ -1688,8 +1718,13 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .app-container.render-mode .reddit-card {
   width: 88%;
   max-width: 860px;
+  max-height: 92vh;
   padding: 38px;
   border-radius: 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .app-container.render-mode .avatar {
@@ -1714,14 +1749,14 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .app-container.render-mode .post-title {
-  font-size: 43px;
+  font-size: 48px;
   line-height: 1.25;
   margin: 32px 0 24px;
 }
 
 .app-container.render-mode .post-body-text {
-  font-size: 32px;
-  line-height: 1.44;
+  font-size: 36px;
+  line-height: 1.42;
 }
 
 .app-container.render-mode .post-footer {
@@ -1762,19 +1797,19 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .app-container.render-mode .comment-body {
-  font-size: 28px;
-  line-height: 1.38;
+  font-size: 32px;
+  line-height: 1.36;
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 .post-title {
-  font-size: 39px;
+  font-size: 46px;
   line-height: 1.22;
   margin: 28px 0 22px;
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 .post-body-text {
-  font-size: 28px;
-  line-height: 1.38;
+  font-size: 34px;
+  line-height: 1.36;
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 .post-footer {
@@ -1787,6 +1822,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 .comment-body {
-  font-size: 24px;
+  font-size: 31px;
   line-height: 1.32;
 }

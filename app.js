@@ -49,7 +49,8 @@ const state = {
   theme: 'theme-reddit-midnight',
   background: 'bg-dark-aurora',
   safeZone: 'sz-none', // 'sz-none', 'sz-shorts', 'sz-reels', 'sz-tiktok'
-  cleanMode: false
+  cleanMode: false,
+  renderSlides: []
 };
 
 // Web Audio API Context
@@ -102,6 +103,7 @@ const cleanModeBtn = document.getElementById('cleanModeBtn');
 const canvasViewport = document.getElementById('canvasViewport');
 const canvasContainer = document.getElementById('canvasContainer');
 const redditCard = document.getElementById('redditCard');
+const postFooter = redditCard.querySelector('.post-footer');
 const desktopCenterFeed = document.getElementById('desktopCenterFeed');
 const desktopLayoutWrapper = document.getElementById('desktopLayoutWrapper');
 
@@ -112,6 +114,7 @@ const postAvatar = document.getElementById('postAvatar');
 const postVotes = document.getElementById('postVotes');
 const postCommentsCount = document.getElementById('postCommentsCount');
 
+const postTitleContainer = document.getElementById('postTitleContainer');
 const postTitleText = document.getElementById('postTitleText');
 const postTitleCursor = document.getElementById('postTitleCursor');
 const postBodyWrapper = document.getElementById('postBodyWrapper');
@@ -347,6 +350,83 @@ function applyStoryData(story) {
     body: comment.body || '',
     upvotes: String(comment.upvotes || '1')
   })).filter(comment => comment.body.trim());
+  state.renderSlides = normalizeRenderSlides(story.slides);
+}
+
+function visibleNarrationTextForSlide(slide) {
+  const parts = [];
+  if (slide.title) parts.push(slide.title);
+  if (slide.body) parts.push(slide.body);
+  (slide.comments || []).forEach(comment => {
+    if (comment.body) parts.push(comment.body);
+  });
+  return parts.join('\n\n').trim();
+}
+
+function countVisibleWords(text) {
+  const matches = String(text || '').trim().match(/\S+/g);
+  return matches ? matches.length : 0;
+}
+
+function normalizeRenderComment(comment, index) {
+  return {
+    id: Number(comment && comment.id) || index + 1,
+    username: (comment && comment.username) || `u/Commenter_${index + 1}`,
+    time: (comment && comment.time) || '1h ago',
+    body: (comment && comment.body) || '',
+    upvotes: String((comment && comment.upvotes) || '1')
+  };
+}
+
+function fallbackRenderSlides() {
+  const slides = [{
+    id: 'story_1',
+    type: 'story',
+    title: state.postTitle || '',
+    body: state.postBody || '',
+    comments: []
+  }];
+  state.comments.forEach((comment, index) => {
+    slides.push({
+      id: `comment_${index + 1}`,
+      type: 'comments',
+      title: '',
+      body: '',
+      comments: [comment]
+    });
+  });
+  return slides;
+}
+
+function normalizeRenderSlides(slides) {
+  const source = Array.isArray(slides) && slides.length ? slides : fallbackRenderSlides();
+  let cursor = 0;
+  return source.map((slide, index) => {
+    const normalized = {
+      id: slide.id || `slide_${index + 1}`,
+      type: slide.type || (slide.comments && slide.comments.length ? 'comments' : 'story'),
+      title: String(slide.title || ''),
+      body: String(slide.body || ''),
+      comments: (slide.comments || []).map(normalizeRenderComment),
+      wordStart: Number.isFinite(Number(slide.word_start)) ? Number(slide.word_start) : null,
+      wordEnd: Number.isFinite(Number(slide.word_end)) ? Number(slide.word_end) : null,
+      estimatedDuration: Math.max(1, Number(slide.estimated_duration_sec) || 3)
+    };
+    const wordCount = countVisibleWords(visibleNarrationTextForSlide(normalized));
+    if (normalized.wordStart === null || normalized.wordEnd === null || normalized.wordEnd < normalized.wordStart) {
+      normalized.wordStart = cursor;
+      normalized.wordEnd = cursor + wordCount;
+    }
+    cursor = Math.max(cursor + wordCount, normalized.wordEnd);
+    return normalized;
+  });
+}
+
+function currentSlides() {
+  if (!state.renderSlides || !state.renderSlides.length) {
+    state.renderSlides = normalizeRenderSlides([]);
+  }
+  return state.renderSlides;
 }
 
 // ── Karaoke state ──────────────────────────────────────────────────────────
@@ -356,6 +436,7 @@ let karaokeRafId   = null;
 let karaokeReady   = false;
 let karaokeActiveIndex = -1;
 let karaokeRequired = false;
+let activeRenderSlideIndex = -1;
 
 function syncKaraokeGlobals() {
   window.karaokeReady = karaokeReady;
@@ -434,7 +515,14 @@ async function applyRenderModeFromQuery() {
   if (!isRenderMode()) return false;
 
   const params = new URLSearchParams(window.location.search);
-  karaokeRequired = params.get('karaoke') === '1' || params.has('transcript') || params.has('audio');
+  appContainer.classList.add('clean-mode', 'render-mode');
+  document.body.classList.add('clean-mode', 'render-mode');
+  exitCleanIndicator.style.opacity = '0';
+
+  const karaokeRequested = params.get('karaoke') === '1';
+  const transcriptPath = params.get('transcript') || (karaokeRequested ? 'narration.json' : null);
+  const audioPath = params.get('audio') || (karaokeRequested ? 'narration.mp3' : null);
+  karaokeRequired = karaokeRequested || params.has('transcript');
   window.karaokeRequired = karaokeRequired;
   const storyPath = params.get('story');
   if (storyPath) {
@@ -468,46 +556,130 @@ async function applyRenderModeFromQuery() {
   state.cleanMode        = true;
 
   syncDOMFromState();
-  appContainer.classList.add('clean-mode', 'render-mode');
-  exitCleanIndicator.style.opacity = '0';
 
   // ── Try to load AI33 word-level transcript for karaoke mode ──────────────
-  const transcriptPath = params.get('transcript') || 'narration.json';
-  const audioPath      = params.get('audio')      || 'narration.mp3';
-  try {
-    const tRes = await fetch(transcriptPath, { cache: 'no-store' });
-    if (tRes.ok) {
-      const transcript = await tRes.json();
-      // Support flat arrays, {words: []}, segment wrappers, and nested AI33 task payloads.
-      const words = collectTranscriptWords(transcript);
-      if (words && words.length) {
-        karaokeWords = words.map(normalizeTranscriptWord).filter(Boolean);
-        if (karaokeWords.length) {
-          karaokeReady = true;
-          syncKaraokeGlobals();
-          // Pre-load audio element
-          karaokeAudio = new Audio(audioPath);
-          karaokeAudio.preload = 'auto';
+  if (transcriptPath) {
+    try {
+      const tRes = await fetch(transcriptPath, { cache: 'no-store' });
+      if (tRes.ok) {
+        const transcript = await tRes.json();
+        // Support flat arrays, {words: []}, segment wrappers, and nested AI33 task payloads.
+        const words = collectTranscriptWords(transcript);
+        if (words && words.length) {
+          karaokeWords = words.map(normalizeTranscriptWord).filter(Boolean);
+          if (karaokeWords.length) {
+            karaokeReady = true;
+            appContainer.classList.add('karaoke-mode');
+            document.body.classList.add('karaoke-mode');
+            syncKaraokeGlobals();
+            if (audioPath) {
+              karaokeAudio = new Audio(audioPath);
+              karaokeAudio.preload = 'auto';
+            }
+          }
         }
+      } else if (karaokeRequired) {
+        throw new Error(`Karaoke transcript could not be loaded: ${transcriptPath}`);
       }
-    } else if (karaokeRequired) {
-      throw new Error(`Karaoke transcript could not be loaded: ${transcriptPath}`);
+      if (karaokeRequired && !karaokeReady) {
+        throw new Error(`Karaoke transcript had no usable word timings: ${transcriptPath}`);
+      }
+    } catch (error) {
+      if (karaokeRequired) {
+        throw error;
+      }
+      /* transcript optional — fall back to typing progress */
     }
-    if (karaokeRequired && !karaokeReady) {
-      throw new Error(`Karaoke transcript had no usable word timings: ${transcriptPath}`);
-    }
-  } catch (error) {
-    if (karaokeRequired) {
-      throw error;
-    }
-    /* transcript optional — fall back to typing progress */
   }
 
   return true;
 }
 
+function commentColor(comment, index) {
+  const colors = ['#0079D3', '#FF4500', '#FFB000', '#00D474', '#D01416', '#7193FF', '#FF8717'];
+  return colors[(Number(comment.id) || index + 1) % colors.length];
+}
+
+function createCommentCard(comment, index, bodyRenderer) {
+  const avatarBg = commentColor(comment, index);
+  const initial = comment.username.replace(/^u\//, '').charAt(0) || 'u';
+  const card = document.createElement('div');
+  card.className = 'comment-card';
+  card.innerHTML = `
+    <div class="comment-header">
+      <div class="comment-avatar" style="background-color:${avatarBg}">${initial}</div>
+      <span class="comment-author">${comment.username}</span>
+      <span class="comment-time">${comment.time}</span>
+    </div>
+    <div class="comment-body" id="slide-comment-${comment.id}-${index}"></div>
+    <div class="comment-footer">
+      <div class="upvotes-action">
+        <svg viewBox="0 0 24 24" class="icon"><path d="M12 4l-8 8h6v8h4v-8h6z"></path></svg>
+        <span>${comment.upvotes}</span>
+      </div>
+      <span>Reply</span><span>Share</span>
+    </div>`;
+  postCommentsSection.appendChild(card);
+  const bodyEl = document.getElementById(`slide-comment-${comment.id}-${index}`);
+  bodyRenderer(comment.body || '', bodyEl);
+}
+
+function slideShowsPostFooter(slide) {
+  return slide.type !== 'comments' || Boolean((slide.title || '').trim() || (slide.body || '').trim());
+}
+
+function renderSlideStatic(slide) {
+  clearTimeout(typingTimeoutId);
+  state.isPlaying = false;
+
+  if (postFooter) {
+    postFooter.style.display = slideShowsPostFooter(slide) ? 'flex' : 'none';
+  }
+
+  postTitleText.textContent = slide.title || '';
+  postTitleContainer.style.display = slide.title ? 'block' : 'none';
+
+  postBodyText.textContent = slide.body || '';
+  postBodyWrapper.style.display = slide.body ? 'block' : 'none';
+
+  postCommentsSection.innerHTML = '';
+  (slide.comments || []).forEach((comment, index) => {
+    createCommentCard(comment, index, (text, bodyEl) => {
+      bodyEl.textContent = text;
+    });
+  });
+
+  postTitleCursor.classList.remove('active', 'blink');
+  postBodyCursor.classList.remove('active', 'blink');
+  currentTextIndex = 0;
+}
+
+function slideIndexAtProgress(progress) {
+  const slides = currentSlides();
+  if (slides.length <= 1) return 0;
+  const total = slides.reduce((sum, slide) => sum + Math.max(0.1, slide.estimatedDuration || 1), 0);
+  const target = Math.max(0, Math.min(0.999999, Number(progress) || 0)) * total;
+  let cursor = 0;
+  for (let index = 0; index < slides.length; index++) {
+    cursor += Math.max(0.1, slides[index].estimatedDuration || 1);
+    if (target <= cursor) return index;
+  }
+  return slides.length - 1;
+}
+
+function renderSlideAtProgress(progress) {
+  const slides = currentSlides();
+  const index = slideIndexAtProgress(progress);
+  renderSlideStatic(slides[index]);
+  activeRenderSlideIndex = index;
+  return true;
+}
+
 function renderTypingAtProgress(progress) {
   const safeProgress = Math.max(0, Math.min(1, Number(progress) || 0));
+  if (isRenderMode() && currentSlides().length) {
+    return renderSlideAtProgress(safeProgress);
+  }
   clearTimeout(typingTimeoutId);
   state.isPlaying = false;
 
@@ -561,16 +733,66 @@ function renderTypingAtProgress(progress) {
   scrollCanvasToBottom();
 }
 
+function normalizeKaraokeToken(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase()
+    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+}
+
+function slideIndexForWordIndex(wordIndex) {
+  const slides = currentSlides();
+  if (wordIndex < 0) return Math.max(0, activeRenderSlideIndex);
+  for (let index = 0; index < slides.length; index++) {
+    const slide = slides[index];
+    if (wordIndex >= slide.wordStart && wordIndex < slide.wordEnd) {
+      return index;
+    }
+  }
+  return wordIndex >= (slides[slides.length - 1]?.wordEnd || 0) ? slides.length - 1 : 0;
+}
+
+function assignKaraokeWordToSpan(span, token, expectedIndex, wordLimit) {
+  const tokenNorm = normalizeKaraokeToken(token);
+  const maxLookahead = Math.min(wordLimit, expectedIndex + 8);
+  if (tokenNorm) {
+    for (let index = expectedIndex; index < maxLookahead; index++) {
+      if (!karaokeWords[index] || karaokeWords[index].el) continue;
+      if (normalizeKaraokeToken(karaokeWords[index].word) === tokenNorm) {
+        karaokeWords[index].el = span;
+        return index + 1;
+      }
+    }
+  }
+  for (let index = expectedIndex; index < wordLimit; index++) {
+    if (karaokeWords[index] && !karaokeWords[index].el) {
+      karaokeWords[index].el = span;
+      return index + 1;
+    }
+  }
+  return expectedIndex;
+}
+
 // ── Karaoke DOM builder ────────────────────────────────────────────────────
-// Replaces plain text nodes with per-word <span class="kw"> elements and
-// stitches karaokeWords[].el references so the RAF loop can highlight them.
-function buildKaraokeDOM() {
-  // Render the complete post immediately (no typing animation)
+// Renders exactly one slide and attaches transcript words only to visible text.
+function buildKaraokeDOM(slideIndex = activeRenderSlideIndex >= 0 ? activeRenderSlideIndex : 0) {
+  const slides = currentSlides();
+  const slide = slides[Math.max(0, Math.min(slides.length - 1, slideIndex))];
+  karaokeWords.forEach(word => { word.el = null; });
+  karaokeActiveIndex = -1;
+
+  if (postFooter) {
+    postFooter.style.display = slideShowsPostFooter(slide) ? 'flex' : 'none';
+  }
+
   postTitleText.innerHTML = '';
+  postTitleContainer.style.display = 'none';
   postBodyWrapper.style.display = 'none';
   postCommentsSection.innerHTML = '';
 
-  let wordIdx = 0;
+  let wordIdx = Math.max(0, Number(slide.wordStart) || 0);
+  const wordLimit = Math.min(karaokeWords.length, Math.max(wordIdx, Number(slide.wordEnd) || karaokeWords.length));
 
   function wrapWordsIntoEl(text, container) {
     container.innerHTML = '';
@@ -584,51 +806,26 @@ function buildKaraokeDOM() {
       span.className = 'kw';
       span.textContent = token;
       container.appendChild(span);
-      // Align with karaokeWords by index (best-effort)
-      if (karaokeWords[wordIdx]) {
-        karaokeWords[wordIdx].el = span;
-        wordIdx++;
-      }
+      wordIdx = assignKaraokeWordToSpan(span, token, wordIdx, wordLimit);
     });
   }
 
-  // Title
-  if (state.postTitle.trim()) {
-    wrapWordsIntoEl(state.postTitle, postTitleText);
+  if ((slide.title || '').trim()) {
+    postTitleContainer.style.display = 'block';
+    wrapWordsIntoEl(slide.title, postTitleText);
   }
 
-  // Body
-  if (state.postBody.trim()) {
+  if ((slide.body || '').trim()) {
     postBodyWrapper.style.display = 'block';
-    wrapWordsIntoEl(state.postBody, postBodyText);
+    wrapWordsIntoEl(slide.body, postBodyText);
   }
 
-  // Comments
-  state.comments.forEach(comment => {
+  (slide.comments || []).forEach((comment, index) => {
     if (!comment.body.trim()) return;
-    const colors = ['#0079D3','#FF4500','#FFB000','#00D474','#D01416','#7193FF','#FF8717'];
-    const avatarBg = colors[comment.id % colors.length];
-    const initial  = comment.username.replace(/^u\//, '').charAt(0) || 'u';
-    const card = document.createElement('div');
-    card.className = 'comment-card';
-    card.innerHTML = `
-      <div class="comment-header">
-        <div class="comment-avatar" style="background-color:${avatarBg}">${initial}</div>
-        <span class="comment-author">${comment.username}</span>
-        <span class="comment-time">${comment.time}</span>
-      </div>
-      <div class="comment-body" id="kb-comment-${comment.id}"></div>
-      <div class="comment-footer">
-        <div class="upvotes-action">
-          <svg viewBox="0 0 24 24" class="icon"><path d="M12 4l-8 8h6v8h4v-8h6z"></path></svg>
-          <span>${comment.upvotes}</span>
-        </div>
-        <span>Reply</span><span>Share</span>
-      </div>`;
-    postCommentsSection.appendChild(card);
-    const bodyEl = document.getElementById(`kb-comment-${comment.id}`);
-    wrapWordsIntoEl(comment.body, bodyEl);
+    createCommentCard(comment, index, wrapWordsIntoEl);
   });
+
+  activeRenderSlideIndex = slideIndex;
 }
 
 function findKaraokeWordIndex(timeSeconds) {
@@ -653,17 +850,18 @@ function setKaraokeActiveIndex(active) {
   if (active >= 0 && karaokeWords[active] && karaokeWords[active].el) {
     const el = karaokeWords[active].el;
     el.classList.add('kw-active');
-    el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
   }
   karaokeActiveIndex = active;
 }
 
 function renderKaraokeAtTime(timeSeconds) {
   if (!karaokeReady) return false;
-  if (!karaokeWords.some(word => word.el)) {
-    buildKaraokeDOM();
+  const active = findKaraokeWordIndex(coerceKaraokeTime(timeSeconds));
+  const slideIndex = slideIndexForWordIndex(active);
+  if (activeRenderSlideIndex !== slideIndex || !karaokeWords.some(word => word.el)) {
+    buildKaraokeDOM(slideIndex);
   }
-  setKaraokeActiveIndex(findKaraokeWordIndex(coerceKaraokeTime(timeSeconds)));
+  setKaraokeActiveIndex(active);
   return true;
 }
 
@@ -675,15 +873,11 @@ window.karaokeWords = karaokeWords;
 function startKaraokePlayback() {
   if (!karaokeReady || !karaokeAudio) return;
 
-  buildKaraokeDOM();
-
-  let lastHighlighted = -1;
+  renderKaraokeAtTime(0);
 
   function tick() {
     const t = karaokeAudio.currentTime;
-    const active = findKaraokeWordIndex(t);
-    setKaraokeActiveIndex(active);
-    lastHighlighted = active;
+    renderKaraokeAtTime(t);
 
     if (!karaokeAudio.ended) {
       karaokeRafId = requestAnimationFrame(tick);
@@ -737,7 +931,7 @@ async function init() {
       if (karaokeRequired) {
         throw new Error('Karaoke render was required, but transcript/audio did not initialize.');
       }
-      // Fallback: classic typing-progress frame (for dry-run renders without audio)
+      // Fallback: deterministic slide progress for renders without usable word timings.
       renderTypingAtProgress(new URLSearchParams(window.location.search).get('progress') || 0);
       document.body.dataset.renderReady = 'true';
     }

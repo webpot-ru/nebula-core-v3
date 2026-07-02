@@ -10,6 +10,9 @@ from typing import Any
 DEFAULT_OUTPUT = "storyboard.json"
 DEFAULT_FORMAT = "shorts"
 SHORTS_RESOLUTION = {"width": 1080, "height": 1920, "aspect_ratio": "9:16"}
+STORY_SLIDE_MAX_CHARS = 320
+COMMENT_SLIDE_MAX_CHARS = 260
+COMMENTS_PER_SLIDE = 2
 
 SCENE_DEFAULTS = {
     "hook": {"duration_sec": 3.0, "visual_template": "reddit_hook"},
@@ -63,6 +66,121 @@ def pack_chunks(sentences: list[str], max_chars: int) -> list[str]:
     return chunks
 
 
+def count_words(text: str) -> int:
+    return len(re.findall(r"\S+", clean_text(text)))
+
+
+def slide_narration_text(slide: dict[str, Any]) -> str:
+    parts: list[str] = []
+    title = clean_text(slide.get("title"))
+    body = clean_text(slide.get("body"))
+    if title:
+        parts.append(title)
+    if body:
+        parts.append(body)
+    for comment in slide.get("comments") or []:
+        if isinstance(comment, dict):
+            comment_body = clean_text(comment.get("body"))
+            if comment_body:
+                parts.append(comment_body)
+    return "\n\n".join(parts)
+
+
+def estimated_slide_duration(word_count: int) -> float:
+    return round(max(2.4, min(12.0, word_count / 2.65 + 0.8)), 3)
+
+
+def assign_slide_word_ranges(slides: list[dict[str, Any]]) -> None:
+    cursor = 0
+    for index, slide in enumerate(slides):
+        text = slide_narration_text(slide)
+        words = count_words(text)
+        slide["index"] = index
+        slide["word_start"] = cursor
+        slide["word_end"] = cursor + words
+        slide["word_count"] = words
+        slide["estimated_duration_sec"] = estimated_slide_duration(words)
+        cursor += words
+
+
+def build_render_slides(
+    *,
+    title: str,
+    body: str,
+    comments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    sentences = split_sentences(body)
+    story_chunks = pack_chunks(sentences, STORY_SLIDE_MAX_CHARS)
+    if not story_chunks and body:
+        story_chunks = [body]
+    if not story_chunks:
+        story_chunks = [""]
+
+    slides: list[dict[str, Any]] = []
+    for index, chunk in enumerate(story_chunks):
+        slides.append({
+            "id": f"story_{index + 1}",
+            "type": "story",
+            "title": title if index == 0 else "",
+            "body": chunk,
+            "comments": [],
+        })
+
+    current_comments: list[dict[str, Any]] = []
+    current_chars = 0
+    for comment in comments:
+        comment_body = clean_text(comment.get("body"))
+        if not comment_body:
+            continue
+        candidate_chars = current_chars + len(comment_body)
+        if current_comments and (
+            len(current_comments) >= COMMENTS_PER_SLIDE
+            or candidate_chars > COMMENT_SLIDE_MAX_CHARS
+        ):
+            slides.append({
+                "id": f"comments_{len(slides) + 1}",
+                "type": "comments",
+                "title": "",
+                "body": "",
+                "comments": current_comments,
+            })
+            current_comments = []
+            current_chars = 0
+        current_comments.append(comment)
+        current_chars += len(comment_body)
+
+    if current_comments:
+        slides.append({
+            "id": f"comments_{len(slides) + 1}",
+            "type": "comments",
+            "title": "",
+            "body": "",
+            "comments": current_comments,
+        })
+
+    assign_slide_word_ranges(slides)
+    return slides
+
+
+def build_scenes_from_slides(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    scenes: list[dict[str, Any]] = []
+    for index, slide in enumerate(slides, start=1):
+        text = slide_narration_text(slide)
+        title = clean_text(slide.get("title")) or ("Comments" if slide.get("type") == "comments" else "Story")
+        scenes.append({
+            "index": index,
+            "scene_type": slide.get("type") or "story",
+            "title": title,
+            "text": text,
+            "duration_sec": float(slide.get("estimated_duration_sec") or 3.0),
+            "visual_template": "reddit_slide",
+            "slide_id": slide.get("id"),
+            "word_start": slide.get("word_start"),
+            "word_end": slide.get("word_end"),
+        })
+    return scenes
+
+
 def excerpt(text: str, limit: int) -> str:
     cleaned = clean_text(text)
     if len(cleaned) <= limit:
@@ -110,26 +228,19 @@ def build_storyboard(story: dict[str, Any], output_format: str) -> dict[str, Any
     upvotes = clean_text(story.get("upvotes")) or clean_text(story.get("score")) or "0"
     comments_count = clean_text(story.get("comments_count")) or clean_text(story.get("num_comments")) or "0"
 
-    sentences = split_sentences(body)
-    chunks = pack_chunks(sentences, max_chars=230)
-    if not chunks and body:
-        chunks = [excerpt(body, 230)]
-    if not chunks:
-        chunks = ["The details were short, but the comments turned it into a debate."]
-
-    setup_text = chunks[0]
-    escalation_text = chunks[1] if len(chunks) > 1 else excerpt(body or title, 230)
-    payoff_text = chunks[-1] if len(chunks) > 2 else "The ending left people arguing about what should have happened next."
-    comments_text = "\n".join(comment_lines(story)) or "The comments split fast: some people defended the poster, while others thought the story had a missing piece."
-
-    scenes = [
-        build_scene("hook", "Hook", title, 1),
-        build_scene("setup", f"{subreddit} / {author}", setup_text, 2),
-        build_scene("escalation", "Then it got worse", escalation_text, 3),
-        build_scene("comments_context", f"{upvotes} upvotes / {comments_count} comments", comments_text, 4),
-        build_scene("payoff", "The part everyone argued about", payoff_text, 5),
-        build_scene("cta", "Your verdict?", "Who was right here?\nComment your take.", 6),
+    comments = [
+        {
+            "id": index + 1,
+            "username": clean_text(comment.get("username") or f"u/commenter_{index + 1}"),
+            "time": clean_text(comment.get("time") or "1h ago"),
+            "body": clean_text(comment.get("body")),
+            "upvotes": clean_text(comment.get("upvotes") or "1"),
+        }
+        for index, comment in enumerate(story.get("comments") or [])
+        if isinstance(comment, dict) and clean_text(comment.get("body"))
     ]
+    render_slides = build_render_slides(title=title, body=body, comments=comments)
+    scenes = build_scenes_from_slides(render_slides)
 
     return {
         "version": 1,
@@ -143,18 +254,10 @@ def build_storyboard(story: dict[str, Any], output_format: str) -> dict[str, Any
             "upvotes": upvotes,
             "comments_count": comments_count,
             "url": clean_text(story.get("url")),
-            "comments": [
-                {
-                    "id": index + 1,
-                    "username": clean_text(comment.get("username") or f"u/commenter_{index + 1}"),
-                    "time": clean_text(comment.get("time") or "1h ago"),
-                    "body": clean_text(comment.get("body")),
-                    "upvotes": clean_text(comment.get("upvotes") or "1"),
-                }
-                for index, comment in enumerate(story.get("comments") or [])
-                if isinstance(comment, dict) and clean_text(comment.get("body"))
-            ][:3],
+            "comments": comments,
+            "slides": render_slides,
         },
+        "render_slides": render_slides,
         "source": {
             "subreddit": subreddit,
             "author": author,

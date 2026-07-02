@@ -241,6 +241,38 @@ Source story JSON:
 """.strip()
 
 
+def validate_translation_payload(story: dict[str, Any], translated_fields: dict[str, Any]) -> None:
+    missing: list[str] = []
+    if str(story.get("title") or "").strip() and not str(translated_fields.get("title") or "").strip():
+        missing.append("title")
+    if str(story.get("body") or "").strip() and not str(translated_fields.get("body") or "").strip():
+        missing.append("body")
+
+    translated_comments: dict[int, str] = {}
+    for fallback_index, item in enumerate(translated_fields.get("comments") or []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            index = int(item.get("index", fallback_index))
+        except (TypeError, ValueError):
+            index = fallback_index
+        body = str(item.get("body") or "").strip()
+        if body:
+            translated_comments[index] = body
+
+    for index, comment in enumerate(story.get("comments") or []):
+        if not isinstance(comment, dict):
+            continue
+        if str(comment.get("body") or "").strip() and index not in translated_comments:
+            missing.append(f"comments[{index}].body")
+
+    if missing:
+        raise Ai33Error(
+            "VectorEngine Gemini translation response was incomplete; missing translated field(s): "
+            + ", ".join(missing)
+        )
+
+
 def apply_translated_fields(
     story: dict[str, Any],
     translated_fields: dict[str, Any],
@@ -322,6 +354,10 @@ def translate_story_text(
         )
     except VectorEngineError as exc:
         raise Ai33Error(f"VectorEngine Gemini translation failed: {exc}") from exc
+
+    if not isinstance(translated_fields, dict):
+        raise Ai33Error("VectorEngine Gemini translation returned non-object JSON.")
+    validate_translation_payload(story, translated_fields)
 
     return apply_translated_fields(
         story,
@@ -878,10 +914,11 @@ def write_combined_transcript(
     segment_durations: list[float],
     narrator_voice_id: str,
     comment_voice_id: str,
-) -> None:
+) -> bool:
     words: list[dict[str, Any]] = []
     segments: list[dict[str, Any]] = []
     offset = 0.0
+    missing_timing_segments: list[int] = []
 
     for index, (payload, spec, duration) in enumerate(zip(segment_payloads, segment_specs, segment_durations)):
         raw_words = collect_transcript_words(payload)
@@ -893,6 +930,8 @@ def write_combined_transcript(
                 shifted["segment"] = index
                 shifted["role"] = spec.get("role")
                 words.append(shifted)
+        else:
+            missing_timing_segments.append(index)
         segments.append({
             "index": index,
             "role": spec.get("role"),
@@ -905,19 +944,38 @@ def write_combined_transcript(
         })
         offset += duration
 
+    timing_status = "ok"
+    usable_words = words
+    warnings: list[str] = []
     if not words:
-        raise Ai33Error("AI33 did not return usable word timings for multi-voice narration.")
+        timing_status = "missing"
+        usable_words = []
+        warnings.append(
+            "AI33 did not return usable word timings for multi-voice narration; renderer should fall back to clean slide-progress frames with audio."
+        )
+    elif missing_timing_segments:
+        timing_status = "partial"
+        usable_words = []
+        warnings.append(
+            "AI33 returned word timings for only part of the multi-voice narration; partial timings are not used for karaoke."
+        )
 
     output = {
         "version": 1,
         "source": "translator_tts_multi_voice",
+        "timing_status": timing_status,
         "narrator_voice_id": narrator_voice_id,
         "comment_voice_id": comment_voice_id,
         "duration": round(offset, 3),
         "segments": segments,
-        "words": words,
+        "words": usable_words,
     }
+    if missing_timing_segments:
+        output["missing_timing_segments"] = missing_timing_segments
+    if warnings:
+        output["warnings"] = warnings
     output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+    return timing_status == "ok"
 
 
 def generate_tts_audio(
@@ -1069,7 +1127,7 @@ def process_story_audio(args: argparse.Namespace) -> None:
 
         if args.with_transcript:
             transcript_path = output_path.with_suffix(".json")
-            write_combined_transcript(
+            transcript_has_word_timings = write_combined_transcript(
                 output_path=transcript_path,
                 segment_payloads=segment_payloads,
                 segment_specs=narration_segments,
@@ -1077,7 +1135,13 @@ def process_story_audio(args: argparse.Namespace) -> None:
                 narrator_voice_id=voice_id,
                 comment_voice_id=comment_voice_id,
             )
-            print(f"Saved combined transcript/metadata to {transcript_path}")
+            if transcript_has_word_timings:
+                print(f"Saved combined transcript/metadata to {transcript_path}")
+            else:
+                print(
+                    "WARNING: Saved transcript metadata without complete word timings "
+                    f"to {transcript_path}; renderer will use clean slide-progress frames with audio."
+                )
         return
 
     print(f"Submitting AI33 TTS task: voice_id={voice_id}, chars={len(narration_text)}")
