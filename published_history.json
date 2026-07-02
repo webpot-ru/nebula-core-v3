@@ -81,6 +81,44 @@
         "reason": "The story offers a highly engaging and unique premise about a real-world location that fits the dark curiosity niche perfectly with strong viral potential.",
         "hook_suggestion": null
       }
+    },
+    "1ukjpwj": {
+      "channels": {
+        "acc1": {
+          "published_at": "2026-07-02T08:44:16.268846+00:00"
+        }
+      },
+      "title": "Physical disc production ending in January 2028 for new games releasing on PlayStation consoles",
+      "subreddit": "r/gaming",
+      "url": "https://reddit.com/r/gaming/comments/1ukjpwj/physical_disc_production_ending_in_january_2028/",
+      "story_signature": "74a12ed471cb6f5b",
+      "keyword_signature": "2028 away broader consoles consumer continue date digital disc discontinued discs ending entertainment following game games",
+      "topic_family": "human_drama",
+      "topic_label": "Dark Curiosity + Tech/Gaming/Facts",
+      "time_window": "week",
+      "virality_score": 126,
+      "base_virality_score": 100,
+      "velocity": {
+        "age_hours": 20.68,
+        "upvotes_per_hour": 1046.4,
+        "comments_per_hour": 306.35
+      },
+      "fatigue_penalty": 0,
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 8,
+        "hook_strength": 7,
+        "narrative_arc": 4,
+        "translation": 10,
+        "viral_potential": 9,
+        "novelty": 8,
+        "duplicate_risk": 2,
+        "legal_risk": 1,
+        "topic_family": "Tech/Gaming/Facts",
+        "shorts_hook_type": "fact",
+        "reason": "This is a major, highly controversial industry shift that perfectly aligns with the channel's gaming/tech niche and has proven viral engagement.",
+        "hook_suggestion": null
+      }
     }
   }
 }
