@@ -157,6 +157,44 @@
         "reason": "The story presents a fascinating gaming experiment with a strong hook about player self-organization, fitting the channel's gaming/facts niche perfectly with zero legal risk.",
         "hook_suggestion": null
       }
+    },
+    "1ukkzeq": {
+      "channels": {
+        "acc7": {
+          "published_at": "2026-07-02T11:50:51.919433+00:00"
+        }
+      },
+      "title": "AITA for refusing to change my name?",
+      "subreddit": "r/AmItheAsshole",
+      "url": "https://reddit.com/r/AmItheAsshole/comments/1ukkzeq/aita_for_refusing_to_change_my_name/",
+      "story_signature": "d8efc62a5f014386",
+      "keyword_signature": "academia background built change computer conferences fighting husband keep last left legal married name papers presented",
+      "topic_family": "human_drama",
+      "topic_label": "Human drama / moral conflict",
+      "time_window": "day",
+      "virality_score": 101,
+      "base_virality_score": 80,
+      "velocity": {
+        "age_hours": 22.87,
+        "upvotes_per_hour": 228.75,
+        "comments_per_hour": 59.68
+      },
+      "fatigue_penalty": 0,
+      "ai_quality": {
+        "verdict": "REWRITE",
+        "niche_fit": 5,
+        "hook_strength": 5,
+        "narrative_arc": 8,
+        "translation": 6,
+        "viral_potential": 7,
+        "novelty": 5,
+        "duplicate_risk": 3,
+        "legal_risk": 1,
+        "topic_family": "Human drama / moral conflict",
+        "shorts_hook_type": "identity",
+        "reason": "The story has strong drama but needs a localized hook for the Italian audience, as legal name changes after marriage work differently in Italy compared to the US.",
+        "hook_suggestion": "Mio marito vuole il divorzio e ora pretende che io cancelli il suo cognome da tutte le mie pubblicazioni scientifiche e dalla mia laurea."
+      }
     }
   }
 }
