@@ -26,6 +26,7 @@ AI33_TASK_URL_TEMPLATE = os.environ.get(
     f"{AI33_API_BASE}/v3/task/{{task_id}}",
 )
 AI33_TASK_AUTH_HEADER = os.environ.get("AI33_TASK_AUTH_HEADER", "Authorization")
+TTS_SEGMENT_MAX_CHARS = int(os.environ.get("AI33_TTS_SEGMENT_MAX_CHARS", "2400"))
 
 VOICE_PREFIXES = ("elevenlabs_", "minimax_", "clone_", "edge_", "kokoro_")
 
@@ -553,11 +554,59 @@ def build_narration_text(story: dict[str, Any], lang_code: str, include_comment_
     return narration_text
 
 
+def split_long_text_for_tts(text: str, max_chars: int) -> list[str]:
+    cleaned = re.sub(r"\s+", " ", str(text or "").strip())
+    if not cleaned:
+        return []
+    if max_chars <= 0 or len(cleaned) <= max_chars:
+        return [cleaned]
+
+    units = [
+        unit.strip()
+        for unit in re.split(r"(?<=[.!?…。！？])\s+", cleaned)
+        if unit.strip()
+    ]
+    chunks: list[str] = []
+    current = ""
+
+    def flush_current() -> None:
+        nonlocal current
+        if current:
+            chunks.append(current)
+            current = ""
+
+    for unit in units:
+        if len(unit) > max_chars:
+            flush_current()
+            word_chunk = ""
+            for word in unit.split():
+                candidate = f"{word_chunk} {word}".strip()
+                if word_chunk and len(candidate) > max_chars:
+                    chunks.append(word_chunk)
+                    word_chunk = word
+                else:
+                    word_chunk = candidate
+            if word_chunk:
+                chunks.append(word_chunk)
+            continue
+
+        candidate = f"{current} {unit}".strip()
+        if current and len(candidate) > max_chars:
+            flush_current()
+            current = unit
+        else:
+            current = candidate
+
+    flush_current()
+    return chunks or [cleaned]
+
+
 def build_narration_segments(
     story: dict[str, Any],
     lang_code: str,
     *,
     include_comment_labels: bool = False,
+    max_segment_chars: int = TTS_SEGMENT_MAX_CHARS,
 ) -> list[dict[str, Any]]:
     segments: list[dict[str, Any]] = []
     narrator_parts: list[str] = []
@@ -569,11 +618,14 @@ def build_narration_segments(
     if body:
         narrator_parts.append(body)
     if narrator_parts:
-        segments.append({
-            "role": "narrator",
-            "index": 0,
-            "text": "\n\n".join(narrator_parts).strip(),
-        })
+        narrator_text = "\n\n".join(narrator_parts).strip()
+        for chunk_index, chunk in enumerate(split_long_text_for_tts(narrator_text, max_segment_chars)):
+            segments.append({
+                "role": "narrator",
+                "index": chunk_index,
+                "chunk": chunk_index,
+                "text": chunk,
+            })
 
     comment_label = COMMENT_LABELS.get(lang_code, COMMENT_LABELS.get(lang_code[:2], "Comment by"))
     for index, comment in enumerate(story.get("comments", [])):
@@ -587,12 +639,14 @@ def build_narration_segments(
             text = f"{comment_label} {username}: {comment_body}"
         else:
             text = comment_body
-        segments.append({
-            "role": "comment",
-            "index": index,
-            "username": username,
-            "text": text,
-        })
+        for chunk_index, chunk in enumerate(split_long_text_for_tts(text, max_segment_chars)):
+            segments.append({
+                "role": "comment",
+                "index": index,
+                "chunk": chunk_index,
+                "username": username,
+                "text": chunk,
+            })
 
     if not segments:
         raise Ai33Error("story_data.json does not contain title, body, or comments text.")
@@ -1103,6 +1157,7 @@ def process_story_audio(args: argparse.Namespace) -> None:
         story,
         lang_code,
         include_comment_labels=args.include_comment_labels,
+        max_segment_chars=args.tts_segment_max_chars,
     )
     has_comment_segments = any(segment.get("role") == "comment" for segment in narration_segments)
     use_multi_voice = (
@@ -1121,6 +1176,7 @@ def process_story_audio(args: argparse.Namespace) -> None:
         print(f"  comment_voice_id: {comment_voice_id}")
         print(f"  voice_mode: {'multi_voice' if use_multi_voice else 'single_voice'}")
         print(f"  segments: {len(narration_segments)}")
+        print(f"  tts_segment_max_chars: {args.tts_segment_max_chars}")
         print(f"  translation: {'needed' if translation_needed else 'skipped'}")
         print(f"  translation_model: {args.translation_model}")
         print(f"  narration_sanitization_changes: {sanitization_changes}")
@@ -1306,6 +1362,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=int, default=900, help="Polling timeout in seconds.")
     parser.add_argument("--poll-interval", type=int, default=5, help="Polling interval in seconds.")
     parser.add_argument(
+        "--tts-segment-max-chars",
+        type=int,
+        default=TTS_SEGMENT_MAX_CHARS,
+        help="Maximum characters per AI33 TTS segment before splitting long narration text.",
+    )
+    parser.add_argument(
         "--tts-retries",
         type=int,
         default=2,
@@ -1333,6 +1395,8 @@ if __name__ == "__main__":
             raise Ai33Error("--tts-retries must be 0 or greater.")
         if parsed_args.tts_retry_delay < 0:
             raise Ai33Error("--tts-retry-delay must be 0 or greater.")
+        if parsed_args.tts_segment_max_chars < 500:
+            raise Ai33Error("--tts-segment-max-chars must be at least 500.")
         process_story_audio(parsed_args)
     except Ai33Error as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

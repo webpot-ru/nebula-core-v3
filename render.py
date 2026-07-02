@@ -682,6 +682,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--audio", default=DEFAULT_AUDIO, help="Optional narration audio path to merge into the MP4.")
     parser.add_argument("--transcript", default=DEFAULT_TRANSCRIPT, help="Optional word-level transcript JSON path for karaoke highlighting.")
     parser.add_argument(
+        "--require-karaoke",
+        action="store_true",
+        help="Fail instead of falling back when no usable word-level transcript is available.",
+    )
+    parser.add_argument(
         "--orientation",
         choices=["auto", "vertical", "horizontal"],
         default="auto",
@@ -709,12 +714,16 @@ def main(argv: list[str]) -> int:
     transcript_path = resolve_optional_file(args.transcript)
     transcript_words = transcript_word_count(transcript_path) if transcript_path else 0
     if transcript_path and transcript_words <= 0:
+        if args.require_karaoke:
+            raise RenderError(f"--require-karaoke was set, but {transcript_path} has no usable word timings.")
         print(
             f"WARNING: {transcript_path} has no usable word timings; "
             "rendering clean slide-progress frames and keeping narration audio.",
             file=sys.stderr,
         )
         transcript_path = None
+    if args.require_karaoke and not transcript_path:
+        raise RenderError("--require-karaoke was set, but no usable transcript file was found.")
     if transcript_path and not audio_path:
         raise RenderError("--transcript was found, but --audio is missing; karaoke render needs both.")
 

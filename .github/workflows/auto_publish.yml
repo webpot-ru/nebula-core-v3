@@ -247,7 +247,8 @@ jobs:
           python render.py \
             --storyboard storyboard.json \
             --output final_output.mp4 \
-            --frame-count 300
+            --frame-count 300 \
+            --require-karaoke
 
       - name: Upload video to YouTube channel
         env:
