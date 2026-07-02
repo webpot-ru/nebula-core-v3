@@ -966,6 +966,94 @@ def normalize_transcript_word(value: Any) -> dict[str, Any] | None:
     }
 
 
+def alignment_time_list(payload: dict[str, Any], keys: tuple[str, ...]) -> tuple[list[Any], str] | tuple[None, str]:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value, key
+    return None, ""
+
+
+def words_from_character_alignment(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, dict):
+        return []
+
+    alignment: dict[str, Any] | None = None
+    for key in ("normalized_alignment", "alignment"):
+        candidate = value.get(key)
+        if isinstance(candidate, dict):
+            alignment = candidate
+            break
+    if alignment is None and isinstance(value.get("characters"), list):
+        alignment = value
+    if alignment is None:
+        return []
+
+    characters = alignment.get("characters")
+    start_values, start_key = alignment_time_list(
+        alignment,
+        (
+            "character_start_times_seconds",
+            "characterStartTimesSeconds",
+            "character_start_times_ms",
+            "characterStartTimesMs",
+            "start_times_seconds",
+            "startTimesSeconds",
+            "start_times_ms",
+            "startTimesMs",
+        ),
+    )
+    end_values, end_key = alignment_time_list(
+        alignment,
+        (
+            "character_end_times_seconds",
+            "characterEndTimesSeconds",
+            "character_end_times_ms",
+            "characterEndTimesMs",
+            "end_times_seconds",
+            "endTimesSeconds",
+            "end_times_ms",
+            "endTimesMs",
+        ),
+    )
+    if not isinstance(characters, list) or start_values is None or end_values is None:
+        return []
+
+    item_count = min(len(characters), len(start_values), len(end_values))
+    words: list[dict[str, Any]] = []
+    current_chars: list[str] = []
+    current_start: float | None = None
+    current_end: float | None = None
+
+    def flush_word() -> None:
+        nonlocal current_chars, current_start, current_end
+        word = "".join(current_chars).strip()
+        if word and current_start is not None and current_end is not None and current_end >= current_start:
+            words.append({
+                "word": word,
+                "start": round(current_start, 3),
+                "end": round(current_end, 3),
+            })
+        current_chars = []
+        current_start = None
+        current_end = None
+
+    for index in range(item_count):
+        char = str(characters[index])
+        start = coerce_seconds(start_values[index], start_key)
+        end = coerce_seconds(end_values[index], end_key)
+        if not char or char.isspace() or start is None or end is None:
+            flush_word()
+            continue
+        if current_start is None:
+            current_start = start
+        current_chars.append(char)
+        current_end = end
+
+    flush_word()
+    return words
+
+
 def collect_transcript_words(value: Any, found: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     if found is None:
         found = []
@@ -974,12 +1062,65 @@ def collect_transcript_words(value: Any, found: list[dict[str, Any]] | None = No
         found.append(normalized)
         return found
     if isinstance(value, dict):
+        alignment_words = words_from_character_alignment(value)
+        if alignment_words:
+            found.extend(alignment_words)
+            return found
         for item in value.values():
             collect_transcript_words(item, found)
     elif isinstance(value, list):
         for item in value:
             collect_transcript_words(item, found)
     return found
+
+
+TIMING_SHAPE_KEYS = {
+    "alignment",
+    "normalized_alignment",
+    "characters",
+    "character_start_times_seconds",
+    "character_end_times_seconds",
+    "character_start_times_ms",
+    "character_end_times_ms",
+    "words",
+    "word_timings",
+    "word_timestamps",
+    "timestamps",
+    "transcript",
+    "segments",
+}
+
+
+def summarize_timing_payload_shape(value: Any, *, max_depth: int = 4, max_items: int = 12) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+
+    def visit(item: Any, path: str, depth: int) -> None:
+        if len(summaries) >= max_items or depth > max_depth:
+            return
+        if isinstance(item, dict):
+            keys = sorted(str(key) for key in item.keys())
+            key_set = set(keys)
+            list_lengths = {
+                str(key): len(child)
+                for key, child in item.items()
+                if isinstance(child, list) and str(key) in TIMING_SHAPE_KEYS
+            }
+            if path == "$" or key_set.intersection(TIMING_SHAPE_KEYS) or list_lengths:
+                summaries.append({
+                    "path": path,
+                    "keys": keys[:40],
+                    "list_lengths": list_lengths,
+                })
+            for key, child in item.items():
+                visit(child, f"{path}.{key}", depth + 1)
+        elif isinstance(item, list):
+            if path == "$":
+                summaries.append({"path": path, "type": "list", "length": len(item)})
+            for index, child in enumerate(item[:3]):
+                visit(child, f"{path}[{index}]", depth + 1)
+
+    visit(value, "$", 0)
+    return summaries
 
 
 def write_combined_transcript(
@@ -995,6 +1136,7 @@ def write_combined_transcript(
     segments: list[dict[str, Any]] = []
     offset = 0.0
     missing_timing_segments: list[int] = []
+    missing_timing_debug: list[dict[str, Any]] = []
 
     for index, (payload, spec, duration) in enumerate(zip(segment_payloads, segment_specs, segment_durations)):
         raw_words = collect_transcript_words(payload)
@@ -1008,6 +1150,11 @@ def write_combined_transcript(
                 words.append(shifted)
         else:
             missing_timing_segments.append(index)
+            missing_timing_debug.append({
+                "segment": index,
+                "role": spec.get("role"),
+                "payload_shape": summarize_timing_payload_shape(payload),
+            })
         segments.append({
             "index": index,
             "role": spec.get("role"),
@@ -1048,6 +1195,7 @@ def write_combined_transcript(
     }
     if missing_timing_segments:
         output["missing_timing_segments"] = missing_timing_segments
+        output["timing_debug"] = missing_timing_debug
     if warnings:
         output["warnings"] = warnings
     output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
