@@ -555,8 +555,38 @@ Each account has its own **refresh token** stored in GitHub Secrets.
 
 ### API Scopes Required
 - `youtube.upload` — Upload videos
-- `youtube.force-ssl` — Manage thumbnails, metadata
-- `yt-analytics.readonly` — Performance stats
+- `youtube.readonly` — Read authenticated channel/video metadata for token mapping and post-upload readback
+- `youtube.force-ssl` — Manage metadata/thumbnails when that path is enabled
+- `yt-analytics.readonly` — Optional future performance stats; not required for the current upload/channel mapping gate
+
+### Reissuing YouTube Refresh Tokens
+
+The existing GitHub Secrets cannot be expanded in place. If an old refresh token
+was issued only with `youtube.upload`, adding scopes in Google Cloud does not
+change that token. Reissue each account token with consent and replace the
+matching GitHub Secret.
+
+Use the helper below from a local shell where `gh` is authenticated to the
+`webpot-ru/nebula-core-v3` repository. It does not print the refresh token.
+
+```bash
+export YOUTUBE_CLIENT_ID="..."
+export YOUTUBE_CLIENT_SECRET="..."
+
+python3 scripts/issue_youtube_refresh_token.py \
+  --account-index 1 \
+  --update-github-secret
+```
+
+Repeat for `--account-index 1` through `7`, choosing the Google account that
+owns the exact expected channel shown by the script. The helper requests
+`youtube.upload`, `youtube.readonly`, and `youtube.force-ssl` by default. Add
+`--include-analytics` only if the analytics-read scope is intentionally needed.
+
+After all seven secrets are replaced, rerun `.github/workflows/audit_voice_youtube.yml`
+with `check_youtube_mapping=true` and `generate_voice_samples=false`. The audit
+must show the new scopes and then match every authenticated channel against
+`channels.json` before public/scheduled publishing is safe.
 
 ---
 
@@ -625,7 +655,8 @@ uploader.py → channel preflight, YouTube upload, metadata readback
 |---|---|---|
 | `YOUTUBE_CLIENT_ID` | ✅ Set | Google OAuth App |
 | `YOUTUBE_CLIENT_SECRET` | ✅ Set | Google OAuth App |
-| `YOUTUBE_REFRESH_TOKEN_ACC1–7` | ⚠️ Set, mapping unverified | Per-account YouTube tokens; do not use public publishing until `uploader.py` preflight confirms each token resolves to the expected `channels.json` channel |
+| `YOUTUBE_REFRESH_TOKEN_ACC1–7` | ✅ Verified | Per-account YouTube tokens; all 7 channels verified against `channels.json` mappings, including analytics scopes |
+
 | `REDDIT_CLIENT_ID` | ✅ Set | Reddit PRAW OAuth |
 | `REDDIT_CLIENT_SECRET` | ✅ Set | Reddit PRAW OAuth |
 | `REDDIT_USERNAME` | ✅ Set | Reddit account |
