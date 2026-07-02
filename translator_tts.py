@@ -111,6 +111,13 @@ class Ai33Error(RuntimeError):
     pass
 
 
+class Ai33TaskError(Ai33Error):
+    def __init__(self, message: str, payload: dict[str, Any], retryable: bool) -> None:
+        super().__init__(message)
+        self.payload = payload
+        self.retryable = retryable
+
+
 def normalize_lang_code(value: str | None) -> str:
     return str(value or "").replace("_", "-").lower()
 
@@ -746,6 +753,17 @@ def task_status(payload: dict[str, Any]) -> str:
     return str(value or "").lower()
 
 
+def task_error_retryable(payload: dict[str, Any]) -> bool:
+    retryable = find_first_key(payload, {"retryable"})
+    if isinstance(retryable, bool):
+        return retryable
+    if isinstance(retryable, str) and retryable.strip().lower() == "true":
+        return True
+    error_code = str(find_first_key(payload, {"error_code", "code"}) or "").lower()
+    error_message = str(find_first_key(payload, {"error_message", "message"}) or "").lower()
+    return error_code in {"unknown_error", "timeout", "rate_limit"} or "retry" in error_message
+
+
 def poll_for_audio(
     *,
     api_key: str,
@@ -764,7 +782,11 @@ def poll_for_audio(
 
         status = task_status(last_payload)
         if status in {"failed", "failure", "error", "cancelled", "canceled"}:
-            raise Ai33Error(f"AI33 task failed: {json.dumps(last_payload)[:800]}")
+            raise Ai33TaskError(
+                f"AI33 task failed: {json.dumps(last_payload)[:800]}",
+                payload=last_payload,
+                retryable=task_error_retryable(last_payload),
+            )
 
         time.sleep(poll_interval)
 
@@ -986,39 +1008,62 @@ def generate_tts_audio(
     output_path: Path,
     args: argparse.Namespace,
 ) -> dict[str, Any]:
-    payload = post_tts_task(
-        api_key=api_key,
-        text=text,
-        voice_id=voice_id,
-        model_id=args.model_id,
-        speed=args.speed,
-        file_name=output_path.name,
-        with_transcript=args.with_transcript,
-        context_chaining=args.context_chaining,
-        receive_url=args.receive_url,
-        pronunciation_dictionary_id=args.pronunciation_dictionary_id,
-    )
+    attempts = max(1, int(args.tts_retries) + 1)
+    last_error: Ai33TaskError | None = None
 
-    if write_audio_from_payload(payload, output_path, api_key):
-        return payload
+    for attempt in range(1, attempts + 1):
+        if attempt > 1:
+            delay = max(0, int(args.tts_retry_delay)) * (attempt - 1)
+            print(
+                f"Retrying AI33 TTS segment after retryable task error "
+                f"(attempt {attempt}/{attempts}, delay={delay}s): {output_path.name}"
+            )
+            if delay:
+                time.sleep(delay)
 
-    task_id = payload.get("task_id")
-    if not task_id:
-        raise Ai33Error(f"AI33 response did not include audio or task_id: {json.dumps(payload)[:800]}")
+        payload = post_tts_task(
+            api_key=api_key,
+            text=text,
+            voice_id=voice_id,
+            model_id=args.model_id,
+            speed=args.speed,
+            file_name=output_path.name,
+            with_transcript=args.with_transcript,
+            context_chaining=args.context_chaining,
+            receive_url=args.receive_url,
+            pronunciation_dictionary_id=args.pronunciation_dictionary_id,
+        )
 
-    print(f"AI33 task_id={task_id}")
-    if args.no_poll:
-        task_path = output_path.with_suffix(".ai33-task.json")
-        task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        raise Ai33Error("Multi-voice narration requires polling so audio segments can be concatenated.")
+        if write_audio_from_payload(payload, output_path, api_key):
+            return payload
 
-    return poll_for_audio(
-        api_key=api_key,
-        task_id=task_id,
-        output_path=output_path,
-        timeout_seconds=args.timeout,
-        poll_interval=args.poll_interval,
-    )
+        task_id = payload.get("task_id")
+        if not task_id:
+            raise Ai33Error(f"AI33 response did not include audio or task_id: {json.dumps(payload)[:800]}")
+
+        print(f"AI33 task_id={task_id}")
+        if args.no_poll:
+            task_path = output_path.with_suffix(".ai33-task.json")
+            task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            raise Ai33Error("Multi-voice narration requires polling so audio segments can be concatenated.")
+
+        try:
+            return poll_for_audio(
+                api_key=api_key,
+                task_id=task_id,
+                output_path=output_path,
+                timeout_seconds=args.timeout,
+                poll_interval=args.poll_interval,
+            )
+        except Ai33TaskError as exc:
+            last_error = exc
+            if not exc.retryable or attempt >= attempts:
+                raise
+            print(f"WARNING: AI33 task {task_id} failed with retryable error: {exc}")
+
+    if last_error:
+        raise last_error
+    raise Ai33Error("AI33 TTS failed without returning audio.")
 
 
 def process_story_audio(args: argparse.Namespace) -> None:
@@ -1260,6 +1305,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-poll", action="store_true", help="Submit only and save task metadata.")
     parser.add_argument("--timeout", type=int, default=900, help="Polling timeout in seconds.")
     parser.add_argument("--poll-interval", type=int, default=5, help="Polling interval in seconds.")
+    parser.add_argument(
+        "--tts-retries",
+        type=int,
+        default=2,
+        help="Retry AI33 TTS segments that fail with a retryable task error.",
+    )
+    parser.add_argument(
+        "--tts-retry-delay",
+        type=int,
+        default=10,
+        help="Base delay in seconds before retrying a retryable AI33 TTS task error.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Validate inputs without calling AI33.")
     return parser
 
@@ -1272,6 +1329,10 @@ if __name__ == "__main__":
             sys.exit(0)
         if not 0.5 <= parsed_args.speed <= 1.5:
             raise Ai33Error("--speed must be between 0.5 and 1.5.")
+        if parsed_args.tts_retries < 0:
+            raise Ai33Error("--tts-retries must be 0 or greater.")
+        if parsed_args.tts_retry_delay < 0:
+            raise Ai33Error("--tts-retry-delay must be 0 or greater.")
         process_story_audio(parsed_args)
     except Ai33Error as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
