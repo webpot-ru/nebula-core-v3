@@ -162,6 +162,9 @@
       "channels": {
         "acc7": {
           "published_at": "2026-07-02T11:50:51.919433+00:00"
+        },
+        "acc5": {
+          "published_at": "2026-07-02T15:48:45.530555+00:00"
         }
       },
       "title": "AITA for refusing to change my name?",
@@ -171,29 +174,108 @@
       "keyword_signature": "academia background built change computer conferences fighting husband keep last left legal married name papers presented",
       "topic_family": "human_drama",
       "topic_label": "Human drama / moral conflict",
-      "time_window": "day",
-      "virality_score": 101,
+      "time_window": "week",
+      "virality_score": 97,
       "base_virality_score": 80,
       "velocity": {
-        "age_hours": 22.87,
-        "upvotes_per_hour": 228.75,
-        "comments_per_hour": 59.68
+        "age_hours": 26.84,
+        "upvotes_per_hour": 202.75,
+        "comments_per_hour": 51.9
       },
       "fatigue_penalty": 0,
       "ai_quality": {
-        "verdict": "REWRITE",
-        "niche_fit": 5,
-        "hook_strength": 5,
+        "verdict": "PUBLISH",
+        "niche_fit": 6,
+        "hook_strength": 7,
         "narrative_arc": 8,
-        "translation": 6,
-        "viral_potential": 7,
-        "novelty": 5,
+        "translation": 9,
+        "viral_potential": 8,
+        "novelty": 6,
         "duplicate_risk": 3,
         "legal_risk": 1,
-        "topic_family": "Human drama / moral conflict",
+        "topic_family": "human_drama",
         "shorts_hook_type": "identity",
-        "reason": "The story has strong drama but needs a localized hook for the Italian audience, as legal name changes after marriage work differently in Italy compared to the US.",
-        "hook_suggestion": "Mio marito vuole il divorzio e ora pretende che io cancelli il suo cognome da tutte le mie pubblicazioni scientifiche e dalla mia laurea."
+        "reason": "The story fits the emotional drama niche with a strong conflict about professional identity versus marital spite, backed by high Reddit engagement metrics.",
+        "hook_suggestion": null
+      }
+    },
+    "1tzak21": {
+      "channels": {
+        "acc1": {
+          "published_at": "2026-07-02T12:52:40.646762+00:00"
+        }
+      },
+      "title": "I know you’re not supposed to meet people from Reddit.",
+      "subreddit": "r/nosleep",
+      "url": "https://reddit.com/r/nosleep/comments/1tzak21/i_know_youre_not_supposed_to_meet_people_from/",
+      "story_signature": "fe1815bb7f77c235",
+      "keyword_signature": "added bored both choice cute definitely eyeliner eyes finally gotten haircut knew know lonely made match",
+      "topic_family": "dark_curiosity",
+      "topic_label": "Dark curiosity / scary true-feeling story",
+      "time_window": "month",
+      "virality_score": 23,
+      "base_virality_score": 20,
+      "velocity": {
+        "age_hours": 600.62,
+        "upvotes_per_hour": 3.9,
+        "comments_per_hour": 0.13
+      },
+      "fatigue_penalty": 2,
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 7,
+        "hook_strength": 7,
+        "narrative_arc": 8,
+        "translation": 8,
+        "viral_potential": 7,
+        "novelty": 6,
+        "duplicate_risk": 3,
+        "legal_risk": 2,
+        "topic_family": "Dark curiosity / scary true-feeling story",
+        "shorts_hook_type": "mystery",
+        "reason": "The story fits the dark curiosity niche well with strong metrics and low legal risk, making it suitable for publication.",
+        "hook_suggestion": null
+      }
+    },
+    "1ul5qps": {
+      "channels": {
+        "acc2": {
+          "published_at": "2026-07-02T17:37:26.653281+00:00"
+        },
+        "acc4": {
+          "published_at": "2026-07-02T18:32:23.405086+00:00"
+        }
+      },
+      "title": "AITA for getting an extra order of fries for my girlfriend?",
+      "subreddit": "r/AmItheAsshole",
+      "url": "https://reddit.com/r/AmItheAsshole/comments/1ul5qps/aita_for_getting_an_extra_order_of_fries_for_my/",
+      "story_signature": "53e12497d5bc9c02",
+      "keyword_signature": "absolutely already always argument bandit being burger crazy extra fail feel french fries fucked getting girlfriend",
+      "topic_family": "human_drama",
+      "topic_label": "Human drama / moral conflict",
+      "time_window": "day",
+      "virality_score": 97,
+      "base_virality_score": 80,
+      "velocity": {
+        "age_hours": 15.95,
+        "upvotes_per_hour": 444.1,
+        "comments_per_hour": 76.81
+      },
+      "fatigue_penalty": 8,
+      "ai_quality": {
+        "verdict": "REWRITE",
+        "niche_fit": 8,
+        "hook_strength": 5,
+        "narrative_arc": 8,
+        "translation": 9,
+        "viral_potential": 8,
+        "novelty": 6,
+        "duplicate_risk": 5,
+        "legal_risk": 1,
+        "topic_family": "Human drama / moral conflict",
+        "shorts_hook_type": "controversy",
+        "reason": "The story fits the channel's drama niche perfectly and has high viral potential due to the highly relatable 'fry stealer' debate, but the opening sentence needs a stronger, more immediate hook for Shorts.",
+        "hook_suggestion": "Mi novia siempre me roba la comida, así que decidí darle una lección en un restaurante y ahora toda su familia me odia."
       }
     }
   }
