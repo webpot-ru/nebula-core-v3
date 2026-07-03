@@ -277,6 +277,44 @@
         "reason": "The story fits the channel's drama niche perfectly and has high viral potential due to the highly relatable 'fry stealer' debate, but the opening sentence needs a stronger, more immediate hook for Shorts.",
         "hook_suggestion": "Mi novia siempre me roba la comida, así que decidí darle una lección en un restaurante y ahora toda su familia me odia."
       }
+    },
+    "1ugxvsv": {
+      "channels": {
+        "acc7": {
+          "published_at": "2026-07-03T11:30:42.107833+00:00"
+        }
+      },
+      "title": "Iran captain Mehdi Taremi accuses FIFA of staging ‘disaster World Cup’: ‘No one helps us’",
+      "subreddit": "r/sports",
+      "url": "https://reddit.com/r/sports/comments/1ugxvsv/iran_captain_mehdi_taremi_accuses_fifa_of_staging/",
+      "story_signature": "aca1b0265f0bc355",
+      "keyword_signature": "accuses campaign captain country criticised disaster draw fifa gianni group handling helps infantino iran learn left",
+      "topic_family": "football_culture",
+      "topic_label": "Football culture / sports story",
+      "time_window": "week",
+      "virality_score": 93,
+      "base_virality_score": 80,
+      "velocity": {
+        "age_hours": 146.36,
+        "upvotes_per_hour": 75.11,
+        "comments_per_hour": 7.83
+      },
+      "fatigue_penalty": 0,
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 7,
+        "hook_strength": 7,
+        "narrative_arc": 5,
+        "translation": 9,
+        "viral_potential": 8,
+        "novelty": 8,
+        "duplicate_risk": 2,
+        "legal_risk": 2,
+        "topic_family": "Football culture / sports story",
+        "shorts_hook_type": "controversy",
+        "reason": "The story features Inter Milan star Mehdi Taremi and Gianni Infantino, making it highly relevant to Italian football fans, and focuses on off-pitch logistical drama that requires no match footage.",
+        "hook_suggestion": null
+      }
     }
   }
 }
