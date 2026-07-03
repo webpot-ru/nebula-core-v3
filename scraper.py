@@ -50,6 +50,68 @@ def format_count(n):
     return str(n)
 
 
+def trim_text_at_word_boundary(text: str, max_chars: int) -> tuple[str, bool]:
+    value = str(text or "").strip()
+    if max_chars <= 0 or len(value) <= max_chars:
+        return value, False
+
+    clipped = value[:max_chars].rstrip()
+    boundary = max(clipped.rfind("\n"), clipped.rfind(". "), clipped.rfind("! "), clipped.rfind("? "))
+    if boundary >= max(120, int(max_chars * 0.55)):
+        clipped = clipped[: boundary + 1].rstrip()
+    else:
+        space = clipped.rfind(" ")
+        if space >= max(80, int(max_chars * 0.65)):
+            clipped = clipped[:space].rstrip()
+    return clipped.rstrip(" .,;:") + "...", True
+
+
+def apply_story_length_limits(
+    story: dict,
+    *,
+    max_body_chars: int | None = None,
+    max_comments: int | None = None,
+    format_intent: str | None = None,
+) -> dict:
+    if not story:
+        return story
+
+    limited = dict(story)
+    trim_metadata = {
+        "format_intent": format_intent or "unspecified",
+        "body_original_chars": len(str(story.get("body") or "")),
+        "body_max_chars": max_body_chars,
+        "comments_original_count": len(story.get("comments") or []),
+        "comments_max_count": max_comments,
+        "body_trimmed": False,
+        "comments_trimmed": False,
+    }
+
+    if max_body_chars is not None and max_body_chars > 0:
+        body, was_trimmed = trim_text_at_word_boundary(str(story.get("body") or ""), max_body_chars)
+        limited["body"] = body
+        trim_metadata["body_trimmed"] = was_trimmed
+        trim_metadata["body_final_chars"] = len(body)
+
+    if max_comments is not None and max_comments >= 0:
+        comments = list(story.get("comments") or [])
+        limited["comments"] = comments[:max_comments]
+        trim_metadata["comments_trimmed"] = len(comments) > len(limited["comments"])
+        trim_metadata["comments_final_count"] = len(limited["comments"])
+
+    if trim_metadata["body_trimmed"] or trim_metadata["comments_trimmed"]:
+        limited["content_limits"] = trim_metadata
+        print(
+            "Applied story length limits: "
+            f"format={trim_metadata['format_intent']} "
+            f"body={trim_metadata.get('body_final_chars', trim_metadata['body_original_chars'])}/"
+            f"{trim_metadata['body_original_chars']} chars "
+            f"comments={trim_metadata.get('comments_final_count', trim_metadata['comments_original_count'])}/"
+            f"{trim_metadata['comments_original_count']}"
+        )
+    return limited
+
+
 def virality_score(post):
     """
     Score a Reddit post's viral potential on a 0–100 scale.
@@ -432,6 +494,8 @@ Return ONLY a JSON object, no markdown:
 
 def fetch_top_comments(reddit, post_id, subreddit, limit=3):
     """Fetch top comments for a post, excluding AutoModerator."""
+    if limit <= 0:
+        return []
     try:
         submission = reddit.submission(id=post_id)
         submission.comments.replace_more(limit=0)
@@ -1057,6 +1121,12 @@ if __name__ == "__main__":
                         help=f"Reddit top posts fetched per subreddit/window source (default: {DEFAULT_CANDIDATE_LIMIT})")
     parser.add_argument("--similarity-threshold", type=float, default=DEFAULT_SIMILARITY_THRESHOLD,
                         help=f"Keyword-overlap duplicate threshold, 0-1 (default: {DEFAULT_SIMILARITY_THRESHOLD})")
+    parser.add_argument("--comment-limit", type=int, default=3,
+                        help="Number of Reddit comments to fetch for the story (default: 3)")
+    parser.add_argument("--max-body-chars", type=int, default=None,
+                        help="Trim story body to this many characters after selection, for Shorts tests.")
+    parser.add_argument("--format-intent", default=None,
+                        help="Optional content format label stored in story metadata, e.g. shorts or long.")
     args = parser.parse_args()
 
     # Determine subreddits to scan
@@ -1090,11 +1160,18 @@ if __name__ == "__main__":
         skip_rank=skip_rank,
         max_ai_candidates=args.max_ai_candidates,
         candidate_limit=args.candidate_limit,
+        comment_limit=args.comment_limit,
         topic_family=args.topic_family,
         similarity_threshold=args.similarity_threshold
     )
 
     if story:
+        story = apply_story_length_limits(
+            story,
+            max_body_chars=args.max_body_chars,
+            max_comments=args.comment_limit,
+            format_intent=args.format_intent,
+        )
         output_path = os.path.join(os.path.dirname(__file__), args.output)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(story, f, ensure_ascii=False, indent=2)

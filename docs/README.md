@@ -620,6 +620,8 @@ It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `f
 
 `auto_publish.yml` has passed one end-to-end unlisted live smoke, but public scheduled publishing should still wait for one post-fix unlisted review. The 2026-06-30 smoke verified localization, AI33 narration, audio-aware render, YouTube upload, and history commit, but readback/user review showed videos landing on the wrong channel for the requested account. Per current user-provided state on 2026-07-02, the OAuth/channel mapping issue has been resolved; the next gate is artifact quality review after the render/TTS fixes.
 
+Manual `auto_publish.yml` runs support `content_format=auto|shorts|long`. `shorts` trims the selected story body to 900 characters and removes comments before metadata, translation, TTS, storyboard, and render, so the output can stay in the vertical Shorts duration band. `long` keeps the full story and relies on render auto-orientation to switch videos over 180 seconds to 16:9.
+
 YouTube refresh tokens are no longer the active blocker; the early token preflight still blocks mismatched accounts. After the 2026-07-02 render/TTS fallback fixes, keep the next run `unlisted` until one live artifact is inspected for translated text, voiceover audio, clean UI, and karaoke highlight when AI33 word timings are present.
 
 Planned production flow:

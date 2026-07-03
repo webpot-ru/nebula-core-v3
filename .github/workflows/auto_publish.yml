@@ -67,6 +67,12 @@ on:
         default: 'unlisted'
         type: choice
         options: [unlisted, private, public]
+      content_format:
+        description: 'Content length target for manual test runs'
+        required: false
+        default: 'auto'
+        type: choice
+        options: [auto, shorts, long]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Map each cron trigger to the correct channel(s) and slot
@@ -91,7 +97,8 @@ jobs:
               TOPIC=""
             fi
             PRIV="${{ github.event.inputs.privacy_status }}"
-            echo "matrix=[{\"channel\":\"${CH}\",\"slot\":\"${SLOT}\",\"time_filter\":\"${TF}\",\"topic_family\":\"${TOPIC}\",\"privacy_status\":\"${PRIV}\"}]" >> $GITHUB_OUTPUT
+            FORMAT="${{ github.event.inputs.content_format }}"
+            echo "matrix=[{\"channel\":\"${CH}\",\"slot\":\"${SLOT}\",\"time_filter\":\"${TF}\",\"topic_family\":\"${TOPIC}\",\"privacy_status\":\"${PRIV}\",\"content_format\":\"${FORMAT}\"}]" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -165,7 +172,8 @@ jobs:
           echo "time_filter=${{ matrix.time_filter }}" >> $GITHUB_OUTPUT
           echo "topic_family=${{ matrix.topic_family || '' }}" >> $GITHUB_OUTPUT
           echo "privacy_status=${{ matrix.privacy_status || 'public' }}" >> $GITHUB_OUTPUT
-          echo "📺 ${CH} | slot=${{ matrix.slot }} | filter=${{ matrix.time_filter }} | topic=${{ matrix.topic_family || 'mixed' }} | privacy=${{ matrix.privacy_status || 'public' }}"
+          echo "content_format=${{ matrix.content_format || 'auto' }}" >> $GITHUB_OUTPUT
+          echo "📺 ${CH} | slot=${{ matrix.slot }} | filter=${{ matrix.time_filter }} | topic=${{ matrix.topic_family || 'mixed' }} | privacy=${{ matrix.privacy_status || 'public' }} | format=${{ matrix.content_format || 'auto' }}"
 
       - name: Verify YouTube channel token
         env:
@@ -211,6 +219,11 @@ jobs:
           EXTRA_ARGS=()
           if [ -n "${{ steps.target.outputs.topic_family }}" ]; then
             EXTRA_ARGS+=(--topic-family "${{ steps.target.outputs.topic_family }}")
+          fi
+          if [ "${{ steps.target.outputs.content_format }}" = "shorts" ]; then
+            EXTRA_ARGS+=(--format-intent shorts --max-body-chars 900 --comment-limit 0)
+          elif [ "${{ steps.target.outputs.content_format }}" = "long" ]; then
+            EXTRA_ARGS+=(--format-intent long)
           fi
           python scraper.py \
             --channel ${{ steps.target.outputs.channel_id }} \
