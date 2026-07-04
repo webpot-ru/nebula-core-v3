@@ -783,6 +783,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--audio", default=DEFAULT_AUDIO, help="Optional narration audio path to merge into the MP4.")
     parser.add_argument("--transcript", default=DEFAULT_TRANSCRIPT, help="Optional word-level transcript JSON path for karaoke highlighting.")
     parser.add_argument(
+        "--no-karaoke",
+        action="store_true",
+        help="Ignore transcript JSON and render clean static slide-progress frames while still merging narration audio.",
+    )
+    parser.add_argument(
         "--require-karaoke",
         action="store_true",
         help="Fail instead of falling back when no usable word-level transcript is available.",
@@ -812,7 +817,9 @@ def main(argv: list[str]) -> int:
     workdir = Path(args.workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     audio_path = resolve_optional_file(args.audio)
-    transcript_path = resolve_optional_file(args.transcript)
+    if args.no_karaoke and args.require_karaoke:
+        raise RenderError("--no-karaoke cannot be combined with --require-karaoke.")
+    transcript_path = None if args.no_karaoke else resolve_optional_file(args.transcript)
     transcript_words_list = load_transcript_words(transcript_path) if transcript_path else []
     transcript_words = len(transcript_words_list)
     if transcript_path and transcript_words <= 0:

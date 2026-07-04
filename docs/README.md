@@ -140,7 +140,7 @@ reddit/                            ← Project root (nebula-core-v3)
 ├── translator_tts.py              ← AI33 TTS v3 narration generator
 ├── storyboard_generator.py        ← Deterministic story_data.json → storyboard.json
 ├── render.py                      ← RedditSim dry-run renderer: storyboard.json → final_output.mp4
-├── pre_publish_qa.py              ← Fail-closed audio/karaoke/evidence/render QA gate
+├── pre_publish_qa.py              ← Fail-closed audio/evidence/render QA gate
 ├── uploader.py                    ← YouTube Data API v3 auto-publisher
 │
 ├── channels.json                  ← Current execution config; content strategy above supersedes old niche plan
@@ -212,17 +212,17 @@ test -s final_output.mp4
 ffprobe final_output.mp4
 ```
 
-`storyboard_generator.py` now emits `render_slides` for the simulator. Story/comment text advances as clean centered card screens rather than a scrolling page. For multi-screen posts, the first screen shows the post header/title and hides the footer, middle screens show continuation text only, and only the final story screen shows upvotes/comments/share. In render mode that final post footer is reserved but visually hidden until the final karaoke phrase on the story slide; without usable karaoke timings it is revealed only near the end of that slide's fallback progress. This applies to both vertical Shorts and horizontal long-form renders. Comment continuations follow the same rule: only the first comment chunk shows the comment header, and only the final chunk shows comment actions. Slide limits are tuned to use the available 9:16 and 16:9 card space, with an anti-orphan merge so a tiny final sentence is not split onto its own mostly empty screen.
+`storyboard_generator.py` now emits `render_slides` for the simulator. Story/comment text advances as clean centered card screens rather than a scrolling page. For multi-screen posts, the first screen shows the post header/title and hides the footer, middle screens show continuation text only, and only the final story screen shows upvotes/comments/share. In the current production mode, karaoke highlighting is disabled: each slide shows its text cleanly while the narration audio plays. Comment continuations follow the same rule: only the first comment chunk shows the comment header, and only the final chunk shows comment actions. Slide limits are tuned to use the available 9:16 and 16:9 card space, with an anti-orphan merge so a tiny final sentence is not split onto its own mostly empty screen.
 
-`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic slide-progress/karaoke screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. If `narration.json` exists and contains usable word timings, the renderer passes it into RedditSim so the current smart phrase is highlighted directly inside the currently visible Reddit card text. Phrases target 2-5 words and roughly 24-34 characters, stop at punctuation or line breaks, and never cross title/body/comment boundaries. Karaoke renders now capture frames at phrase-change timestamps plus a near-end frame instead of only at a small fixed number of evenly spaced samples, so long-form videos do not visibly jump over highlighted words and final post metrics can appear at the story-card ending. If AI33 returns missing or partial timings, the renderer disables karaoke and falls back to clean slide-progress frames while still merging the voiceover audio unless `--require-karaoke` is set. Karaoke mode does not add extra caption words, lower subtitle strips, or overlay text, and its highlight style must not change text metrics or trigger line reflow. Use `--report render_report.json` so downstream QA can verify render format, frame schedule, karaoke state, duration, and audio merge.
+`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic slide-progress screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. Current workflows pass `--no-karaoke`, so `narration.json` is not required and transcript timing does not affect the visual render. Use `--report render_report.json` so downstream QA can verify render format, frame schedule, duration, and audio merge.
 
-`pre_publish_qa.py` is the fail-closed local/upload gate. It reads `story_data.json`, `storyboard.json`, `youtube_metadata.json`, `narration.mp3`, `narration.json`, `render_report.json`, and `final_output.mp4`; checks that the MP4 has video/audio streams, audio/video durations match, karaoke transcript coverage is high enough, raw URLs are not spoken in narration fields, source-backed hook evidence exists, story adaptation ran, and metadata language/title length are valid. `auto_publish.yml` and live `video_dry_run.yml` run this before upload/artifact handoff.
+`pre_publish_qa.py` is the fail-closed local/upload gate. It reads `story_data.json`, `storyboard.json`, `youtube_metadata.json`, `narration.mp3`, `render_report.json`, and `final_output.mp4`; checks that the MP4 has video/audio streams, audio/video durations match, raw URLs are not spoken in narration fields, source-backed hook evidence exists, story adaptation ran, and metadata language/title length are valid. `auto_publish.yml` and live `video_dry_run.yml` run this before upload/artifact handoff. Karaoke checks run only when `--require-karaoke` is explicitly passed.
 
-Narration text may intentionally differ from display text only for service-safe substitutions. Raw links stay visible on the card while TTS reads a localized "link on screen" phrase. For Russian narration, standalone numeric tokens are expanded only inside `narration_title`, `narration_body`, and `comments[].narration_body`; for example visible `6500+` can be voiced as `более чем шесть тысяч пятьсот`. RedditSim maps those spoken number words back to the visible numeric token during karaoke, so the card keeps the original formatting while the highlight remains synchronized.
+Narration text may intentionally differ from display text only for service-safe substitutions. Raw links stay visible on the card while TTS reads a localized "link on screen" phrase. For Russian narration, standalone numeric tokens are expanded only inside `narration_title`, `narration_body`, and `comments[].narration_body`; for example visible `6500+` can be voiced as `более чем шесть тысяч пятьсот`.
 
-Render orientation is duration-aware. In default `--orientation auto` mode, videos up to 180 seconds render as vertical Shorts (`1080x1920`, mobile layout), while videos longer than 180 seconds render as horizontal long-form video (`1920x1080`, desktop layout). Both modes use the same in-text karaoke highlight; horizontal render fills the 16:9 viewport with a clean centered Reddit card and hides editor/sidebar widgets. Override only intentionally with `--orientation vertical` or `--orientation horizontal`.
+Render orientation is duration-aware. In default `--orientation auto` mode, videos up to 180 seconds render as vertical Shorts (`1080x1920`, mobile layout), while videos longer than 180 seconds render as horizontal long-form video (`1920x1080`, desktop layout). Horizontal render fills the 16:9 viewport with a clean centered Reddit card and hides editor/sidebar widgets. Override only intentionally with `--orientation vertical` or `--orientation horizontal`.
 
-The GitHub dry-run workflow is `.github/workflows/video_dry_run.yml`. The current workflow fetches a live Reddit story and calls AI33 for narration/transcript, so it uses configured secrets and can spend provider credits. It installs FFmpeg, uses the runner browser, builds `storyboard.json`, renders `final_output.mp4`, verifies the file with `ffprobe`, creates preview PNGs, and uploads video, story, storyboard, narration, transcript, and previews as an artifact.
+The GitHub dry-run workflow is `.github/workflows/video_dry_run.yml`. The current workflow fetches a live Reddit story and calls AI33 for narration, so it uses configured secrets and can spend provider credits. It installs FFmpeg, uses the runner browser, builds `storyboard.json`, renders `final_output.mp4`, verifies the file with `ffprobe`, creates preview PNGs, and uploads video, story, storyboard, narration, render report, QA report, and previews as an artifact.
 
 Implementation note: the render card body keeps the typed text span on the same HTML line as its `<p>` container. This is intentional because the body uses `white-space: pre-wrap`; indentation whitespace inside the HTML source would otherwise appear as a visible first-line offset in captured videos.
 
@@ -364,9 +364,9 @@ python3 translator_tts.py --channel acc3 --comment-voice-id elevenlabs_LB5G0Z4EP
 
 Before TTS, the script now localizes `story_data.json` for non-English target channels through the shared Gemini text provider using the channel's `translate_prompt`. By default `vectorengine_client.py` uses direct Google Gemini when `GOOGLE_GEMINI_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is present, and falls back to VectorEngine Gemini only when no Google Gemini key is configured. The translation step translates the story `title`, story `body`, and each comment `body`, preserves usernames/metadata, writes localization metadata into the story JSON, and by default overwrites `--story` so `storyboard_generator.py` and `render.py` consume the translated display text. Raw URLs stay visible in the display fields; the script adds narration-only fields such as `narration_body` / `comments[].narration_body` when TTS should say the localized "link on screen" phrase instead of reading the URL aloud. For Russian narration, visible numeric tokens stay unchanged in display fields while narration-only fields spell the number for TTS, for example `6500+` -> `более чем шесть тысяч пятьсот` and `100%` -> `сто процентов`. Use `--translated-story-output story_localized_<lang>.json` to keep the original file untouched, `--skip-translation` for an explicit no-localization run, or `--force-translation` to refresh existing localized text.
 
-For karaoke sync, the default narration order mirrors visible card text: title, body, then comment bodies. If narration-only fields exist, TTS uses them and the card keeps the display fields, so a voice line like "link on screen" corresponds to an actual visible URL on the card, and a spoken Russian number phrase can correspond to one visible numeric token. If `channels.json` defines `comment_tts_voice`, `translator_tts.py` automatically splits narration into role segments: title/body use `tts_voice`, comments use `comment_tts_voice`, then FFmpeg concatenates the segments into one `narration.mp3` and writes a combined `narration.json` with shifted word timings when AI33 returns them. Long narrator/comment text is chunked with `--tts-segment-max-chars` before AI33 submission so long-form stories are less likely to lose word timings. The transcript parser accepts explicit word timing objects and ElevenLabs-style `alignment` / `normalized_alignment` character arrays, converting character timestamps into word timings for the in-text highlight. If AI33 returns audio without usable timings, both single-voice and multi-voice paths write `timing_status=estimated` and generate per-word timings from exact narrated text plus MP3 duration; RedditSim then highlights smart phrase groups so small estimated-timing drift is less visible. Fully missing or partial unfillable timings still save sanitized payload-shape diagnostics, and `render.py` falls back to clean slide-progress frames with audio unless `--require-karaoke` is set. Retryable AI33 task errors during multi-voice segment generation are retried with `--tts-retries` and `--tts-retry-delay`. If a voiceover should explicitly say localized "Comment by user" labels, pass `--include-comment-labels`; that can reduce word-level visual alignment unless the rendered DOM also includes those labels.
+The default narration order mirrors visible card text: title, body, then comment bodies. If narration-only fields exist, TTS uses them and the card keeps the display fields, so a voice line like "link on screen" corresponds to an actual visible URL on the card, and Russian numeric display tokens can still be voiced naturally. If `channels.json` defines `comment_tts_voice`, `translator_tts.py` automatically splits narration into role segments: title/body use `tts_voice`, comments use `comment_tts_voice`, then FFmpeg concatenates the segments into one `narration.mp3`. Current production workflows do not request `--with-transcript` and do not render word highlights. Retryable AI33 task errors during multi-voice segment generation are retried with `--tts-retries` and `--tts-retry-delay`. If a voiceover should explicitly say localized "Comment by user" labels, pass `--include-comment-labels`.
 
-Use `--single-voice` to force one voice for the full narration. Use `--comment-voice-id` for a one-off override without editing `channels.json`. Optional provider voice settings can be passed with `--voice-settings-json '{"stability":0.45}'` or `AI33_VOICE_SETTINGS_JSON`, but they should be sound-tested before production because more expressive settings or audio tags can affect transcript/karaoke behavior.
+Use `--single-voice` to force one voice for the full narration. Use `--comment-voice-id` for a one-off override without editing `channels.json`. Optional provider voice settings can be passed with `--voice-settings-json '{"stability":0.45}'` or `AI33_VOICE_SETTINGS_JSON`, but they should be sound-tested before production because more expressive settings or audio tags can affect pacing and clarity.
 
 The script sends multipart FormData to:
 
@@ -635,7 +635,7 @@ It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `f
 
 Manual `auto_publish.yml` runs support `content_format=auto|shorts|long`. `shorts` trims the selected story body to 900 characters and removes comments before metadata, translation, TTS, storyboard, and render, so the output can stay in the vertical Shorts duration band. `long` keeps the full story and relies on render auto-orientation to switch videos over 180 seconds to 16:9.
 
-YouTube refresh tokens are no longer the active blocker; the early token preflight still blocks mismatched accounts. After the 2026-07-02 render/TTS fallback fixes, keep the next run `unlisted` until one live artifact is inspected for translated text, voiceover audio, clean UI, and karaoke highlight when AI33 word timings are present.
+YouTube refresh tokens are no longer the active blocker; the early token preflight still blocks mismatched accounts. Keep the next run `unlisted` until one live artifact is inspected for translated text, voiceover audio, clean no-karaoke UI, and uploaded metadata readback.
 
 Planned production flow:
 ```
@@ -645,20 +645,20 @@ story_adapter.py → source-backed no-invent adapted story_data.json
     ↓
 metadata_generator.py → youtube_metadata.json via Gemini text provider
     ↓
-translator_tts.py → localized story_data.json + narration-only link placeholders + narration.mp3 + narration.json via Gemini text provider + AI33
+translator_tts.py → localized story_data.json + narration-only link placeholders + narration.mp3 via Gemini text provider + AI33
     ↓
 storyboard display text keeps visible URLs; TTS says localized "link on screen" phrases
     ↓
 storyboard_generator.py → storyboard.json with centered render_slides
     ↓
-render.py → final_output.mp4 + render_report.json with audio track + karaoke highlight when usable transcript word timings exist
+render.py → final_output.mp4 + render_report.json with audio track and clean static slide-progress visuals
     ↓
 pre_publish_qa.py → pre_publish_qa.json fail-closed gate
     ↓
 uploader.py → channel preflight, YouTube upload, metadata readback
 ```
 
-`render.py` uses `--orientation auto` by default: narration/storyboard duration up to 180 seconds stays vertical 9:16 for Shorts, and anything longer than 180 seconds becomes horizontal 16:9 for long-form YouTube. The horizontal path keeps the same in-card karaoke treatment on the Reddit card text and does not add side panels or extra captions. In both orientations, post metrics/share appear only as the story-card ending on the final phrase. Both orientations use larger render-mode text and slide chunking so the card stays readable instead of squeezing a long post onto one screen. `auto_publish.yml` passes `--require-karaoke` so live upload stops before YouTube if word timings are missing.
+`render.py` uses `--orientation auto` by default: narration/storyboard duration up to 180 seconds stays vertical 9:16 for Shorts, and anything longer than 180 seconds becomes horizontal 16:9 for long-form YouTube. Both orientations use larger render-mode text and slide chunking so the card stays readable instead of squeezing a long post onto one screen. Current workflows pass `--no-karaoke`; upload is blocked on audio/adaptation/evidence/metadata/render QA, not transcript timing.
 
 ### ⚠️ Orchestration Rule (CRITICAL)
 
@@ -777,10 +777,10 @@ ffprobe final_output.mp4
 - [x] `translator_tts.py` switched to AI33 TTS v3, `uploader.py` base script
 - [x] `story_adapter.py` connected to the Gemini text provider for source-backed no-invent cleanup
 - [x] `metadata_generator.py` connected to the Gemini text provider for packaging options + SEO metadata
-- [x] `pre_publish_qa.py` blocks upload when audio, karaoke, adaptation, evidence, metadata, or render report fail
+- [x] `pre_publish_qa.py` blocks upload when audio, adaptation, evidence, metadata, or render report fail
 - [x] `thumbnail_generator.py` connected to VectorEngine image generation behind explicit spend confirmation
 - [x] `storyboard_generator.py` and `render.py` create a no-spend dry-run `final_output.mp4`
-- [x] Slide-based RedditSim rendering: first story screen without comments, comment-only screens, long story chunking, in-text karaoke highlight, and larger render-mode fonts
+- [x] Slide-based RedditSim rendering: first story screen without comments, comment-only screens, long story chunking, clean no-karaoke visuals, and larger render-mode fonts
 - [x] GitHub Actions workflow `video_dry_run.yml` renders and uploads a live dry-run MP4 artifact
 - [x] GitHub Actions workflow `auto_publish.yml`
 - [x] Scrapers research & comparison documentation
@@ -788,7 +788,7 @@ ffprobe final_output.mp4
 - [x] Verified GitHub dry-run rendering (`chonkertalks-dry-run-video` artifact generated)
 
 ### 🔄 Next Steps (Priority Order)
-- [ ] **1. Run one post-fix unlisted live smoke** and inspect channel, language, translated card text, voiceover audio, clean slide render, karaoke timing, SEO metadata, and uploaded metadata readback before public scheduled publishing.
+- [ ] **1. Run one post-fix unlisted live smoke** and inspect channel, language, translated card text, voiceover audio, clean no-karaoke slide render, SEO metadata, and uploaded metadata readback before public scheduled publishing.
 - [ ] **2. Select final ElevenLabs/MiniMax voices** from AI33 Voice Library for each channel if emotion tags should be default.
 - [ ] **3. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2.
 - [ ] **4. Add authenticated uploader readback** for title, description, tags, language, privacy, and channel id after upload.

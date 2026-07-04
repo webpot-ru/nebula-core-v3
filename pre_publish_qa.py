@@ -235,13 +235,14 @@ def run_qa(args: argparse.Namespace) -> dict[str, Any]:
     expected_words = expected_word_count(story)
     transcript = transcript_status(transcript_path)
     coverage = (transcript["word_count"] / expected_words) if expected_words else 0.0
-    add_check(
-        checks,
-        "karaoke_transcript_words",
-        transcript["word_count"] > 0 and coverage >= args.min_karaoke_coverage,
-        f"transcript_words={transcript['word_count']} expected_words={expected_words} coverage={coverage:.2f} timing_status={transcript['timing_status']}",
-        required=args.require_karaoke,
-    )
+    if args.require_karaoke or transcript["exists"]:
+        add_check(
+            checks,
+            "karaoke_transcript_words",
+            transcript["word_count"] > 0 and coverage >= args.min_karaoke_coverage,
+            f"transcript_words={transcript['word_count']} expected_words={expected_words} coverage={coverage:.2f} timing_status={transcript['timing_status']}",
+            required=args.require_karaoke,
+        )
     if args.require_karaoke:
         add_check(
             checks,

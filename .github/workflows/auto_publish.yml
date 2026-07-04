@@ -277,7 +277,6 @@ jobs:
         run: |
           python translator_tts.py \
             --channel ${{ steps.target.outputs.channel_id }} \
-            --with-transcript \
             --output narration.mp3
 
       - name: Generate storyboard JSON
@@ -293,7 +292,7 @@ jobs:
             --output final_output.mp4 \
             --report render_report.json \
             --frame-count 300 \
-            --require-karaoke
+            --no-karaoke
 
       - name: Pre-publish QA gate
         run: |
@@ -304,11 +303,9 @@ jobs:
             --metadata youtube_metadata.json \
             --video final_output.mp4 \
             --audio narration.mp3 \
-            --transcript narration.json \
             --render-report render_report.json \
             --output pre_publish_qa.json \
             --require-audio \
-            --require-karaoke \
             --require-adaptation \
             --require-evidence \
             --require-render-report

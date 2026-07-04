@@ -172,8 +172,7 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
-          # Request transcript with alignment timestamps and download voice narration track
-          python translator_tts.py --channel ${{ steps.target.outputs.channel_id }} --with-transcript --output narration.mp3
+          python translator_tts.py --channel ${{ steps.target.outputs.channel_id }} --output narration.mp3
 
       - name: Generate storyboard JSON
         run: |
@@ -190,7 +189,7 @@ jobs:
             --output final_output.mp4 \
             --report render_report.json \
             --frame-count 100 \
-            --require-karaoke \
+            --no-karaoke \
             "${ORIENTATION_ARGS[@]}"
 
       - name: Pre-publish QA gate
@@ -202,11 +201,9 @@ jobs:
             --metadata youtube_metadata.json \
             --video final_output.mp4 \
             --audio narration.mp3 \
-            --transcript narration.json \
             --render-report render_report.json \
             --output pre_publish_qa.json \
             --require-audio \
-            --require-karaoke \
             --require-adaptation \
             --require-evidence \
             --require-render-report
@@ -234,7 +231,6 @@ jobs:
             producer_queue.json
             youtube_metadata.json
             narration.mp3
-            narration.json
             render_report.json
             pre_publish_qa.json
             build/render/render_story.json
