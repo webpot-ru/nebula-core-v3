@@ -67,7 +67,7 @@ Operational split:
 | German | Science/curiosity, experiments, strange facts, tech/internet explainers | "what happens if...", visual facts, tech hooks, strange discoveries | quality explainers, experiment recaps, internet/science documentaries | High |
 | Italian | Visual social comedy, football/food identity, relationship drama | visual sketches, relationship mini-scenes, football moments, food/culture hooks | social-experiment episodes, football/food culture stories, drama compilations | Medium-high |
 | English | Spectacle curiosity, internet lore, story hooks | experiments, gadgets, internet drama, "what happened next" hooks | high-production explainers, creator/internet lore, mystery or science stories | High upside / high competition |
-| Russian-speaking / CIS diaspora | Dark curiosity and strange facts, with platform-risk awareness | scary hooks, strange stories, surprising facts | dark-story compilations, mystery/fact explainers | Opportunistic |
+| Russian-speaking / CIS diaspora | Dark curiosity, human drama, and strange facts, with platform-risk awareness | scary hooks, moral-conflict mini stories, surprising facts | dark-story compilations, mystery/fact explainers, moral-drama breakdowns | Opportunistic |
 
 ### Topic Families to Test
 
@@ -100,7 +100,7 @@ For Reddit-derived stories only:
 - **Duplicate guard**: exact Reddit post ids, normalized story signatures, and similar keyword signatures are skipped per channel.
 - **Velocity scoring**: fresh `day/week` candidates get a small bonus for upvotes/hour and comments/hour, so rising stories can beat older high-total posts.
 - **Topic fatigue**: recently repeated topic families receive a penalty so one channel does not publish the same kind of story too many times in a row.
-- **Channel exclusions**: channels can define `topic_exclusions` in `channels.json`. `acc1` uses this to block Minecraft/gaming-server topics before Gemini quality checks, because the Russian channel default promise is dark curiosity / strange facts rather than gaming.
+- **Channel exclusions**: channels can define `topic_exclusions` in `channels.json`. `acc1` uses this to block Minecraft/gaming-server topics before Gemini quality checks, because the Russian channel default promise is dark curiosity / human drama / strange facts rather than gaming.
 
 ---
 
@@ -633,7 +633,7 @@ It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `f
 
 `auto_publish.yml` has passed one end-to-end unlisted live smoke, but public scheduled publishing should still wait for one post-fix unlisted review. The 2026-06-30 smoke verified localization, AI33 narration, audio-aware render, YouTube upload, and history commit, but readback/user review showed videos landing on the wrong channel for the requested account. Per current user-provided state on 2026-07-02, the OAuth/channel mapping issue has been resolved; the next gate is artifact quality review after the render/TTS fixes.
 
-Manual `auto_publish.yml` runs support `content_format=auto|shorts|long`; the workflow default is `shorts`, and scheduled runs also resolve to `shorts` unless a matrix entry explicitly sets another format. `shorts` now filters candidates before selection: the source body must already be a complete short story, currently up to about 1,400 characters, and comments are not fetched for that run. `long` requires a substantial source body, currently at least about 2,500 characters, keeps the full story, and relies on render auto-orientation to switch videos over 180 seconds to 16:9. Production paths must not use post-selection body trimming; scraper/adapter `--max-body-chars` remains only a deprecated manual safety valve behind `--allow-body-trim`.
+Manual `auto_publish.yml` runs support `content_format=auto|shorts|long`; the workflow default is `shorts`, and scheduled runs also resolve to `shorts` unless a matrix entry explicitly sets another format. `shorts` now filters candidates before selection: the source body must already be a complete short story, currently up to about 2,400 characters, and comments are not fetched for that run. `long` requires a substantial source body, currently at least about 2,800 characters, keeps the full story, and relies on render auto-orientation to switch videos over 180 seconds to 16:9. Production paths must not use post-selection body trimming; scraper/adapter `--max-body-chars` remains only a deprecated manual safety valve behind `--allow-body-trim`.
 
 YouTube refresh tokens are no longer the active blocker; the early token preflight still blocks mismatched accounts. Keep the next run `unlisted` until one live artifact is inspected for translated text, voiceover audio, clean no-karaoke UI, and uploaded metadata readback.
 

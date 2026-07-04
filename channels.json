@@ -7,15 +7,17 @@
       "lang": "ru",
       "region": "RU/CIS",
       "audience": "Россия, русскоязычная диаспора за рубежом",
-      "niche": "dark_curiosity_facts",
-      "niche_label": "Dark Curiosity + Strange Facts",
+      "niche": "dark_curiosity_drama_facts",
+      "niche_label": "Dark Curiosity + Human Drama + Strange Facts",
       "subreddits": [
-        "nosleep", "todayilearned", "LetsNotMeet",
-        "Glitch_in_the_Matrix", "creepyencounters", "mildlyinteresting", "InternetIsBeautiful"
+        "nosleep", "AmItheAsshole", "AITAH", "relationship_advice",
+        "todayilearned", "LetsNotMeet", "Glitch_in_the_Matrix",
+        "creepyencounters", "mildlyinteresting", "InternetIsBeautiful"
       ],
       "topic_mix": [
-        {"family": "dark_curiosity", "weight": 0.55},
-        {"family": "curiosity_facts", "weight": 0.45}
+        {"family": "dark_curiosity", "weight": 0.40},
+        {"family": "human_drama", "weight": 0.35},
+        {"family": "curiosity_facts", "weight": 0.25}
       ],
       "topic_exclusions": [
         "minecraft",

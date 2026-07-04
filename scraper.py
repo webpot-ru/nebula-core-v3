@@ -227,8 +227,14 @@ TOPIC_FAMILY_PRESETS = {
 
 FALLBACK_TOPIC_MIX_BY_NICHE = {
     "dark_curiosity_facts": [
-        {"family": "dark_curiosity", "weight": 0.55},
-        {"family": "curiosity_facts", "weight": 0.45},
+        {"family": "dark_curiosity", "weight": 0.40},
+        {"family": "human_drama", "weight": 0.35},
+        {"family": "curiosity_facts", "weight": 0.25},
+    ],
+    "dark_curiosity_drama_facts": [
+        {"family": "dark_curiosity", "weight": 0.40},
+        {"family": "human_drama", "weight": 0.35},
+        {"family": "curiosity_facts", "weight": 0.25},
     ],
     "spectacle_curiosity_drama": [
         {"family": "human_drama", "weight": 0.40},
@@ -293,12 +299,12 @@ FORMAT_INTENT_RULES = {
 FORMAT_LENGTH_PROFILES = {
     "shorts": {
         "min_body_chars": 250,
-        "max_body_chars": 1400,
+        "max_body_chars": 2400,
         "policy": "select_short_source_only",
         "description": "Shorts must start from a complete short source story; never trim a long story down after selection.",
     },
     "long": {
-        "min_body_chars": 2500,
+        "min_body_chars": 2800,
         "max_body_chars": None,
         "policy": "select_long_source_only",
         "description": "Long-form must start from a substantial source story; never pad a thin story into long-form.",
