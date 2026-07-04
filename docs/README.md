@@ -506,7 +506,7 @@ Each channel's `channels.json` entry has a `translate_prompt` field:
 
 ### Gemini Metadata / SEO
 
-`metadata_generator.py` builds YouTube packaging from `story_data.json`, `producer_queue.json` fields, `editorial_adaptation`, and `channels.json`. It asks Gemini for three honest title/thumbnail/first-screen packaging options, stores them in `packaging_options`, and writes the selected option into the backward-compatible `youtube_title` and `thumbnail_text` fields:
+`metadata_generator.py` builds YouTube packaging from `story_data.json`, `producer_queue.json` fields, `editorial_adaptation`, and `channels.json`. It asks Gemini for three honest title/thumbnail/first-screen packaging options, stores them in `packaging_options`, and writes the selected option into the backward-compatible `youtube_title` and `thumbnail_text` fields. For render dry-runs only, `--fallback-on-error` can write conservative marked fallback metadata if Gemini blocks the packaging prompt; do not use that flag for production upload unless fallback SEO is an intentional operator decision.
 
 ```bash
 # No API spend
@@ -614,7 +614,7 @@ must show the new scopes and then match every authenticated channel against
 
 ### Dry-Run Render Workflow
 
-`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit, Gemini, and AI33 secrets, so it is not a no-spend fixture-only workflow. For a vertical Shorts artifact that exercises live topic search/filtering without uploading to YouTube, run it with `content_format=shorts`; this selects only complete short source stories and forces a vertical render. The live dry-run caps the producer quality gate at 12 Gemini candidates so the strict quality gate can skip generic Reddit filler and still reach better candidates; for Shorts, the quality gate sees the full short source body before deciding whether the story is complete. The shared Gemini client immediately falls back to VectorEngine on Google HTTP 429 only when `GEMINI_PROVIDER` is left in auto mode.
+`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit, Gemini, and AI33 secrets, so it is not a no-spend fixture-only workflow. For a vertical Shorts artifact that exercises live topic search/filtering without uploading to YouTube, run it with `content_format=shorts`; this selects only complete short source stories and forces a vertical render. The live dry-run caps the producer quality gate at 12 Gemini candidates so the strict quality gate can skip generic Reddit filler and still reach better candidates; for Shorts, the quality gate sees the full short source body before deciding whether the story is complete. If Gemini blocks the metadata packaging prompt, the dry-run metadata step writes marked fallback metadata and continues so MP4/audio QA can still be inspected. The shared Gemini client immediately falls back to VectorEngine on Google HTTP 429 only when `GEMINI_PROVIDER` is left in auto mode.
 
 ```text
 scraper.py

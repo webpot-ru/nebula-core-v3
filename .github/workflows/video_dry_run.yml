@@ -159,6 +159,7 @@ jobs:
           python metadata_generator.py \
             --channel ${{ steps.target.outputs.channel_id }} \
             --confirm-spend \
+            --fallback-on-error \
             --output youtube_metadata.json
 
       - name: Translate & Generate AI33 neural voice audio

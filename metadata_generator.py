@@ -17,6 +17,20 @@ from vectorengine_client import (
 DEFAULT_OUTPUT = "youtube_metadata.json"
 
 
+def clip_text(value: str, limit: int) -> str:
+    value = " ".join(str(value or "").split()).strip()
+    if len(value) <= limit:
+        return value
+    clipped = value[: max(0, limit - 1)].rstrip()
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0].rstrip()
+    return f"{clipped}..."
+
+
+def sanitize_reason(reason: str | None, limit: int = 360) -> str:
+    return clip_text(str(reason or "").replace("\n", " "), limit)
+
+
 def load_json(path: str | Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as f:
         return json.load(f)
@@ -253,13 +267,84 @@ def normalize_metadata(
     }
 
 
-def deterministic_fallback(story: dict[str, Any], channel: dict[str, Any], model: str) -> dict[str, Any]:
-    url = story.get("url", "")
-    title = str(story.get("title") or "Reddit Story").strip()
-    subreddit = str(story.get("subreddit") or "Reddit").strip()
-    description = f"{title}\n\nOriginal thread: {url}\n\n#reddit #stories #shorts".strip()
+def fallback_labels(channel: dict[str, Any]) -> dict[str, Any]:
+    lang = str(channel.get("lang") or "en").lower()
+    if lang.startswith("ru"):
+        return {
+            "fallback_title": "История с Reddit",
+            "thumbnail_text": "РЕШИЛИ ЖЕСТКО",
+            "original_thread": "Оригинальная ветка",
+            "hashtags": ["#реддит", "#история", "#shorts"],
+            "tags": ["реддит", "истории реддит", "жизненная история", "моральная дилемма", "shorts"],
+            "seo": ["история reddit", "реддит истории", "моральная дилемма"],
+            "why_click": "Резервная упаковка без Gemini после блокировки metadata prompt.",
+            "source_notes": "Резервные metadata созданы без Gemini после ошибки упаковки.",
+        }
+    if lang.startswith("es"):
+        return {
+            "fallback_title": "Historia de Reddit",
+            "thumbnail_text": "SE PASARON",
+            "original_thread": "Hilo original",
+            "hashtags": ["#reddit", "#historias", "#shorts"],
+            "tags": ["reddit", "historias de reddit", "historia viral", "dilema moral", "shorts"],
+            "seo": ["historia reddit", "historias de reddit", "dilema moral"],
+            "why_click": "Empaque de reserva sin Gemini tras un bloqueo del prompt de metadata.",
+            "source_notes": "Metadata de reserva creada sin Gemini tras un error de empaque.",
+        }
+    if lang.startswith("pt"):
+        return {
+            "fallback_title": "Historia do Reddit",
+            "thumbnail_text": "PASSOU DO LIMITE",
+            "original_thread": "Thread original",
+            "hashtags": ["#reddit", "#historias", "#shorts"],
+            "tags": ["reddit", "historias do reddit", "historia viral", "dilema moral", "shorts"],
+            "seo": ["historia reddit", "historias do reddit", "dilema moral"],
+            "why_click": "Pacote reserva sem Gemini apos bloqueio do prompt de metadata.",
+            "source_notes": "Metadata reserva criada sem Gemini apos erro de pacote.",
+        }
     return {
-        "source": "deterministic-fallback",
+        "fallback_title": "Reddit Story",
+        "thumbnail_text": "TOO FAR?",
+        "original_thread": "Original thread",
+        "hashtags": ["#reddit", "#stories", "#shorts"],
+        "tags": ["reddit", "reddit stories", "viral story", "moral dilemma", "shorts"],
+        "seo": ["reddit story", "viral reddit", "moral dilemma"],
+        "why_click": "Fallback packaging without Gemini after a metadata prompt error.",
+        "source_notes": "Fallback metadata generated without Gemini after a packaging error.",
+    }
+
+
+def deterministic_fallback(
+    story: dict[str, Any],
+    channel: dict[str, Any],
+    model: str,
+    *,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    url = story.get("url", "")
+    labels = fallback_labels(channel)
+    localized_title_source = (
+        story.get("first_screen_text")
+        or story.get("first_screen_promise")
+        or story.get("packaging_thesis")
+    )
+    lang = str(channel.get("lang") or "en").lower()
+    if localized_title_source:
+        title_source = localized_title_source
+    elif lang.startswith("en"):
+        title_source = story.get("title") or labels["fallback_title"]
+    else:
+        title_source = labels["fallback_title"]
+    title = clip_text(str(title_source), 95) or labels["fallback_title"]
+    subreddit = str(story.get("subreddit") or "Reddit").strip()
+    hashtag_line = " ".join(labels["hashtags"])
+    description = f"{title}\n\n{labels['original_thread']}: {url}\n\n{hashtag_line}".strip()
+    fallback_reason = sanitize_reason(reason)
+    source_notes = labels["source_notes"]
+    if fallback_reason:
+        source_notes = f"{source_notes} Reason: {fallback_reason}"
+    return {
+        "source": "gemini-error-fallback" if fallback_reason else "deterministic-fallback",
         "model": model,
         "keyName": None,
         "channelId": channel.get("id"),
@@ -267,15 +352,15 @@ def deterministic_fallback(story: dict[str, Any], channel: dict[str, Any], model
         "language": channel.get("lang"),
         "youtube_title": title[:100],
         "youtube_description": description[:5000],
-        "tags": ["reddit", "reddit stories", subreddit.replace("r/", ""), "viral story", "storytime"],
-        "hashtags": ["#reddit", "#stories", "#shorts"],
-        "thumbnail_text": "Reddit Story",
+        "tags": (labels["tags"] + [subreddit.replace("r/", "")])[:25],
+        "hashtags": labels["hashtags"][:6],
+        "thumbnail_text": labels["thumbnail_text"],
         "packaging_options": [
             {
                 "youtube_title": title[:100],
-                "thumbnail_text": "Reddit Story",
+                "thumbnail_text": labels["thumbnail_text"],
                 "first_screen_promise": str(story.get("first_screen_promise") or story.get("first_screen_text") or "")[:240],
-                "why_click": "Fallback packaging without API spend.",
+                "why_click": labels["why_click"],
                 "source_backing": str(story.get("title") or "")[:240],
             }
         ],
@@ -285,9 +370,10 @@ def deterministic_fallback(story: dict[str, Any], channel: dict[str, Any], model
             "Dramatic YouTube thumbnail for a Reddit story, cinematic lighting, "
             "high contrast, expressive human silhouette, no text in the image."
         ),
-        "seo_keywords": ["reddit story", "viral reddit", subreddit],
+        "seo_keywords": (labels["seo"] + [subreddit])[:20],
         "risk_flags": [],
-        "source_notes": "Fallback metadata generated without Gemini API spend.",
+        "source_notes": source_notes,
+        "metadata_fallback_reason": fallback_reason,
     }
 
 
@@ -300,6 +386,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load.")
     parser.add_argument("--confirm-spend", action="store_true", help="Required for live Gemini calls.")
     parser.add_argument("--dry-run", action="store_true", help="Build fallback metadata without API spend.")
+    parser.add_argument(
+        "--fallback-on-error",
+        action="store_true",
+        help="Write conservative fallback metadata if Gemini packaging fails. Intended for render dry-runs, not production upload.",
+    )
     parser.add_argument("--temperature", type=float, default=0.35)
     return parser.parse_args(argv)
 
@@ -320,20 +411,26 @@ def main(argv: list[str]) -> int:
                 "Refusing to call Gemini because this can spend API credits or quota. "
                 "Re-run with --confirm-spend or use --dry-run."
             )
-        _, key_name, _ = resolve_gemini_provider()
-        raw_metadata = call_gemini_json(
-            prompt=build_prompt(story, channel),
-            model=args.model,
-            temperature=args.temperature,
-        )
-        metadata = normalize_metadata(
-            raw_metadata,
-            story=story,
-            channel=channel,
-            model=args.model,
-            source=gemini_source_label(),
-            key_name=key_name,
-        )
+        try:
+            _, key_name, _ = resolve_gemini_provider()
+            raw_metadata = call_gemini_json(
+                prompt=build_prompt(story, channel),
+                model=args.model,
+                temperature=args.temperature,
+            )
+            metadata = normalize_metadata(
+                raw_metadata,
+                story=story,
+                channel=channel,
+                model=args.model,
+                source=gemini_source_label(),
+                key_name=key_name,
+            )
+        except VectorEngineError as exc:
+            if not args.fallback_on_error:
+                raise
+            metadata = deterministic_fallback(story, channel, args.model, reason=str(exc))
+            metadata["keyName"] = key_name
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
