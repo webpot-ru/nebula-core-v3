@@ -114,7 +114,7 @@ jobs:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           AI_QUALITY_CHECK: '1'
           AI_QUALITY_FAIL_OPEN: '0'
-          MAX_AI_CANDIDATES: '5'
+          MAX_AI_CANDIDATES: '12'
           STORY_SIMILARITY_THRESHOLD: '0.72'
           TOPIC_FATIGUE_LOOKBACK: '10'
         run: |

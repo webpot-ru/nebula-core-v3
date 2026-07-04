@@ -614,7 +614,7 @@ must show the new scopes and then match every authenticated channel against
 
 ### Dry-Run Render Workflow
 
-`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit, Gemini, and AI33 secrets, so it is not a no-spend fixture-only workflow. For a vertical Shorts artifact that exercises live topic search/filtering without uploading to YouTube, run it with `content_format=shorts`; this selects only complete short source stories and forces a vertical render. The live dry-run caps the producer quality gate at 5 Gemini candidates and the shared Gemini client falls back to VectorEngine on Google HTTP 429 only when `GEMINI_PROVIDER` is left in auto mode.
+`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit, Gemini, and AI33 secrets, so it is not a no-spend fixture-only workflow. For a vertical Shorts artifact that exercises live topic search/filtering without uploading to YouTube, run it with `content_format=shorts`; this selects only complete short source stories and forces a vertical render. The live dry-run caps the producer quality gate at 12 Gemini candidates so the strict quality gate can skip generic Reddit filler and still reach better candidates; the shared Gemini client falls back to VectorEngine on Google HTTP 429 only when `GEMINI_PROVIDER` is left in auto mode.
 
 ```text
 scraper.py
@@ -694,7 +694,7 @@ uploader.py → channel preflight, YouTube upload, metadata readback
 Gemini keys must never be committed or pasted into source files. If a key was shared in chat or logs, rotate it in Google AI Studio and update GitHub Secrets with the new value before production runs.
 
 Useful scraper budget env vars:
-- `MAX_AI_CANDIDATES` — hard cap on Gemini quality checks per scrape; default `12`, dry-run workflow uses `5`.
+- `MAX_AI_CANDIDATES` — hard cap on Gemini quality checks per scrape; default `12`, dry-run workflow uses `12`.
 - `CANDIDATE_LIMIT_PER_SOURCE` — Reddit posts fetched per subreddit/window source; default `25`.
 - `MAX_SUBREDDITS_PER_TOPIC` — subreddits scanned per topic family; default `4`.
 - `MAX_TIME_WINDOWS_PER_TOPIC` — time windows scanned per topic family in `auto` mode; default `2`.
