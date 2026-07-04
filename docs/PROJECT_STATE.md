@@ -36,6 +36,9 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - The `render-dry-run` job completed in 1m 21s, passed validation tests, and successfully uploaded the `chonkertalks-dry-run-video` artifact.
 - The artifact was downloaded locally to `build/render/chonkertalks-dry-run-video` and contains `final_output.mp4` (594 KB, verified codec and resolution).
 - The transition from `startup_failure` to success was resolved by migrating repository ownership to `webpot-ru` (which has a healthy billing profile) and setting all required repository secrets.
+- Manual `video_dry_run.yml` run `28699752190` succeeded on 2026-07-04 for `acc1`, `time_filter=auto`, `topic_family=channel_mix`, `video_slot=1`, and `content_format=shorts`. It selected `r/nosleep` post `1uh3bc5` ("There's an invisible line in my town that no animal will cross."), localized/adapted it to Russian as "В нашем городе есть невидимая линия, которую не перейдет ни одно животное", generated `narration.mp3`, rendered a vertical Shorts MP4, and uploaded artifact `chonker-test-acc1`.
+- The run `28699752190` artifact was downloaded locally to `build/github-artifacts/run_28699752190/chonker-test-acc1`. `pre_publish_qa.json` passed with `status=ok`, `0` failures, and `0` warnings. `ffprobe` verified `final_output.mp4` as H.264 `1080x1920` at 30 fps with AAC audio; video duration was `30.700s`, audio duration was `30.682s`, and QA measured audio/video mismatch at about `0.006s`.
+- `render_report.json` for run `28699752190` confirmed `renderFormat=shorts`, `resolution=1080x1920`, `audio=narration.mp3`, `frameSchedule=uniform_progress`, and `karaokeEnabled=false`. The artifact contains no `narration.json`. Visual preview readback (`preview_01.png`, `preview_mid.png`, `preview_end.png`) showed clean static Reddit cards with no karaoke highlight and no editor/sidebar controls; the post footer appears only in the final preview frame.
 
 ## Live Publish Smoke Status
 
@@ -59,7 +62,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - `python3 render.py --storyboard storyboard.json --output final_output.mp4` passed once locally through the RedditSim Chrome DevTools path and captured 8 simulator frames.
 - Later local macOS Chrome runs, including 2026-07-04 local `render.py` smokes, timed out during `Page.captureScreenshot`; this appears to be local system Google Chrome/CDP instability, not an API/spend/upload blocker. Browser localhost screenshots still work, and GitHub runner render remains the better MP4 proof path.
 - FFmpeg encoding was independently verified from the captured RedditSim frames: H.264, 1080x1920, 30 fps, 22.0s, 660 frames.
-- `test -s final_output.mp4` passed on a local generated artifact, but the current GitHub artifact is still pending.
+- `test -s final_output.mp4` passed on local generated artifacts, and the current GitHub no-karaoke artifact `build/github-artifacts/run_28699752190/chonker-test-acc1/final_output.mp4` was downloaded and verified with `ffprobe`.
 - `app.js` passes `node --check` on 2026-07-02.
 - RedditSim loaded in a real browser at `http://localhost:8080/`; the typewriter animation completed and rendered title, body, and comments.
 - Browser console only showed missing `favicon.ico` 404s during that smoke, not JavaScript runtime errors.
@@ -135,7 +138,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 ## Next Steps
  
 1. Listen to `build/audit/run_28457170166/ai33-voice-samples/20260630T154616Z/voice_samples_review.html` and decide which voices to keep or replace.
-2. Run one live `video_dry_run.yml` or unlisted `auto_publish.yml` smoke and inspect `producer_queue.json`, `story_data.json.editorial_adaptation`, `youtube_metadata.json.packaging_options`, `pre_publish_qa.json`, and the uploaded artifact/video for translated text, voiceover audio, clean no-karaoke UI, and `source=google-gemini` in text AI artifacts.
+2. Review `build/github-artifacts/run_28699752190/chonker-test-acc1/final_output.mp4`, `producer_queue.json`, `story_data.json.editorial_adaptation`, `youtube_metadata.json.packaging_options`, and `pre_publish_qa.json` for subjective topic/voice quality. If accepted, run one no-karaoke unlisted `auto_publish.yml` smoke before enabling scheduled public uploads.
 3. Add authenticated uploader readback for title, description, tags, language, privacy, channel id, and optionally thumbnail state.
 4. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
 5. Tune `topic_mix` weights from live candidate variety, Gemini verdicts, and YouTube retention now that account mapping is safe.
