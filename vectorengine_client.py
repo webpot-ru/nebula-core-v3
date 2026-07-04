@@ -9,11 +9,18 @@ import requests
 
 
 DEFAULT_BASE_URL = "https://api.vectorengine.ai"
+DEFAULT_GOOGLE_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_TIMEOUT_SECONDS = 120
 DEFAULT_IMAGE_TIMEOUT_SECONDS = 300
-DEFAULT_GEMINI_RETRIES = int(os.environ.get("VECTORENGINE_GEMINI_RETRIES", "2"))
+DEFAULT_GEMINI_RETRIES = int(
+    os.environ.get("GEMINI_RETRIES")
+    or os.environ.get("VECTORENGINE_GEMINI_RETRIES", "2")
+)
+
+GOOGLE_PROVIDER_ALIASES = {"google", "google-ai", "aistudio", "gemini"}
+VECTORENGINE_PROVIDER_ALIASES = {"vectorengine", "vector-engine", "ve"}
 
 
 class VectorEngineError(RuntimeError):
@@ -45,7 +52,7 @@ def load_dotenv_file(path: str | Path | None) -> bool:
     return True
 
 
-def get_api_key() -> tuple[str, str]:
+def get_vectorengine_api_key() -> tuple[str, str]:
     if os.environ.get("VECTORENGINE_API_KEY"):
         return "VECTORENGINE_API_KEY", os.environ["VECTORENGINE_API_KEY"]
     if os.environ.get("VECTOR_ENGINE_API_KEY"):
@@ -53,8 +60,57 @@ def get_api_key() -> tuple[str, str]:
     raise VectorEngineError("Missing VECTORENGINE_API_KEY or VECTOR_ENGINE_API_KEY.")
 
 
+def get_api_key() -> tuple[str, str]:
+    return get_vectorengine_api_key()
+
+
+def get_google_gemini_api_key() -> tuple[str, str]:
+    # Prefer the project-specific name so an unrelated GOOGLE_API_KEY is not
+    # picked up accidentally in shared CI/local shells.
+    for name in ("GOOGLE_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        if os.environ.get(name):
+            return name, os.environ[name]
+    raise VectorEngineError("Missing GOOGLE_GEMINI_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.")
+
+
+def resolve_gemini_provider() -> tuple[str, str, str]:
+    requested = (os.environ.get("GEMINI_PROVIDER") or "auto").strip().lower()
+    if requested in GOOGLE_PROVIDER_ALIASES:
+        key_name, api_key = get_google_gemini_api_key()
+        return "google", key_name, api_key
+    if requested in VECTORENGINE_PROVIDER_ALIASES:
+        key_name, api_key = get_vectorengine_api_key()
+        return "vectorengine", key_name, api_key
+    if requested not in ("", "auto"):
+        raise VectorEngineError(
+            "GEMINI_PROVIDER must be auto, google, or vectorengine."
+        )
+
+    try:
+        key_name, api_key = get_google_gemini_api_key()
+        return "google", key_name, api_key
+    except VectorEngineError:
+        pass
+
+    key_name, api_key = get_vectorengine_api_key()
+    return "vectorengine", key_name, api_key
+
+
+def gemini_source_label() -> str:
+    provider, _, _ = resolve_gemini_provider()
+    return "google-gemini" if provider == "google" else "vectorengine-gemini"
+
+
 def clean_base_url(value: str | None = None) -> str:
     return (value or os.environ.get("VECTORENGINE_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+
+
+def clean_google_gemini_base_url(value: str | None = None) -> str:
+    return (
+        value
+        or os.environ.get("GOOGLE_GEMINI_BASE_URL")
+        or DEFAULT_GOOGLE_GEMINI_BASE_URL
+    ).rstrip("/")
 
 
 def safe_response_text(response: requests.Response, limit: int = 800) -> str:
@@ -105,13 +161,13 @@ def first_balanced_json_object(text: str) -> str:
 def parse_json_object(text: str) -> dict[str, Any]:
     raw = text.strip()
     if not raw:
-        raise VectorEngineError("VectorEngine returned empty text.")
+        raise VectorEngineError("Gemini returned empty text.")
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         extracted = first_balanced_json_object(raw)
         if not extracted:
-            raise VectorEngineError(f"VectorEngine did not return JSON: {raw[:500]}")
+            raise VectorEngineError(f"Gemini did not return JSON: {raw[:500]}")
         return json.loads(extracted)
 
 
@@ -126,14 +182,34 @@ def call_gemini_json(
     retries: int | None = None,
 ) -> dict[str, Any]:
     if not prompt:
-        raise VectorEngineError("VectorEngine Gemini prompt is required.")
+        raise VectorEngineError("Gemini prompt is required.")
 
-    _, api_key = get_api_key()
-    active_model = model or os.environ.get("VECTORENGINE_GEMINI_MODEL") or DEFAULT_GEMINI_MODEL
-    endpoint = (
-        f"{clean_base_url()}/v1beta/models/{active_model}:generateContent"
-        f"?key={api_key}"
+    provider, _, api_key = resolve_gemini_provider()
+    active_model = (
+        model
+        or os.environ.get("GEMINI_MODEL")
+        or os.environ.get("GOOGLE_GEMINI_MODEL")
+        or os.environ.get("VECTORENGINE_GEMINI_MODEL")
+        or DEFAULT_GEMINI_MODEL
     )
+    if provider == "google":
+        endpoint = f"{clean_google_gemini_base_url()}/v1beta/models/{active_model}:generateContent"
+        headers = {
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json",
+        }
+        provider_label = "Google Gemini"
+    else:
+        endpoint = (
+            f"{clean_base_url()}/v1beta/models/{active_model}:generateContent"
+            f"?key={api_key}"
+        )
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        provider_label = "VectorEngine Gemini"
+
     body = {
         "systemInstruction": {"parts": [{"text": system_instruction}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -151,22 +227,19 @@ def call_gemini_json(
         try:
             response = requests.post(
                 endpoint,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 json=body,
                 timeout=timeout_seconds,
             )
             if not response.ok:
                 raise VectorEngineError(
-                    f"VectorEngine Gemini HTTP {response.status_code}: {safe_response_text(response)}"
+                    f"{provider_label} HTTP {response.status_code}: {safe_response_text(response)}"
                 )
 
             try:
                 response_data = response.json()
             except ValueError as exc:
-                raise VectorEngineError(f"VectorEngine Gemini returned non-JSON: {response.text[:500]}") from exc
+                raise VectorEngineError(f"{provider_label} returned non-JSON: {response.text[:500]}") from exc
 
             return parse_json_object(extract_text_from_gemini_response(response_data))
         except (requests.RequestException, VectorEngineError) as exc:
@@ -175,7 +248,7 @@ def call_gemini_json(
                 break
             time.sleep(min(20, 3 * attempt))
 
-    raise VectorEngineError(str(last_error or "VectorEngine Gemini request failed."))
+    raise VectorEngineError(str(last_error or f"{provider_label} request failed."))
 
 
 def call_image_generation(
@@ -190,7 +263,7 @@ def call_image_generation(
     if not prompt:
         raise VectorEngineError("VectorEngine image prompt is required.")
 
-    _, api_key = get_api_key()
+    _, api_key = get_vectorengine_api_key()
     active_model = model or os.environ.get("VECTORENGINE_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL
     endpoint = f"{clean_base_url()}/v1/images/generations"
     output = Path(output_path)

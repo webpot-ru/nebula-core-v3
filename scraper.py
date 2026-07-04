@@ -650,7 +650,7 @@ def ai_quality_check(
     format_intent: str | None = None,
 ) -> dict:
     """
-    Send the story to Gemini via VectorEngine for a structured quality assessment.
+    Send the story to Gemini for a structured quality assessment.
 
     Returns a dict with keys:
         verdict       : "PUBLISH" | "REWRITE" | "SKIP"
@@ -675,11 +675,12 @@ def ai_quality_check(
 
     try:
         from vectorengine_client import call_gemini_json, VectorEngineError, load_dotenv_file
+        load_dotenv_file(".env.gemini.local")
         load_dotenv_file(".env.vectorengine.local")
     except ImportError:
         print("  [quality] vectorengine_client not available — skipping AI check.")
         verdict = "PUBLISH" if AI_QUALITY_FAIL_OPEN else "SKIP"
-        return {"verdict": verdict, "reason": "VectorEngine not available."}
+        return {"verdict": verdict, "reason": "Gemini client not available."}
 
     niche_label = channel.get("niche_label", "General entertainment")
     lang        = channel.get("lang", "en")
@@ -859,7 +860,7 @@ Return ONLY a JSON object, no markdown:
         return result
     except VectorEngineError as e:
         verdict = "PUBLISH" if AI_QUALITY_FAIL_OPEN else "SKIP"
-        print(f"  [quality] VectorEngine error — defaulting to {verdict}: {e}")
+        print(f"  [quality] Gemini error — defaulting to {verdict}: {e}")
         return {"verdict": verdict, "reason": f"API error: {e}"}
     except Exception as e:
         verdict = "PUBLISH" if AI_QUALITY_FAIL_OPEN else "SKIP"
@@ -1197,7 +1198,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                      producer_queue_output: str | None = "producer_queue.json"):
     """
     Search topic-family sources for the most viral post, then run a bounded AI
-    quality gate (Gemini via VectorEngine) to confirm channel fit, novelty, and
+    quality gate (Gemini provider selected by vectorengine_client.py) to confirm channel fit, novelty, and
     Shorts potential.
 
     Parameters

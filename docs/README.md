@@ -4,7 +4,7 @@
 **GitHub**: [github.com/lalishka/nebula-core-v3](https://github.com/lalishka/nebula-core-v3) *(private)*  
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-07-03
+**Last updated**: 2026-07-04
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 
@@ -111,7 +111,8 @@ For Reddit-derived stories only:
 | Reddit scraping | PRAW (Python Reddit API Wrapper) + OAuth2 |
 | AI Translation | Prompt-engineered per-language translation (culturally adapted) |
 | Voice synthesis | **AI33 TTS v3** via multipart FormData (`xi-api-key`) |
-| Metadata / SEO | **VectorEngine Gemini** (`gemini-3.5-flash`) |
+| AI text routing | Direct **Google Gemini API** (`gemini-3.5-flash` / `gemini-3.1-flash-lite`) via `GOOGLE_GEMINI_API_KEY`, with VectorEngine Gemini fallback |
+| Metadata / SEO | Gemini text provider via `vectorengine_client.py` |
 | Thumbnail image generation | **VectorEngine image** (`gpt-image-2`) via explicit `--confirm-spend` |
 | Dry-run video rendering | Deterministic `storyboard_generator.py` + RedditSim headless Chrome/Chromium capture + FFmpeg |
 | YouTube publishing | YouTube Data API v3 (OAuth2 Refresh Tokens, 7 accounts) |
@@ -133,9 +134,9 @@ reddit/                            ← Project root (nebula-core-v3)
 │
 ├── scraper.py                     ← Reddit story fetcher (PRAW OAuth2 + virality + producer queue)
 ├── story_adapter.py               ← Source-backed no-invent story cleanup / hook adapter
-├── metadata_generator.py          ← VectorEngine Gemini YouTube packaging + SEO metadata
+├── metadata_generator.py          ← Gemini YouTube packaging + SEO metadata
 ├── thumbnail_generator.py         ← VectorEngine image thumbnail generator
-├── vectorengine_client.py         ← Shared VectorEngine text/image client
+├── vectorengine_client.py         ← Shared Gemini text router + VectorEngine image client
 ├── translator_tts.py              ← AI33 TTS v3 narration generator
 ├── storyboard_generator.py        ← Deterministic story_data.json → storyboard.json
 ├── render.py                      ← RedditSim dry-run renderer: storyboard.json → final_output.mp4
@@ -193,7 +194,7 @@ sample_story_data.json or story_data.json
   -> final_output.mp4
 ```
 
-This path does **not** call Reddit, AI33, VectorEngine, or YouTube. It is only a proof that the project can create an MP4 artifact locally and in GitHub Actions.
+This path does **not** call Reddit, AI33, Gemini/VectorEngine, or YouTube. It is only a proof that the project can create an MP4 artifact locally and in GitHub Actions.
 
 Generated previews and scratch files must not be deleted directly. Move them into project Trash with:
 
@@ -361,7 +362,7 @@ python3 translator_tts.py ru --voice-id elevenlabs_rQOBu7YxCDxGiFdTm28w
 python3 translator_tts.py --channel acc3 --comment-voice-id elevenlabs_LB5G0Z4EP98YaEgL654m --output narration.mp3
 ```
 
-Before TTS, the script now localizes `story_data.json` for non-English target channels through VectorEngine Gemini using the channel's `translate_prompt`. It translates the story `title`, story `body`, and each comment `body`, preserves usernames/metadata, writes localization metadata into the story JSON, and by default overwrites `--story` so `storyboard_generator.py` and `render.py` consume the translated display text. Raw URLs stay visible in the display fields; the script adds narration-only fields such as `narration_body` / `comments[].narration_body` when TTS should say the localized "link on screen" phrase instead of reading the URL aloud. For Russian narration, visible numeric tokens stay unchanged in display fields while narration-only fields spell the number for TTS, for example `6500+` -> `более чем шесть тысяч пятьсот` and `100%` -> `сто процентов`. Use `--translated-story-output story_localized_<lang>.json` to keep the original file untouched, `--skip-translation` for an explicit no-localization run, or `--force-translation` to refresh existing localized text.
+Before TTS, the script now localizes `story_data.json` for non-English target channels through the shared Gemini text provider using the channel's `translate_prompt`. By default `vectorengine_client.py` uses direct Google Gemini when `GOOGLE_GEMINI_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is present, and falls back to VectorEngine Gemini only when no Google Gemini key is configured. The translation step translates the story `title`, story `body`, and each comment `body`, preserves usernames/metadata, writes localization metadata into the story JSON, and by default overwrites `--story` so `storyboard_generator.py` and `render.py` consume the translated display text. Raw URLs stay visible in the display fields; the script adds narration-only fields such as `narration_body` / `comments[].narration_body` when TTS should say the localized "link on screen" phrase instead of reading the URL aloud. For Russian narration, visible numeric tokens stay unchanged in display fields while narration-only fields spell the number for TTS, for example `6500+` -> `более чем шесть тысяч пятьсот` and `100%` -> `сто процентов`. Use `--translated-story-output story_localized_<lang>.json` to keep the original file untouched, `--skip-translation` for an explicit no-localization run, or `--force-translation` to refresh existing localized text.
 
 For karaoke sync, the default narration order mirrors visible card text: title, body, then comment bodies. If narration-only fields exist, TTS uses them and the card keeps the display fields, so a voice line like "link on screen" corresponds to an actual visible URL on the card, and a spoken Russian number phrase can correspond to one visible numeric token. If `channels.json` defines `comment_tts_voice`, `translator_tts.py` automatically splits narration into role segments: title/body use `tts_voice`, comments use `comment_tts_voice`, then FFmpeg concatenates the segments into one `narration.mp3` and writes a combined `narration.json` with shifted word timings when AI33 returns them. Long narrator/comment text is chunked with `--tts-segment-max-chars` before AI33 submission so long-form stories are less likely to lose word timings. The transcript parser accepts explicit word timing objects and ElevenLabs-style `alignment` / `normalized_alignment` character arrays, converting character timestamps into word timings for the in-text highlight. If AI33 returns audio without usable timings, both single-voice and multi-voice paths write `timing_status=estimated` and generate per-word timings from exact narrated text plus MP3 duration; RedditSim then highlights smart phrase groups so small estimated-timing drift is less visible. Fully missing or partial unfillable timings still save sanitized payload-shape diagnostics, and `render.py` falls back to clean slide-progress frames with audio unless `--require-karaoke` is set. Retryable AI33 task errors during multi-voice segment generation are retried with `--tts-retries` and `--tts-retry-delay`. If a voiceover should explicitly say localized "Comment by user" labels, pass `--include-comment-labels`; that can reduce word-level visual alignment unless the rendered DOM also includes those labels.
 
@@ -433,7 +434,7 @@ Verification note: the AI33 metadata endpoint is `GET /v3/voices?provider=eleven
 
 For no-audio metadata readback through the repository secret, use the manual workflow `.github/workflows/voice_metadata_check.yml`. It calls AI33 voice metadata endpoints with `AI33_API_KEY`, prints only sanitized metadata for requested voice IDs, and does not call `/v3/text-to-speech`.
 
-For audible review, use the manual workflow `.github/workflows/audit_voice_youtube.yml` with `generate_voice_samples=true`. It generates short AI33 samples for the configured narrator/comment voices and uploads them as the `ai33-voice-samples` artifact. This spends AI33 TTS credits but does not call Reddit, VectorEngine, render, or YouTube upload.
+For audible review, use the manual workflow `.github/workflows/audit_voice_youtube.yml` with `generate_voice_samples=true`. It generates short AI33 samples for the configured narrator/comment voices and uploads them as the `ai33-voice-samples` artifact. This spends AI33 TTS credits but does not call Reddit, Gemini/VectorEngine, render, or YouTube upload.
 
 Latest sample artifact: run `28457170166` generated all 14 configured narrator/comment samples on 2026-06-30. The downloaded local review page is `build/audit/run_28457170166/ai33-voice-samples/20260630T154616Z/voice_samples_review.html`.
 
@@ -476,9 +477,9 @@ python3 translator_tts.py es --dry-run
 python3 translator_tts.py es --output narration_es.mp3
 ```
 
-Live translation and audio generation can spend VectorEngine and AI33 credits, so run them intentionally.
+Live translation and audio generation can spend Gemini quota and AI33 credits, so run them intentionally.
 
-`vectorengine_client.py` retries Gemini JSON calls by default on transient request/API/empty-text failures. Set `VECTORENGINE_GEMINI_RETRIES=0` only when debugging raw provider behavior.
+`vectorengine_client.py` is now the shared Gemini text router. For text tasks it prefers direct Google Gemini when `GOOGLE_GEMINI_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is present, using `x-goog-api-key` against `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`. If no Google Gemini key is configured, it falls back to `VECTORENGINE_API_KEY` / `VECTOR_ENGINE_API_KEY`. Set `GEMINI_PROVIDER=google` or `GEMINI_PROVIDER=vectorengine` only when you want to force one provider. `GEMINI_RETRIES` controls retry count; `VECTORENGINE_GEMINI_RETRIES` remains accepted for backward compatibility.
 
 ### Live Smoke Result
 
@@ -503,7 +504,7 @@ Each channel's `channels.json` entry has a `translate_prompt` field:
 
 ## 8. YouTube Auto-Publisher
 
-### VectorEngine Metadata / SEO
+### Gemini Metadata / SEO
 
 `metadata_generator.py` builds YouTube packaging from `story_data.json`, `producer_queue.json` fields, `editorial_adaptation`, and `channels.json`. It asks Gemini for three honest title/thumbnail/first-screen packaging options, stores them in `packaging_options`, and writes the selected option into the backward-compatible `youtube_title` and `thumbnail_text` fields:
 
@@ -511,8 +512,8 @@ Each channel's `channels.json` entry has a `translate_prompt` field:
 # No API spend
 python3 metadata_generator.py --story story_data.json --channel acc4 --dry-run
 
-# Live VectorEngine Gemini call
-python3 metadata_generator.py --story story_data.json --channel acc4 --confirm-spend --output youtube_metadata.json
+# Live Gemini call
+GOOGLE_GEMINI_API_KEY=... python3 metadata_generator.py --story story_data.json --channel acc4 --confirm-spend --output youtube_metadata.json
 ```
 
 Output shape:
@@ -642,9 +643,9 @@ scraper.py → story_data.json + producer_queue.json
     ↓
 story_adapter.py → source-backed no-invent adapted story_data.json
     ↓
-metadata_generator.py → youtube_metadata.json via VectorEngine
+metadata_generator.py → youtube_metadata.json via Gemini text provider
     ↓
-translator_tts.py → localized story_data.json + narration-only link placeholders + narration.mp3 + narration.json via VectorEngine + AI33
+translator_tts.py → localized story_data.json + narration-only link placeholders + narration.mp3 + narration.json via Gemini text provider + AI33
     ↓
 storyboard display text keeps visible URLs; TTS says localized "link on screen" phrases
     ↓
@@ -687,14 +688,17 @@ uploader.py → channel preflight, YouTube upload, metadata readback
 | `REDDIT_USERNAME` | ✅ Set | Reddit account |
 | `REDDIT_PASSWORD` | 🚫 Not needed | Reddit PRAW read-only mode is active |
 | `AI33_API_KEY` | ✅ Set | AI33 TTS v3 |
-| `VECTORENGINE_API_KEY` | ✅ Set | VectorEngine Gemini and image generation |
+| `GOOGLE_GEMINI_API_KEY` / `GEMINI_API_KEY` | Preferred | Direct Google Gemini text calls for topic QA, adaptation, metadata, and translation |
+| `VECTORENGINE_API_KEY` | Fallback / image | VectorEngine fallback for Gemini text calls and active provider for thumbnail image generation |
+
+Gemini keys must never be committed or pasted into source files. If a key was shared in chat or logs, rotate it in Google AI Studio and update GitHub Secrets with the new value before production runs.
 
 Useful scraper budget env vars:
 - `MAX_AI_CANDIDATES` — hard cap on Gemini quality checks per scrape; default `12`, dry-run workflow uses `8`.
 - `CANDIDATE_LIMIT_PER_SOURCE` — Reddit posts fetched per subreddit/window source; default `25`.
 - `MAX_SUBREDDITS_PER_TOPIC` — subreddits scanned per topic family; default `4`.
 - `MAX_TIME_WINDOWS_PER_TOPIC` — time windows scanned per topic family in `auto` mode; default `2`.
-- `AI_QUALITY_FAIL_OPEN` — default `0`; if VectorEngine fails, candidates are skipped instead of silently publishing.
+- `AI_QUALITY_FAIL_OPEN` — default `0`; if Gemini fails, candidates are skipped instead of silently publishing.
 - `STORY_SIMILARITY_THRESHOLD` — keyword-overlap duplicate threshold; default `0.72`.
 - `TOPIC_FATIGUE_LOOKBACK` — recent channel history entries considered for topic fatigue; default `10`.
 
@@ -735,17 +739,17 @@ python3 translator_tts.py es --dry-run
 # Test topic-family source planning without Gemini spend
 AI_QUALITY_CHECK=0 python3 scraper.py --channel acc4 --time auto --max-ai-candidates 0 --output /tmp/story_data_check.json
 
-# Run bounded Gemini quality checks for topic discovery (spends VectorEngine credits)
-VECTORENGINE_API_KEY=... python3 scraper.py --channel acc4 --time auto --max-ai-candidates 8
+# Run bounded Gemini quality checks for topic discovery (spends Gemini quota)
+GOOGLE_GEMINI_API_KEY=... python3 scraper.py --channel acc4 --time auto --max-ai-candidates 8
 
 # Generate narration through AI33 (spends AI33 credits)
 AI33_API_KEY=... python3 translator_tts.py es --output narration_es.mp3
 
-# Generate YouTube SEO metadata through VectorEngine without spending credits
+# Generate YouTube SEO metadata through Gemini without spending quota
 python3 metadata_generator.py --story story_data.json --channel acc4 --dry-run
 
-# Generate YouTube SEO metadata through VectorEngine (spends VectorEngine credits)
-VECTORENGINE_API_KEY=... python3 metadata_generator.py --story story_data.json --channel acc4 --confirm-spend
+# Generate YouTube SEO metadata through Gemini (spends Gemini quota)
+GOOGLE_GEMINI_API_KEY=... python3 metadata_generator.py --story story_data.json --channel acc4 --confirm-spend
 
 # Generate thumbnail image through VectorEngine without spending credits
 python3 thumbnail_generator.py --metadata youtube_metadata.json --dry-run
@@ -770,8 +774,8 @@ ffprobe final_output.mp4
 - [x] `channels.json` — execution config now includes weighted `topic_mix` per channel
 - [x] `scraper.py` — **PRAW OAuth2 + virality scoring + topic-family search + bounded Gemini producer queue**
 - [x] `translator_tts.py` switched to AI33 TTS v3, `uploader.py` base script
-- [x] `story_adapter.py` connected to VectorEngine Gemini for source-backed no-invent cleanup
-- [x] `metadata_generator.py` connected to VectorEngine Gemini for packaging options + SEO metadata
+- [x] `story_adapter.py` connected to the Gemini text provider for source-backed no-invent cleanup
+- [x] `metadata_generator.py` connected to the Gemini text provider for packaging options + SEO metadata
 - [x] `pre_publish_qa.py` blocks upload when audio, karaoke, adaptation, evidence, metadata, or render report fail
 - [x] `thumbnail_generator.py` connected to VectorEngine image generation behind explicit spend confirmation
 - [x] `storyboard_generator.py` and `render.py` create a no-spend dry-run `final_output.mp4`

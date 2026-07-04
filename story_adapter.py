@@ -7,7 +7,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from vectorengine_client import DEFAULT_GEMINI_MODEL, VectorEngineError, call_gemini_json, load_dotenv_file
+from vectorengine_client import (
+    DEFAULT_GEMINI_MODEL,
+    VectorEngineError,
+    call_gemini_json,
+    gemini_source_label,
+    load_dotenv_file,
+)
 
 
 DEFAULT_STORY = "story_data.json"
@@ -279,7 +285,7 @@ def apply_adaptation(story: dict[str, Any], payload: dict[str, Any], channel: di
 
     adapted["editorial_adaptation"] = {
         "version": 1,
-        "source": "vectorengine-gemini",
+        "source": gemini_source_label(),
         "mode": "source_backed_no_invent",
         "channelId": channel.get("id"),
         "channelHandle": channel.get("handle"),
@@ -321,13 +327,14 @@ def adapt_story(args: argparse.Namespace) -> dict[str, Any]:
             "channel": channel.get("id"),
             "strictEvidence": args.strict_evidence,
             "sourceHash": story_hash(story),
+            "wouldCallGemini": False,
             "wouldCallVectorEngine": False,
         }, ensure_ascii=False, indent=2))
         return story
 
     if not args.confirm_spend:
         raise StoryAdapterError(
-            "Refusing to call VectorEngine because story adaptation can spend API credits. "
+            "Refusing to call Gemini because story adaptation can spend API credits or quota. "
             "Re-run with --confirm-spend or use --dry-run."
         )
 
@@ -339,7 +346,7 @@ def adapt_story(args: argparse.Namespace) -> dict[str, Any]:
             max_output_tokens=args.max_output_tokens,
         )
     except VectorEngineError as exc:
-        raise StoryAdapterError(f"VectorEngine Gemini adaptation failed: {exc}") from exc
+        raise StoryAdapterError(f"Gemini adaptation failed: {exc}") from exc
 
     failures = validate_adaptation(
         story,
@@ -357,12 +364,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--story", default=DEFAULT_STORY, help="Input story_data.json path.")
     parser.add_argument("--output", "-o", default=DEFAULT_OUTPUT, help="Output adapted story path.")
     parser.add_argument("--channel", "-c", required=True, help="Channel id/handle from channels.json.")
-    parser.add_argument("--model", default=DEFAULT_GEMINI_MODEL, help="VectorEngine Gemini model.")
+    parser.add_argument("--model", default=DEFAULT_GEMINI_MODEL, help="Gemini model.")
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--max-output-tokens", type=int, default=4096)
-    parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load before VectorEngine calls.")
-    parser.add_argument("--confirm-spend", action="store_true", help="Required for live VectorEngine calls.")
-    parser.add_argument("--dry-run", action="store_true", help="Validate inputs without calling VectorEngine.")
+    parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load before Gemini calls.")
+    parser.add_argument("--confirm-spend", action="store_true", help="Required for live Gemini calls.")
+    parser.add_argument("--dry-run", action="store_true", help="Validate inputs without calling Gemini.")
     parser.add_argument("--strict-evidence", action="store_true", help="Fail unless hook_evidence quotes are found exactly in source text.")
     parser.add_argument("--skip-if-adapted", action="store_true", help="Do nothing if story already has editorial_adaptation.")
     parser.add_argument("--max-body-chars", type=int, default=None, help="Ask Gemini to keep adapted body below this length.")

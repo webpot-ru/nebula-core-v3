@@ -338,7 +338,7 @@ def validate_translation_payload(story: dict[str, Any], translated_fields: dict[
 
     if missing:
         raise Ai33Error(
-            "VectorEngine Gemini translation response was incomplete; missing translated field(s): "
+            "Gemini translation response was incomplete; missing translated field(s): "
             + ", ".join(missing)
         )
 
@@ -350,6 +350,7 @@ def apply_translated_fields(
     channel: dict[str, Any],
     lang_code: str,
     model: str,
+    source: str,
 ) -> dict[str, Any]:
     localized = dict(story)
 
@@ -392,7 +393,7 @@ def apply_translated_fields(
     localized["language"] = lang_code
     localized["localized_language"] = lang_code
     localized["localization"] = {
-        "source": "vectorengine-gemini",
+        "source": source,
         "model": model,
         "language": lang_code,
         "channelId": channel.get("id"),
@@ -411,7 +412,7 @@ def translate_story_text(
     temperature: float,
 ) -> dict[str, Any]:
     try:
-        from vectorengine_client import VectorEngineError, call_gemini_json
+        from vectorengine_client import VectorEngineError, call_gemini_json, gemini_source_label
     except ImportError as exc:
         raise Ai33Error("vectorengine_client.py is required for story translation.") from exc
 
@@ -423,10 +424,10 @@ def translate_story_text(
             max_output_tokens=4096,
         )
     except VectorEngineError as exc:
-        raise Ai33Error(f"VectorEngine Gemini translation failed: {exc}") from exc
+        raise Ai33Error(f"Gemini translation failed: {exc}") from exc
 
     if not isinstance(translated_fields, dict):
-        raise Ai33Error("VectorEngine Gemini translation returned non-object JSON.")
+        raise Ai33Error("Gemini translation returned non-object JSON.")
     validate_translation_payload(story, translated_fields)
 
     return apply_translated_fields(
@@ -435,6 +436,7 @@ def translate_story_text(
         channel=channel,
         lang_code=lang_code,
         model=model,
+        source=gemini_source_label(),
     )
 
 
@@ -1815,9 +1817,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Translate even if story metadata already says it is localized for the target language.",
     )
-    parser.add_argument("--translation-model", default="gemini-3.5-flash", help="VectorEngine Gemini model for story localization.")
+    parser.add_argument("--translation-model", default="gemini-3.5-flash", help="Gemini model for story localization.")
     parser.add_argument("--translation-temperature", type=float, default=0.2, help="Gemini temperature for story localization.")
-    parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load before VectorEngine/AI33 calls.")
+    parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load before Gemini/AI33 calls.")
     parser.add_argument("--voice-id", help="AI33 prefixed voice_id from Voice Library.")
     parser.add_argument("--comment-voice-id", help="AI33 prefixed voice_id for comment segments.")
     parser.add_argument("--check-voice-config", action="store_true", help="Validate configured narrator/comment voices and exit without reading story or calling AI33.")

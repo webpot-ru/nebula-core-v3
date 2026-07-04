@@ -8,8 +8,9 @@ from vectorengine_client import (
     DEFAULT_GEMINI_MODEL,
     VectorEngineError,
     call_gemini_json,
-    get_api_key,
+    gemini_source_label,
     load_dotenv_file,
+    resolve_gemini_provider,
 )
 
 
@@ -193,6 +194,7 @@ def normalize_metadata(
     story: dict[str, Any],
     channel: dict[str, Any],
     model: str,
+    source: str,
     key_name: str | None,
 ) -> dict[str, Any]:
     packaging_options = normalized_packaging_options(metadata)
@@ -213,7 +215,7 @@ def normalize_metadata(
     hashtags = [tag if tag.startswith("#") else f"#{tag}" for tag in hashtags]
 
     return {
-        "source": "vectorengine-gemini",
+        "source": source,
         "model": model,
         "keyName": key_name,
         "channelId": channel.get("id"),
@@ -285,18 +287,18 @@ def deterministic_fallback(story: dict[str, Any], channel: dict[str, Any], model
         ),
         "seo_keywords": ["reddit story", "viral reddit", subreddit],
         "risk_flags": [],
-        "source_notes": "Fallback metadata generated without VectorEngine API spend.",
+        "source_notes": "Fallback metadata generated without Gemini API spend.",
     }
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate YouTube SEO metadata through VectorEngine.")
+    parser = argparse.ArgumentParser(description="Generate YouTube SEO metadata through Gemini.")
     parser.add_argument("--story", default="story_data.json", help="Input story JSON path.")
     parser.add_argument("--channel", "-c", default=None, help="Channel id/handle from channels.json.")
     parser.add_argument("--output", "-o", default=DEFAULT_OUTPUT, help="Output metadata JSON path.")
-    parser.add_argument("--model", default=DEFAULT_GEMINI_MODEL, help="VectorEngine Gemini model.")
+    parser.add_argument("--model", default=DEFAULT_GEMINI_MODEL, help="Gemini model.")
     parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load.")
-    parser.add_argument("--confirm-spend", action="store_true", help="Required for live VectorEngine calls.")
+    parser.add_argument("--confirm-spend", action="store_true", help="Required for live Gemini calls.")
     parser.add_argument("--dry-run", action="store_true", help="Build fallback metadata without API spend.")
     parser.add_argument("--temperature", type=float, default=0.35)
     return parser.parse_args(argv)
@@ -315,10 +317,10 @@ def main(argv: list[str]) -> int:
     else:
         if not args.confirm_spend:
             raise VectorEngineError(
-                "Refusing to call VectorEngine because this can spend API credits. "
+                "Refusing to call Gemini because this can spend API credits or quota. "
                 "Re-run with --confirm-spend or use --dry-run."
             )
-        key_name, _ = get_api_key()
+        _, key_name, _ = resolve_gemini_provider()
         raw_metadata = call_gemini_json(
             prompt=build_prompt(story, channel),
             model=args.model,
@@ -329,6 +331,7 @@ def main(argv: list[str]) -> int:
             story=story,
             channel=channel,
             model=args.model,
+            source=gemini_source_label(),
             key_name=key_name,
         )
 
