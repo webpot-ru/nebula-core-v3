@@ -476,6 +476,80 @@
         "reason": "The story has an incredibly strong, high-stakes hook (selling plasma to pay rent) and a highly debatable family conflict that will drive massive comment engagement in Brazil.",
         "hook_suggestion": "Eu tive que vender meu próprio plasma para pagar o aluguel, enquanto minha enteada de 19 anos e o namorado dela ganham mil dólares por semana e se recusam a pagar um centavo."
       }
+    },
+    "1un18zp": {
+      "channels": {
+        "acc4": {
+          "published_at": "2026-07-04T18:07:02.500296+00:00"
+        }
+      },
+      "title": "Neighbor reported my dad's driveway, so I reported the garage he wasn't supposed to have.",
+      "subreddit": "r/confession",
+      "url": "https://reddit.com/r/confession/comments/1un18zp/neighbor_reported_my_dads_driveway_so_i_reported/",
+      "story_signature": "c83c77deffe6717e",
+      "keyword_signature": "acted always built city claimed complaining deal didn doing driveway everyone extension garage illegally into like",
+      "topic_family": "visual_comedy",
+      "topic_label": "Visual social comedy / awkward real-life story",
+      "content_bet": "visual_comedy",
+      "time_window": "day",
+      "virality_score": 80,
+      "producer_score": 338.8,
+      "producer_rank": 1,
+      "base_virality_score": 62,
+      "velocity": {
+        "age_hours": 11.97,
+        "upvotes_per_hour": 1615.9,
+        "comments_per_hour": 70.83
+      },
+      "fatigue_penalty": 0,
+      "hook_evidence": [
+        {
+          "field": "title",
+          "quote": "Neighbor reported my dad's driveway, so I reported the garage he wasn't supposed to have.",
+          "why_it_matters": "Directly establishes the conflict and the immediate revenge hook."
+        }
+      ],
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 9,
+        "hook_strength": 9,
+        "narrative_arc": 9,
+        "discussion_potential": 8,
+        "format_fit": 9,
+        "translation": 9,
+        "viral_potential": 8,
+        "novelty": 7,
+        "character_voice_fit": 8,
+        "slop_risk": 2,
+        "source_dependency_risk": 1,
+        "duplicate_risk": 2,
+        "legal_risk": 1,
+        "topic_family": "Visual social comedy / awkward real-life story",
+        "content_bet": "visual_comedy",
+        "shorts_hook_type": "twist",
+        "format_recommendation": "shorts",
+        "audience_job_fit": "Satisfies the brief by delivering a highly relatable, petty neighborhood war with a clear moral victor and a hilarious visual payoff.",
+        "first_screen_promise": "A satisfying story of petty revenge against an entitled neighbor who tried to ruin the narrator's dad.",
+        "first_screen_text": "Mi vecino denunció la entrada de mi papá con la ciudad... así que yo hice que demolieran la mitad de su garaje.",
+        "packaging_thesis": "Frame this as the ultimate 'chisme de vecinos' (neighbor gossip). Use split-screen or character acting to show the smug neighbor vs. the calculating son/daughter. Emphasize the visual of the 'half-eaten' garage.",
+        "why_now": "High velocity on Reddit (1.6k upvotes/hour) and universal appeal of neighbor karma.",
+        "shorts_cut": "Start with the hook: 'Mi vecino denunció la entrada de mi papá...'. Explain the neighbor's smugness. Show the OP looking up permits. Reveal the illegal garage. End with the contractor tearing down half of it and the neighbor staring at the dad's legal driveway.",
+        "longform_angle": null,
+        "producer_angle": "The visual punchline of the neighbor having to look at a 'half-eaten' garage next to a perfect driveway is highly satisfying and easily illustrated.",
+        "hook_evidence": [
+          {
+            "field": "title",
+            "quote": "Neighbor reported my dad's driveway, so I reported the garage he wasn't supposed to have.",
+            "why_it_matters": "Directly establishes the conflict and the immediate revenge hook."
+          }
+        ],
+        "source_integrity": {
+          "can_adapt_without_inventing": true,
+          "facts_not_in_source": []
+        },
+        "reason": "Excellent niche fit, strong hook, and highly relatable neighborhood drama with a satisfying visual payoff perfect for a Short.",
+        "hook_suggestion": "Mi vecino denunció la entrada de mi papá con la ciudad... así que yo hice que demolieran la mitad de su garaje."
+      }
     }
   }
 }
