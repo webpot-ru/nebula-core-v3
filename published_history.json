@@ -318,6 +318,80 @@
         "reason": "The story features Inter Milan star Mehdi Taremi and Gianni Infantino, making it highly relevant to Italian football fans, and focuses on off-pitch logistical drama that requires no match footage.",
         "hook_suggestion": null
       }
+    },
+    "1uf3qns": {
+      "channels": {
+        "acc1": {
+          "published_at": "2026-07-04T03:33:36.859243+00:00"
+        }
+      },
+      "title": "If Your Delivery Driver Says He Forgot Your Drink, Don’t Open the Door Again",
+      "subreddit": "r/nosleep",
+      "url": "https://reddit.com/r/nosleep/comments/1uf3qns/if_your_delivery_driver_says_he_forgot_your_drink/",
+      "story_signature": "a8d363a5a4022e36",
+      "keyword_signature": "again call delivery door drink driver forgot know like never open police posts read realise same",
+      "topic_family": "dark_curiosity",
+      "topic_label": "Dark curiosity / scary true-feeling story",
+      "content_bet": "mystery",
+      "time_window": "month",
+      "virality_score": 15,
+      "producer_score": 293.65,
+      "producer_rank": 1,
+      "base_virality_score": 20,
+      "velocity": {
+        "age_hours": 211.54,
+        "upvotes_per_hour": 7.3,
+        "comments_per_hour": 0.29
+      },
+      "fatigue_penalty": 10,
+      "hook_evidence": [
+        {
+          "field": "title",
+          "quote": "If Your Delivery Driver Says He Forgot Your Drink, Don’t Open the Door Again",
+          "why_it_matters": "It immediately establishes a high-stakes, relatable rule that forces the viewer to keep watching to understand why."
+        }
+      ],
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 8,
+        "hook_strength": 9,
+        "narrative_arc": 8,
+        "discussion_potential": 8,
+        "format_fit": 8,
+        "translation": 9,
+        "viral_potential": 8,
+        "novelty": 7,
+        "character_voice_fit": 7,
+        "slop_risk": 3,
+        "source_dependency_risk": 1,
+        "duplicate_risk": 3,
+        "legal_risk": 1,
+        "topic_family": "Dark curiosity / scary true-feeling story",
+        "content_bet": "mystery",
+        "shorts_hook_type": "mystery",
+        "format_recommendation": "shorts",
+        "audience_job_fit": "Provides Russian-speaking viewers with a tense, highly relatable, and eerie modern urban legend about delivery apps.",
+        "first_screen_promise": "The viewer learns a chilling rule about food delivery that could save their life.",
+        "first_screen_text": "Если курьер говорит, что забыл ваш напиток — ни за что не открывайте дверь снова.",
+        "packaging_thesis": "Frame it as a modern urban warning. Use familiar delivery app visual cues to localize the tension immediately for RU/CIS viewers.",
+        "why_now": "Delivery app usage is at an all-time high in RU/CIS, making this scenario highly relatable and instantly viral.",
+        "shorts_cut": "Start with the hook. Explain the setup: you order food, the driver leaves the food but says 'I forgot the soda, I'll grab it from the car.' Instead of waiting with the door open, you lock it. Minutes later, you look through the peephole and see him standing there silently in the dark hallway, holding nothing, just waiting for the click of the lock. End with a question asking viewers if they always lock their doors immediately.",
+        "longform_angle": null,
+        "producer_angle": "Localize the delivery context to Russian delivery services to make the threat feel immediate and real to the viewer.",
+        "hook_evidence": [
+          {
+            "field": "title",
+            "quote": "If Your Delivery Driver Says He Forgot Your Drink, Don’t Open the Door Again",
+            "why_it_matters": "It immediately establishes a high-stakes, relatable rule that forces the viewer to keep watching to understand why."
+          }
+        ],
+        "source_integrity": {
+          "can_adapt_without_inventing": true,
+          "facts_not_in_source": []
+        },
+        "reason": "The story has an incredibly strong, relatable hook and high localization potential for RU/CIS delivery culture, making it perfect for a high-retention Short.",
+        "hook_suggestion": null
+      }
     }
   }
 }
