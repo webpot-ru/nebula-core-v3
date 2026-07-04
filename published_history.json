@@ -392,6 +392,90 @@
         "reason": "The story has an incredibly strong, relatable hook and high localization potential for RU/CIS delivery culture, making it perfect for a high-retention Short.",
         "hook_suggestion": null
       }
+    },
+    "1uh7cbj": {
+      "channels": {
+        "acc5": {
+          "published_at": "2026-07-04T16:01:31.292386+00:00"
+        }
+      },
+      "title": "AITAH for expecting a 19-year-old and 21-year-old to contribute financially?",
+      "subreddit": "r/AITAH",
+      "url": "https://reddit.com/r/AITAH/comments/1uh7cbj/aitah_for_expecting_a_19yearold_and_21yearold_to/",
+      "story_signature": "dbc182367d3e8238",
+      "keyword_signature": "allowed apartments arrested away break closet contribute could dating expecting financially give hide home into miles",
+      "topic_family": "human_drama",
+      "topic_label": "Human drama / moral conflict",
+      "content_bet": "moral_court",
+      "time_window": "week",
+      "virality_score": 84,
+      "producer_score": 313.8,
+      "producer_rank": 1,
+      "base_virality_score": 80,
+      "velocity": {
+        "age_hours": 167.38,
+        "upvotes_per_hour": 44.73,
+        "comments_per_hour": 12.23
+      },
+      "fatigue_penalty": 8,
+      "hook_evidence": [
+        {
+          "field": "body",
+          "quote": "I sold my plasma. I still had to ask my parents for help.",
+          "why_it_matters": "Establishes the extreme financial desperation of the narrator."
+        },
+        {
+          "field": "body",
+          "quote": "They both have jobs, and combined make at least $1000 a week.",
+          "why_it_matters": "Contrasts the narrator's struggle with the freeloaders' actual income."
+        }
+      ],
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 7,
+        "hook_strength": 8,
+        "narrative_arc": 8,
+        "discussion_potential": 9,
+        "format_fit": 8,
+        "translation": 9,
+        "viral_potential": 8,
+        "novelty": 6,
+        "character_voice_fit": 8,
+        "slop_risk": 3,
+        "source_dependency_risk": 1,
+        "duplicate_risk": 3,
+        "legal_risk": 1,
+        "topic_family": "Human drama / moral conflict",
+        "content_bet": "moral_court",
+        "shorts_hook_type": "controversy",
+        "format_recommendation": "shorts",
+        "audience_job_fit": "This gives Brazilian viewers a high-energy, frustrating family conflict with a clear moral dilemma and high emotional stakes.",
+        "first_screen_promise": "The viewer will immediately want to know why a man is selling his own plasma to pay rent while two working adults live in his house for free.",
+        "first_screen_text": "Estou vendendo meu plasma para pagar o aluguel enquanto minha enteada grávida e o namorado ganham R$ 5.000 por semana e não ajudam com um centavo.",
+        "packaging_thesis": "Frame the video around the extreme financial desperation of the stepfather contrasted with the absolute entitlement of the stepdaughter and her boyfriend, backed by the mother's enabling behavior.",
+        "why_now": "The post has high engagement metrics (27% comment-to-upvote ratio) and deals with universal themes of family boundaries and financial exploitation.",
+        "shorts_cut": "Start with the hook about selling plasma. Explain that the 19yo stepdaughter and her boyfriend moved back in pregnant. They make $1000/week but claim they can't pay rent because of 'baby shower expenses'. Show the escalation: the wife threatens to leave the husband if he forces them to contribute $150/week. End with the question: Who is the real villain here?",
+        "longform_angle": null,
+        "producer_angle": "The contrast between the stepfather selling plasma/working Instacart and the kids spending money on a baby shower while making $1000/week is the perfect rage-bait trigger for high comment section engagement.",
+        "hook_evidence": [
+          {
+            "field": "body",
+            "quote": "I sold my plasma. I still had to ask my parents for help.",
+            "why_it_matters": "Establishes the extreme financial desperation of the narrator."
+          },
+          {
+            "field": "body",
+            "quote": "They both have jobs, and combined make at least $1000 a week.",
+            "why_it_matters": "Contrasts the narrator's struggle with the freeloaders' actual income."
+          }
+        ],
+        "source_integrity": {
+          "can_adapt_without_inventing": true,
+          "facts_not_in_source": []
+        },
+        "reason": "The story has an incredibly strong, high-stakes hook (selling plasma to pay rent) and a highly debatable family conflict that will drive massive comment engagement in Brazil.",
+        "hook_suggestion": "Eu tive que vender meu próprio plasma para pagar o aluguel, enquanto minha enteada de 19 anos e o namorado dela ganham mil dólares por semana e se recusam a pagar um centavo."
+      }
     }
   }
 }
