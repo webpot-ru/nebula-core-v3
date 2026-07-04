@@ -550,6 +550,80 @@
         "reason": "Excellent niche fit, strong hook, and highly relatable neighborhood drama with a satisfying visual payoff perfect for a Short.",
         "hook_suggestion": "Mi vecino denunció la entrada de mi papá con la ciudad... así que yo hice que demolieran la mitad de su garaje."
       }
+    },
+    "1um2drt": {
+      "channels": {
+        "acc7": {
+          "published_at": "2026-07-04T19:03:42.801352+00:00"
+        }
+      },
+      "title": "I keep doing this when I go to pizza restaurants and I don’t know why.",
+      "subreddit": "r/confession",
+      "url": "https://reddit.com/r/confession/comments/1um2drt/i_keep_doing_this_when_i_go_to_pizza_restaurants/",
+      "story_signature": "f30465c8b502569c",
+      "keyword_signature": "absolute absolutely available cheese deliberately doing else example favorite final food keep know left love lovers",
+      "topic_family": "visual_comedy",
+      "topic_label": "Visual social comedy / awkward real-life story",
+      "content_bet": "visual_comedy",
+      "time_window": "week",
+      "virality_score": 71,
+      "producer_score": 344.45,
+      "producer_rank": 2,
+      "base_virality_score": 57,
+      "velocity": {
+        "age_hours": 40.18,
+        "upvotes_per_hour": 40.09,
+        "comments_per_hour": 12.34
+      },
+      "fatigue_penalty": 0,
+      "hook_evidence": [
+        {
+          "field": "body",
+          "quote": "I deliberately get the final slice of pizza, no matter the type of pizza, and eat it so no one else has it.",
+          "why_it_matters": "It establishes the core conflict and the petty motivation immediately."
+        }
+      ],
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 9,
+        "hook_strength": 8,
+        "narrative_arc": 7,
+        "discussion_potential": 10,
+        "format_fit": 9,
+        "translation": 10,
+        "viral_potential": 9,
+        "novelty": 8,
+        "character_voice_fit": 9,
+        "slop_risk": 3,
+        "source_dependency_risk": 1,
+        "duplicate_risk": 2,
+        "legal_risk": 1,
+        "topic_family": "Visual social comedy / awkward real-life story",
+        "content_bet": "visual_comedy",
+        "shorts_hook_type": "identity",
+        "format_recommendation": "shorts",
+        "audience_job_fit": "This perfectly satisfies the brief by delivering expressive social comedy centered around food identity (pizza) and petty human drama that can be easily acted out.",
+        "first_screen_promise": "The viewer immediately understands the speaker's bizarrely petty behavior at pizza shops.",
+        "first_screen_text": "Compro sempre l'ultimo trancio di pizza solo per non farlo prendere a nessun altro.",
+        "packaging_thesis": "Package this as a highly relatable, expressive comedy sketch where an actor plays both the petty buyer and the increasingly annoyed customer waiting in line behind them.",
+        "why_now": "Pizza culture and petty social behaviors are evergreen engagement drivers in Italy, especially when framed as a confession.",
+        "shorts_cut": "Start with the confession: 'Quando vado in pizzeria, compro sempre l'ultimo trancio rimasto... solo per cattiveria.' Show the visual setup of a pizza counter with one slice left. Explain the petty motivation: making the person behind wait 15 minutes for a fresh tray. End with the reaction of the person behind.",
+        "longform_angle": null,
+        "producer_angle": "The Italian obsession with pizza makes this petty crime against social etiquette an instant comment-bait goldmine.",
+        "hook_evidence": [
+          {
+            "field": "body",
+            "quote": "I deliberately get the final slice of pizza, no matter the type of pizza, and eat it so no one else has it.",
+            "why_it_matters": "It establishes the core conflict and the petty motivation immediately."
+          }
+        ],
+        "source_integrity": {
+          "can_adapt_without_inventing": true,
+          "facts_not_in_source": []
+        },
+        "reason": "This is a perfect fit for Italian visual comedy, leveraging pizza culture and petty social friction to drive massive comment section engagement.",
+        "hook_suggestion": "Compro sempre l'ultimo trancio di pizza rimasto... solo per fare un dispetto a chi è dietro di me."
+      }
     }
   }
 }
