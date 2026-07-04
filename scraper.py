@@ -329,10 +329,10 @@ def format_length_skip_reason(body_length: int, format_intent: str | None) -> st
 
 CHANNEL_PRODUCER_PRESETS = {
     "ru": {
-        "audience_job": "Give Russian-speaking viewers a dark, surprising, easy-to-retell story or fact without drifting into gaming/news filler.",
-        "must_feel_like": "mysterious, specific, tense, but not exploitative or political",
-        "winning_bets": "strange real-feeling incidents, eerie personal encounters, unsettling facts with a clean reveal",
-        "weak_topic_traps": "generic scary fiction, Minecraft/gaming-server drama, dry trivia, broad tech/news updates, politics-heavy material",
+        "audience_job": "Give Russian-speaking viewers a dark, surprising, easy-to-retell story, sharp moral conflict, or strange fact without drifting into gaming/news filler.",
+        "must_feel_like": "specific, tense or socially charged, easy to judge/retell, but not exploitative or political",
+        "winning_bets": "strange real-feeling incidents, eerie personal encounters, high-stakes family/relationship/workplace conflicts, unsettling facts with a clean reveal",
+        "weak_topic_traps": "generic scary fiction, low-stakes AITA filler, food/chores/property squabbles, Minecraft/gaming-server drama, dry trivia, broad tech/news updates, politics-heavy material",
     },
     "es-419": {
         "audience_job": "Give LATAM viewers an emotional social conflict they can judge, argue about, and retell like a mini telenovela.",
@@ -729,12 +729,23 @@ def ai_quality_check(
     post_metadata = post_metadata or {}
     duplicate_context = duplicate_context or {}
 
-    # Truncate body to keep prompt within token limits
-    body_preview = (post_body or "")[:800]
+    format_intent = (format_intent or "auto").strip().lower()
+    body_text = post_body or ""
+    if format_intent == "shorts":
+        body_preview_limit = 2600
+    elif format_intent == "long":
+        body_preview_limit = 1800
+    else:
+        body_preview_limit = 1200
+    body_preview = body_text[:body_preview_limit]
+    body_preview_label = (
+        "full body"
+        if len(body_text) <= body_preview_limit
+        else f"first {body_preview_limit} chars"
+    )
     topic_label = topic_context.get("label") or topic_context.get("family") or "Unspecified"
     topic_family = topic_context.get("family")
     topic_rules = topic_context.get("quality_rules") or "Use the channel profile and Reddit metrics."
-    format_intent = (format_intent or "auto").strip().lower()
     format_rules = FORMAT_INTENT_RULES.get(format_intent, FORMAT_INTENT_RULES["auto"])
     producer_context = channel_producer_context(channel)
     topic_bet = topic_bet_context(topic_family)
@@ -799,7 +810,7 @@ DUPLICATE CONTEXT:
 
 STORY:
   Title: {post_title}
-  Body (first 800 chars): {body_preview}
+  Body ({body_preview_label}): {body_preview}
 
 SCORE each dimension from 1 (very poor) to 10 (excellent):
 1. niche_fit       — Does this story match the exact channel promise, not just the broad language?
