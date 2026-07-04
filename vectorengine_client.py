@@ -279,6 +279,15 @@ def call_gemini_json(
                 last_error = exc
                 if attempt >= attempts:
                     break
+                if (
+                    isinstance(exc, GeminiHTTPError)
+                    and exc.status_code == 429
+                    and target_provider == "google"
+                    and requested_provider in ("", "auto")
+                    and len(provider_targets) > 1
+                ):
+                    print("  [Google Gemini] rate limited; falling back to VectorEngine Gemini without retry wait")
+                    break
                 delay = 3 * attempt
                 if isinstance(exc, GeminiHTTPError) and exc.status_code == 429:
                     delay = max(delay, retry_delay_seconds(response, exc.message) or delay)

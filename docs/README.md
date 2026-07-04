@@ -614,7 +614,7 @@ must show the new scopes and then match every authenticated channel against
 
 ### Dry-Run Render Workflow
 
-`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit, Gemini, and AI33 secrets, so it is not a no-spend fixture-only workflow. For a vertical Shorts artifact that exercises live topic search/filtering without uploading to YouTube, run it with `content_format=shorts`; this selects only complete short source stories and forces a vertical render. The live dry-run caps the producer quality gate at 12 Gemini candidates so the strict quality gate can skip generic Reddit filler and still reach better candidates; the shared Gemini client falls back to VectorEngine on Google HTTP 429 only when `GEMINI_PROVIDER` is left in auto mode.
+`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit, Gemini, and AI33 secrets, so it is not a no-spend fixture-only workflow. For a vertical Shorts artifact that exercises live topic search/filtering without uploading to YouTube, run it with `content_format=shorts`; this selects only complete short source stories and forces a vertical render. The live dry-run caps the producer quality gate at 12 Gemini candidates so the strict quality gate can skip generic Reddit filler and still reach better candidates; the shared Gemini client immediately falls back to VectorEngine on Google HTTP 429 only when `GEMINI_PROVIDER` is left in auto mode.
 
 ```text
 scraper.py
