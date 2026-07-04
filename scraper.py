@@ -279,13 +279,46 @@ FORMAT_INTENT_RULES = {
     "shorts": (
         "This will be a vertical Shorts test. Require a strong first 1-2 seconds, a self-contained 30-90 second cut, "
         "minimal setup, one clear emotional/factual payoff, and comment bait that feels natural. "
+        "The source title/body must already fit the Shorts runtime; do not approve a long source that would need raw story truncation. "
         "Skip slow-burn stories that only become interesting after long context."
     ),
     "long": (
         "This will be a horizontal long-form video. Require enough plot, timeline, stakes, explanation depth, or comment debate "
-        "for an 8-18 minute episode. Skip thin facts and one-joke stories even if they work as Shorts."
+        "for an 8-18 minute episode. The source must be substantial enough to read/adapt without padding or cutting. "
+        "Skip thin facts and one-joke stories even if they work as Shorts."
     ),
 }
+
+
+FORMAT_LENGTH_PROFILES = {
+    "shorts": {
+        "min_body_chars": 250,
+        "max_body_chars": 1400,
+        "policy": "select_short_source_only",
+        "description": "Shorts must start from a complete short source story; never trim a long story down after selection.",
+    },
+    "long": {
+        "min_body_chars": 2500,
+        "max_body_chars": None,
+        "policy": "select_long_source_only",
+        "description": "Long-form must start from a substantial source story; never pad a thin story into long-form.",
+    },
+}
+
+
+def format_length_profile(format_intent: str | None) -> dict:
+    return FORMAT_LENGTH_PROFILES.get((format_intent or "auto").strip().lower(), {})
+
+
+def format_length_skip_reason(body_length: int, format_intent: str | None) -> str | None:
+    profile = format_length_profile(format_intent)
+    min_chars = profile.get("min_body_chars")
+    max_chars = profile.get("max_body_chars")
+    if min_chars is not None and body_length < int(min_chars):
+        return f"too_short_for_{format_intent}_{body_length}<{int(min_chars)}"
+    if max_chars is not None and body_length > int(max_chars):
+        return f"too_long_for_{format_intent}_{body_length}>{int(max_chars)}"
+    return None
 
 
 CHANNEL_PRODUCER_PRESETS = {
@@ -785,8 +818,8 @@ HARD SKIP conditions:
   - SKIP posts that feel like common Reddit filler: "my partner ate my food", "roommate was annoying", "boss was rude", "what do you think?", unless there is an unusually specific twist or emotional stake.
   - SKIP posts that would become repetitive AI-slop when turned into a Reddit-card video: no distinct angle, no producer POV, no memorable moment, no reason to watch this version instead of another channel's.
   - SKIP if the story is only interesting to a narrow subreddit/fandom and cannot be made clear for the target region quickly.
-  - For Shorts, SKIP if the first screen cannot carry the hook by itself.
-  - For long-form, SKIP if there is not enough depth for a structured episode beyond reading the post.
+  - For Shorts, SKIP if the first screen cannot carry the hook by itself or if the source would need its actual story/ending cut off to fit.
+  - For long-form, SKIP if there is not enough depth for a structured episode beyond reading the post, or if the source is too thin to become long-form without padding.
 
 PRODUCER SELECTION RULES:
   - First decide whether this is a worthwhile content bet for the audience, independent of Reddit. If it would not be worth pitching as an episode idea, SKIP.
@@ -1242,11 +1275,24 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
     )
 
     print(f"Topic mode: {len(sources)} source family/families | candidate limit/source={candidate_limit}")
+    length_profile = format_length_profile(format_intent)
+    if length_profile:
+        print(
+            "Format length policy: "
+            f"{length_profile.get('policy')} | "
+            f"min_body={length_profile.get('min_body_chars') or 'none'} | "
+            f"max_body={length_profile.get('max_body_chars') or 'none'}"
+        )
 
     for source in sources:
         windows = source["time_windows"] or ["week"]
         source_min_upvotes = max(min_upvotes, int(source["min_upvotes"] or min_upvotes))
-        source_min_body = max(min_body_length, int(source["min_body_length"] or min_body_length))
+        format_min_body = length_profile.get("min_body_chars")
+        source_min_body = max(
+            min_body_length,
+            int(source["min_body_length"] or min_body_length),
+            int(format_min_body or 0),
+        )
         for window in windows:
             for sub_name in source["subreddits"]:
                 print(f"  Scanning [{source['family']}] r/{sub_name} (top/{window})...")
@@ -1261,6 +1307,10 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                         if post.score < source_min_upvotes:
                             continue
                         if len(body) < source_min_body:
+                            continue
+                        length_skip = format_length_skip_reason(len(body), format_intent)
+                        if length_skip:
+                            print(f"    skip length ({length_skip}) | {post.title[:55]}")
                             continue
                         excluded_term = matching_topic_exclusion(post.title, body, topic_exclusions)
                         if excluded_term:
@@ -1483,6 +1533,8 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
         "ai_quality": ai_result,
         "producer_queue_entry": chosen_queue_entry,
         "format_intent": format_intent,
+        "source_body_chars": len(chosen_post.selftext or ""),
+        "format_length_policy": format_length_profile(format_intent) or None,
         "format_recommendation": ai_result.get("format_recommendation"),
         "content_bet": ai_result.get("content_bet"),
         "audience_job_fit": ai_result.get("audience_job_fit"),
@@ -1565,7 +1617,9 @@ if __name__ == "__main__":
     parser.add_argument("--comment-limit", type=int, default=3,
                         help="Number of Reddit comments to fetch for the story (default: 3)")
     parser.add_argument("--max-body-chars", type=int, default=None,
-                        help="Trim story body to this many characters after selection, for Shorts tests.")
+                        help="Deprecated safety valve: post-selection body trim limit. Ignored unless --allow-body-trim is set.")
+    parser.add_argument("--allow-body-trim", action="store_true",
+                        help="Allow post-selection body trimming. Production workflows should not use this.")
     parser.add_argument("--format-intent", default=None,
                         help="Optional content format label stored in story metadata, e.g. shorts or long.")
     parser.add_argument("--producer-queue-output", default="producer_queue.json",
@@ -1613,10 +1667,16 @@ if __name__ == "__main__":
     )
 
     if story:
+        if args.max_body_chars and not args.allow_body_trim:
+            print(
+                "Ignoring --max-body-chars because post-selection trimming is disabled. "
+                "Use --format-intent shorts/long to select an appropriately sized source, "
+                "or pass --allow-body-trim for an explicit manual trim."
+            )
         story = apply_story_length_limits(
             story,
-            max_body_chars=args.max_body_chars,
-            max_comments=args.comment_limit,
+            max_body_chars=args.max_body_chars if args.allow_body_trim else None,
+            max_comments=None,
             format_intent=args.format_intent,
         )
         output_path = os.path.join(os.path.dirname(__file__), args.output)

@@ -176,6 +176,7 @@ Channel:
 Rules:
 - Preserve every factual claim, timeline, point of view, and speaker role.
 - Do not invent new betrayals, deaths, crimes, secrets, relationships, numbers, places, quotes, updates, or motives.
+- Do not remove the ending or any necessary story beat. For Shorts, the source was already selected to be short enough; keep the complete source arc instead of summarizing a long story.
 - You may remove repetition, filler, Reddit housekeeping, and low-value edits.
 - You may move one source-backed hook into the title/opening if it is supported by an exact quote from title/body/comment.
 - Keep URLs exactly as source text if they are relevant; do not add new URLs.
@@ -338,9 +339,16 @@ def adapt_story(args: argparse.Namespace) -> dict[str, Any]:
             "Re-run with --confirm-spend or use --dry-run."
         )
 
+    max_body_chars = args.max_body_chars if args.allow_body_trim else None
+    if args.max_body_chars and not args.allow_body_trim:
+        print(
+            "Ignoring --max-body-chars because adapter body trimming is disabled. "
+            "Use source-length filtering in scraper.py, or pass --allow-body-trim for an explicit manual trim."
+        )
+
     try:
         raw = call_gemini_json(
-            prompt=build_prompt(story, channel, args.max_body_chars),
+            prompt=build_prompt(story, channel, max_body_chars),
             model=args.model,
             temperature=args.temperature,
             max_output_tokens=args.max_output_tokens,
@@ -372,7 +380,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true", help="Validate inputs without calling Gemini.")
     parser.add_argument("--strict-evidence", action="store_true", help="Fail unless hook_evidence quotes are found exactly in source text.")
     parser.add_argument("--skip-if-adapted", action="store_true", help="Do nothing if story already has editorial_adaptation.")
-    parser.add_argument("--max-body-chars", type=int, default=None, help="Ask Gemini to keep adapted body below this length.")
+    parser.add_argument("--max-body-chars", type=int, default=None, help="Deprecated safety valve: ask Gemini to shorten adapted body. Ignored unless --allow-body-trim is set.")
+    parser.add_argument("--allow-body-trim", action="store_true", help="Allow adapter-level body shortening. Production workflows should not use this.")
     parser.add_argument("--max-expansion-ratio", type=float, default=1.15, help="Fail if adapted title/body expands too much.")
     return parser
 

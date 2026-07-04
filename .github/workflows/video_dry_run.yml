@@ -51,7 +51,7 @@ on:
       content_format:
         description: 'Content length target for the dry-run artifact'
         required: false
-        default: 'auto'
+        default: 'shorts'
         type: choice
         options:
           - auto
@@ -94,7 +94,7 @@ jobs:
             TOPIC_FAMILY=""
           fi
           VIDEO_SLOT="${{ github.event.inputs.video_slot || '1' }}"
-          CONTENT_FORMAT="${{ github.event.inputs.content_format || 'auto' }}"
+          CONTENT_FORMAT="${{ github.event.inputs.content_format || 'shorts' }}"
           echo "channel_id=${CHANNEL_ID}" >> $GITHUB_OUTPUT
           echo "time_filter=${TIME_FILTER}" >> $GITHUB_OUTPUT
           echo "topic_family=${TOPIC_FAMILY}" >> $GITHUB_OUTPUT
@@ -123,7 +123,7 @@ jobs:
             EXTRA_ARGS+=(--topic-family "${{ steps.target.outputs.topic_family }}")
           fi
           if [ "${{ steps.target.outputs.content_format }}" = "shorts" ]; then
-            EXTRA_ARGS+=(--format-intent shorts --max-body-chars 900 --comment-limit 0)
+            EXTRA_ARGS+=(--format-intent shorts --comment-limit 0)
           elif [ "${{ steps.target.outputs.content_format }}" = "long" ]; then
             EXTRA_ARGS+=(--format-intent long)
           fi
@@ -141,9 +141,6 @@ jobs:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
           ADAPTER_ARGS=()
-          if [ "${{ steps.target.outputs.content_format }}" = "shorts" ]; then
-            ADAPTER_ARGS+=(--max-body-chars 900)
-          fi
           python story_adapter.py \
             --channel ${{ steps.target.outputs.channel_id }} \
             --story story_data.json \

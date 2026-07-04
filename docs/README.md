@@ -90,7 +90,7 @@ For Reddit-derived stories only:
 - **Upvotes**: minimum 1,000 unless a market-specific experiment says otherwise.
 - **Comments ratio**: high comment/upvote ratio indicates controversy and discussion potential.
 - **Time window**: `auto` uses topic-family windows such as `day + week` for fresh drama and `week + month` for mystery/lore; manual `day|week|month|year` is still available for experiments.
-- **Body length**: minimum 300 characters for narration depth.
+- **Body length**: minimum 300 characters for narration depth. Format-specific generation must choose the right source length before adaptation: `shorts` uses complete short source stories, while `long` requires a substantial long source. Production workflows must not cut a selected story body just to fit a runtime.
 - **Topic families**: channels now use weighted `topic_mix` values instead of one flat subreddit list. The scraper has rules for `human_drama`, `dark_curiosity`, `curiosity_facts`, `football_culture`, `internet_lore`, and `visual_comedy`.
 - **AI budget**: Gemini quality checks are bounded by `MAX_AI_CANDIDATES` / `--max-ai-candidates`; local Reddit metrics and duplicate guards run before any AI call.
 - **Producer gate**: Gemini must reject topics that are merely high-metric Reddit filler. The prompt now scores first-screen hook, discussion potential, Shorts/long-form fit, novelty, character-voice fit, AI-slop risk, source/link dependency, duplicate risk, and legal risk.
@@ -614,7 +614,7 @@ must show the new scopes and then match every authenticated channel against
 
 ### Dry-Run Render Workflow
 
-`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit, Gemini, and AI33 secrets, so it is not a no-spend fixture-only workflow. For a vertical Shorts artifact that exercises live topic search/filtering without uploading to YouTube, run it with `content_format=shorts`; this applies the same scraper shortening rules as manual Shorts publishing and forces a vertical render. The live dry-run caps the producer quality gate at 5 Gemini candidates and the shared Gemini client falls back to VectorEngine on Google HTTP 429 only when `GEMINI_PROVIDER` is left in auto mode.
+`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit, Gemini, and AI33 secrets, so it is not a no-spend fixture-only workflow. For a vertical Shorts artifact that exercises live topic search/filtering without uploading to YouTube, run it with `content_format=shorts`; this selects only complete short source stories and forces a vertical render. The live dry-run caps the producer quality gate at 5 Gemini candidates and the shared Gemini client falls back to VectorEngine on Google HTTP 429 only when `GEMINI_PROVIDER` is left in auto mode.
 
 ```text
 scraper.py
@@ -633,7 +633,7 @@ It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `f
 
 `auto_publish.yml` has passed one end-to-end unlisted live smoke, but public scheduled publishing should still wait for one post-fix unlisted review. The 2026-06-30 smoke verified localization, AI33 narration, audio-aware render, YouTube upload, and history commit, but readback/user review showed videos landing on the wrong channel for the requested account. Per current user-provided state on 2026-07-02, the OAuth/channel mapping issue has been resolved; the next gate is artifact quality review after the render/TTS fixes.
 
-Manual `auto_publish.yml` runs support `content_format=auto|shorts|long`. `shorts` trims the selected story body to 900 characters and removes comments before metadata, translation, TTS, storyboard, and render, so the output can stay in the vertical Shorts duration band. `long` keeps the full story and relies on render auto-orientation to switch videos over 180 seconds to 16:9.
+Manual `auto_publish.yml` runs support `content_format=auto|shorts|long`; the workflow default is `shorts`, and scheduled runs also resolve to `shorts` unless a matrix entry explicitly sets another format. `shorts` now filters candidates before selection: the source body must already be a complete short story, currently up to about 1,400 characters, and comments are not fetched for that run. `long` requires a substantial source body, currently at least about 2,500 characters, keeps the full story, and relies on render auto-orientation to switch videos over 180 seconds to 16:9. Production paths must not use post-selection body trimming; scraper/adapter `--max-body-chars` remains only a deprecated manual safety valve behind `--allow-body-trim`.
 
 YouTube refresh tokens are no longer the active blocker; the early token preflight still blocks mismatched accounts. Keep the next run `unlisted` until one live artifact is inspected for translated text, voiceover audio, clean no-karaoke UI, and uploaded metadata readback.
 
@@ -694,7 +694,7 @@ uploader.py → channel preflight, YouTube upload, metadata readback
 Gemini keys must never be committed or pasted into source files. If a key was shared in chat or logs, rotate it in Google AI Studio and update GitHub Secrets with the new value before production runs.
 
 Useful scraper budget env vars:
-- `MAX_AI_CANDIDATES` — hard cap on Gemini quality checks per scrape; default `12`, dry-run workflow uses `8`.
+- `MAX_AI_CANDIDATES` — hard cap on Gemini quality checks per scrape; default `12`, dry-run workflow uses `5`.
 - `CANDIDATE_LIMIT_PER_SOURCE` — Reddit posts fetched per subreddit/window source; default `25`.
 - `MAX_SUBREDDITS_PER_TOPIC` — subreddits scanned per topic family; default `4`.
 - `MAX_TIME_WINDOWS_PER_TOPIC` — time windows scanned per topic family in `auto` mode; default `2`.
