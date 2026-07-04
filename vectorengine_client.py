@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,14 @@ VECTORENGINE_PROVIDER_ALIASES = {"vectorengine", "vector-engine", "ve"}
 
 class VectorEngineError(RuntimeError):
     pass
+
+
+class GeminiHTTPError(VectorEngineError):
+    def __init__(self, provider_label: str, status_code: int, message: str):
+        self.provider_label = provider_label
+        self.status_code = status_code
+        self.message = message
+        super().__init__(f"{provider_label} HTTP {status_code}: {message}")
 
 
 def load_dotenv_file(path: str | Path | None) -> bool:
@@ -123,6 +132,19 @@ def safe_response_text(response: requests.Response, limit: int = 800) -> str:
     return text[:limit] + ("..." if len(text) > limit else "")
 
 
+def retry_delay_seconds(response: requests.Response, message: str) -> float | None:
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            pass
+    match = re.search(r"retry in ([0-9]+(?:\.[0-9]+)?)s", message, re.IGNORECASE)
+    if match:
+        return max(0.0, float(match.group(1)))
+    return None
+
+
 def extract_text_from_gemini_response(data: dict[str, Any]) -> str:
     parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
     return "".join(part.get("text", "") for part in parts if not part.get("thought"))
@@ -184,6 +206,7 @@ def call_gemini_json(
     if not prompt:
         raise VectorEngineError("Gemini prompt is required.")
 
+    requested_provider = (os.environ.get("GEMINI_PROVIDER") or "auto").strip().lower()
     provider, _, api_key = resolve_gemini_provider()
     active_model = (
         model
@@ -192,23 +215,13 @@ def call_gemini_json(
         or os.environ.get("VECTORENGINE_GEMINI_MODEL")
         or DEFAULT_GEMINI_MODEL
     )
-    if provider == "google":
-        endpoint = f"{clean_google_gemini_base_url()}/v1beta/models/{active_model}:generateContent"
-        headers = {
-            "x-goog-api-key": api_key,
-            "Content-Type": "application/json",
-        }
-        provider_label = "Google Gemini"
-    else:
-        endpoint = (
-            f"{clean_base_url()}/v1beta/models/{active_model}:generateContent"
-            f"?key={api_key}"
-        )
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        provider_label = "VectorEngine Gemini"
+    provider_targets: list[tuple[str, str, str]] = [(provider, api_key, "")]
+    if provider == "google" and requested_provider in ("", "auto"):
+        try:
+            _, fallback_key = get_vectorengine_api_key()
+            provider_targets.append(("vectorengine", fallback_key, "fallback after Google Gemini rate limit"))
+        except VectorEngineError:
+            pass
 
     body = {
         "systemInstruction": {"parts": [{"text": system_instruction}]},
@@ -223,30 +236,60 @@ def call_gemini_json(
     attempts = max(1, int(DEFAULT_GEMINI_RETRIES if retries is None else retries) + 1)
     last_error: Exception | None = None
 
-    for attempt in range(1, attempts + 1):
-        try:
-            response = requests.post(
-                endpoint,
-                headers=headers,
-                json=body,
-                timeout=timeout_seconds,
+    for target_provider, target_api_key, fallback_reason in provider_targets:
+        if target_provider == "google":
+            endpoint = f"{clean_google_gemini_base_url()}/v1beta/models/{active_model}:generateContent"
+            headers = {
+                "x-goog-api-key": target_api_key,
+                "Content-Type": "application/json",
+            }
+            provider_label = "Google Gemini"
+        else:
+            endpoint = (
+                f"{clean_base_url()}/v1beta/models/{active_model}:generateContent"
+                f"?key={target_api_key}"
             )
-            if not response.ok:
-                raise VectorEngineError(
-                    f"{provider_label} HTTP {response.status_code}: {safe_response_text(response)}"
-                )
+            headers = {
+                "Authorization": f"Bearer {target_api_key}",
+                "Content-Type": "application/json",
+            }
+            provider_label = "VectorEngine Gemini"
+        if fallback_reason:
+            print(f"  [{provider_label}] {fallback_reason}")
 
+        for attempt in range(1, attempts + 1):
             try:
-                response_data = response.json()
-            except ValueError as exc:
-                raise VectorEngineError(f"{provider_label} returned non-JSON: {response.text[:500]}") from exc
+                response = requests.post(
+                    endpoint,
+                    headers=headers,
+                    json=body,
+                    timeout=timeout_seconds,
+                )
+                if not response.ok:
+                    message = safe_response_text(response)
+                    raise GeminiHTTPError(provider_label, response.status_code, message)
 
-            return parse_json_object(extract_text_from_gemini_response(response_data))
-        except (requests.RequestException, VectorEngineError) as exc:
-            last_error = exc
-            if attempt >= attempts:
-                break
-            time.sleep(min(20, 3 * attempt))
+                try:
+                    response_data = response.json()
+                except ValueError as exc:
+                    raise VectorEngineError(f"{provider_label} returned non-JSON: {response.text[:500]}") from exc
+
+                return parse_json_object(extract_text_from_gemini_response(response_data))
+            except (requests.RequestException, VectorEngineError) as exc:
+                last_error = exc
+                if attempt >= attempts:
+                    break
+                delay = 3 * attempt
+                if isinstance(exc, GeminiHTTPError) and exc.status_code == 429:
+                    delay = max(delay, retry_delay_seconds(response, exc.message) or delay)
+                time.sleep(min(75, delay))
+        if not (
+            isinstance(last_error, GeminiHTTPError)
+            and last_error.status_code == 429
+            and target_provider == "google"
+            and len(provider_targets) > 1
+        ):
+            break
 
     raise VectorEngineError(str(last_error or f"{provider_label} request failed."))
 

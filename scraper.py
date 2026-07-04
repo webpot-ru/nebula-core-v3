@@ -851,7 +851,7 @@ Return ONLY a JSON object, no markdown:
             prompt=prompt,
             model=os.environ.get("AI_QUALITY_MODEL"),
             temperature=0.25,
-            max_output_tokens=1100,
+            max_output_tokens=3200,
         )
         verdict = result.get("verdict", "PUBLISH").upper()
         if verdict not in ("PUBLISH", "REWRITE", "SKIP"):
