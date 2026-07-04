@@ -166,8 +166,8 @@ TOPIC_FAMILY_PRESETS = {
         "min_upvotes": 1200,
         "min_body_length": 450,
         "quality_rules": (
-            "Prioritize a clear personal conflict, two arguable sides, escalation, and a first sentence that can stop a Shorts scroll. "
-            "Reject news, product announcements, gaming/tech updates, link-only discussions, generic opinion prompts, and posts without a standalone human story."
+            "Prioritize intimate first-person conflict, a clear 'who is right?' question, two arguable sides, social stakes, escalation, and a first screen that can stop a Shorts scroll. "
+            "Reject news, product announcements, gaming/tech updates, link-only discussions, broad community debates, generic advice prompts, and posts without a standalone human story."
         )
     },
     "dark_curiosity": {
@@ -179,7 +179,7 @@ TOPIC_FAMILY_PRESETS = {
         "time_windows": ["week", "month", "year"],
         "min_upvotes": 900,
         "min_body_length": 500,
-        "quality_rules": "Prioritize an eerie hook, believable escalation, a memorable twist, and low gore/privacy risk."
+        "quality_rules": "Prioritize an eerie first screen, believable escalation, a memorable reveal/twist, strong atmosphere, and low gore/privacy risk. Reject vague creepypasta with no concrete incident, excessive gore, and stories that rely only on shock."
     },
     "curiosity_facts": {
         "label": "Curiosity / facts / explainers",
@@ -190,7 +190,7 @@ TOPIC_FAMILY_PRESETS = {
         "time_windows": ["day", "week", "month"],
         "min_upvotes": 1800,
         "min_body_length": 250,
-        "quality_rules": "Prioritize surprise, visual explainability, easy localization, and a fact that can be understood without niche context."
+        "quality_rules": "Prioritize counterintuitive facts with a clean 'wait, what?' hook, visual explainability, easy localization, and a story/explanation arc. Reject thin trivia, dry announcements, niche technical details, and facts that need unavailable footage."
     },
     "football_culture": {
         "label": "Football culture / sports story",
@@ -198,7 +198,7 @@ TOPIC_FAMILY_PRESETS = {
         "time_windows": ["day", "week", "month"],
         "min_upvotes": 1000,
         "min_body_length": 120,
-        "quality_rules": "Prioritize rights-safe discussion, player or fan drama, cultural identity, and stories that do not require match footage."
+        "quality_rules": "Prioritize rights-safe player arcs, fan drama, cultural identity, rivalry, underdog/comeback angles, and stories that can work without match footage. Reject score-only news, transfer rumors with no human angle, and posts that need licensed clips to make sense."
     },
     "internet_lore": {
         "label": "Internet lore / creator or community drama",
@@ -209,7 +209,7 @@ TOPIC_FAMILY_PRESETS = {
         "time_windows": ["week", "month", "year"],
         "min_upvotes": 900,
         "min_body_length": 450,
-        "quality_rules": "Prioritize a clear timeline, recognizable online conflict, broad audience comprehension, and low defamation/privacy risk."
+        "quality_rules": "Prioritize a clean timeline, recognizable online conflict, creator/community stakes, lore that can be explained fast, broad audience comprehension, and low defamation/privacy risk. Reject niche forum drama, gaming-server admin stories, and posts where the appeal is only fandom-specific."
     },
     "visual_comedy": {
         "label": "Visual social comedy / awkward real-life story",
@@ -220,7 +220,7 @@ TOPIC_FAMILY_PRESETS = {
         "time_windows": ["day", "week", "month"],
         "min_upvotes": 900,
         "min_body_length": 300,
-        "quality_rules": "Prioritize quick setup, embarrassment, social tension, and a punchline or twist that can land fast."
+        "quality_rules": "Prioritize quick setup, visible social tension, embarrassment, role-play potential, and a punchline/twist that can land fast. Reject jokes that only work in English, screenshot/image-dependent posts, and stories with no clear payoff."
     }
 }
 
@@ -269,6 +269,150 @@ WINDOW_SCORE_BONUS = {
     "month": -2,
     "year": -6,
 }
+
+
+FORMAT_INTENT_RULES = {
+    "auto": (
+        "Decide whether the story is better as Shorts, long-form, or both. "
+        "Approve only if it has either a sharp Shorts cut or enough depth for a long-form episode."
+    ),
+    "shorts": (
+        "This will be a vertical Shorts test. Require a strong first 1-2 seconds, a self-contained 30-90 second cut, "
+        "minimal setup, one clear emotional/factual payoff, and comment bait that feels natural. "
+        "Skip slow-burn stories that only become interesting after long context."
+    ),
+    "long": (
+        "This will be a horizontal long-form video. Require enough plot, timeline, stakes, explanation depth, or comment debate "
+        "for an 8-18 minute episode. Skip thin facts and one-joke stories even if they work as Shorts."
+    ),
+}
+
+
+CHANNEL_PRODUCER_PRESETS = {
+    "ru": {
+        "audience_job": "Give Russian-speaking viewers a dark, surprising, easy-to-retell story or fact without drifting into gaming/news filler.",
+        "must_feel_like": "mysterious, specific, tense, but not exploitative or political",
+        "winning_bets": "strange real-feeling incidents, eerie personal encounters, unsettling facts with a clean reveal",
+        "weak_topic_traps": "generic scary fiction, Minecraft/gaming-server drama, dry trivia, broad tech/news updates, politics-heavy material",
+    },
+    "es-419": {
+        "audience_job": "Give LATAM viewers an emotional social conflict they can judge, argue about, and retell like a mini telenovela.",
+        "must_feel_like": "dramatic, intimate, conversational, socially charged",
+        "winning_bets": "family scandal, relationship betrayal, entitlement, public humiliation, moral choice with two sides",
+        "weak_topic_traps": "flat advice posts, low-stakes roommate chores, US-only culture context, stories with no emotional turn",
+    },
+    "pt-br": {
+        "audience_job": "Give Brazilian viewers energetic curiosity, football culture, or emotional personal stories with a clear payoff.",
+        "must_feel_like": "fast, expressive, surprising, culturally easy to localize",
+        "winning_bets": "unknown facts, football arcs, fan drama, emotional twists, high-energy social conflict",
+        "weak_topic_traps": "dry statistics, rights-dependent match clips, weak Reddit drama, slow setup without payoff",
+    },
+    "de": {
+        "audience_job": "Give German-speaking viewers credible curiosity, experiments, tech/science explainers, or strange facts that feel worth learning.",
+        "must_feel_like": "clear, smart, precise, not overhyped",
+        "winning_bets": "counterintuitive facts, explainable experiments, tech/internet consequences, strange discoveries",
+        "weak_topic_traps": "sensationalism without evidence, vague creepypasta, celebrity gossip, low-value trivia",
+    },
+    "fr": {
+        "audience_job": "Give French-speaking viewers a mystery, dossier, true-story angle, or pop/internet lore with atmosphere and structure.",
+        "must_feel_like": "intriguing, stylish, well-framed, slightly investigative",
+        "winning_bets": "mystery timelines, creator/community lore, strange true-feeling events, pop-culture dossiers",
+        "weak_topic_traps": "thin horror, niche gaming posts, gossip without timeline, stories that need too much explanation",
+    },
+    "it": {
+        "audience_job": "Give Italian viewers expressive social comedy, football identity, food/culture tension, or relationship drama that can be performed.",
+        "must_feel_like": "expressive, visual, playful, emotionally legible",
+        "winning_bets": "awkward social scenes, football/fan identity, relationship conflict, family/culture friction, punchy reversals",
+        "weak_topic_traps": "text-only jokes with no visual scene, weak facts, slow lore, English-only wordplay",
+    },
+    "en": {
+        "audience_job": "Give English-speaking viewers spectacle curiosity, internet lore, creator drama, or a story hook strong enough to survive heavy competition.",
+        "must_feel_like": "high-concept, instantly clear, specific, not another generic Reddit read",
+        "winning_bets": "weird experiments, creator/community conflict, internet-lore timelines, shocking but credible story turns",
+        "weak_topic_traps": "ordinary AITA filler, low-stakes chores, overused Reddit tropes, topics already saturated by larger channels",
+    },
+}
+
+
+TOPIC_BET_PRESETS = {
+    "human_drama": {
+        "content_bet": "moral court / social conflict",
+        "why_click": "The viewer immediately wants to decide who is wrong.",
+        "why_stay": "The story escalates, reveals new context, and makes the viewer reconsider.",
+        "shorts_shape": "one conflict, one accusation, one twist, one comment-bait question",
+        "long_shape": "case file: setup, motives, escalation, comments/community verdict, final producer take",
+        "voice_direction": "expressive narrator plus distinct comment voices; character voices work for opposing sides if not caricatured",
+        "reject_if": "the conflict is low-stakes, one-sided, generic, advice-only, or depends on missing comments/screenshots",
+    },
+    "dark_curiosity": {
+        "content_bet": "mystery / eerie incident",
+        "why_click": "The viewer wants to know what happened or what the disturbing detail means.",
+        "why_stay": "Specific details accumulate toward a reveal, twist, or unresolved question.",
+        "shorts_shape": "one eerie claim, two concrete details, one reveal/question",
+        "long_shape": "timeline: normal situation, anomaly, escalation, theories, unresolved ending",
+        "voice_direction": "dramatic narrator; subtle character/special voice can help horror, but avoid parody",
+        "reject_if": "it is vague creepypasta, pure gore, politics-heavy, privacy-invasive, or lacks concrete detail",
+    },
+    "curiosity_facts": {
+        "content_bet": "counterintuitive fact / explainer",
+        "why_click": "The viewer sees a surprising 'wait, what?' claim.",
+        "why_stay": "The explanation resolves the surprise in simple steps.",
+        "shorts_shape": "claim, visual mental image, explanation, punchline/fact payoff",
+        "long_shape": "mini-documentary: question, context, mechanism, examples, consequence",
+        "voice_direction": "clear energetic narrator; character voices only if the fact has a scene or dialogue",
+        "reject_if": "it is dry trivia, too technical, source/link dependent, or cannot be visualized from text",
+    },
+    "football_culture": {
+        "content_bet": "football identity / fan drama / player arc",
+        "why_click": "The viewer recognizes rivalry, injustice, comeback, or cultural pride.",
+        "why_stay": "The story has stakes beyond a score: identity, loyalty, betrayal, pressure, redemption.",
+        "shorts_shape": "one football tension, one emotional stake, one reversal",
+        "long_shape": "rights-safe documentary without match footage: context, character, conflict, fallout",
+        "voice_direction": "energetic local narrator; comments can sound like fans from different sides",
+        "reject_if": "it needs match clips, is only transfer news, or has no human/cultural angle",
+    },
+    "internet_lore": {
+        "content_bet": "internet lore / creator-community timeline",
+        "why_click": "The viewer senses there is a bigger story behind a meme, creator, fandom, or online conflict.",
+        "why_stay": "The timeline becomes clear and reveals stakes outsiders can understand.",
+        "shorts_shape": "what happened, why people cared, the twist/fallout",
+        "long_shape": "dossier: origin, escalation, key players, community reaction, aftermath",
+        "voice_direction": "curious narrator; character voices can separate creator/community/comment perspectives",
+        "reject_if": "it is narrow fandom drama, gaming-server admin minutiae, defamation-prone, or too hard to explain fast",
+    },
+    "visual_comedy": {
+        "content_bet": "performable social comedy",
+        "why_click": "The viewer instantly imagines the awkward scene.",
+        "why_stay": "The social tension or embarrassment lands with a payoff.",
+        "shorts_shape": "scene, awkward pressure, escalation, punchline/reversal",
+        "long_shape": "compilation or social-experiment style episode, not a single thin joke",
+        "voice_direction": "character voices are useful; make roles distinct but believable",
+        "reject_if": "the joke is wordplay-only, culturally untranslatable, screenshot-dependent, or has no visible scene",
+    },
+}
+
+
+def channel_producer_context(channel: dict | None) -> dict:
+    if not channel:
+        return CHANNEL_PRODUCER_PRESETS["en"]
+    lang = str(channel.get("lang") or "en").lower()
+    normalized = lang.replace("_", "-")
+    if normalized in CHANNEL_PRODUCER_PRESETS:
+        return CHANNEL_PRODUCER_PRESETS[normalized]
+    base = normalized.split("-", 1)[0]
+    return CHANNEL_PRODUCER_PRESETS.get(base, CHANNEL_PRODUCER_PRESETS["en"])
+
+
+def topic_bet_context(topic_family: str | None) -> dict:
+    return TOPIC_BET_PRESETS.get(topic_family or "", {
+        "content_bet": "general entertainment topic",
+        "why_click": "The viewer immediately understands why this is worth watching.",
+        "why_stay": "The story develops beyond the title.",
+        "shorts_shape": "hook, escalation, payoff",
+        "long_shape": "structured episode with enough depth for retention",
+        "voice_direction": "use a voice style that supports the channel promise without sounding generic",
+        "reject_if": "the idea is generic, source-dependent, repetitive, or not tied to the channel promise",
+    })
 
 
 STOPWORDS = {
@@ -343,6 +487,159 @@ def velocity_bonus(metrics: dict, time_window: str) -> int:
     return min(bonus, 12)
 
 
+def score_int(value, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0, min(10, parsed))
+
+
+def hook_evidence_items(ai_result: dict) -> list[dict]:
+    raw = ai_result.get("hook_evidence")
+    if isinstance(raw, dict):
+        raw = [raw]
+    if not isinstance(raw, list):
+        quote = ai_result.get("hook_evidence_quote")
+        field = ai_result.get("hook_evidence_field")
+        if quote:
+            raw = [{"field": field or "unknown", "quote": quote}]
+        else:
+            raw = []
+    items = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        quote = str(item.get("quote") or "").strip()
+        if not quote:
+            continue
+        items.append({
+            "field": str(item.get("field") or "unknown").strip(),
+            "quote": quote[:240],
+            "why_it_matters": str(item.get("why_it_matters") or "").strip()[:240],
+        })
+    return items
+
+
+def has_hook_evidence(ai_result: dict) -> bool:
+    return bool(hook_evidence_items(ai_result))
+
+
+def producer_quality_score(local_score: int, ai_result: dict) -> float:
+    positive_keys = (
+        "niche_fit",
+        "hook_strength",
+        "narrative_arc",
+        "discussion_potential",
+        "format_fit",
+        "translation",
+        "viral_potential",
+        "novelty",
+        "character_voice_fit",
+    )
+    risk_keys = (
+        "slop_risk",
+        "source_dependency_risk",
+        "duplicate_risk",
+        "legal_risk",
+    )
+    positives = sum(score_int(ai_result.get(key), 5) for key in positive_keys)
+    risks = sum(score_int(ai_result.get(key), 5) for key in risk_keys)
+    verdict = str(ai_result.get("verdict") or "").upper()
+    verdict_bonus = 14 if verdict == "PUBLISH" else 6 if verdict == "REWRITE" else -30
+    evidence_bonus = 8 if has_hook_evidence(ai_result) else -12
+    format_bonus = 4 if str(ai_result.get("format_recommendation") or "").lower() in {"shorts", "long", "both"} else 0
+    return round((local_score * 0.35) + (positives * 4.0) - (risks * 3.2) + verdict_bonus + evidence_bonus + format_bonus, 2)
+
+
+def producer_queue_entry(candidate: dict, ai_rank: int, ai_result: dict) -> dict:
+    post = candidate["post"]
+    local_score = int(candidate.get("score") or 0)
+    producer_score = producer_quality_score(local_score, ai_result)
+    return {
+        "ai_rank": ai_rank,
+        "producer_score": producer_score,
+        "local_score": local_score,
+        "base_virality_score": candidate.get("base_score"),
+        "verdict": ai_result.get("verdict"),
+        "subreddit": f"r/{post.subreddit}",
+        "post_id": post.id,
+        "title": post.title,
+        "url": f"https://reddit.com{post.permalink}",
+        "upvotes": post.score,
+        "comments": post.num_comments,
+        "topic_family": candidate["topic"]["family"],
+        "topic_label": candidate["topic"]["label"],
+        "time_window": candidate["time_window"],
+        "story_signature": candidate["story_signature"],
+        "keyword_signature": candidate["keyword_signature"],
+        "velocity": candidate.get("velocity"),
+        "velocity_bonus": candidate.get("velocity_bonus"),
+        "fatigue_penalty": candidate.get("fatigue_penalty"),
+        "scores": {
+            "niche_fit": ai_result.get("niche_fit"),
+            "hook_strength": ai_result.get("hook_strength"),
+            "narrative_arc": ai_result.get("narrative_arc"),
+            "discussion_potential": ai_result.get("discussion_potential"),
+            "format_fit": ai_result.get("format_fit"),
+            "translation": ai_result.get("translation"),
+            "viral_potential": ai_result.get("viral_potential"),
+            "novelty": ai_result.get("novelty"),
+            "character_voice_fit": ai_result.get("character_voice_fit"),
+            "slop_risk": ai_result.get("slop_risk"),
+            "source_dependency_risk": ai_result.get("source_dependency_risk"),
+            "duplicate_risk": ai_result.get("duplicate_risk"),
+            "legal_risk": ai_result.get("legal_risk"),
+        },
+        "format_recommendation": ai_result.get("format_recommendation"),
+        "content_bet": ai_result.get("content_bet"),
+        "audience_job_fit": ai_result.get("audience_job_fit"),
+        "first_screen_promise": ai_result.get("first_screen_promise"),
+        "first_screen_text": ai_result.get("first_screen_text"),
+        "packaging_thesis": ai_result.get("packaging_thesis"),
+        "why_now": ai_result.get("why_now"),
+        "shorts_cut": ai_result.get("shorts_cut"),
+        "longform_angle": ai_result.get("longform_angle"),
+        "producer_angle": ai_result.get("producer_angle"),
+        "hook_suggestion": ai_result.get("hook_suggestion"),
+        "hook_evidence": hook_evidence_items(ai_result),
+        "reason": ai_result.get("reason"),
+    }
+
+
+def write_producer_queue(
+    output_path: str | None,
+    *,
+    channel_id: str,
+    format_intent: str,
+    candidates_total: int,
+    ai_budget: int,
+    skip_rank: int,
+    entries: list[dict],
+    chosen_entry: dict | None,
+) -> None:
+    if not output_path:
+        return
+    payload = {
+        "version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "channel_id": channel_id,
+        "format_intent": format_intent,
+        "candidates_total": candidates_total,
+        "ai_candidate_budget": ai_budget,
+        "skip_rank": skip_rank,
+        "selected_post_id": chosen_entry.get("post_id") if chosen_entry else None,
+        "selected_producer_score": chosen_entry.get("producer_score") if chosen_entry else None,
+        "entries": entries,
+    }
+    path = output_path
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.dirname(__file__), path)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"  Saved producer queue → {path}")
+
+
 def ai_quality_check(
     post_title: str,
     post_body: str,
@@ -350,6 +647,7 @@ def ai_quality_check(
     post_metadata: dict | None = None,
     topic_context: dict | None = None,
     duplicate_context: dict | None = None,
+    format_intent: str | None = None,
 ) -> dict:
     """
     Send the story to Gemini via VectorEngine for a structured quality assessment.
@@ -361,10 +659,16 @@ def ai_quality_check(
         narrative_arc : int 1-10
         translation   : int 1-10
         viral_potential : int 1-10
+        format_fit      : int 1-10
+        discussion_potential : int 1-10
+        character_voice_fit  : int 1-10
+        slop_risk       : int 1-10  (1=original and specific, 10=generic AI-slop/template bait)
+        source_dependency_risk : int 1-10
         novelty         : int 1-10
         legal_risk      : int 1-10  (1=safe, 10=very risky)
         reason        : str
         hook_suggestion : str | None
+        hook_evidence : list[dict] with exact source quote(s) for the hook
     """
     if not AI_QUALITY_ENABLED:
         return {"verdict": "PUBLISH", "reason": "AI quality check disabled."}
@@ -388,12 +692,19 @@ def ai_quality_check(
     # Truncate body to keep prompt within token limits
     body_preview = (post_body or "")[:800]
     topic_label = topic_context.get("label") or topic_context.get("family") or "Unspecified"
+    topic_family = topic_context.get("family")
     topic_rules = topic_context.get("quality_rules") or "Use the channel profile and Reddit metrics."
+    format_intent = (format_intent or "auto").strip().lower()
+    format_rules = FORMAT_INTENT_RULES.get(format_intent, FORMAT_INTENT_RULES["auto"])
+    producer_context = channel_producer_context(channel)
+    topic_bet = topic_bet_context(topic_family)
     channel_exclusions = channel_topic_exclusions(channel)
     exclusion_text = ", ".join(channel_exclusions) if channel_exclusions else "none configured"
 
     prompt = f"""
-You are a YouTube content strategist. Evaluate this Reddit story for a specific channel.
+You are a senior YouTube producer and audience-development strategist.
+Your job is NOT to be nice to the candidate. Your job is to protect the channel from weak, generic, repetitive, or hard-to-retain topics.
+Evaluate this Reddit post as source material for a multilingual YouTube entertainment channel.
 
 CHANNEL PROFILE:
   Handle  : {handle}
@@ -401,9 +712,28 @@ CHANNEL PROFILE:
   Region  : {region}
   Niche   : {niche_label}
 
+OUTSIDE PRODUCER BRIEF:
+  Audience job     : {producer_context.get('audience_job')}
+  Must feel like   : {producer_context.get('must_feel_like')}
+  Winning bets     : {producer_context.get('winning_bets')}
+  Weak-topic traps : {producer_context.get('weak_topic_traps')}
+
+FORMAT INTENT:
+  Requested format: {format_intent}
+  Rules: {format_rules}
+
 TOPIC FAMILY:
   Family : {topic_label}
   Rules  : {topic_rules}
+
+CONTENT BET:
+  Bet type        : {topic_bet.get('content_bet')}
+  Why people click: {topic_bet.get('why_click')}
+  Why people stay : {topic_bet.get('why_stay')}
+  Shorts shape    : {topic_bet.get('shorts_shape')}
+  Long-form shape : {topic_bet.get('long_shape')}
+  Voice direction : {topic_bet.get('voice_direction')}
+  Reject if       : {topic_bet.get('reject_if')}
 
 CHANNEL EXCLUSIONS:
   Hard exclusions: {exclusion_text}
@@ -432,25 +762,48 @@ STORY:
   Body (first 800 chars): {body_preview}
 
 SCORE each dimension from 1 (very poor) to 10 (excellent):
-1. niche_fit       — Does this story match the channel niche perfectly?
-2. hook_strength   — Is the first sentence strong enough to stop a Shorts scroll?
-3. narrative_arc   — Does it have a clear conflict → escalation → resolution?
-4. translation     — Will cultural context survive translation to {lang}? (10 = universal, 1 = deeply US-specific)
-5. viral_potential — Based on Reddit metrics + story shape, can this trigger comments/retention on Shorts?
-6. novelty         — Is it meaningfully different from common/repeated Reddit tropes?
-7. duplicate_risk  — Risk this is a repeat/repost/same old trope (1 = fresh, 10 = likely duplicate)
-8. legal_risk      — Risk of copyright/privacy/harmful content issues (1 = no risk, 10 = high risk)
+1. niche_fit       — Does this story match the exact channel promise, not just the broad language?
+2. hook_strength   — Can the title + first visible screen stop a Shorts scroll in 1-2 seconds?
+3. narrative_arc   — Does it have clear setup -> escalation -> payoff, or a satisfying explainable fact arc?
+4. discussion_potential — Will viewers naturally argue, vote, comment, or share their own story?
+5. format_fit      — Does it fit the requested format rules above?
+6. translation     — Will cultural context survive translation/localization to {lang}? (10 = universal, 1 = deeply local or wordplay-only)
+7. viral_potential — Based on Reddit metrics + story shape + audience fit, can this produce retention and engagement?
+8. novelty         — Is it meaningfully different from common repeated Reddit tropes?
+9. character_voice_fit — Would expressive/character voices make this more entertaining without sounding fake or childish?
+10. slop_risk      — Risk it feels like mass-produced AI/template content (1 = specific/original, 10 = generic slop)
+11. source_dependency_risk — Risk it needs an external link, image, video, screenshot, article, or comments to make sense (1 = standalone)
+12. duplicate_risk — Risk this is a repeat/repost/same old trope (1 = fresh, 10 = likely duplicate)
+13. legal_risk     — Risk of copyright/privacy/harmful content issues (1 = no risk, 10 = high risk)
 
 HARD SKIP conditions:
   - SKIP posts whose title/body matches any configured channel exclusion above.
   - If the selected family is human_drama, SKIP posts that are news, product announcements, gaming/tech updates, link-only discussions, generic opinion prompts, or broad community debates without a first-person human conflict.
   - SKIP posts where the body cannot stand alone as a narrated story without opening an external link, image, video, screenshot, or article.
   - SKIP posts whose strongest appeal is only that the Reddit metrics are high.
+  - SKIP posts that feel like common Reddit filler: "my partner ate my food", "roommate was annoying", "boss was rude", "what do you think?", unless there is an unusually specific twist or emotional stake.
+  - SKIP posts that would become repetitive AI-slop when turned into a Reddit-card video: no distinct angle, no producer POV, no memorable moment, no reason to watch this version instead of another channel's.
+  - SKIP if the story is only interesting to a narrow subreddit/fandom and cannot be made clear for the target region quickly.
+  - For Shorts, SKIP if the first screen cannot carry the hook by itself.
+  - For long-form, SKIP if there is not enough depth for a structured episode beyond reading the post.
+
+PRODUCER SELECTION RULES:
+  - First decide whether this is a worthwhile content bet for the audience, independent of Reddit. If it would not be worth pitching as an episode idea, SKIP.
+  - Treat the Reddit post as raw material. The product is the packaged YouTube idea: hook, first screen, voice style, title/thumbnail promise, and payoff.
+  - Hooks must be source-backed. Do not invent betrayals, secrets, threats, deaths, crimes, or twists that are not present in the title/body preview.
+  - A stronger hook may reorder or compress existing source material, but it must preserve facts and point of view.
+  - If you cannot cite an exact source quote that supports the hook/first screen, lower hook_strength and choose SKIP or REWRITE.
+  - Reddit upvotes are evidence, not permission. High metrics must never override weak storytelling.
+  - Prefer topics with a repeatable channel promise: viewers should understand why this channel chose it.
+  - Prefer topics that can be packaged with a strong title, thumbnail text, and character voice performance.
+  - Favor emotional clarity over factual complexity for Shorts.
+  - Favor structure, timeline, stakes, and payoff for long-form.
+  - When uncertain between weak PUBLISH and SKIP, choose SKIP.
 
 VERDICT rules:
-  PUBLISH  → niche_fit >= 6 AND hook_strength >= 6 AND viral_potential >= 6 AND novelty >= 5 AND duplicate_risk <= 6 AND legal_risk <= 5
-  REWRITE  → niche_fit >= 5 AND viral_potential >= 6 AND legal_risk <= 6, but hook_strength < 6 or opening needs a stronger Shorts hook
-  SKIP     → niche_fit < 5 OR viral_potential < 5 OR duplicate_risk > 7 OR legal_risk > 7
+  PUBLISH  → niche_fit >= 7 AND hook_strength >= 7 AND viral_potential >= 7 AND format_fit >= 7 AND discussion_potential >= 6 AND novelty >= 6 AND slop_risk <= 4 AND source_dependency_risk <= 4 AND duplicate_risk <= 5 AND legal_risk <= 5
+  REWRITE  → niche_fit >= 6 AND viral_potential >= 6 AND format_fit >= 6 AND slop_risk <= 5 AND legal_risk <= 6, but hook_strength is fixable with a better opening
+  SKIP     → niche_fit < 6 OR viral_potential < 6 OR format_fit < 6 OR slop_risk > 5 OR source_dependency_risk > 5 OR duplicate_risk > 6 OR legal_risk > 6
 
 Return ONLY a JSON object, no markdown:
 {{
@@ -458,15 +811,37 @@ Return ONLY a JSON object, no markdown:
   "niche_fit": <int>,
   "hook_strength": <int>,
   "narrative_arc": <int>,
+  "discussion_potential": <int>,
+  "format_fit": <int>,
   "translation": <int>,
   "viral_potential": <int>,
   "novelty": <int>,
+  "character_voice_fit": <int>,
+  "slop_risk": <int>,
+  "source_dependency_risk": <int>,
   "duplicate_risk": <int>,
   "legal_risk": <int>,
   "topic_family": "<best matching family>",
+  "content_bet": "<moral_court|mystery|counterintuitive_fact|football_identity|internet_lore|visual_comedy|other>",
   "shorts_hook_type": "<controversy|twist|mystery|fact|challenge|identity|other>",
+  "format_recommendation": "<shorts|long|both|skip>",
+  "audience_job_fit": "<one sentence on whether this satisfies the outside producer brief>",
+  "first_screen_promise": "<what the viewer understands from the first visible screen, or null>",
+  "first_screen_text": "<source-backed first visible line/screen text, max 180 chars, or null>",
+  "packaging_thesis": "<how to package this as a YouTube idea, or null>",
+  "why_now": "<why this is worth publishing now, or null>",
+  "shorts_cut": "<specific Shorts cut idea, or null>",
+  "longform_angle": "<specific long-form expansion angle, or null>",
+  "producer_angle": "<one concise angle that makes this worth producing, or null>",
+  "hook_evidence": [
+    {{"field": "title|body", "quote": "<exact short source quote supporting the hook>", "why_it_matters": "<why this quote supports the first screen>"}}
+  ],
+  "source_integrity": {{
+    "can_adapt_without_inventing": <true|false>,
+    "facts_not_in_source": []
+  }},
   "reason": "<one sentence explaining verdict>",
-  "hook_suggestion": "<rewritten opening line for Shorts, or null if PUBLISH/SKIP>"
+  "hook_suggestion": "<source-backed rewritten opening line for Shorts, or null if not needed>"
 }}
 """
 
@@ -475,7 +850,7 @@ Return ONLY a JSON object, no markdown:
             prompt=prompt,
             model=os.environ.get("AI_QUALITY_MODEL"),
             temperature=0.25,
-            max_output_tokens=700,
+            max_output_tokens=1100,
         )
         verdict = result.get("verdict", "PUBLISH").upper()
         if verdict not in ("PUBLISH", "REWRITE", "SKIP"):
@@ -708,11 +1083,15 @@ def save_history(post_id: str, channel_id: str, story: dict | None = None) -> No
         record["keyword_signature"] = story.get("keyword_signature")
         record["topic_family"] = story.get("topic_family")
         record["topic_label"] = story.get("topic_label")
+        record["content_bet"] = story.get("content_bet")
         record["time_window"] = story.get("time_window")
         record["virality_score"] = story.get("virality_score")
+        record["producer_score"] = story.get("producer_score")
+        record["producer_rank"] = story.get("producer_rank")
         record["base_virality_score"] = story.get("base_virality_score")
         record["velocity"] = story.get("velocity")
         record["fatigue_penalty"] = story.get("fatigue_penalty")
+        record["hook_evidence"] = story.get("hook_evidence")
         record["ai_quality"] = story.get("ai_quality")
 
     try:
@@ -813,7 +1192,9 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                      min_body_length=300, comment_limit=3, channel_id="default",
                      channel_config=None, skip_rank=0, max_ai_candidates=None,
                      candidate_limit=DEFAULT_CANDIDATE_LIMIT, topic_family=None,
-                     similarity_threshold=DEFAULT_SIMILARITY_THRESHOLD):
+                     similarity_threshold=DEFAULT_SIMILARITY_THRESHOLD,
+                     format_intent: str | None = None,
+                     producer_queue_output: str | None = "producer_queue.json"):
     """
     Search topic-family sources for the most viral post, then run a bounded AI
     quality gate (Gemini via VectorEngine) to confirm channel fit, novelty, and
@@ -833,6 +1214,8 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
     candidate_limit: int        - top posts fetched per subreddit/window source
     topic_family   : str|None   - force one topic family for experiments
     similarity_threshold: float - keyword overlap threshold for semantic dedupe
+    format_intent  : str|None   - auto | shorts | long; passed to Gemini producer gate
+    producer_queue_output: str|None - JSON report of all AI-scored candidates
 
     Returns
     -------
@@ -841,6 +1224,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
     reddit = get_reddit()
     history = load_history()
     max_ai_candidates = DEFAULT_MAX_AI_CANDIDATES if max_ai_candidates is None else max_ai_candidates
+    format_intent = (format_intent or "auto").strip().lower()
 
     # ── Phase 1: collect candidates across topic families and time windows ─
     candidates = []
@@ -943,7 +1327,10 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
     ai_result    = {}
     chosen_candidate = None
     chosen_rank = None
-    approved_count = 0   # counts how many candidates passed AI check
+    chosen_queue_entry = None
+    chosen_producer_score = None
+    queue_entries = []
+    approved_candidates = []
     ai_budget = len(candidates) if not AI_QUALITY_ENABLED else max(1, max_ai_candidates + skip_rank)
     ai_candidates = candidates[:ai_budget]
 
@@ -973,6 +1360,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                 "upvotes_per_hour": candidate["velocity"].get("upvotes_per_hour"),
                 "comments_per_hour": candidate["velocity"].get("comments_per_hour"),
                 "body_length": len(body),
+                "format_intent": format_intent,
             },
             topic_context={
                 "family": topic["family"],
@@ -984,46 +1372,83 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                 "keyword_signature": candidate["keyword_signature"],
                 "duplicate_reason": "none",
             },
+            format_intent=format_intent,
         )
         verdict = qc.get("verdict", "PUBLISH")
         print(f"   Verdict: {verdict} | "
               f"niche={qc.get('niche_fit','?')} "
               f"hook={qc.get('hook_strength','?')} "
               f"arc={qc.get('narrative_arc','?')} "
+              f"discuss={qc.get('discussion_potential','?')} "
+              f"format={qc.get('format_fit','?')} "
               f"translate={qc.get('translation','?')} "
               f"viral={qc.get('viral_potential','?')} "
               f"novelty={qc.get('novelty','?')} "
+              f"slop={qc.get('slop_risk','?')} "
+              f"source={qc.get('source_dependency_risk','?')} "
               f"dupe={qc.get('duplicate_risk','?')} "
               f"risk={qc.get('legal_risk','?')}")
+        if qc.get("producer_angle"):
+            print(f"   Angle  : {qc.get('producer_angle')}")
+        if qc.get("packaging_thesis"):
+            print(f"   Pack   : {qc.get('packaging_thesis')}")
         print(f"   Reason : {qc.get('reason', '')}")
+
+        queue_entry = producer_queue_entry(candidate, rank + 1, qc)
+        queue_entries.append(queue_entry)
+        print(f"   Prod   : {queue_entry['producer_score']}")
 
         if verdict == "SKIP":
             print("   ⛔ Skipped by AI — trying next candidate...")
             continue
 
-        # This candidate passed AI check — count it
-        if approved_count < skip_rank:
-            print(f"   ⏭️  Slot offset: skipping approved candidate #{approved_count+1} (reserved for earlier slot)")
-            approved_count += 1
-            continue
+        approved_candidates.append({
+            "candidate": candidate,
+            "rank": rank + 1,
+            "ai_result": qc,
+            "producer_score": queue_entry["producer_score"],
+            "queue_entry": queue_entry,
+        })
 
-        # PUBLISH or REWRITE at the right slot position — take it
-        chosen_post  = post
-        chosen_score = score
-        ai_result    = qc
-        chosen_candidate = candidate
-        chosen_rank = rank + 1
-        break
+    approved_candidates.sort(key=lambda item: item["producer_score"], reverse=True)
+    for producer_rank, item in enumerate(approved_candidates, start=1):
+        item["queue_entry"]["producer_rank"] = producer_rank
+
+    if skip_rank and approved_candidates:
+        print(f"\nVideo slot offset: skipping {skip_rank} approved candidate(s) after producer ranking.")
+
+    if len(approved_candidates) > skip_rank:
+        selected = approved_candidates[skip_rank]
+        chosen_candidate = selected["candidate"]
+        chosen_post = chosen_candidate["post"]
+        chosen_score = chosen_candidate["score"]
+        chosen_producer_score = selected["producer_score"]
+        ai_result = selected["ai_result"]
+        chosen_rank = selected["rank"]
+        chosen_queue_entry = selected["queue_entry"]
+
+    write_producer_queue(
+        producer_queue_output,
+        channel_id=channel_id,
+        format_intent=format_intent,
+        candidates_total=len(candidates),
+        ai_budget=len(ai_candidates),
+        skip_rank=skip_rank,
+        entries=sorted(queue_entries, key=lambda item: item.get("producer_score") or 0, reverse=True),
+        chosen_entry=chosen_queue_entry,
+    )
 
     if not chosen_post:
         print("\n❌ No candidate passed within the AI quality budget.")
         return None
 
-    print(f"\n✅ Story approved (virality={chosen_score}, verdict={ai_result.get('verdict')}):")
+    print(f"\n✅ Story approved (producer_score={chosen_producer_score}, virality={chosen_score}, verdict={ai_result.get('verdict')}):")
     print(f"   r/{chosen_post.subreddit} — {chosen_post.title[:70]}")
     print(f"   {format_count(chosen_post.score)} upvotes | "
           f"{format_count(chosen_post.num_comments)} comments")
     print(f"   topic={chosen_candidate['topic']['family']} | window=top/{chosen_candidate['time_window']}")
+    if chosen_queue_entry and chosen_queue_entry.get("first_screen_text"):
+        print(f"   first screen: {chosen_queue_entry.get('first_screen_text')}")
 
     comments = fetch_top_comments(
         reddit, chosen_post.id, str(chosen_post.subreddit), limit=comment_limit
@@ -1050,9 +1475,24 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
         "story_signature": chosen_candidate["story_signature"],
         "keyword_signature": chosen_candidate["keyword_signature"],
         "candidate_rank": chosen_rank,
+        "producer_rank": chosen_queue_entry.get("producer_rank") if chosen_queue_entry else None,
+        "producer_score": chosen_producer_score,
         "candidate_pool_size": len(candidates),
         "ai_candidate_budget": len(ai_candidates),
         "ai_quality": ai_result,
+        "producer_queue_entry": chosen_queue_entry,
+        "format_intent": format_intent,
+        "format_recommendation": ai_result.get("format_recommendation"),
+        "content_bet": ai_result.get("content_bet"),
+        "audience_job_fit": ai_result.get("audience_job_fit"),
+        "first_screen_promise": ai_result.get("first_screen_promise"),
+        "first_screen_text": ai_result.get("first_screen_text"),
+        "packaging_thesis": ai_result.get("packaging_thesis"),
+        "why_now": ai_result.get("why_now"),
+        "shorts_cut": ai_result.get("shorts_cut"),
+        "longform_angle": ai_result.get("longform_angle"),
+        "producer_angle": ai_result.get("producer_angle"),
+        "hook_evidence": hook_evidence_items(ai_result),
         "hook_override": hook_override,
         "url": f"https://reddit.com{chosen_post.permalink}",
         "post_id": chosen_post.id,
@@ -1127,6 +1567,10 @@ if __name__ == "__main__":
                         help="Trim story body to this many characters after selection, for Shorts tests.")
     parser.add_argument("--format-intent", default=None,
                         help="Optional content format label stored in story metadata, e.g. shorts or long.")
+    parser.add_argument("--producer-queue-output", default="producer_queue.json",
+                        help="Write all AI-scored candidates and producer ranking to this JSON file.")
+    parser.add_argument("--no-producer-queue", action="store_true",
+                        help="Do not write producer_queue.json.")
     args = parser.parse_args()
 
     # Determine subreddits to scan
@@ -1162,7 +1606,9 @@ if __name__ == "__main__":
         candidate_limit=args.candidate_limit,
         comment_limit=args.comment_limit,
         topic_family=args.topic_family,
-        similarity_threshold=args.similarity_threshold
+        similarity_threshold=args.similarity_threshold,
+        format_intent=args.format_intent,
+        producer_queue_output=None if args.no_producer_queue else args.producer_queue_output,
     )
 
     if story:

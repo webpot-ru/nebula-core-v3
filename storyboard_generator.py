@@ -10,8 +10,8 @@ from typing import Any
 DEFAULT_OUTPUT = "storyboard.json"
 DEFAULT_FORMAT = "shorts"
 SHORTS_RESOLUTION = {"width": 1080, "height": 1920, "aspect_ratio": "9:16"}
-STORY_SLIDE_MAX_CHARS = 320
-COMMENT_SLIDE_MAX_CHARS = 260
+STORY_SLIDE_MAX_CHARS = 520
+COMMENT_SLIDE_MAX_CHARS = 460
 COMMENTS_PER_SLIDE = 2
 
 SCENE_DEFAULTS = {
@@ -66,21 +66,81 @@ def pack_chunks(sentences: list[str], max_chars: int) -> list[str]:
     return chunks
 
 
+def narration_field_text(container: dict[str, Any], field: str) -> str:
+    if not isinstance(container, dict):
+        return ""
+    value = container.get(f"narration_{field}")
+    if value is None or not str(value).strip():
+        value = container.get(field)
+    return clean_text(value)
+
+
+def split_text_chunks_with_narration(
+    display_text: str,
+    narration_text: str,
+    max_chars: int,
+) -> list[dict[str, str]]:
+    display_sentences = split_sentences(display_text)
+    if not display_sentences and display_text:
+        display_sentences = [clean_text(display_text)]
+    if not display_sentences:
+        return []
+
+    narration_sentences = split_sentences(narration_text)
+    use_parallel_narration = bool(narration_text) and len(narration_sentences) == len(display_sentences)
+    if not use_parallel_narration:
+        narration_sentences = display_sentences
+
+    chunks: list[dict[str, str]] = []
+    current_display = ""
+    current_narration = ""
+
+    for display_sentence, narration_sentence in zip(display_sentences, narration_sentences):
+        display_candidate = f"{current_display} {display_sentence}".strip()
+        narration_candidate = f"{current_narration} {narration_sentence}".strip()
+        if current_display and len(display_candidate) > max_chars:
+            chunks.append({
+                "body": current_display,
+                "narration_body": current_narration,
+            })
+            current_display = display_sentence
+            current_narration = narration_sentence
+        else:
+            current_display = display_candidate
+            current_narration = narration_candidate
+
+    if current_display:
+        chunks.append({
+            "body": current_display,
+            "narration_body": current_narration,
+        })
+    if len(chunks) >= 2 and len(chunks[-1]["body"]) < max(140, int(max_chars * 0.35)):
+        merged_body = f"{chunks[-2]['body']} {chunks[-1]['body']}".strip()
+        merged_narration = f"{chunks[-2]['narration_body']} {chunks[-1]['narration_body']}".strip()
+        if len(merged_body) <= int(max_chars * 1.25):
+            chunks[-2] = {
+                "body": merged_body,
+                "narration_body": merged_narration,
+            }
+            chunks.pop()
+    return chunks
+
+
 def count_words(text: str) -> int:
     return len(re.findall(r"\S+", clean_text(text)))
 
 
 def slide_narration_text(slide: dict[str, Any]) -> str:
     parts: list[str] = []
-    title = clean_text(slide.get("title"))
-    body = clean_text(slide.get("body"))
+    title = narration_field_text(slide, "title")
+    body = narration_field_text(slide, "body")
     if title:
         parts.append(title)
     if body:
         parts.append(body)
     for comment in slide.get("comments") or []:
         if isinstance(comment, dict):
-            comment_body = clean_text(comment.get("body"))
+            comment_body = narration_field_text(comment, "body")
             if comment_body:
                 parts.append(comment_body)
     return "\n\n".join(parts)
@@ -106,57 +166,109 @@ def assign_slide_word_ranges(slides: list[dict[str, Any]]) -> None:
 def build_render_slides(
     *,
     title: str,
+    narration_title: str,
     body: str,
+    narration_body: str,
     comments: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    sentences = split_sentences(body)
-    story_chunks = pack_chunks(sentences, STORY_SLIDE_MAX_CHARS)
-    if not story_chunks and body:
-        story_chunks = [body]
+    story_chunks = split_text_chunks_with_narration(body, narration_body, STORY_SLIDE_MAX_CHARS)
     if not story_chunks:
-        story_chunks = [""]
+        story_chunks = [{"body": "", "narration_body": ""}]
 
     slides: list[dict[str, Any]] = []
+    story_slide_count = len(story_chunks)
     for index, chunk in enumerate(story_chunks):
+        part = "single"
+        if story_slide_count > 1:
+            if index == 0:
+                part = "first"
+            elif index == story_slide_count - 1:
+                part = "last"
+            else:
+                part = "middle"
         slides.append({
             "id": f"story_{index + 1}",
             "type": "story",
             "title": title if index == 0 else "",
-            "body": chunk,
+            "narration_title": narration_title if index == 0 else "",
+            "body": chunk["body"],
+            "narration_body": chunk["narration_body"],
             "comments": [],
+            "part": part,
+            "show_post_header": index == 0,
+            "show_post_title": index == 0,
+            "show_post_footer": index == story_slide_count - 1,
+            "continuation_only": index > 0,
         })
 
     current_comments: list[dict[str, Any]] = []
     current_chars = 0
-    for comment in comments:
-        comment_body = clean_text(comment.get("body"))
-        if not comment_body:
-            continue
-        candidate_chars = current_chars + len(comment_body)
-        if current_comments and (
-            len(current_comments) >= COMMENTS_PER_SLIDE
-            or candidate_chars > COMMENT_SLIDE_MAX_CHARS
-        ):
-            slides.append({
-                "id": f"comments_{len(slides) + 1}",
-                "type": "comments",
-                "title": "",
-                "body": "",
-                "comments": current_comments,
-            })
-            current_comments = []
-            current_chars = 0
-        current_comments.append(comment)
-        current_chars += len(comment_body)
 
-    if current_comments:
+    def flush_comments() -> None:
+        nonlocal current_comments, current_chars
+        if not current_comments:
+            return
         slides.append({
             "id": f"comments_{len(slides) + 1}",
             "type": "comments",
             "title": "",
             "body": "",
             "comments": current_comments,
+            "show_post_header": False,
+            "show_post_title": False,
+            "show_post_footer": False,
         })
+        current_comments = []
+        current_chars = 0
+
+    for comment in comments:
+        comment_body = clean_text(comment.get("body"))
+        if not comment_body:
+            continue
+        comment_chunks = split_text_chunks_with_narration(
+            comment_body,
+            clean_text(comment.get("narration_body")) or comment_body,
+            COMMENT_SLIDE_MAX_CHARS,
+        ) or [{"body": comment_body, "narration_body": clean_text(comment.get("narration_body")) or comment_body}]
+
+        if len(comment_chunks) > 1:
+            flush_comments()
+            for chunk_index, chunk in enumerate(comment_chunks):
+                copied = dict(comment)
+                copied["body"] = chunk["body"]
+                copied["narration_body"] = chunk["narration_body"]
+                copied["part"] = "first" if chunk_index == 0 else ("last" if chunk_index == len(comment_chunks) - 1 else "middle")
+                copied["show_header"] = chunk_index == 0
+                copied["show_footer"] = chunk_index == len(comment_chunks) - 1
+                copied["continuation_only"] = chunk_index > 0
+                slides.append({
+                    "id": f"comment_{comment.get('id')}_{chunk_index + 1}",
+                    "type": "comments",
+                    "title": "",
+                    "body": "",
+                    "comments": [copied],
+                    "show_post_header": False,
+                    "show_post_title": False,
+                    "show_post_footer": False,
+                })
+            continue
+
+        copied = dict(comment)
+        copied["body"] = comment_chunks[0]["body"]
+        copied["narration_body"] = comment_chunks[0]["narration_body"]
+        copied["part"] = "single"
+        copied["show_header"] = True
+        copied["show_footer"] = True
+        candidate_chars = current_chars + len(copied["body"])
+        if current_comments and (
+            len(current_comments) >= COMMENTS_PER_SLIDE
+            or candidate_chars > COMMENT_SLIDE_MAX_CHARS
+        ):
+            flush_comments()
+        current_comments.append(copied)
+        current_chars += len(copied["body"])
+
+    flush_comments()
 
     assign_slide_word_ranges(slides)
     return slides
@@ -234,12 +346,21 @@ def build_storyboard(story: dict[str, Any], output_format: str) -> dict[str, Any
             "username": clean_text(comment.get("username") or f"u/commenter_{index + 1}"),
             "time": clean_text(comment.get("time") or "1h ago"),
             "body": clean_text(comment.get("body")),
+            "narration_body": narration_field_text(comment, "body"),
             "upvotes": clean_text(comment.get("upvotes") or "1"),
         }
         for index, comment in enumerate(story.get("comments") or [])
         if isinstance(comment, dict) and clean_text(comment.get("body"))
     ]
-    render_slides = build_render_slides(title=title, body=body, comments=comments)
+    narration_title = narration_field_text(story, "title") or title
+    narration_body = narration_field_text(story, "body") or body
+    render_slides = build_render_slides(
+        title=title,
+        narration_title=narration_title,
+        body=body,
+        narration_body=narration_body,
+        comments=comments,
+    )
     scenes = build_scenes_from_slides(render_slides)
 
     return {

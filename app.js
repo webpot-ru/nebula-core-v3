@@ -103,6 +103,7 @@ const cleanModeBtn = document.getElementById('cleanModeBtn');
 const canvasViewport = document.getElementById('canvasViewport');
 const canvasContainer = document.getElementById('canvasContainer');
 const redditCard = document.getElementById('redditCard');
+const postHeader = redditCard.querySelector('.post-header');
 const postFooter = redditCard.querySelector('.post-footer');
 const desktopCenterFeed = document.getElementById('desktopCenterFeed');
 const desktopLayoutWrapper = document.getElementById('desktopLayoutWrapper');
@@ -355,10 +356,10 @@ function applyStoryData(story) {
 
 function visibleNarrationTextForSlide(slide) {
   const parts = [];
-  if (slide.title) parts.push(slide.title);
-  if (slide.body) parts.push(slide.body);
+  if (slide.narrationTitle || slide.title) parts.push(slide.narrationTitle || slide.title);
+  if (slide.narrationBody || slide.body) parts.push(slide.narrationBody || slide.body);
   (slide.comments || []).forEach(comment => {
-    if (comment.body) parts.push(comment.body);
+    if (comment.narrationBody || comment.body) parts.push(comment.narrationBody || comment.body);
   });
   return parts.join('\n\n').trim();
 }
@@ -369,12 +370,23 @@ function countVisibleWords(text) {
 }
 
 function normalizeRenderComment(comment, index) {
+  const showHeader = comment && typeof comment.show_header === 'boolean'
+    ? comment.show_header
+    : (comment && typeof comment.showHeader === 'boolean' ? comment.showHeader : true);
+  const showFooter = comment && typeof comment.show_footer === 'boolean'
+    ? comment.show_footer
+    : (comment && typeof comment.showFooter === 'boolean' ? comment.showFooter : true);
   return {
     id: Number(comment && comment.id) || index + 1,
     username: (comment && comment.username) || `u/Commenter_${index + 1}`,
     time: (comment && comment.time) || '1h ago',
     body: (comment && comment.body) || '',
-    upvotes: String((comment && comment.upvotes) || '1')
+    narrationBody: String((comment && (comment.narration_body || comment.narrationBody)) || ''),
+    upvotes: String((comment && comment.upvotes) || '1'),
+    part: (comment && comment.part) || 'single',
+    showHeader,
+    showFooter,
+    continuationOnly: Boolean(comment && (comment.continuation_only || comment.continuationOnly))
   };
 }
 
@@ -402,12 +414,28 @@ function normalizeRenderSlides(slides) {
   const source = Array.isArray(slides) && slides.length ? slides : fallbackRenderSlides();
   let cursor = 0;
   return source.map((slide, index) => {
+    const showPostHeader = typeof slide.show_post_header === 'boolean'
+      ? slide.show_post_header
+      : (typeof slide.showPostHeader === 'boolean' ? slide.showPostHeader : null);
+    const showPostTitle = typeof slide.show_post_title === 'boolean'
+      ? slide.show_post_title
+      : (typeof slide.showPostTitle === 'boolean' ? slide.showPostTitle : null);
+    const showPostFooter = typeof slide.show_post_footer === 'boolean'
+      ? slide.show_post_footer
+      : (typeof slide.showPostFooter === 'boolean' ? slide.showPostFooter : null);
     const normalized = {
       id: slide.id || `slide_${index + 1}`,
       type: slide.type || (slide.comments && slide.comments.length ? 'comments' : 'story'),
       title: String(slide.title || ''),
+      narrationTitle: String(slide.narration_title || slide.narrationTitle || ''),
       body: String(slide.body || ''),
+      narrationBody: String(slide.narration_body || slide.narrationBody || ''),
       comments: (slide.comments || []).map(normalizeRenderComment),
+      part: slide.part || 'single',
+      showPostHeader,
+      showPostTitle,
+      showPostFooter,
+      continuationOnly: Boolean(slide.continuation_only || slide.continuationOnly),
       wordStart: Number.isFinite(Number(slide.word_start)) ? Number(slide.word_start) : null,
       wordEnd: Number.isFinite(Number(slide.word_end)) ? Number(slide.word_end) : null,
       estimatedDuration: Math.max(1, Number(slide.estimated_duration_sec) || 3)
@@ -616,14 +644,17 @@ function createCommentCard(comment, index, bodyRenderer) {
   const initial = comment.username.replace(/^u\//, '').charAt(0) || 'u';
   const card = document.createElement('div');
   card.className = 'comment-card';
+  if (comment.continuationOnly || (!comment.showHeader && !comment.showFooter)) {
+    card.classList.add('comment-continuation-only');
+  }
   card.innerHTML = `
-    <div class="comment-header">
+    <div class="comment-header" style="${comment.showHeader ? '' : 'display:none'}">
       <div class="comment-avatar" style="background-color:${avatarBg}">${initial}</div>
       <span class="comment-author">${comment.username}</span>
       <span class="comment-time">${comment.time}</span>
     </div>
     <div class="comment-body" id="slide-comment-${comment.id}-${index}"></div>
-    <div class="comment-footer">
+    <div class="comment-footer" style="${comment.showFooter ? '' : 'display:none'}">
       <div class="upvotes-action">
         <svg viewBox="0 0 24 24" class="icon"><path d="M12 4l-8 8h6v8h4v-8h6z"></path></svg>
         <span>${comment.upvotes}</span>
@@ -636,25 +667,59 @@ function createCommentCard(comment, index, bodyRenderer) {
 }
 
 function slideShowsPostFooter(slide) {
-  return slide.type !== 'comments' || Boolean((slide.title || '').trim() || (slide.body || '').trim());
+  if (slide.type === 'comments') return false;
+  if (typeof slide.showPostFooter === 'boolean') return slide.showPostFooter;
+  return true;
+}
+
+function slideShowsPostHeader(slide) {
+  if (slide.type === 'comments') return false;
+  if (typeof slide.showPostHeader === 'boolean') return slide.showPostHeader;
+  return true;
+}
+
+function slideShowsPostTitle(slide) {
+  if (slide.type === 'comments') return false;
+  if (typeof slide.showPostTitle === 'boolean') return slide.showPostTitle;
+  return Boolean((slide.title || '').trim());
+}
+
+function applySlideChrome(slide) {
+  const showHeader = slideShowsPostHeader(slide);
+  const showTitle = slideShowsPostTitle(slide);
+  const showFooter = slideShowsPostFooter(slide);
+  if (postHeader) {
+    postHeader.style.display = showHeader ? 'flex' : 'none';
+  }
+  if (postFooter) {
+    postFooter.style.display = showFooter ? 'flex' : 'none';
+  }
+  redditCard.classList.toggle('slide-story', slide.type === 'story');
+  redditCard.classList.toggle('slide-comments', slide.type === 'comments');
+  redditCard.classList.toggle('slide-continuation-only', Boolean(slide.continuationOnly || (!showHeader && !showTitle && !showFooter)));
+  redditCard.dataset.slidePart = slide.part || 'single';
+}
+
+function setCommentsSectionVisible(visible) {
+  postCommentsSection.style.display = visible ? 'flex' : 'none';
 }
 
 function renderSlideStatic(slide) {
   clearTimeout(typingTimeoutId);
   state.isPlaying = false;
 
-  if (postFooter) {
-    postFooter.style.display = slideShowsPostFooter(slide) ? 'flex' : 'none';
-  }
+  applySlideChrome(slide);
 
   postTitleText.textContent = slide.title || '';
-  postTitleContainer.style.display = slide.title ? 'block' : 'none';
+  postTitleContainer.style.display = slideShowsPostTitle(slide) && slide.title ? 'block' : 'none';
 
   postBodyText.textContent = slide.body || '';
   postBodyWrapper.style.display = slide.body ? 'block' : 'none';
 
   postCommentsSection.innerHTML = '';
-  (slide.comments || []).forEach((comment, index) => {
+  const visibleComments = (slide.comments || []).filter(comment => String(comment.body || '').trim());
+  setCommentsSectionVisible(visibleComments.length > 0);
+  visibleComments.forEach((comment, index) => {
     createCommentCard(comment, index, (text, bodyEl) => {
       bodyEl.textContent = text;
     });
@@ -1098,12 +1163,6 @@ function assignKaraokeWordToSpan(span, token, expectedIndex, wordLimit) {
       }
     }
   }
-  for (let index = expectedIndex; index < wordLimit; index++) {
-    if (karaokeWords[index] && !karaokeWords[index].el) {
-      karaokeWords[index].el = span;
-      return index + 1;
-    }
-  }
   return expectedIndex;
 }
 
@@ -1116,14 +1175,14 @@ function buildKaraokeDOM(slideIndex = activeRenderSlideIndex >= 0 ? activeRender
   karaokeActiveIndex = -1;
   karaokeActiveIndexes = [];
 
-  if (postFooter) {
-    postFooter.style.display = slideShowsPostFooter(slide) ? 'flex' : 'none';
-  }
+  applySlideChrome(slide);
 
   postTitleText.innerHTML = '';
   postTitleContainer.style.display = 'none';
   postBodyWrapper.style.display = 'none';
   postCommentsSection.innerHTML = '';
+  const visibleComments = (slide.comments || []).filter(comment => String(comment.body || '').trim());
+  setCommentsSectionVisible(visibleComments.length > 0);
 
   let wordIdx = Math.max(0, Number(slide.wordStart) || 0);
   const wordLimit = Math.min(karaokeWords.length, Math.max(wordIdx, Number(slide.wordEnd) || karaokeWords.length));
@@ -1159,7 +1218,7 @@ function buildKaraokeDOM(slideIndex = activeRenderSlideIndex >= 0 ? activeRender
     });
   }
 
-  if ((slide.title || '').trim()) {
+  if ((slide.title || '').trim() && slideShowsPostTitle(slide)) {
     postTitleContainer.style.display = 'block';
     wrapWordsIntoEl(slide.title, postTitleText);
   }
@@ -1169,8 +1228,7 @@ function buildKaraokeDOM(slideIndex = activeRenderSlideIndex >= 0 ? activeRender
     wrapWordsIntoEl(slide.body, postBodyText);
   }
 
-  (slide.comments || []).forEach((comment, index) => {
-    if (!comment.body.trim()) return;
+  visibleComments.forEach((comment, index) => {
     createCommentCard(comment, index, wrapWordsIntoEl);
   });
 
@@ -1244,7 +1302,43 @@ function renderKaraokeAtTime(timeSeconds) {
   return true;
 }
 
+function getKaraokeFrameTimes(durationSeconds) {
+  if (!karaokeReady || !karaokeWords.length) return [];
+  const duration = coerceKaraokeTime(durationSeconds);
+  const times = [0];
+  let previousKey = '';
+
+  currentSlides().forEach((slide, slideIndex) => {
+    buildKaraokeDOM(slideIndex);
+    const slideStart = Math.max(0, Number(slide.wordStart) || 0);
+    const slideEnd = Math.min(
+      karaokeWords.length,
+      Math.max(slideStart, Number(slide.wordEnd) || karaokeWords.length)
+    );
+    for (let wordIndex = slideStart; wordIndex < slideEnd; wordIndex++) {
+      const word = karaokeWords[wordIndex];
+      if (!word) continue;
+      const indexes = karaokeGroupIndexes(wordIndex);
+      const key = indexes.length
+        ? `${slideIndex}:${indexes[0]}:${indexes[indexes.length - 1]}`
+        : `${slideIndex}:unmapped:${wordIndex}`;
+      if (key !== previousKey) {
+        const start = coerceKaraokeTime(word.start);
+        if (start > 0 && (!duration || start < duration)) {
+          times.push(start);
+        }
+        previousKey = key;
+      }
+    }
+  });
+
+  activeRenderSlideIndex = -1;
+  return Array.from(new Set(times.map(time => Math.max(0, Number(time) || 0))))
+    .sort((a, b) => a - b);
+}
+
 window.renderKaraokeAtTime = renderKaraokeAtTime;
+window.getKaraokeFrameTimes = getKaraokeFrameTimes;
 window.karaokeReady = false;
 window.karaokeWords = karaokeWords;
 
@@ -1476,6 +1570,11 @@ function resetTyping() {
     postBodyWrapper.style.display = 'none';
     postCommentsSection.innerHTML = '';
   } else {
+    if (postHeader) postHeader.style.display = '';
+    if (postFooter) postFooter.style.display = '';
+    redditCard.classList.remove('slide-story', 'slide-comments', 'slide-continuation-only');
+    redditCard.removeAttribute('data-slide-part');
+    setCommentsSectionVisible(true);
     postTitleText.textContent = state.postTitle;
     if (state.postBody.trim()) {
       postBodyText.textContent = state.postBody;

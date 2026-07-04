@@ -231,6 +231,22 @@ jobs:
             --video-slot ${{ steps.target.outputs.video_slot }} \
             "${EXTRA_ARGS[@]}"
 
+      - name: Adapt story with source-backed hook
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          ADAPTER_ARGS=()
+          if [ "${{ steps.target.outputs.content_format }}" = "shorts" ]; then
+            ADAPTER_ARGS+=(--max-body-chars 900)
+          fi
+          python story_adapter.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --story story_data.json \
+            --output story_data.json \
+            --confirm-spend \
+            --strict-evidence \
+            "${ADAPTER_ARGS[@]}"
+
 
 
       - name: Generate VectorEngine SEO metadata
@@ -263,8 +279,27 @@ jobs:
           python render.py \
             --storyboard storyboard.json \
             --output final_output.mp4 \
+            --report render_report.json \
             --frame-count 300 \
             --require-karaoke
+
+      - name: Pre-publish QA gate
+        run: |
+          python pre_publish_qa.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --story story_data.json \
+            --storyboard storyboard.json \
+            --metadata youtube_metadata.json \
+            --video final_output.mp4 \
+            --audio narration.mp3 \
+            --transcript narration.json \
+            --render-report render_report.json \
+            --output pre_publish_qa.json \
+            --require-audio \
+            --require-karaoke \
+            --require-adaptation \
+            --require-evidence \
+            --require-render-report
 
       - name: Upload video to YouTube channel
         env:

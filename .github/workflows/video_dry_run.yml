@@ -2,17 +2,31 @@ name: Dry-Run Video Render
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/video_dry_run.yml"
-      - "render.py"
-      - "storyboard_generator.py"
-      - "sample_story_data.json"
-      - "index.html"
-      - "style.css"
-      - "app.js"
+    inputs:
+      channel:
+        description: 'Channel ID to test (acc1 to acc7)'
+        required: true
+        default: 'acc4'
+        type: choice
+        options:
+          - acc1
+          - acc2
+          - acc3
+          - acc4
+          - acc5
+          - acc6
+          - acc7
+      time_filter:
+        description: 'Reddit top posts time filter, or auto for topic-family windows'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - day
+          - week
+          - month
+          - year
 
 jobs:
   render-dry-run:
@@ -39,21 +53,88 @@ jobs:
           if ! command -v google-chrome >/dev/null 2>&1 && ! command -v google-chrome-stable >/dev/null 2>&1 && ! command -v chromium >/dev/null 2>&1 && ! command -v chromium-browser >/dev/null 2>&1; then
             sudo apt-get install -y chromium
           fi
-          ffmpeg -version | head -n 1
-          (google-chrome --version || google-chrome-stable --version || chromium --version || chromium-browser --version)
 
-      - name: Check renderer syntax
+      - name: Resolve Target Channel
+        id: target
         run: |
-          python -m py_compile storyboard_generator.py render.py
-          node --check app.js
+          CHANNEL_ID="${{ github.event.inputs.channel || 'acc4' }}"
+          TIME_FILTER="${{ github.event.inputs.time_filter || 'auto' }}"
+          echo "channel_id=${CHANNEL_ID}" >> $GITHUB_OUTPUT
+          echo "time_filter=${TIME_FILTER}" >> $GITHUB_OUTPUT
 
-      - name: Generate dry-run storyboard
+      - name: Fetch viral story from Reddit
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
+          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          AI_QUALITY_CHECK: '1'
+          AI_QUALITY_FAIL_OPEN: '0'
+          MAX_AI_CANDIDATES: '8'
+          STORY_SIMILARITY_THRESHOLD: '0.72'
+          TOPIC_FATIGUE_LOOKBACK: '10'
         run: |
-          python storyboard_generator.py --input sample_story_data.json --output storyboard.json
+          python scraper.py --channel ${{ steps.target.outputs.channel_id }} --time ${{ steps.target.outputs.time_filter }}
 
-      - name: Render dry-run MP4
+      - name: Adapt story with source-backed hook
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
-          python render.py --storyboard storyboard.json --output final_output.mp4
+          python story_adapter.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --story story_data.json \
+            --output story_data.json \
+            --confirm-spend \
+            --strict-evidence
+
+      - name: Generate VectorEngine packaging metadata
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          python metadata_generator.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --confirm-spend \
+            --output youtube_metadata.json
+
+      - name: Translate & Generate AI33 neural voice audio
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          # Request transcript with alignment timestamps and download voice narration track
+          python translator_tts.py --channel ${{ steps.target.outputs.channel_id }} --with-transcript --output narration.mp3
+
+      - name: Generate storyboard JSON
+        run: |
+          python storyboard_generator.py --input story_data.json --output storyboard.json
+
+      - name: Render dry-run MP4 (100 frames)
+        run: |
+          python render.py \
+            --storyboard storyboard.json \
+            --output final_output.mp4 \
+            --report render_report.json \
+            --frame-count 100 \
+            --require-karaoke
+
+      - name: Pre-publish QA gate
+        run: |
+          python pre_publish_qa.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --story story_data.json \
+            --storyboard storyboard.json \
+            --metadata youtube_metadata.json \
+            --video final_output.mp4 \
+            --audio narration.mp3 \
+            --transcript narration.json \
+            --render-report render_report.json \
+            --output pre_publish_qa.json \
+            --require-audio \
+            --require-karaoke \
+            --require-adaptation \
+            --require-evidence \
+            --require-render-report
 
       - name: Verify final output
         run: |
@@ -64,17 +145,23 @@ jobs:
         run: |
           mkdir -p build/render/previews
           ffmpeg -hide_banner -loglevel error -y -ss 1 -i final_output.mp4 -frames:v 1 build/render/previews/preview_01.png
-          ffmpeg -hide_banner -loglevel error -y -ss 11 -i final_output.mp4 -frames:v 1 build/render/previews/preview_mid.png
-          ffmpeg -hide_banner -loglevel error -y -ss 20 -i final_output.mp4 -frames:v 1 build/render/previews/preview_end.png
+          ffmpeg -hide_banner -loglevel error -y -ss 10 -i final_output.mp4 -frames:v 1 build/render/previews/preview_mid.png
+          ffmpeg -hide_banner -loglevel error -y -ss 18 -i final_output.mp4 -frames:v 1 build/render/previews/preview_end.png
 
       - name: Upload dry-run artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chonkertalks-dry-run-video
+          name: chonker-test-${{ steps.target.outputs.channel_id }}
           path: |
             final_output.mp4
             storyboard.json
+            story_data.json
+            producer_queue.json
+            youtube_metadata.json
+            narration.mp3
+            narration.json
+            render_report.json
+            pre_publish_qa.json
             build/render/render_story.json
-            build/render/frames_*/frame_*.png
             build/render/previews/*.png
           if-no-files-found: error

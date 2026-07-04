@@ -4,7 +4,7 @@
 **GitHub**: [github.com/lalishka/nebula-core-v3](https://github.com/lalishka/nebula-core-v3) *(private)*  
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-06-30
+**Last updated**: 2026-07-03
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 
@@ -50,7 +50,7 @@ Status: **supersedes the older "one language = one Reddit niche" plan.**
 
 ### Strategy Rule
 
-One channel should be defined by **language + viewer promise + tone**, not by a single subreddit or a single narrow topic. Shorts and long-form videos can cover different topics inside one channel if they satisfy the same viewer promise.
+One channel should be defined by **language + viewer promise + tone**, not by a single subreddit or a single narrow topic. Shorts and long-form videos can cover different topics inside one channel if they satisfy the same viewer promise. Topic selection must start from the outside audience job ("why this viewer would click and stay"), then choose source material. Reddit posts are raw material, not the product.
 
 Operational split:
 - **Shorts**: fast hook testing, trend response, punchy facts, mini-dramas, mysteries, quizzes.
@@ -93,6 +93,10 @@ For Reddit-derived stories only:
 - **Body length**: minimum 300 characters for narration depth.
 - **Topic families**: channels now use weighted `topic_mix` values instead of one flat subreddit list. The scraper has rules for `human_drama`, `dark_curiosity`, `curiosity_facts`, `football_culture`, `internet_lore`, and `visual_comedy`.
 - **AI budget**: Gemini quality checks are bounded by `MAX_AI_CANDIDATES` / `--max-ai-candidates`; local Reddit metrics and duplicate guards run before any AI call.
+- **Producer gate**: Gemini must reject topics that are merely high-metric Reddit filler. The prompt now scores first-screen hook, discussion potential, Shorts/long-form fit, novelty, character-voice fit, AI-slop risk, source/link dependency, duplicate risk, and legal risk.
+- **Outside-in brief**: before scoring the Reddit post, Gemini receives a market/channel producer brief and a `content_bet` brief for the topic family. It must decide whether the idea would be worth pitching even without Reddit metrics, then return packaging fields such as `content_bet`, `audience_job_fit`, `first_screen_promise`, `first_screen_text`, `packaging_thesis`, `why_now`, `shorts_cut`, and `longform_angle`.
+- **Evidence-backed hooks**: Gemini must return `hook_evidence` with an exact title/body quote supporting the hook. The scraper writes `producer_queue.json`, ranks all approved candidates by producer score, and only then picks the slot winner.
+- **No-invent adaptation**: `story_adapter.py` runs after selection and before metadata/translation. It may tighten, clean, and move a source-backed hook into the opening, but it must preserve facts, point of view, URLs, and timeline. In `--strict-evidence` mode it fails if no hook quote is found in the source text.
 - **Duplicate guard**: exact Reddit post ids, normalized story signatures, and similar keyword signatures are skipped per channel.
 - **Velocity scoring**: fresh `day/week` candidates get a small bonus for upvotes/hour and comments/hour, so rising stories can beat older high-total posts.
 - **Topic fatigue**: recently repeated topic families receive a penalty so one channel does not publish the same kind of story too many times in a row.
@@ -127,13 +131,15 @@ reddit/                            ← Project root (nebula-core-v3)
 ├── style.css                      ← Simulator CSS (themes, layouts, safe zones)
 ├── app.js                         ← Simulator JS (typing engine, audio, state)
 │
-├── scraper.py                     ← Reddit story fetcher (PRAW OAuth2 + virality scoring)
-├── metadata_generator.py          ← VectorEngine Gemini YouTube metadata + SEO
+├── scraper.py                     ← Reddit story fetcher (PRAW OAuth2 + virality + producer queue)
+├── story_adapter.py               ← Source-backed no-invent story cleanup / hook adapter
+├── metadata_generator.py          ← VectorEngine Gemini YouTube packaging + SEO metadata
 ├── thumbnail_generator.py         ← VectorEngine image thumbnail generator
 ├── vectorengine_client.py         ← Shared VectorEngine text/image client
 ├── translator_tts.py              ← AI33 TTS v3 narration generator
 ├── storyboard_generator.py        ← Deterministic story_data.json → storyboard.json
 ├── render.py                      ← RedditSim dry-run renderer: storyboard.json → final_output.mp4
+├── pre_publish_qa.py              ← Fail-closed audio/karaoke/evidence/render QA gate
 ├── uploader.py                    ← YouTube Data API v3 auto-publisher
 │
 ├── channels.json                  ← Current execution config; content strategy above supersedes old niche plan
@@ -205,15 +211,19 @@ test -s final_output.mp4
 ffprobe final_output.mp4
 ```
 
-`storyboard_generator.py` now emits `render_slides` for the simulator. The first story screen contains the title/body only, comment screens contain only comments that fit, and long story text advances as new centered card screens rather than a scrolling page. The slide text limits are intentionally conservative because render-mode fonts are sized for mobile Shorts and 16:9 readability.
+`storyboard_generator.py` now emits `render_slides` for the simulator. Story/comment text advances as clean centered card screens rather than a scrolling page. For multi-screen posts, the first screen shows the post header/title and hides the footer, middle screens show continuation text only, and only the final story screen shows upvotes/comments/share. Comment continuations follow the same rule: only the first comment chunk shows the comment header, and only the final chunk shows comment actions. Slide limits are tuned to use the available 9:16 and 16:9 card space, with an anti-orphan merge so a tiny final sentence is not split onto its own mostly empty screen.
 
-`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic slide-progress/karaoke screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. If `narration.json` exists and contains usable word timings, the renderer passes it into RedditSim so the current smart phrase is highlighted directly inside the currently visible Reddit card text. Phrases target 2-5 words and roughly 24-34 characters, stop at punctuation or line breaks, and never cross title/body/comment boundaries. If AI33 returns missing or partial timings, the renderer disables karaoke and falls back to clean slide-progress frames while still merging the voiceover audio unless `--require-karaoke` is set. Karaoke mode does not add extra caption words, lower subtitle strips, or overlay text, and its highlight style must not change text metrics or trigger line reflow.
+`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic slide-progress/karaoke screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. If `narration.json` exists and contains usable word timings, the renderer passes it into RedditSim so the current smart phrase is highlighted directly inside the currently visible Reddit card text. Phrases target 2-5 words and roughly 24-34 characters, stop at punctuation or line breaks, and never cross title/body/comment boundaries. Karaoke renders now capture frames at phrase-change timestamps instead of only at a small fixed number of evenly spaced samples, so long-form videos do not visibly jump over highlighted words. If AI33 returns missing or partial timings, the renderer disables karaoke and falls back to clean slide-progress frames while still merging the voiceover audio unless `--require-karaoke` is set. Karaoke mode does not add extra caption words, lower subtitle strips, or overlay text, and its highlight style must not change text metrics or trigger line reflow. Use `--report render_report.json` so downstream QA can verify render format, frame schedule, karaoke state, duration, and audio merge.
+
+`pre_publish_qa.py` is the fail-closed local/upload gate. It reads `story_data.json`, `storyboard.json`, `youtube_metadata.json`, `narration.mp3`, `narration.json`, `render_report.json`, and `final_output.mp4`; checks that the MP4 has video/audio streams, audio/video durations match, karaoke transcript coverage is high enough, raw URLs are not spoken in narration fields, source-backed hook evidence exists, story adaptation ran, and metadata language/title length are valid. `auto_publish.yml` and live `video_dry_run.yml` run this before upload/artifact handoff.
 
 Narration text may intentionally differ from display text only for service-safe substitutions. Raw links stay visible on the card while TTS reads a localized "link on screen" phrase. For Russian narration, standalone numeric tokens are expanded only inside `narration_title`, `narration_body`, and `comments[].narration_body`; for example visible `6500+` can be voiced as `более чем шесть тысяч пятьсот`. RedditSim maps those spoken number words back to the visible numeric token during karaoke, so the card keeps the original formatting while the highlight remains synchronized.
 
 Render orientation is duration-aware. In default `--orientation auto` mode, videos up to 180 seconds render as vertical Shorts (`1080x1920`, mobile layout), while videos longer than 180 seconds render as horizontal long-form video (`1920x1080`, desktop layout). Both modes use the same in-text karaoke highlight; horizontal render fills the 16:9 viewport with a clean centered Reddit card and hides editor/sidebar widgets. Override only intentionally with `--orientation vertical` or `--orientation horizontal`.
 
 The GitHub dry-run workflow is `.github/workflows/video_dry_run.yml`. The current workflow fetches a live Reddit story and calls AI33 for narration/transcript, so it uses configured secrets and can spend provider credits. It installs FFmpeg, uses the runner browser, builds `storyboard.json`, renders `final_output.mp4`, verifies the file with `ffprobe`, creates preview PNGs, and uploads video, story, storyboard, narration, transcript, and previews as an artifact.
+
+Implementation note: the render card body keeps the typed text span on the same HTML line as its `<p>` container. This is intentional because the body uses `white-space: pre-wrap`; indentation whitespace inside the HTML source would otherwise appear as a visible first-line offset in captured videos.
 
 Current GitHub verification status: previously recovered after the `startup_failure` ownership/billing issue; see `docs/PROJECT_STATE.md` for the latest verified run and artifact notes.
 
@@ -302,7 +312,9 @@ python3 scraper.py --channel acc3 --output story_ru.json
 | Comments > 1,000 | +15 | High engagement signal |
 | Body length > 500 chars | +10 | Enough content for full 5–10 min video |
 
-The final candidate score also includes a small topic-weight boost, time-window freshness adjustment, velocity bonus, and topic-fatigue penalty. Gemini then receives Reddit metrics, velocity, topic-family rules, story signature, and duplicate context. It must return `viral_potential`, `novelty`, `duplicate_risk`, `legal_risk`, and a `PUBLISH | REWRITE | SKIP` verdict.
+The final candidate score also includes a small topic-weight boost, time-window freshness adjustment, velocity bonus, and topic-fatigue penalty. Gemini then receives Reddit metrics, velocity, topic-family rules, channel exclusions, format intent, story signature, duplicate context, an outside-in channel brief, and a topic `content_bet` brief. It must return the backward-compatible core fields (`viral_potential`, `novelty`, `duplicate_risk`, `legal_risk`, and `PUBLISH | REWRITE | SKIP`) plus producer fields such as `discussion_potential`, `format_fit`, `character_voice_fit`, `slop_risk`, `source_dependency_risk`, `format_recommendation`, `content_bet`, `audience_job_fit`, `first_screen_promise`, `packaging_thesis`, `why_now`, `shorts_cut`, `longform_angle`, and `producer_angle`.
+
+The quality prompt is intentionally strict. Upvotes are treated as evidence, not permission to publish. Before scoring a Reddit post, the model must ask: "Would this be a worthwhile YouTube idea for this audience if we found it anywhere else?" A candidate should be skipped if it is link/screenshot dependent, only interesting inside a narrow subreddit, too generic for a Reddit-card video, too thin for the requested format, or likely to feel like mass-produced AI content. `REWRITE` is only for candidates with real topic strength but a fixable opening hook.
 
 ### Output Format `story_data.json`
 
@@ -493,7 +505,7 @@ Each channel's `channels.json` entry has a `translate_prompt` field:
 
 ### VectorEngine Metadata / SEO
 
-`metadata_generator.py` builds YouTube packaging from `story_data.json` and `channels.json`:
+`metadata_generator.py` builds YouTube packaging from `story_data.json`, `producer_queue.json` fields, `editorial_adaptation`, and `channels.json`. It asks Gemini for three honest title/thumbnail/first-screen packaging options, stores them in `packaging_options`, and writes the selected option into the backward-compatible `youtube_title` and `thumbnail_text` fields:
 
 ```bash
 # No API spend
@@ -626,7 +638,9 @@ YouTube refresh tokens are no longer the active blocker; the early token preflig
 
 Planned production flow:
 ```
-scraper.py → story_data.json
+scraper.py → story_data.json + producer_queue.json
+    ↓
+story_adapter.py → source-backed no-invent adapted story_data.json
     ↓
 metadata_generator.py → youtube_metadata.json via VectorEngine
     ↓
@@ -636,7 +650,9 @@ storyboard display text keeps visible URLs; TTS says localized "link on screen" 
     ↓
 storyboard_generator.py → storyboard.json with centered render_slides
     ↓
-render.py → final_output.mp4 with audio track + karaoke highlight when usable transcript word timings exist, otherwise clean slide-progress frames with audio
+render.py → final_output.mp4 + render_report.json with audio track + karaoke highlight when usable transcript word timings exist
+    ↓
+pre_publish_qa.py → pre_publish_qa.json fail-closed gate
     ↓
 uploader.py → channel preflight, YouTube upload, metadata readback
 ```
@@ -752,9 +768,11 @@ ffprobe final_output.mp4
 - [x] YouTube OAuth secrets exist for all 7 accounts
 - [x] YouTube refresh-token mapping reported verified against expected channel handles after the 2026-06-30 scope reissue
 - [x] `channels.json` — execution config now includes weighted `topic_mix` per channel
-- [x] `scraper.py` — **PRAW OAuth2 + virality scoring + topic-family search + bounded Gemini quality gate**
+- [x] `scraper.py` — **PRAW OAuth2 + virality scoring + topic-family search + bounded Gemini producer queue**
 - [x] `translator_tts.py` switched to AI33 TTS v3, `uploader.py` base script
-- [x] `metadata_generator.py` connected to VectorEngine Gemini for SEO metadata
+- [x] `story_adapter.py` connected to VectorEngine Gemini for source-backed no-invent cleanup
+- [x] `metadata_generator.py` connected to VectorEngine Gemini for packaging options + SEO metadata
+- [x] `pre_publish_qa.py` blocks upload when audio, karaoke, adaptation, evidence, metadata, or render report fail
 - [x] `thumbnail_generator.py` connected to VectorEngine image generation behind explicit spend confirmation
 - [x] `storyboard_generator.py` and `render.py` create a no-spend dry-run `final_output.mp4`
 - [x] Slide-based RedditSim rendering: first story screen without comments, comment-only screens, long story chunking, in-text karaoke highlight, and larger render-mode fonts

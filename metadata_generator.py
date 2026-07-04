@@ -55,6 +55,31 @@ def story_excerpt(story: dict[str, Any], limit: int = 2400) -> str:
     return text[:limit]
 
 
+def producer_packaging_context(story: dict[str, Any]) -> str:
+    adaptation = story.get("editorial_adaptation")
+    if isinstance(adaptation, dict):
+        adaptation = {
+            key: value
+            for key, value in adaptation.items()
+            if key not in {"source_snapshot"}
+        }
+    fields = {
+        "format_intent": story.get("format_intent"),
+        "content_bet": story.get("content_bet"),
+        "producer_score": story.get("producer_score"),
+        "producer_angle": story.get("producer_angle"),
+        "first_screen_promise": story.get("first_screen_promise"),
+        "first_screen_text": story.get("first_screen_text"),
+        "packaging_thesis": story.get("packaging_thesis"),
+        "shorts_cut": story.get("shorts_cut"),
+        "longform_angle": story.get("longform_angle"),
+        "hook_evidence": story.get("hook_evidence"),
+        "editorial_adaptation": adaptation,
+    }
+    compact = {key: value for key, value in fields.items() if value not in (None, "", [], {})}
+    return json.dumps(compact, ensure_ascii=False, indent=2) if compact else "{}"
+
+
 def build_prompt(story: dict[str, Any], channel: dict[str, Any]) -> str:
     language = channel.get("lang", "en")
     channel_name = channel.get("name") or channel.get("handle") or channel.get("id")
@@ -80,14 +105,20 @@ Requirements:
 - Return strict JSON only.
 - Localize title, description, hashtags, and thumbnail text to the channel language.
 - Do not invent facts outside the story.
+- Treat Reddit metrics as support, not the packaging idea.
+- Generate 3 honest packaging options. Each option must be backed by the story/adaptation context and must not imply a twist that is not in source text.
+- Choose one option as selected_option_index.
 - Keep youtube_title under 95 characters.
 - Keep thumbnail_text punchy: 2 short lines max, no more than 32 characters total if possible.
 - Description must include the original Reddit URL if present.
-- Use SEO keywords naturally, not as spam.
+- Use SEO keywords naturally, not as spam. Tags are secondary; title, thumbnail text, and first-screen promise matter more.
 - Tags must be plain strings without # and suitable for YouTube tags.
 - Hashtags must include # and be suitable for the description.
 - Thumbnail prompt must be a visual prompt for a dramatic YouTube thumbnail, with no copyrighted characters.
 - Flag risks such as too graphic, privacy, self-harm, hate, medical, legal, or sexual content.
+
+Producer packaging context:
+{producer_packaging_context(story)}
 
 JSON shape:
 {{
@@ -98,11 +129,62 @@ JSON shape:
   "thumbnail_text": "string",
   "thumbnail_prompt": "string",
   "seo_keywords": ["string"],
+  "packaging_options": [
+    {{
+      "youtube_title": "string",
+      "thumbnail_text": "string",
+      "first_screen_promise": "string",
+      "why_click": "string",
+      "source_backing": "string"
+    }}
+  ],
+  "selected_option_index": 0,
   "risk_flags": ["string"],
   "language": "{language}",
   "source_notes": "string"
 }}
 """.strip()
+
+
+def normalized_packaging_options(metadata: dict[str, Any]) -> list[dict[str, str]]:
+    options = []
+    for item in metadata.get("packaging_options") or []:
+        if not isinstance(item, dict):
+            continue
+        option = {
+            "youtube_title": str(item.get("youtube_title") or "").strip()[:100],
+            "thumbnail_text": str(item.get("thumbnail_text") or "").strip()[:80],
+            "first_screen_promise": str(item.get("first_screen_promise") or "").strip()[:240],
+            "why_click": str(item.get("why_click") or "").strip()[:240],
+            "source_backing": str(item.get("source_backing") or "").strip()[:240],
+        }
+        if option["youtube_title"] or option["thumbnail_text"]:
+            options.append(option)
+    return options[:3]
+
+
+def selected_packaging_option(metadata: dict[str, Any], options: list[dict[str, str]]) -> dict[str, str] | None:
+    if not options:
+        return None
+    try:
+        index = int(metadata.get("selected_option_index", 0))
+    except (TypeError, ValueError):
+        index = 0
+    if index < 0 or index >= len(options):
+        index = 0
+    return options[index]
+
+
+def selected_packaging_index(metadata: dict[str, Any], options: list[dict[str, str]]) -> int | None:
+    if not options:
+        return None
+    try:
+        index = int(metadata.get("selected_option_index", 0))
+    except (TypeError, ValueError):
+        index = 0
+    if index < 0 or index >= len(options):
+        index = 0
+    return index
 
 
 def normalize_metadata(
@@ -113,7 +195,15 @@ def normalize_metadata(
     model: str,
     key_name: str | None,
 ) -> dict[str, Any]:
-    title = str(metadata.get("youtube_title") or story.get("title") or "Reddit Story").strip()
+    packaging_options = normalized_packaging_options(metadata)
+    selected_option = selected_packaging_option(metadata, packaging_options)
+    selected_index = selected_packaging_index(metadata, packaging_options)
+    title = str(
+        metadata.get("youtube_title")
+        or (selected_option or {}).get("youtube_title")
+        or story.get("title")
+        or "Reddit Story"
+    ).strip()
     description = str(metadata.get("youtube_description") or "").strip()
     if story.get("url") and story["url"] not in description:
         description = f"{description}\n\nOriginal thread: {story['url']}".strip()
@@ -133,8 +223,20 @@ def normalize_metadata(
         "youtube_description": description[:5000],
         "tags": tags[:25],
         "hashtags": hashtags[:6],
-        "thumbnail_text": str(metadata.get("thumbnail_text") or "").strip()[:80],
+        "thumbnail_text": str(
+            metadata.get("thumbnail_text")
+            or (selected_option or {}).get("thumbnail_text")
+            or ""
+        ).strip()[:80],
         "thumbnail_prompt": str(metadata.get("thumbnail_prompt") or "").strip(),
+        "packaging_options": packaging_options,
+        "selected_option_index": selected_index,
+        "first_screen_promise": str(
+            metadata.get("first_screen_promise")
+            or (selected_option or {}).get("first_screen_promise")
+            or story.get("first_screen_promise")
+            or ""
+        ).strip()[:240],
         "seo_keywords": [
             str(keyword).strip()
             for keyword in metadata.get("seo_keywords", [])
@@ -166,6 +268,17 @@ def deterministic_fallback(story: dict[str, Any], channel: dict[str, Any], model
         "tags": ["reddit", "reddit stories", subreddit.replace("r/", ""), "viral story", "storytime"],
         "hashtags": ["#reddit", "#stories", "#shorts"],
         "thumbnail_text": "Reddit Story",
+        "packaging_options": [
+            {
+                "youtube_title": title[:100],
+                "thumbnail_text": "Reddit Story",
+                "first_screen_promise": str(story.get("first_screen_promise") or story.get("first_screen_text") or "")[:240],
+                "why_click": "Fallback packaging without API spend.",
+                "source_backing": str(story.get("title") or "")[:240],
+            }
+        ],
+        "selected_option_index": 0,
+        "first_screen_promise": str(story.get("first_screen_promise") or story.get("first_screen_text") or "")[:240],
         "thumbnail_prompt": (
             "Dramatic YouTube thumbnail for a Reddit story, cinematic lighting, "
             "high contrast, expressive human silhouette, no text in the image."

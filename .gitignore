@@ -3,6 +3,7 @@ __pycache__/
 
 # Dry-run/generated video artifacts
 build/
+Trash/
 storyboard.json
 final_output.mp4
 youtube_metadata.json

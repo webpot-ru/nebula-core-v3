@@ -451,15 +451,35 @@ def count_transcript_words(value: Any) -> int:
     return 0
 
 
-def transcript_word_count(path: Path) -> int:
+def collect_transcript_words(value: Any, found: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    if found is None:
+        found = []
+    normalized = normalize_transcript_word(value)
+    if normalized:
+        found.append(normalized)
+        return found
+    if isinstance(value, dict):
+        for item in value.values():
+            collect_transcript_words(item, found)
+    elif isinstance(value, list):
+        for item in value:
+            collect_transcript_words(item, found)
+    return found
+
+
+def load_transcript_words(path: Path) -> list[dict[str, Any]]:
     try:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return 0
+        return []
     if isinstance(data, dict) and str(data.get("timing_status") or "").lower() in {"missing", "partial"}:
-        return 0
-    return count_transcript_words(data)
+        return []
+    return collect_transcript_words(data)
+
+
+def transcript_word_count(path: Path) -> int:
+    return len(load_transcript_words(path))
 
 
 def write_render_story(storyboard: dict[str, Any], workdir: Path) -> Path:
@@ -477,6 +497,58 @@ def write_render_story(storyboard: dict[str, Any], workdir: Path) -> Path:
     return story_path
 
 
+def uniform_frame_timestamps(duration: float, frame_count: int) -> list[float]:
+    frame_count = max(2, frame_count)
+    step = max(duration, 0.1) / frame_count
+    return [round(index * step, 6) for index in range(frame_count)]
+
+
+def transcript_frame_timestamps(words: list[dict[str, Any]]) -> list[float]:
+    timestamps = [0.0]
+    for word in words:
+        start = word.get("start")
+        if isinstance(start, (int, float)):
+            timestamps.append(float(start))
+    return timestamps
+
+
+def sanitize_frame_timestamps(timestamps: list[float], duration: float) -> list[float]:
+    min_interval = 1.0 / DEFAULT_OUTPUT_FPS
+    cleaned: list[float] = []
+    for value in sorted({round(max(0.0, float(timestamp)), 6) for timestamp in timestamps}):
+        if value >= duration:
+            continue
+        if cleaned and value - cleaned[-1] < min_interval:
+            continue
+        cleaned.append(value)
+    if not cleaned or cleaned[0] != 0:
+        cleaned.insert(0, 0.0)
+    return cleaned
+
+
+def read_browser_karaoke_frame_times(client: CDPClient, duration: float) -> list[float]:
+    expression = (
+        "(() => { "
+        "if (typeof window.getKaraokeFrameTimes !== 'function') return []; "
+        f"return window.getKaraokeFrameTimes({duration:.6f}); "
+        "})()"
+    )
+    result = client.command("Runtime.evaluate", {
+        "expression": expression,
+        "returnByValue": True,
+    }, timeout=10)
+    value = result.get("result", {}).get("value")
+    if not isinstance(value, list):
+        return []
+    timestamps: list[float] = []
+    for item in value:
+        try:
+            timestamps.append(float(item))
+        except (TypeError, ValueError):
+            continue
+    return timestamps
+
+
 def capture_redditsim_frames(
     *,
     browser: str,
@@ -490,10 +562,10 @@ def capture_redditsim_frames(
     height: int,
     aspect_ratio: str,
     layout_style: str,
-) -> list[Path]:
+    fallback_karaoke_times: list[float] | None = None,
+) -> tuple[list[Path], list[float]]:
     frames_dir = workdir / f"frames_{time.time_ns()}"
     frames_dir.mkdir(parents=True, exist_ok=True)
-    frame_count = max(2, frame_count)
     index_url = (PROJECT_ROOT / "index.html").resolve().as_uri()
     story_url = story_path.resolve().as_uri()
     query_parts = [
@@ -517,13 +589,20 @@ def capture_redditsim_frames(
         initial_url = f"{index_url}?{encoded_query}"
         client.command("Page.navigate", {"url": initial_url}, timeout=5)
         wait_for_render_ready(client)
+        if transcript_path:
+            browser_times = read_browser_karaoke_frame_times(client, duration)
+            frame_times = sanitize_frame_timestamps(
+                browser_times or fallback_karaoke_times or [0.0],
+                duration,
+            )
+        else:
+            frame_times = uniform_frame_timestamps(duration, frame_count)
 
-        for frame_index in range(frame_count):
-            progress = frame_index / (frame_count - 1)
+        for frame_index, timestamp in enumerate(frame_times):
+            progress = timestamp / max(duration, 0.001)
             screenshot_path = frames_dir / f"frame_{frame_index:04d}.png"
 
             # Update typing/karaoke progress in-memory via JavaScript.
-            timestamp = progress * duration
             if transcript_path:
                 expression = (
                     "(() => { "
@@ -555,29 +634,46 @@ def capture_redditsim_frames(
     finally:
         client.close()
         stop_browser(process)
-    return frames
+    return frames, frame_times
+
+
+def write_concat_file(frames: list[Path], output_timestamps: list[float], duration: float) -> Path:
+    if not frames:
+        raise RenderError("No captured frames to encode.")
+    concat_path = frames[0].parent / "frames.ffconcat"
+    lines = ["ffconcat version 1.0"]
+    for index, frame in enumerate(frames):
+        next_time = output_timestamps[index + 1] if index + 1 < len(output_timestamps) else duration
+        frame_duration = max(next_time - output_timestamps[index], 1.0 / DEFAULT_OUTPUT_FPS)
+        lines.append(f"file '{frame.name}'")
+        lines.append(f"duration {frame_duration:.6f}")
+    lines.append(f"file '{frames[-1].name}'")
+    concat_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return concat_path
 
 
 def encode_frames(
     ffmpeg: str,
-    frames_dir: Path,
+    frames: list[Path],
+    frame_timestamps: list[float],
     output_path: Path,
     duration: float,
-    frame_count: int,
     audio_path: Path | None = None,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    input_framerate = max(frame_count / max(duration, 0.1), 0.1)
+    concat_path = write_concat_file(frames, frame_timestamps, duration)
     command = [
         ffmpeg,
         "-hide_banner",
         "-loglevel",
         "error",
         "-y",
-        "-framerate",
-        f"{input_framerate:.6f}",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
         "-i",
-        str(frames_dir / "frame_%04d.png"),
+        str(concat_path),
     ]
     if audio_path:
         command.extend(["-i", str(audio_path)])
@@ -625,6 +721,7 @@ def render_redditsim_video(
     audio_path: Path | None,
     transcript_path: Path | None,
     transcript_word_count_value: int,
+    transcript_words: list[dict[str, Any]],
 ) -> dict[str, Any]:
     ffmpeg = find_ffmpeg_binary("ffmpeg")
     ffprobe = find_ffmpeg_binary("ffprobe")
@@ -636,7 +733,8 @@ def render_redditsim_video(
     render_profile = resolve_render_profile(storyboard, duration, orientation, long_form_threshold_sec)
     width = int(render_profile["width"])
     height = int(render_profile["height"])
-    frames = capture_redditsim_frames(
+    fallback_karaoke_times = transcript_frame_timestamps(transcript_words) if transcript_path else None
+    frames, frame_timestamps = capture_redditsim_frames(
         browser=browser,
         story_path=story_path,
         audio_path=audio_path,
@@ -648,8 +746,9 @@ def render_redditsim_video(
         height=height,
         aspect_ratio=str(render_profile["aspect"]),
         layout_style=str(render_profile["layout"]),
+        fallback_karaoke_times=fallback_karaoke_times,
     )
-    encode_frames(ffmpeg, frames[0].parent, output_path, duration, len(frames), audio_path)
+    encode_frames(ffmpeg, frames, frame_timestamps, output_path, duration, audio_path)
 
     return {
         "browser": browser,
@@ -657,6 +756,7 @@ def render_redditsim_video(
         "ffprobe": ffprobe,
         "framesDir": str(frames[0].parent),
         "frameCount": len(frames),
+        "frameSchedule": "karaoke_phrase_times" if transcript_path else "uniform_progress",
         "durationSec": duration,
         "storyboardDurationSec": storyboard_sec,
         "audioDurationSec": audio_sec,
@@ -677,6 +777,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render a dry-run MP4 from storyboard.json using the RedditSim UI.")
     parser.add_argument("--storyboard", default=DEFAULT_STORYBOARD, help="Input storyboard JSON path.")
     parser.add_argument("--output", "-o", default=DEFAULT_OUTPUT, help="Output MP4 path.")
+    parser.add_argument("--report", help="Optional JSON render report output path.")
     parser.add_argument("--workdir", default=DEFAULT_WORKDIR, help="Renderer working directory.")
     parser.add_argument("--frame-count", type=int, default=DEFAULT_FRAME_COUNT, help="Number of RedditSim screenshots to sample across the storyboard.")
     parser.add_argument("--audio", default=DEFAULT_AUDIO, help="Optional narration audio path to merge into the MP4.")
@@ -712,7 +813,8 @@ def main(argv: list[str]) -> int:
     workdir.mkdir(parents=True, exist_ok=True)
     audio_path = resolve_optional_file(args.audio)
     transcript_path = resolve_optional_file(args.transcript)
-    transcript_words = transcript_word_count(transcript_path) if transcript_path else 0
+    transcript_words_list = load_transcript_words(transcript_path) if transcript_path else []
+    transcript_words = len(transcript_words_list)
     if transcript_path and transcript_words <= 0:
         if args.require_karaoke:
             raise RenderError(f"--require-karaoke was set, but {transcript_path} has no usable word timings.")
@@ -738,15 +840,21 @@ def main(argv: list[str]) -> int:
         audio_path=audio_path,
         transcript_path=transcript_path,
         transcript_word_count_value=transcript_words if transcript_path else 0,
+        transcript_words=transcript_words_list if transcript_path else [],
     )
-    print(json.dumps({
+    report = {
         "status": "ok",
         "storyboard": args.storyboard,
         "output": str(output_path),
         "sceneCount": len(scenes),
         "captureFrameCount": args.frame_count,
         **render_result,
-    }, ensure_ascii=False, indent=2))
+    }
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
 
