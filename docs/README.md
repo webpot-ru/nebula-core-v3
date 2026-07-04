@@ -212,7 +212,7 @@ test -s final_output.mp4
 ffprobe final_output.mp4
 ```
 
-`storyboard_generator.py` now emits `render_slides` for the simulator. Story/comment text advances as clean centered card screens rather than a scrolling page. For multi-screen posts, the first screen shows the post header/title and hides the footer, middle screens show continuation text only, and only the final story screen shows upvotes/comments/share. Comment continuations follow the same rule: only the first comment chunk shows the comment header, and only the final chunk shows comment actions. Slide limits are tuned to use the available 9:16 and 16:9 card space, with an anti-orphan merge so a tiny final sentence is not split onto its own mostly empty screen.
+`storyboard_generator.py` now emits `render_slides` for the simulator. Story/comment text advances as clean centered card screens rather than a scrolling page. For multi-screen posts, the first screen shows the post header/title and hides the footer, middle screens show continuation text only, and only the final story screen shows upvotes/comments/share. In render mode that final post footer is reserved but visually hidden until the final karaoke phrase on the story slide; without usable karaoke timings it is revealed only near the end of that slide's fallback progress. This applies to both vertical Shorts and horizontal long-form renders. Comment continuations follow the same rule: only the first comment chunk shows the comment header, and only the final chunk shows comment actions. Slide limits are tuned to use the available 9:16 and 16:9 card space, with an anti-orphan merge so a tiny final sentence is not split onto its own mostly empty screen.
 
 `render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic slide-progress/karaoke screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. If `narration.json` exists and contains usable word timings, the renderer passes it into RedditSim so the current smart phrase is highlighted directly inside the currently visible Reddit card text. Phrases target 2-5 words and roughly 24-34 characters, stop at punctuation or line breaks, and never cross title/body/comment boundaries. Karaoke renders now capture frames at phrase-change timestamps instead of only at a small fixed number of evenly spaced samples, so long-form videos do not visibly jump over highlighted words. If AI33 returns missing or partial timings, the renderer disables karaoke and falls back to clean slide-progress frames while still merging the voiceover audio unless `--require-karaoke` is set. Karaoke mode does not add extra caption words, lower subtitle strips, or overlay text, and its highlight style must not change text metrics or trigger line reflow. Use `--report render_report.json` so downstream QA can verify render format, frame schedule, karaoke state, duration, and audio merge.
 
@@ -614,7 +614,7 @@ must show the new scopes and then match every authenticated channel against
 
 ### Dry-Run Render Workflow
 
-`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit and AI33 secrets, so it is not a no-spend fixture-only workflow:
+`video_dry_run.yml` is the workflow to run before production upload. It can be triggered manually. The current version uses live Reddit, Gemini, and AI33 secrets, so it is not a no-spend fixture-only workflow. For a vertical Shorts artifact that exercises live topic search/filtering without uploading to YouTube, run it with `content_format=shorts`; this applies the same scraper shortening rules as manual Shorts publishing and forces a vertical render:
 
 ```text
 scraper.py
@@ -658,7 +658,7 @@ pre_publish_qa.py → pre_publish_qa.json fail-closed gate
 uploader.py → channel preflight, YouTube upload, metadata readback
 ```
 
-`render.py` uses `--orientation auto` by default: narration/storyboard duration up to 180 seconds stays vertical 9:16 for Shorts, and anything longer than 180 seconds becomes horizontal 16:9 for long-form YouTube. The horizontal path keeps the same word-level karaoke treatment on the Reddit card text and does not add side panels or extra captions. Both orientations use larger render-mode text and slide chunking so the card stays readable instead of squeezing a long post onto one screen. `auto_publish.yml` passes `--require-karaoke` so live upload stops before YouTube if word timings are missing.
+`render.py` uses `--orientation auto` by default: narration/storyboard duration up to 180 seconds stays vertical 9:16 for Shorts, and anything longer than 180 seconds becomes horizontal 16:9 for long-form YouTube. The horizontal path keeps the same in-card karaoke treatment on the Reddit card text and does not add side panels or extra captions. In both orientations, post metrics/share appear only as the story-card ending on the final phrase. Both orientations use larger render-mode text and slide chunking so the card stays readable instead of squeezing a long post onto one screen. `auto_publish.yml` passes `--require-karaoke` so live upload stops before YouTube if word timings are missing.
 
 ### ⚠️ Orchestration Rule (CRITICAL)
 
@@ -726,6 +726,7 @@ gh workflow run auto_publish.yml --ref main -f channel=acc1 -f time_filter=auto 
 
 # Trigger live GitHub render dry-run manually; this can spend Reddit/Gemini/AI33 provider usage
 gh workflow run video_dry_run.yml --ref main
+gh workflow run video_dry_run.yml --ref main -f channel=acc1 -f time_filter=auto -f topic_family=channel_mix -f video_slot=1 -f content_format=shorts
 
 # Check secrets
 gh secret list

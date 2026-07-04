@@ -1792,6 +1792,17 @@ body.karaoke-mode .cursor {
   margin-top: 22px;
 }
 
+.app-container.render-mode .reddit-card.meta-deferred .post-footer {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-container.render-mode .reddit-card.meta-revealed .post-footer {
+  visibility: visible;
+  opacity: 1;
+}
+
 .app-container.render-mode .footer-action {
   padding: 10px 20px;
 }

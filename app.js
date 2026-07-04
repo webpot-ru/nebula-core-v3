@@ -672,6 +672,21 @@ function slideShowsPostFooter(slide) {
   return true;
 }
 
+function slideDefersPostFooter(slide) {
+  return isRenderMode() && slide.type === 'story' && slideShowsPostFooter(slide);
+}
+
+function applyPostFooterVisibility(slide, revealPostFooter = false) {
+  const hasFooter = slideShowsPostFooter(slide);
+  const deferred = slideDefersPostFooter(slide);
+  const visible = hasFooter && (!deferred || revealPostFooter);
+  if (postFooter) {
+    postFooter.style.display = hasFooter ? 'flex' : 'none';
+  }
+  redditCard.classList.toggle('meta-deferred', Boolean(hasFooter && deferred && !visible));
+  redditCard.classList.toggle('meta-revealed', Boolean(hasFooter && visible));
+}
+
 function slideShowsPostHeader(slide) {
   if (slide.type === 'comments') return false;
   if (typeof slide.showPostHeader === 'boolean') return slide.showPostHeader;
@@ -684,19 +699,17 @@ function slideShowsPostTitle(slide) {
   return Boolean((slide.title || '').trim());
 }
 
-function applySlideChrome(slide) {
+function applySlideChrome(slide, options = {}) {
   const showHeader = slideShowsPostHeader(slide);
   const showTitle = slideShowsPostTitle(slide);
-  const showFooter = slideShowsPostFooter(slide);
+  const hasFooter = slideShowsPostFooter(slide);
   if (postHeader) {
     postHeader.style.display = showHeader ? 'flex' : 'none';
   }
-  if (postFooter) {
-    postFooter.style.display = showFooter ? 'flex' : 'none';
-  }
+  applyPostFooterVisibility(slide, options.revealPostFooter === true);
   redditCard.classList.toggle('slide-story', slide.type === 'story');
   redditCard.classList.toggle('slide-comments', slide.type === 'comments');
-  redditCard.classList.toggle('slide-continuation-only', Boolean(slide.continuationOnly || (!showHeader && !showTitle && !showFooter)));
+  redditCard.classList.toggle('slide-continuation-only', Boolean(slide.continuationOnly || (!showHeader && !showTitle && !hasFooter)));
   redditCard.dataset.slidePart = slide.part || 'single';
 }
 
@@ -704,11 +717,11 @@ function setCommentsSectionVisible(visible) {
   postCommentsSection.style.display = visible ? 'flex' : 'none';
 }
 
-function renderSlideStatic(slide) {
+function renderSlideStatic(slide, options = {}) {
   clearTimeout(typingTimeoutId);
   state.isPlaying = false;
 
-  applySlideChrome(slide);
+  applySlideChrome(slide, options);
 
   postTitleText.textContent = slide.title || '';
   postTitleContainer.style.display = slideShowsPostTitle(slide) && slide.title ? 'block' : 'none';
@@ -730,23 +743,42 @@ function renderSlideStatic(slide) {
   currentTextIndex = 0;
 }
 
-function slideIndexAtProgress(progress) {
+function slideProgressStateAtProgress(progress) {
   const slides = currentSlides();
-  if (slides.length <= 1) return 0;
+  if (slides.length <= 1) {
+    return {
+      index: 0,
+      localProgress: Math.max(0, Math.min(1, Number(progress) || 0))
+    };
+  }
   const total = slides.reduce((sum, slide) => sum + Math.max(0.1, slide.estimatedDuration || 1), 0);
   const target = Math.max(0, Math.min(0.999999, Number(progress) || 0)) * total;
   let cursor = 0;
   for (let index = 0; index < slides.length; index++) {
-    cursor += Math.max(0.1, slides[index].estimatedDuration || 1);
-    if (target <= cursor) return index;
+    const slideDuration = Math.max(0.1, slides[index].estimatedDuration || 1);
+    const nextCursor = cursor + slideDuration;
+    if (target <= nextCursor) {
+      return {
+        index,
+        localProgress: Math.max(0, Math.min(1, (target - cursor) / slideDuration))
+      };
+    }
+    cursor = nextCursor;
   }
-  return slides.length - 1;
+  return { index: slides.length - 1, localProgress: 1 };
+}
+
+function slideIndexAtProgress(progress) {
+  return slideProgressStateAtProgress(progress).index;
 }
 
 function renderSlideAtProgress(progress) {
   const slides = currentSlides();
-  const index = slideIndexAtProgress(progress);
-  renderSlideStatic(slides[index]);
+  const progressState = slideProgressStateAtProgress(progress);
+  const index = progressState.index;
+  renderSlideStatic(slides[index], {
+    revealPostFooter: progressState.localProgress >= 0.86
+  });
   activeRenderSlideIndex = index;
   return true;
 }
@@ -1291,6 +1323,27 @@ function setKaraokeActiveIndex(active) {
   karaokeActiveIndexes = nextIndexes;
 }
 
+function updateDeferredPostFooterForKaraoke(active) {
+  const slides = currentSlides();
+  const slide = slides[Math.max(0, Math.min(slides.length - 1, activeRenderSlideIndex))];
+  if (!slide) return;
+  if (!slideDefersPostFooter(slide)) {
+    applyPostFooterVisibility(slide, true);
+    return;
+  }
+
+  const slideStart = Math.max(0, Number(slide.wordStart) || 0);
+  const slideEnd = Math.min(
+    karaokeWords.length,
+    Math.max(slideStart, Number(slide.wordEnd) || karaokeWords.length)
+  );
+  const hasNoNarratedWords = slideEnd <= slideStart;
+  const finalWordIndex = Math.max(slideStart, slideEnd - 1);
+  const currentGroupTouchesEnd = karaokeActiveIndexes.some(index => index >= finalWordIndex);
+  const revealPostFooter = hasNoNarratedWords || currentGroupTouchesEnd || active >= finalWordIndex;
+  applyPostFooterVisibility(slide, revealPostFooter);
+}
+
 function renderKaraokeAtTime(timeSeconds) {
   if (!karaokeReady) return false;
   const active = findKaraokeWordIndex(coerceKaraokeTime(timeSeconds));
@@ -1299,6 +1352,7 @@ function renderKaraokeAtTime(timeSeconds) {
     buildKaraokeDOM(slideIndex);
   }
   setKaraokeActiveIndex(active);
+  updateDeferredPostFooterForKaraoke(active);
   return true;
 }
 
@@ -1572,7 +1626,7 @@ function resetTyping() {
   } else {
     if (postHeader) postHeader.style.display = '';
     if (postFooter) postFooter.style.display = '';
-    redditCard.classList.remove('slide-story', 'slide-comments', 'slide-continuation-only');
+    redditCard.classList.remove('slide-story', 'slide-comments', 'slide-continuation-only', 'meta-deferred', 'meta-revealed');
     redditCard.removeAttribute('data-slide-part');
     setCommentsSectionVisible(true);
     postTitleText.textContent = state.postTitle;

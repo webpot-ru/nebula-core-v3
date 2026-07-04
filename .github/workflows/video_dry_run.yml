@@ -27,6 +27,36 @@ on:
           - week
           - month
           - year
+      topic_family:
+        description: 'Topic strategy for manual dry-run tests'
+        required: false
+        default: 'channel_mix'
+        type: choice
+        options:
+          - channel_mix
+          - human_drama
+          - dark_curiosity
+          - curiosity_facts
+          - football_culture
+          - internet_lore
+          - visual_comedy
+      video_slot:
+        description: 'Slot number for duplicate/fatigue checks'
+        required: false
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+      content_format:
+        description: 'Content length target for the dry-run artifact'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - shorts
+          - long
 
 jobs:
   render-dry-run:
@@ -59,8 +89,18 @@ jobs:
         run: |
           CHANNEL_ID="${{ github.event.inputs.channel || 'acc4' }}"
           TIME_FILTER="${{ github.event.inputs.time_filter || 'auto' }}"
+          TOPIC_FAMILY="${{ github.event.inputs.topic_family || 'channel_mix' }}"
+          if [ "$TOPIC_FAMILY" = "channel_mix" ]; then
+            TOPIC_FAMILY=""
+          fi
+          VIDEO_SLOT="${{ github.event.inputs.video_slot || '1' }}"
+          CONTENT_FORMAT="${{ github.event.inputs.content_format || 'auto' }}"
           echo "channel_id=${CHANNEL_ID}" >> $GITHUB_OUTPUT
           echo "time_filter=${TIME_FILTER}" >> $GITHUB_OUTPUT
+          echo "topic_family=${TOPIC_FAMILY}" >> $GITHUB_OUTPUT
+          echo "video_slot=${VIDEO_SLOT}" >> $GITHUB_OUTPUT
+          echo "content_format=${CONTENT_FORMAT}" >> $GITHUB_OUTPUT
+          echo "📺 dry-run ${CHANNEL_ID} | slot=${VIDEO_SLOT} | filter=${TIME_FILTER} | topic=${TOPIC_FAMILY:-mixed} | format=${CONTENT_FORMAT}"
 
       - name: Fetch viral story from Reddit
         env:
@@ -78,7 +118,20 @@ jobs:
           STORY_SIMILARITY_THRESHOLD: '0.72'
           TOPIC_FATIGUE_LOOKBACK: '10'
         run: |
-          python scraper.py --channel ${{ steps.target.outputs.channel_id }} --time ${{ steps.target.outputs.time_filter }}
+          EXTRA_ARGS=()
+          if [ -n "${{ steps.target.outputs.topic_family }}" ]; then
+            EXTRA_ARGS+=(--topic-family "${{ steps.target.outputs.topic_family }}")
+          fi
+          if [ "${{ steps.target.outputs.content_format }}" = "shorts" ]; then
+            EXTRA_ARGS+=(--format-intent shorts --max-body-chars 900 --comment-limit 0)
+          elif [ "${{ steps.target.outputs.content_format }}" = "long" ]; then
+            EXTRA_ARGS+=(--format-intent long)
+          fi
+          python scraper.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --time ${{ steps.target.outputs.time_filter }} \
+            --video-slot ${{ steps.target.outputs.video_slot }} \
+            "${EXTRA_ARGS[@]}"
 
       - name: Adapt story with source-backed hook
         env:
@@ -87,12 +140,17 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
+          ADAPTER_ARGS=()
+          if [ "${{ steps.target.outputs.content_format }}" = "shorts" ]; then
+            ADAPTER_ARGS+=(--max-body-chars 900)
+          fi
           python story_adapter.py \
             --channel ${{ steps.target.outputs.channel_id }} \
             --story story_data.json \
             --output story_data.json \
             --confirm-spend \
-            --strict-evidence
+            --strict-evidence \
+            "${ADAPTER_ARGS[@]}"
 
       - name: Generate Gemini packaging metadata
         env:
@@ -123,12 +181,17 @@ jobs:
 
       - name: Render dry-run MP4 (100 frames)
         run: |
+          ORIENTATION_ARGS=()
+          if [ "${{ steps.target.outputs.content_format }}" = "shorts" ]; then
+            ORIENTATION_ARGS+=(--orientation vertical)
+          fi
           python render.py \
             --storyboard storyboard.json \
             --output final_output.mp4 \
             --report render_report.json \
             --frame-count 100 \
-            --require-karaoke
+            --require-karaoke \
+            "${ORIENTATION_ARGS[@]}"
 
       - name: Pre-publish QA gate
         run: |
