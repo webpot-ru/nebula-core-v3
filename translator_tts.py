@@ -1465,6 +1465,66 @@ def write_combined_transcript(
     return timing_status in {"ok", "estimated"}
 
 
+def write_single_voice_transcript(
+    *,
+    output_path: Path,
+    payload: dict[str, Any],
+    narration_text: str,
+    audio_duration: float,
+    voice_id: str,
+) -> bool:
+    raw_words = collect_transcript_words(payload)
+    words = raw_words
+    timing_status = "ok"
+    timing_source = "ai33"
+    warnings: list[str] = []
+    timing_debug: list[dict[str, Any]] = []
+
+    if not words:
+        words = estimate_transcript_words(narration_text, audio_duration)
+        if words:
+            timing_status = "estimated"
+            timing_source = "estimated"
+            warnings.append(
+                "AI33 did not return usable word timings for single-voice narration; estimated timings were generated from narration text and audio duration."
+            )
+            timing_debug.append({
+                "fallback": "estimated_from_narration_text_and_audio_duration",
+                "payload_shape": summarize_timing_payload_shape(payload),
+            })
+        else:
+            timing_status = "missing"
+            warnings.append(
+                "AI33 did not return usable word timings for single-voice narration and estimated timings could not be generated."
+            )
+            timing_debug.append({
+                "payload_shape": summarize_timing_payload_shape(payload),
+            })
+
+    normalized_words = []
+    for word in words:
+        normalized = dict(word)
+        normalized.setdefault("timing_source", timing_source)
+        normalized_words.append(normalized)
+
+    output = {
+        "version": 1,
+        "source": "translator_tts_single_voice",
+        "timing_status": timing_status,
+        "voice_id": voice_id,
+        "duration": round(audio_duration, 3),
+        "words": normalized_words if timing_status in {"ok", "estimated"} else [],
+        "word_count": len(normalized_words) if timing_status in {"ok", "estimated"} else 0,
+    }
+    if timing_debug:
+        output["timing_debug"] = timing_debug
+    if warnings:
+        output["warnings"] = warnings
+
+    output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+    return timing_status in {"ok", "estimated"}
+
+
 def generate_tts_audio(
     *,
     api_key: str,
@@ -1680,8 +1740,18 @@ def process_story_audio(args: argparse.Namespace) -> None:
         print(f"Saved audio to {output_path}")
         if args.with_transcript:
             transcript_path = output_path.with_suffix(".json")
-            transcript_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(f"Saved task transcript/metadata to {transcript_path}")
+            ffprobe = find_binary("ffprobe")
+            transcript_has_word_timings = write_single_voice_transcript(
+                output_path=transcript_path,
+                payload=payload,
+                narration_text=narration_text,
+                audio_duration=probe_audio_duration(ffprobe, output_path),
+                voice_id=voice_id,
+            )
+            if transcript_has_word_timings:
+                print(f"Saved task transcript/metadata to {transcript_path}")
+            else:
+                print(f"WARNING: Saved transcript metadata without usable word timings to {transcript_path}.")
         return
 
     task_id = payload.get("task_id")
@@ -1706,8 +1776,18 @@ def process_story_audio(args: argparse.Namespace) -> None:
 
     if args.with_transcript:
         transcript_path = output_path.with_suffix(".json")
-        transcript_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"Saved task transcript/metadata to {transcript_path}")
+        ffprobe = find_binary("ffprobe")
+        transcript_has_word_timings = write_single_voice_transcript(
+            output_path=transcript_path,
+            payload=payload,
+            narration_text=narration_text,
+            audio_duration=probe_audio_duration(ffprobe, output_path),
+            voice_id=voice_id,
+        )
+        if transcript_has_word_timings:
+            print(f"Saved task transcript/metadata to {transcript_path}")
+        else:
+            print(f"WARNING: Saved transcript metadata without usable word timings to {transcript_path}.")
 
 
 def build_parser() -> argparse.ArgumentParser:
