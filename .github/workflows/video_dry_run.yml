@@ -221,7 +221,7 @@ jobs:
           mkdir -p build/render/previews
           ffmpeg -hide_banner -loglevel error -y -ss 1 -i final_output.mp4 -frames:v 1 build/render/previews/preview_01.png
           ffmpeg -hide_banner -loglevel error -y -ss 10 -i final_output.mp4 -frames:v 1 build/render/previews/preview_mid.png
-          ffmpeg -hide_banner -loglevel error -y -ss 18 -i final_output.mp4 -frames:v 1 build/render/previews/preview_end.png
+          ffmpeg -hide_banner -loglevel error -y -sseof -0.2 -i final_output.mp4 -frames:v 1 build/render/previews/preview_end.png
 
       - name: Upload dry-run artifacts
         uses: actions/upload-artifact@v4

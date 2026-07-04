@@ -1387,6 +1387,9 @@ function getKaraokeFrameTimes(durationSeconds) {
   });
 
   activeRenderSlideIndex = -1;
+  if (duration > 0) {
+    times.push(Math.max(0, duration - (1 / 30)));
+  }
   return Array.from(new Set(times.map(time => Math.max(0, Number(time) || 0))))
     .sort((a, b) => a - b);
 }
