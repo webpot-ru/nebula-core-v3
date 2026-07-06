@@ -627,6 +627,90 @@
         "reason": "This is a perfect fit for Italian visual comedy, leveraging pizza culture and petty social friction to drive massive comment section engagement.",
         "hook_suggestion": "Compro sempre l'ultimo trancio di pizza rimasto... solo per fare un dispetto a chi è dietro di me."
       }
+    },
+    "1uje83u": {
+      "channels": {
+        "acc2": {
+          "published_at": "2026-07-06T17:42:52.471852+00:00"
+        }
+      },
+      "title": "AITA for serving my daughters friend liver?",
+      "subreddit": "r/AmItheAsshole",
+      "url": "https://reddit.com/r/AmItheAsshole/comments/1uje83u/aita_for_serving_my_daughters_friend_liver/",
+      "story_signature": "e44cacc41d1e4019",
+      "keyword_signature": "always called certain course daughter daughters decided dinner does enjoy everything feed friend home inviting kind",
+      "topic_family": "human_drama",
+      "topic_label": "Human drama / moral conflict",
+      "content_bet": "moral_court",
+      "time_window": "week",
+      "virality_score": 83,
+      "producer_score": 355.85,
+      "producer_rank": 1,
+      "base_virality_score": 80,
+      "velocity": {
+        "age_hours": 157.9,
+        "upvotes_per_hour": 37.26,
+        "comments_per_hour": 7.36
+      },
+      "fatigue_penalty": 8,
+      "hook_evidence": [
+        {
+          "field": "title",
+          "quote": "AITA for serving my daughters friend liver?",
+          "why_it_matters": "Directly establishes the bizarre and polarizing food choice at the center of the conflict."
+        },
+        {
+          "field": "body",
+          "quote": "I got an irate call from the friends mother about how her kid had come home from my house completely starving",
+          "why_it_matters": "Provides the high-stakes escalation and the direct accusation that makes the conflict feel urgent."
+        }
+      ],
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 8,
+        "hook_strength": 9,
+        "narrative_arc": 8,
+        "discussion_potential": 10,
+        "format_fit": 9,
+        "translation": 10,
+        "viral_potential": 9,
+        "novelty": 8,
+        "character_voice_fit": 9,
+        "slop_risk": 2,
+        "source_dependency_risk": 1,
+        "duplicate_risk": 2,
+        "legal_risk": 1,
+        "topic_family": "Human drama / moral conflict",
+        "content_bet": "moral_court",
+        "shorts_hook_type": "controversy",
+        "format_recommendation": "shorts",
+        "audience_job_fit": "This satisfies the brief by delivering a highly relatable, culturally charged food conflict with an immediate, polarizing moral question that drives high comment engagement.",
+        "first_screen_promise": "The viewer immediately understands that a parent is being accused of starving a guest child by serving an extremely polarizing delicacy.",
+        "first_screen_text": "I served my daughter's friend a traditional Italian liver dish for dinner. Now her mom is accusing me of starving her child.",
+        "packaging_thesis": "Frame the video around the clash of cultural culinary pride versus basic hospitality expectations, forcing the audience to choose a side on whether serving liver to an unsuspecting kid is a 'crime' or if the other mom is overreacting.",
+        "why_now": "Food drama and parenting conflicts are evergreen high-retention drivers on Shorts, and this specific cultural clash (Venetian delicacy vs. standard Western kid food) is highly debatable.",
+        "shorts_cut": "Start with the dramatic accusation from the irate mother. Flashback to the dinner: the host proudly cooking a traditional Venetian liver dish. Show the polite but horrified reaction of the teenage friend who only eats one bite. Reveal the host's solution (fruit and snacks) and the explosive phone call the next day. End with a direct question to the audience about food hospitality rules.",
+        "longform_angle": null,
+        "producer_angle": "The core hook isn't just 'AITA for serving liver'—it's the clash between an authentic cultural tradition (Venetian liver as a delicacy) and the modern, protective parenting culture that treats anything unfamiliar as child neglect.",
+        "hook_evidence": [
+          {
+            "field": "title",
+            "quote": "AITA for serving my daughters friend liver?",
+            "why_it_matters": "Directly establishes the bizarre and polarizing food choice at the center of the conflict."
+          },
+          {
+            "field": "body",
+            "quote": "I got an irate call from the friends mother about how her kid had come home from my house completely starving",
+            "why_it_matters": "Provides the high-stakes escalation and the direct accusation that makes the conflict feel urgent."
+          }
+        ],
+        "source_integrity": {
+          "can_adapt_without_inventing": true,
+          "facts_not_in_source": []
+        },
+        "reason": "This post has an incredibly strong, self-contained narrative arc perfect for a 60-second Short, featuring a highly polarizing food conflict that will naturally generate massive comment section debates.",
+        "hook_suggestion": "My daughter's friend stayed for dinner, so I cooked a traditional Venetian delicacy. Now her mom is calling me an irresponsible parent for 'starving' her kid."
+      }
     }
   }
 }
