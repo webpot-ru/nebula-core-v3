@@ -711,6 +711,80 @@
         "reason": "This post has an incredibly strong, self-contained narrative arc perfect for a 60-second Short, featuring a highly polarizing food conflict that will naturally generate massive comment section debates.",
         "hook_suggestion": "My daughter's friend stayed for dinner, so I cooked a traditional Venetian delicacy. Now her mom is calling me an irresponsible parent for 'starving' her kid."
       }
+    },
+    "1u9oidx": {
+      "channels": {
+        "acc3": {
+          "published_at": "2026-07-06T19:49:41.583389+00:00"
+        }
+      },
+      "title": "User asks r/StopEatingSeedOils for evidence seed oils are bad, accidentally starts a 400-comment war. Mods respond with ban wave.",
+      "subreddit": "r/SubredditDrama",
+      "url": "https://reddit.com/r/SubredditDrama/comments/1u9oidx/user_asks_rstopeatingseedoils_for_evidence_seed/",
+      "story_signature": "9038b5788e7c6f94",
+      "keyword_signature": "accidentally actual answers asks comment epistemology evidence highlights include mods oils post provide respond saying seed",
+      "topic_family": "internet_lore",
+      "topic_label": "Internet lore / creator or community drama",
+      "content_bet": "internet_lore",
+      "time_window": "month",
+      "virality_score": 53,
+      "producer_score": 314.15,
+      "producer_rank": 2,
+      "base_virality_score": 52,
+      "velocity": {
+        "age_hours": 426.28,
+        "upvotes_per_hour": 3.01,
+        "comments_per_hour": 0.95
+      },
+      "fatigue_penalty": 0,
+      "hook_evidence": [
+        {
+          "field": "title",
+          "quote": "User asks r/StopEatingSeedOils for evidence seed oils are bad, accidentally starts a 400-comment war.",
+          "why_it_matters": "This directly sets up the premise of the video: a simple, reasonable question leading to immediate, disproportionate chaos."
+        }
+      ],
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 7,
+        "hook_strength": 8,
+        "narrative_arc": 8,
+        "discussion_potential": 9,
+        "format_fit": 9,
+        "translation": 8,
+        "viral_potential": 8,
+        "novelty": 7,
+        "character_voice_fit": 9,
+        "slop_risk": 2,
+        "source_dependency_risk": 2,
+        "duplicate_risk": 2,
+        "legal_risk": 1,
+        "topic_family": "Internet lore / creator or community drama",
+        "content_bet": "internet_lore",
+        "shorts_hook_type": "controversy",
+        "format_recommendation": "shorts",
+        "audience_job_fit": "This satisfies the brief by exposing the unscientific, conspiratorial nature of a popular internet health trend through a highly entertaining, real-world community conflict.",
+        "first_screen_promise": "The viewer will see how a simple question about scientific evidence completely broke an anti-seed-oil community.",
+        "first_screen_text": "Was passiert, wenn man in einem Forum gegen Pflanzenöle nach echten wissenschaftlichen Beweisen fragt? Ein 400-Kommentare-Krieg – ohne eine einzige Quelle.",
+        "packaging_thesis": "Package this as a breakdown of how internet echo chambers react when challenged with basic epistemology, using dramatic voiceovers for the absurd quotes.",
+        "why_now": "The 'seed oil' debate is highly active in health, fitness, and wellness spaces on social media, making this meta-commentary highly relevant and shareable.",
+        "shorts_cut": "Start with the hook. Introduce the subreddit r/StopEatingSeedOils. Show the user's simple question: 'What is the evidence?' Then, read the escalating, unhinged responses using distinct, dramatic character voices (e.g., the 'sheeple' quote, the government conspiracy quote). End with the mods banning everyone and the realization that not a single piece of evidence was actually provided.",
+        "longform_angle": null,
+        "producer_angle": "The humor lies in the contrast between the high-minded scientific claims of the community and their absolute, aggressive failure to provide a single source when asked nicely.",
+        "hook_evidence": [
+          {
+            "field": "title",
+            "quote": "User asks r/StopEatingSeedOils for evidence seed oils are bad, accidentally starts a 400-comment war.",
+            "why_it_matters": "This directly sets up the premise of the video: a simple, reasonable question leading to immediate, disproportionate chaos."
+          }
+        ],
+        "source_integrity": {
+          "can_adapt_without_inventing": true,
+          "facts_not_in_source": []
+        },
+        "reason": "This is an incredibly punchy, self-contained internet drama story that perfectly fits the Shorts format, translates beautifully to German, and taps into a highly active, controversial health topic.",
+        "hook_suggestion": "Jemand hat in einem Forum gegen Pflanzenöle nach echten wissenschaftlichen Beweisen gefragt... und versehentlich einen Krieg ausgelöst."
+      }
     }
   }
 }
