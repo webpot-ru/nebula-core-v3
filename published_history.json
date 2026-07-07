@@ -785,6 +785,80 @@
         "reason": "This is an incredibly punchy, self-contained internet drama story that perfectly fits the Shorts format, translates beautifully to German, and taps into a highly active, controversial health topic.",
         "hook_suggestion": "Jemand hat in einem Forum gegen Pflanzenöle nach echten wissenschaftlichen Beweisen gefragt... und versehentlich einen Krieg ausgelöst."
       }
+    },
+    "1unu8zq": {
+      "channels": {
+        "acc7": {
+          "published_at": "2026-07-07T11:48:14.410717+00:00"
+        }
+      },
+      "title": "WIBTA for asking my daughter's boyfriend to stop having dinner with us?",
+      "subreddit": "r/AmItheAsshole",
+      "url": "https://reddit.com/r/AmItheAsshole/comments/1unu8zq/wibta_for_asking_my_daughters_boyfriend_to_stop/",
+      "story_signature": "6e7fb07a792f4db0",
+      "keyword_signature": "amount anyone around asking been bite boyfriend dating daughter despite dinner doesn fair fairly food having",
+      "topic_family": "human_drama",
+      "topic_label": "Human drama / moral conflict",
+      "content_bet": "moral_court",
+      "time_window": "week",
+      "virality_score": 96,
+      "producer_score": 360.4,
+      "producer_rank": 1,
+      "base_virality_score": 80,
+      "velocity": {
+        "age_hours": 53.84,
+        "upvotes_per_hour": 260.94,
+        "comments_per_hour": 35.83
+      },
+      "fatigue_penalty": 2,
+      "hook_evidence": [
+        {
+          "field": "body",
+          "quote": "He wastes a horrendous amount of food, and I can't stand the money wasted when we buy him expensive restaurant meals that go completely uneaten.",
+          "why_it_matters": "It establishes the core conflict of financial and food waste which drives the moral outrage."
+        }
+      ],
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 9,
+        "hook_strength": 9,
+        "narrative_arc": 8,
+        "discussion_potential": 10,
+        "format_fit": 9,
+        "translation": 9,
+        "viral_potential": 9,
+        "novelty": 8,
+        "character_voice_fit": 9,
+        "slop_risk": 2,
+        "source_dependency_risk": 1,
+        "duplicate_risk": 2,
+        "legal_risk": 1,
+        "topic_family": "Family",
+        "content_bet": "moral_court",
+        "shorts_hook_type": "controversy",
+        "format_recommendation": "shorts",
+        "audience_job_fit": "Perfect fit for the Italian channel as it centers on food culture tension, wasting home-cooked meals, and family/relationship drama that can be expressively performed.",
+        "first_screen_promise": "The viewer immediately understands the conflict: a boyfriend who refuses to eat but insists on ordering and wasting expensive food, causing family outrage.",
+        "first_screen_text": "Il ragazzo di mia figlia ordina piatti costosi al ristorante, non tocca cibo e poi butta tutto nella spazzatura.",
+        "packaging_thesis": "Frame this as a cultural and financial clash over food waste. In Italy, wasting food (especially home-cooked meals) is a cardinal sin, making the boyfriend's behavior instantly polarizing.",
+        "why_now": "High Reddit engagement (14k+ upvotes, 13.7% comment ratio) shows strong organic interest in this specific moral dilemma.",
+        "shorts_cut": "Start with the hook of the boyfriend wasting food. Explain his phobia of eating in front of others. Show the escalation: ordering full meals, cutting them up to look eaten, then scraping them into the trash. End with the mother's ultimatum to ban him from dinners and the daughter's defense.",
+        "longform_angle": null,
+        "producer_angle": "Play up the Italian cultural outrage toward wasting food, especially home-cooked meals, to drive massive comment section debate.",
+        "hook_evidence": [
+          {
+            "field": "body",
+            "quote": "He wastes a horrendous amount of food, and I can't stand the money wasted when we buy him expensive restaurant meals that go completely uneaten.",
+            "why_it_matters": "It establishes the core conflict of financial and food waste which drives the moral outrage."
+          }
+        ],
+        "source_integrity": {
+          "can_adapt_without_inventing": true,
+          "facts_not_in_source": []
+        },
+        "reason": "This is an excellent fit for an Italian audience because food waste and family dinner etiquette are highly sensitive, trigger-worthy topics that will drive massive comment engagement.",
+        "hook_suggestion": "Il ragazzo di mia figlia ha una fobia assurda: ordina piatti costosi al ristorante, fa finta di mangiare e poi butta tutto nella spazzatura. Sto per vietargli di cenare con noi."
+      }
     }
   }
 }
