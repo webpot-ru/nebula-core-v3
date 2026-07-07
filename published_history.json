@@ -872,6 +872,80 @@
         "reason": "This story features an incredibly unique hook, high emotional stakes, and a polarizing cultural/moral conflict that is perfect for driving high retention and comment-section debates on Shorts.",
         "hook_suggestion": "My daughter's boyfriend has a bizarre phobia: he refuses to let anyone see him eat. But he still orders expensive restaurant meals just to scrape them into the trash."
       }
+    },
+    "1upehmn": {
+      "channels": {
+        "acc7": {
+          "published_at": "2026-07-07T19:07:08.688625+00:00"
+        }
+      },
+      "title": "AITA for refusing to follow my friend’s parents’ house rules and leaving?",
+      "subreddit": "r/AmItheAsshole",
+      "url": "https://reddit.com/r/AmItheAsshole/comments/1upehmn/aita_for_refusing_to_follow_my_friends_parents/",
+      "story_signature": "d8494eac8c974cd4",
+      "keyword_signature": "account almost been boyfriend engaged finishes follow friend grad graduated high house invited leaving married moved",
+      "topic_family": "human_drama",
+      "topic_label": "Human drama / moral conflict",
+      "content_bet": "moral_court",
+      "time_window": "day",
+      "virality_score": 91,
+      "producer_score": 317.05,
+      "producer_rank": 2,
+      "base_virality_score": 80,
+      "velocity": {
+        "age_hours": 19.26,
+        "upvotes_per_hour": 466.57,
+        "comments_per_hour": 69.14
+      },
+      "fatigue_penalty": 10,
+      "hook_evidence": [
+        {
+          "field": "body",
+          "quote": "our friend’s mom pulled me aside and said that my boyfriend would need to sleep on the couch in the living room instead of with me in the guest room because we aren’t married.",
+          "why_it_matters": "This is the core conflict that triggers the entire story and immediately hooks the viewer's sense of outrage or agreement."
+        }
+      ],
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 8,
+        "hook_strength": 8,
+        "narrative_arc": 8,
+        "discussion_potential": 9,
+        "format_fit": 8,
+        "translation": 9,
+        "viral_potential": 8,
+        "novelty": 6,
+        "character_voice_fit": 8,
+        "slop_risk": 3,
+        "source_dependency_risk": 1,
+        "duplicate_risk": 4,
+        "legal_risk": 1,
+        "topic_family": "Family",
+        "content_bet": "moral_court",
+        "shorts_hook_type": "controversy",
+        "format_recommendation": "shorts",
+        "audience_job_fit": "This delivers high-stakes relationship and family culture friction that is highly relatable and easily performable for an Italian audience.",
+        "first_screen_promise": "The viewer immediately wants to know if the couple was right to walk out after being forced into separate beds by traditional parents.",
+        "first_screen_text": "La madre del mio amico ha costretto il mio ragazzo a dormire sul divano perché non siamo sposati. Ce ne siamo andati.",
+        "packaging_thesis": "Frame the video around the clash between traditional parental rules and modern relationship boundaries, a massive talking point in Italy.",
+        "why_now": "The post is highly viral (nearly 9k upvotes in under 20 hours) and taps into a universal, evergreen debate about respect vs. personal boundaries.",
+        "shorts_cut": "Start with the mom's rule, show the couple's decision to leave for a hotel, reveal the parents' dramatic reaction ('you didn't appreciate our hospitality'), and end with the friend banning them from Friendsgiving.",
+        "longform_angle": null,
+        "producer_angle": "The drama escalates perfectly from a simple awkward rule to a full social ban (getting uninvited from Friendsgiving), making it a complete narrative arc for a Short.",
+        "hook_evidence": [
+          {
+            "field": "body",
+            "quote": "our friend’s mom pulled me aside and said that my boyfriend would need to sleep on the couch in the living room instead of with me in the guest room because we aren’t married.",
+            "why_it_matters": "This is the core conflict that triggers the entire story and immediately hooks the viewer's sense of outrage or agreement."
+          }
+        ],
+        "source_integrity": {
+          "can_adapt_without_inventing": true,
+          "facts_not_in_source": []
+        },
+        "reason": "The story fits the moral court bet perfectly, translates seamlessly to Italian cultural dynamics, and has a strong, immediate hook for Shorts.",
+        "hook_suggestion": null
+      }
     }
   }
 }
