@@ -985,6 +985,90 @@
         "reason": "The story fits the moral court bet perfectly, translates seamlessly to Italian cultural dynamics, and has a strong, immediate hook for Shorts.",
         "hook_suggestion": null
       }
+    },
+    "1upihl3": {
+      "channels": {
+        "acc7": {
+          "published_at": "2026-07-08T11:05:10.217188+00:00"
+        }
+      },
+      "title": "AITA for crocheting at the bar ordering drinks during US v Belgium World Cup game?",
+      "subreddit": "r/AmItheAsshole",
+      "url": "https://reddit.com/r/AmItheAsshole/comments/1upihl3/aita_for_crocheting_at_the_bar_ordering_drinks/",
+      "story_signature": "f1498eb7248f2696",
+      "keyword_signature": "accordingly also bars beer beers belgium crochet crocheting depending down drinks during energy enough front game",
+      "topic_family": "human_drama",
+      "topic_label": "Human drama / moral conflict",
+      "content_bet": "football_identity",
+      "time_window": "week",
+      "virality_score": 84,
+      "producer_score": 352.2,
+      "producer_rank": 1,
+      "base_virality_score": 80,
+      "velocity": {
+        "age_hours": 32.25,
+        "upvotes_per_hour": 174.19,
+        "comments_per_hour": 44.44
+      },
+      "fatigue_penalty": 14,
+      "hook_evidence": [
+        {
+          "field": "title",
+          "quote": "AITA for crocheting at the bar ordering drinks during US v Belgium World Cup game?",
+          "why_it_matters": "Establishes the core, hilarious premise of doing a quiet, domestic hobby in the middle of a chaotic sports environment."
+        },
+        {
+          "field": "body",
+          "quote": "Then someone gets pissed off at me because I am not cheering when the US scores. Then they go off on me for taking up a bar seat in front of the TV when I’m not watching.",
+          "why_it_matters": "Provides the direct conflict and the 'who is right?' debate for the comments section."
+        }
+      ],
+      "ai_quality": {
+        "verdict": "PUBLISH",
+        "niche_fit": 10,
+        "hook_strength": 9,
+        "narrative_arc": 8,
+        "discussion_potential": 9,
+        "format_fit": 9,
+        "translation": 9,
+        "viral_potential": 8,
+        "novelty": 8,
+        "character_voice_fit": 9,
+        "slop_risk": 2,
+        "source_dependency_risk": 1,
+        "duplicate_risk": 2,
+        "legal_risk": 1,
+        "topic_family": "Family",
+        "content_bet": "football_identity",
+        "shorts_hook_type": "identity",
+        "format_recommendation": "shorts",
+        "audience_job_fit": "This perfectly satisfies the brief by delivering a highly visual, expressive social comedy about football fan culture and bar etiquette that resonates deeply with Italian viewers.",
+        "first_screen_promise": "The viewer will see a hilarious clash between a peaceful crocheter and an aggressive football fan in a sports bar during a major World Cup match.",
+        "first_screen_text": "Faccio l'uncinetto al bar durante i Mondiali. Un tifoso si arrabbia perché non esulto al gol e pretende il mio posto.",
+        "packaging_thesis": "Package this as a classic 'bar etiquette' battle. The thumbnail should show a ball of yarn/crochet needle contrasted with a football match on TV, with the text: 'Uncinetto vs Mondiali: Chi ha ragione?' (Crochet vs World Cup: Who is right?).",
+        "why_now": "Football culture and bar dynamics are evergreen in Italy, but framing it around the absurdity of crocheting during a high-stakes match makes it instantly viral.",
+        "shorts_cut": "Start with the OP explaining they are a regular who crochets at the bar. Cut to the World Cup match starting. Introduce the angry fan demanding they leave because they aren't cheering. Show the confrontation, the bartender stepping in to kick the fan out, and the final twist that the bar owner banned the guy for the rest of the tournament.",
+        "longform_angle": null,
+        "producer_angle": "The contrast between the calm, repetitive motion of crocheting and the high-octane, screaming energy of a World Cup match is pure visual comedy gold for an Italian audience.",
+        "hook_evidence": [
+          {
+            "field": "title",
+            "quote": "AITA for crocheting at the bar ordering drinks during US v Belgium World Cup game?",
+            "why_it_matters": "Establishes the core, hilarious premise of doing a quiet, domestic hobby in the middle of a chaotic sports environment."
+          },
+          {
+            "field": "body",
+            "quote": "Then someone gets pissed off at me because I am not cheering when the US scores. Then they go off on me for taking up a bar seat in front of the TV when I’m not watching.",
+            "why_it_matters": "Provides the direct conflict and the 'who is right?' debate for the comments section."
+          }
+        ],
+        "source_integrity": {
+          "can_adapt_without_inventing": true,
+          "facts_not_in_source": []
+        },
+        "reason": "This is an exceptional fit for the Italian market, blending football identity, expressive social conflict, and a highly visual, funny premise that will drive massive comment section debate.",
+        "hook_suggestion": "Sto facendo l'uncinetto al bancone del bar durante i Mondiali. Un tifoso mi urla contro perché non esulto al gol... e viene cacciato dal locale!"
+      }
     }
   }
 }
