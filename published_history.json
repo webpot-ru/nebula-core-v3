@@ -832,6 +832,9 @@
         },
         "acc2": {
           "published_at": "2026-07-07T17:16:55.781626+00:00"
+        },
+        "acc4": {
+          "published_at": "2026-07-08T18:24:38.406841+00:00"
         }
       },
       "title": "WIBTA for asking my daughter's boyfriend to stop having dinner with us?",
@@ -843,31 +846,31 @@
       "topic_label": "Human drama / moral conflict",
       "content_bet": "moral_court",
       "time_window": "week",
-      "virality_score": 89,
-      "producer_score": 349.95,
+      "virality_score": 96,
+      "producer_score": 356.4,
       "producer_rank": 1,
       "base_virality_score": 80,
       "velocity": {
-        "age_hours": 59.26,
-        "upvotes_per_hour": 239.37,
-        "comments_per_hour": 32.74
+        "age_hours": 84.43,
+        "upvotes_per_hour": 173.39,
+        "comments_per_hour": 23.87
       },
-      "fatigue_penalty": 10,
+      "fatigue_penalty": 6,
       "hook_evidence": [
         {
           "field": "body",
           "quote": "He has a strange phobia of not wanting anyone to see him eat.",
-          "why_it_matters": "It establishes an incredibly weird, curiosity-inducing premise in the first two seconds."
+          "why_it_matters": "Establishes the bizarre premise immediately."
         },
         {
           "field": "body",
-          "quote": "takes a full plate of food, pushes it around, cuts it up... but doesn't eat ANY of it. Then he will scrape ALL the food into the trash can",
-          "why_it_matters": "It provides the immediate escalation and visual image of extreme waste that angers the viewer."
+          "quote": "He wastes a horrendous amount of food, and I can't stand the money wasted",
+          "why_it_matters": "Creates the financial and moral stakes that justify the mother's anger."
         }
       ],
       "ai_quality": {
         "verdict": "PUBLISH",
-        "niche_fit": 8,
+        "niche_fit": 9,
         "hook_strength": 9,
         "narrative_arc": 8,
         "discussion_potential": 10,
@@ -880,36 +883,36 @@
         "source_dependency_risk": 1,
         "duplicate_risk": 2,
         "legal_risk": 1,
-        "topic_family": "Human drama / moral conflict",
+        "topic_family": "Family",
         "content_bet": "moral_court",
         "shorts_hook_type": "controversy",
         "format_recommendation": "shorts",
-        "audience_job_fit": "This delivers a highly specific, bizarre human conflict with an instantly clear moral dilemma that avoids generic Reddit tropes.",
-        "first_screen_promise": "The viewer immediately wants to know why a grown man refuses to let anyone watch him eat, and why it's costing his girlfriend's family money.",
-        "first_screen_text": "My daughter's boyfriend has a strange phobia: he refuses to let anyone see him eat. But he still orders expensive meals just to throw them in the trash.",
-        "packaging_thesis": "Frame the video around the bizarre behavior of the boyfriend and the cultural clash vs. financial waste debate to drive massive comment section engagement.",
-        "why_now": "The post has high local virality (80/100) and an exceptionally high comment-to-upvote ratio (13.68%), proving it triggers immediate, strong opinions.",
-        "shorts_cut": "Start with the hook of the eating phobia. Show the escalation: cutting up food at restaurants, scraping home-cooked meals directly into the trash, and waiters getting confused. Introduce the daughter's cultural defense, and end on the mother's ultimatum to ban him from dinners.",
+        "audience_job_fit": "It delivers a highly relatable, socially charged family conflict about food waste and manners that LATAM viewers will passionately debate in the comments.",
+        "first_screen_promise": "The viewer will learn why a mother wants to ban her daughter's boyfriend from family dinners for throwing away untouched, expensive food.",
+        "first_screen_text": "El novio de mi hija pide comida cara solo para tirarla entera a la basura... y dice que es por 'su cultura'.",
+        "packaging_thesis": "Package this as a battle of manners vs. food waste. The thumbnail should highlight the outrage of throwing away a full plate of food, targeting the LATAM cultural taboo against wasting food.",
+        "why_now": "The Reddit post has high velocity and engagement (13.7% comment-to-upvote ratio), showing strong active interest in this specific moral dilemma.",
+        "shorts_cut": "Start directly with the mother's rage: 'Nunca he visto al novio de mi hija dar un solo bocado, pero siempre pide el plato más caro para tirarlo a la basura'. Explain his phobia of eating in public, how he ruins restaurant trips and home-cooked meals by scraping full plates into the trash, and the daughter's defense that 'in his culture it's rude to refuse food'. End on the prompt: ¿Es peor desperdiciar comida o no aceptar el plato?",
         "longform_angle": null,
-        "producer_angle": "The core hook isn't just a generic 'AITA' dispute; it's the bizarre, highly specific visual of a guy cutting up food and pretending to eat it, combined with the genuine financial frustration of the host.",
+        "producer_angle": "The core hook is the clash between a bizarre psychological phobia (eating in front of others) and the universal social taboo of wasting food and money, amplified by a questionable cultural excuse.",
         "hook_evidence": [
           {
             "field": "body",
             "quote": "He has a strange phobia of not wanting anyone to see him eat.",
-            "why_it_matters": "It establishes an incredibly weird, curiosity-inducing premise in the first two seconds."
+            "why_it_matters": "Establishes the bizarre premise immediately."
           },
           {
             "field": "body",
-            "quote": "takes a full plate of food, pushes it around, cuts it up... but doesn't eat ANY of it. Then he will scrape ALL the food into the trash can",
-            "why_it_matters": "It provides the immediate escalation and visual image of extreme waste that angers the viewer."
+            "quote": "He wastes a horrendous amount of food, and I can't stand the money wasted",
+            "why_it_matters": "Creates the financial and moral stakes that justify the mother's anger."
           }
         ],
         "source_integrity": {
           "can_adapt_without_inventing": true,
           "facts_not_in_source": []
         },
-        "reason": "This story features an incredibly unique hook, high emotional stakes, and a polarizing cultural/moral conflict that is perfect for driving high retention and comment-section debates on Shorts.",
-        "hook_suggestion": "My daughter's boyfriend has a bizarre phobia: he refuses to let anyone see him eat. But he still orders expensive restaurant meals just to scrape them into the trash."
+        "reason": "Excellent niche fit with high LATAM cultural resonance regarding food waste, offering a highly debatable moral conflict perfect for Shorts engagement.",
+        "hook_suggestion": "El novio de mi hija tiene una fobia que me está costando una fortuna: pide platos caros en los restaurantes solo para tirarlos enteros a la basura."
       }
     },
     "1upehmn": {
