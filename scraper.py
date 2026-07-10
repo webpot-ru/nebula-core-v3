@@ -12,35 +12,60 @@ from datetime import datetime, timezone
 #                     REDDIT_USERNAME, REDDIT_PASSWORD
 # ─────────────────────────────────────────────
 
+REDDIT_CLIENT_ENV = ("REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET")
+REDDIT_SCRIPT_ENV = ("REDDIT_USERNAME", "REDDIT_PASSWORD")
+
+
+class RedditCredentialConfigError(RuntimeError):
+    """Raised before any Reddit request when credential configuration is unsafe."""
+
+
+def reddit_credentials_from_env(env: dict[str, str] | None = None) -> dict[str, str | None]:
+    """Read Reddit credentials without defaults or network access."""
+    env = os.environ if env is None else env
+    missing_client = [name for name in REDDIT_CLIENT_ENV if not (env.get(name) or "").strip()]
+    if missing_client:
+        raise RedditCredentialConfigError(
+            "Missing required Reddit credential environment variable(s): " + ", ".join(missing_client)
+        )
+
+    username = (env.get("REDDIT_USERNAME") or "").strip() or None
+    password = (env.get("REDDIT_PASSWORD") or "").strip() or None
+    if bool(username) != bool(password):
+        raise RedditCredentialConfigError(
+            "REDDIT_USERNAME and REDDIT_PASSWORD must be supplied together, or both omitted for read-only OAuth."
+        )
+
+    return {
+        "client_id": (env.get("REDDIT_CLIENT_ID") or "").strip(),
+        "client_secret": (env.get("REDDIT_CLIENT_SECRET") or "").strip(),
+        "username": username,
+        "password": password,
+    }
+
+
 def get_reddit():
-    """Authenticate with Reddit via PRAW (script app or read-only public access)."""
+    """Authenticate with Reddit via PRAW using explicit environment credentials."""
+    credentials = reddit_credentials_from_env()
     try:
         import praw
-    except ImportError:
-        os.system("pip3 install praw -q")
-        import praw
+    except ImportError as exc:
+        raise RuntimeError("PRAW is required. Install dependencies with: pip3 install -r requirements.txt") from exc
 
-    client_id = os.environ.get("REDDIT_CLIENT_ID", "JYA8zMAO2b1GTIZnHoITbg")
-    client_secret = os.environ.get("REDDIT_CLIENT_SECRET", "kKDnjQmqAidycdvliILdPvoMq15w_A")
-    username = os.environ.get("REDDIT_USERNAME", "Complex_Lack4476")
-    password = os.environ.get("REDDIT_PASSWORD", "")
-
-    if not password:
-        # Read-only mode for public data (does not require username/password)
+    if not credentials["password"]:
         return praw.Reddit(
-            client_id=client_id,
-            client_secret=client_secret,
+            client_id=credentials["client_id"],
+            client_secret=credentials["client_secret"],
             user_agent="macos:ChonkerTalksBot:v1.0 (read-only)"
         )
-    else:
-        # Authenticated script mode
-        return praw.Reddit(
-            client_id=client_id,
-            client_secret=client_secret,
-            username=username,
-            password=password,
-            user_agent=f"macos:ChonkerTalksBot:v1.0 (by /u/{username})"
-        )
+
+    return praw.Reddit(
+        client_id=credentials["client_id"],
+        client_secret=credentials["client_secret"],
+        username=credentials["username"],
+        password=credentials["password"],
+        user_agent="macos:ChonkerTalksBot:v1.0 (authenticated)"
+    )
 
 
 def format_count(n):
@@ -1643,7 +1668,21 @@ if __name__ == "__main__":
                         help="Write all AI-scored candidates and producer ranking to this JSON file.")
     parser.add_argument("--no-producer-queue", action="store_true",
                         help="Do not write producer_queue.json.")
+    parser.add_argument("--check-reddit-config", action="store_true",
+                        help="Validate Reddit environment configuration without importing PRAW or making a network request.")
+    parser.add_argument("--no-save-history", action="store_true",
+                        help="Do not append a selected candidate to published_history.json; use for read-only source reviews.")
     args = parser.parse_args()
+
+    if args.check_reddit_config:
+        try:
+            credentials = reddit_credentials_from_env()
+        except RedditCredentialConfigError as exc:
+            print(f"Reddit credential configuration invalid: {exc}", file=sys.stderr)
+            sys.exit(2)
+        mode = "authenticated script OAuth" if credentials["username"] else "read-only OAuth"
+        print(f"Reddit credential configuration valid: {mode}.")
+        sys.exit(0)
 
     # Determine subreddits to scan
     channel = None
@@ -1700,7 +1739,10 @@ if __name__ == "__main__":
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(story, f, ensure_ascii=False, indent=2)
         print(f"\n💾 Saved → {output_path}")
-        save_history(story["post_id"], channel_key, story)
+        if args.no_save_history:
+            print("History write skipped (--no-save-history).")
+        else:
+            save_history(story["post_id"], channel_key, story)
     else:
         print("\n❌ No story found. Try a different subreddit or time filter.")
         sys.exit(1)
