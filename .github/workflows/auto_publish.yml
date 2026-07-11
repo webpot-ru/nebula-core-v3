@@ -73,6 +73,12 @@ on:
         default: 'shorts'
         type: choice
         options: [auto, shorts, long]
+      voice_settings_profile:
+        description: 'AI33/ElevenLabs voice settings for manual test runs'
+        required: false
+        default: 'default'
+        type: choice
+        options: [default, creative, natural, robust]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Map each cron trigger to the correct channel(s) and slot
@@ -98,7 +104,8 @@ jobs:
             fi
             PRIV="${{ github.event.inputs.privacy_status }}"
             FORMAT="${{ github.event.inputs.content_format || 'shorts' }}"
-            echo "matrix=[{\"channel\":\"${CH}\",\"slot\":\"${SLOT}\",\"time_filter\":\"${TF}\",\"topic_family\":\"${TOPIC}\",\"privacy_status\":\"${PRIV}\",\"content_format\":\"${FORMAT}\"}]" >> $GITHUB_OUTPUT
+            VOICE="${{ github.event.inputs.voice_settings_profile || 'default' }}"
+            echo "matrix=[{\"channel\":\"${CH}\",\"slot\":\"${SLOT}\",\"time_filter\":\"${TF}\",\"topic_family\":\"${TOPIC}\",\"privacy_status\":\"${PRIV}\",\"content_format\":\"${FORMAT}\",\"voice_settings_profile\":\"${VOICE}\"}]" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -173,7 +180,8 @@ jobs:
           echo "topic_family=${{ matrix.topic_family || '' }}" >> $GITHUB_OUTPUT
           echo "privacy_status=${{ matrix.privacy_status || 'public' }}" >> $GITHUB_OUTPUT
           echo "content_format=${{ matrix.content_format || 'shorts' }}" >> $GITHUB_OUTPUT
-          echo "📺 ${CH} | slot=${{ matrix.slot }} | filter=${{ matrix.time_filter }} | topic=${{ matrix.topic_family || 'mixed' }} | privacy=${{ matrix.privacy_status || 'public' }} | format=${{ matrix.content_format || 'shorts' }}"
+          echo "voice_settings_profile=${{ matrix.voice_settings_profile || 'default' }}" >> $GITHUB_OUTPUT
+          echo "📺 ${CH} | slot=${{ matrix.slot }} | filter=${{ matrix.time_filter }} | topic=${{ matrix.topic_family || 'mixed' }} | privacy=${{ matrix.privacy_status || 'public' }} | format=${{ matrix.content_format || 'shorts' }} | voice=${{ matrix.voice_settings_profile || 'default' }}"
 
       - name: Verify YouTube channel token
         env:
@@ -272,9 +280,26 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
+          TTS_ARGS=()
+          case "${{ steps.target.outputs.voice_settings_profile }}" in
+            creative)
+              TTS_ARGS+=(--voice-settings-json '{"stability":0.35,"similarity_boost":0.75,"style":0}')
+              ;;
+            natural)
+              TTS_ARGS+=(--voice-settings-json '{"stability":0.5,"similarity_boost":0.75,"style":0}')
+              ;;
+            robust)
+              TTS_ARGS+=(--voice-settings-json '{"stability":0.7,"similarity_boost":0.75,"style":0}')
+              ;;
+          esac
           python translator_tts.py \
             --channel ${{ steps.target.outputs.channel_id }} \
-            --output narration.mp3
+            --output narration.mp3 \
+            --model-id eleven_v3 \
+            --require-model-id eleven_v3 \
+            --request-metadata-output tts_request_metadata.json \
+            --with-transcript \
+            "${TTS_ARGS[@]}"
 
       - name: Generate storyboard JSON
         run: |
@@ -300,6 +325,8 @@ jobs:
             --metadata youtube_metadata.json \
             --video final_output.mp4 \
             --audio narration.mp3 \
+            --tts-request-metadata tts_request_metadata.json \
+            --require-tts-model eleven_v3 \
             --render-report render_report.json \
             --output pre_publish_qa.json \
             --require-audio \

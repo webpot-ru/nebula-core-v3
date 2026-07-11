@@ -34,11 +34,9 @@
         "creepyencounters", "mildlyinteresting", "InternetIsBeautiful"
       ],
       "topic_mix": [
-        {"family": "dark_curiosity", "weight": 0.45},
-        {"family": "curiosity_facts", "weight": 0.35},
-        {"family": "human_drama", "weight": 0.20}
+        {"family": "dark_curiosity", "weight": 1.0}
       ],
-      "topic_mix_status": "unvalidated_candidate_scouting_only",
+      "topic_mix_status": "forced_family_validation_only",
       "topic_exclusions": [
         "minecraft",
         "game server",
@@ -182,13 +180,9 @@
         "offmychest", "tifu", "prorevenge", "MaliciousCompliance"
       ],
       "topic_mix": [
-        {"family": "human_drama", "weight": 0.45},
-        {"family": "dark_curiosity", "weight": 0.20},
-        {"family": "curiosity_facts", "weight": 0.20},
-        {"family": "internet_lore", "weight": 0.10},
-        {"family": "visual_comedy", "weight": 0.05}
+        {"family": "human_drama", "weight": 1.0}
       ],
-      "topic_mix_status": "superseded_pending_rebuild",
+      "topic_mix_status": "forced_family_validation_only",
       "format": ["shorts", "long"],
       "videos_per_day": 0,
       "long_duration_min": 8,
@@ -230,12 +224,9 @@
         "Damnthatsinteresting", "mildlyinteresting", "tifu", "confession"
       ],
       "topic_mix": [
-        {"family": "curiosity_facts", "weight": 0.35},
-        {"family": "human_drama", "weight": 0.30},
-        {"family": "dark_curiosity", "weight": 0.20},
-        {"family": "football_culture", "weight": 0.15}
+        {"family": "football_culture", "weight": 1.0}
       ],
-      "topic_mix_status": "superseded_pending_evidence_lane",
+      "topic_mix_status": "forced_family_validation_only",
       "format": ["shorts", "long"],
       "videos_per_day": 0,
       "long_duration_min": 8,
@@ -323,11 +314,9 @@
         "tifu", "confession", "mildlyinteresting", "entitledparents"
       ],
       "topic_mix": [
-        {"family": "human_drama", "weight": 0.50},
-        {"family": "internet_lore", "weight": 0.30},
-        {"family": "curiosity_facts", "weight": 0.20}
+        {"family": "visual_comedy", "weight": 1.0}
       ],
-      "topic_mix_status": "superseded_pending_rebuild",
+      "topic_mix_status": "forced_family_validation_only",
       "format": ["shorts", "long"],
       "videos_per_day": 0,
       "long_duration_min": 8,

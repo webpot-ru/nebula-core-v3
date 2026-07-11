@@ -23,6 +23,22 @@ on:
         description: 'AI33 TTS model_id'
         required: true
         default: 'eleven_v3'
+      text_style:
+        description: 'Voice sample text style'
+        required: true
+        default: 'emotional'
+        type: choice
+        options: ['emotional', 'neutral']
+      voice_settings_profile:
+        description: 'AI33/ElevenLabs voice_settings profile for samples'
+        required: true
+        default: 'creative'
+        type: choice
+        options: ['creative', 'natural', 'robust', 'default']
+      voice_settings_json:
+        description: 'Optional raw voice_settings JSON override for samples'
+        required: false
+        default: ''
 
 jobs:
   youtube-mapping:
@@ -106,11 +122,20 @@ jobs:
       - name: Generate AI33 voice samples
         env:
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          VOICE_SETTINGS_JSON: ${{ github.event.inputs.voice_settings_json }}
         run: |
+          extra_args=()
+          if [ -n "$VOICE_SETTINGS_JSON" ]; then
+            extra_args+=(--voice-settings-json "$VOICE_SETTINGS_JSON")
+          fi
           python scripts/generate_ai33_voice_samples.py \
             --channels "${{ github.event.inputs.channels }}" \
             --model-id "${{ github.event.inputs.model_id }}" \
-            --output-dir build/voice_samples
+            --require-model-id eleven_v3 \
+            --text-style "${{ github.event.inputs.text_style }}" \
+            --voice-settings-profile "${{ github.event.inputs.voice_settings_profile }}" \
+            --output-dir build/voice_samples \
+            "${extra_args[@]}"
 
       - name: Upload voice samples
         if: always()

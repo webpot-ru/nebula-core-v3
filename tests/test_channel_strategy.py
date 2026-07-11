@@ -49,11 +49,24 @@ class ChannelStrategyConfigTests(unittest.TestCase):
                 channel.get("topic_mix_status"),
                 {
                     "unvalidated_candidate_scouting_only",
+                    "forced_family_validation_only",
                     "superseded_pending_rebuild",
                     "superseded_pending_evidence_lane",
                 },
                 channel["id"],
             )
+
+    def test_owned_reddit_lanes_fail_closed_to_their_validation_family(self):
+        expected = {
+            "acc1": "dark_curiosity",
+            "acc4": "human_drama",
+            "acc5": "football_culture",
+            "acc7": "visual_comedy",
+        }
+        for channel_id, family in expected.items():
+            channel = next(item for item in self.channels if item["id"] == channel_id)
+            self.assertEqual(channel["topic_mix_status"], "forced_family_validation_only")
+            self.assertEqual(channel["topic_mix"], [{"family": family, "weight": 1.0}])
 
     def test_channel_specific_producer_brief_overrides_language_default(self):
         channel = next(item for item in self.channels if item["id"] == "acc7")
