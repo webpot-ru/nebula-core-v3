@@ -259,6 +259,19 @@ The `acc1` blocker was source length rather than absence of dark material. Compe
 
 This exception applies only to `acc1` trailers. It does not re-enable arbitrary body trimming for other channels and is not the default Russian-channel format.
 
+### Acc1 long-form source test (2026-07-11)
+
+Two bounded, no-spend GitHub reviews tested `dark_curiosity` through the committed `channel_mix` with `format_intent=long`, full source bodies, no history write, and `AI_QUALITY_CHECK=0`:
+
+| Window | Run | Eligible candidates | Result |
+|---|---:|---:|---|
+| month | `29154057054` | 8 | source availability `PASS`; automatic episode choice `CHANGE` |
+| year | `29154057791` | 11 | source availability `PASS`; automatic episode choice `CHANGE` |
+
+The 19 candidates were distinct and complete enough for long-form review; none required screenshots or images. Eighteen came from `r/nosleep`, so they must be presented as fiction rather than real events. The pool repeatedly produced the promised rule/anomaly/escalation pattern, but ranking was not selective enough: all eight month candidates tied at `124.3`, while the year pool had only two score levels. Both automatically selected stories ended on unresolved danger, not a fully closed payoff. Therefore the family remains the correct pilot lane, but selection needs an explicit closure/payoff and fiction-label gate before a paid episode. This evidence does not justify changing numeric weights.
+
+Artifacts: `/tmp/reddit-acc1-long-topic-test-20260711/`.
+
 ## Market Signals
 
 These signals guide positioning; they do not prove that a proposed ChonkerTalks format will win.
