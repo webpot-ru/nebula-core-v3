@@ -68,6 +68,12 @@ class ChannelStrategyConfigTests(unittest.TestCase):
             self.assertEqual(channel["topic_mix_status"], "forced_family_validation_only")
             self.assertEqual(channel["topic_mix"], [{"family": family, "weight": 1.0}])
 
+    def test_russian_channel_is_longform_first(self):
+        channel = next(item for item in self.channels if item["id"] == "acc1")
+        self.assertEqual(channel["primary_format"], "long")
+        self.assertEqual(channel["shorts_role"], "trailer_after_long_only")
+        self.assertEqual(channel["cadence_plan"]["mode"], "longform_first_unlisted_pilot")
+
     def test_channel_specific_producer_brief_overrides_language_default(self):
         channel = next(item for item in self.channels if item["id"] == "acc7")
         context = scraper.channel_producer_context(channel)
@@ -155,7 +161,10 @@ class SourceReviewEvidenceTests(unittest.TestCase):
         for required_text in (
             "review_label:",
             "topic_family:",
+            "format_intent:",
             "max_subreddits_per_topic:",
+            '--format-intent "${{ inputs.format_intent }}"',
+            "format_intent=%s",
             "--include-source-body-in-queue",
             "git_sha=%s",
             "channels_sha256=%s",

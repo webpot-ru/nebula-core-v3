@@ -27,7 +27,9 @@
         "winning_bets": "delivery, apartment, workplace, travel, or online encounters with one memorable rule and an escalating reveal",
         "weak_topic_traps": "generic creepypasta, gore, politics, dry trivia, gaming, and low-stakes moral filler"
       },
-      "cadence_plan": {"mode": "hold_until_source_gate", "pilot_shorts_per_week": 4, "longform": "winner_only"},
+      "cadence_plan": {"mode": "longform_first_unlisted_pilot", "pilot_long_videos": 6, "target_duration_minutes": [12, 30], "shorts": "trailer_after_long_only"},
+      "primary_format": "long",
+      "shorts_role": "trailer_after_long_only",
       "subreddits": [
         "nosleep", "AmItheAsshole", "AITAH", "relationship_advice",
         "todayilearned", "LetsNotMeet", "Glitch_in_the_Matrix",

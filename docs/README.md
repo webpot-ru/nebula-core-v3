@@ -12,6 +12,8 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Current topic decision**: [`topic-strategy-research-2026-07-10.md`](topic-strategy-research-2026-07-10.md) is the source of truth for channel ownership, source lanes, the 90-day plan, evidence boundaries, and validation gates.
 
+**Russian long-form decision**: [`russian-longform-competitor-analysis-2026-07-11.md`](russian-longform-competitor-analysis-2026-07-11.md) records the competitor evidence, long-form product contract, source-duration fit, reuse-risk boundary, and six-video `acc1` pilot.
+
 ---
 
 ## 📋 Table of Contents
@@ -95,7 +97,7 @@ For Reddit-derived stories only:
 - **Comments ratio**: high comment/upvote ratio indicates controversy and discussion potential.
 - **Time window**: `auto` uses topic-family windows such as `day + week` for fresh drama and `week + month` for mystery/lore; manual `day|week|month|year` is still available for experiments.
 - **Body length**: minimum 300 characters for narration depth. Format-specific generation must choose the right source length before adaptation: `shorts` uses complete short source stories, while `long` requires a substantial long source. Production workflows must not cut a selected story body just to fit a runtime.
-- **Russian dark-story exception**: `acc1` Shorts use `shorts_from_long`, selecting a complete 2,800-25,000 character dark source and then invoking the explicit source-backed long-to-short adapter. The output is capped at 2,200 characters and must carry exact setup/escalation/payoff quotes. No other channel receives this exception.
+- **Russian long-form first**: `acc1` uses the complete long source as its primary 12-30 minute product. Explicit Shorts are trailer-only and may use `shorts_from_long`, capped at 2,200 characters with exact setup/escalation/payoff quotes. No other channel receives this exception.
 - **Topic families**: channels now use weighted `topic_mix` values instead of one flat subreddit list. The scraper has rules for `human_drama`, `dark_curiosity`, `curiosity_facts`, `football_culture`, `internet_lore`, and `visual_comedy`.
 - **AI budget**: Gemini quality checks are bounded by `MAX_AI_CANDIDATES` / `--max-ai-candidates`; local Reddit metrics and duplicate guards run before any AI call.
 - **Producer gate**: Gemini must reject topics that are merely high-metric Reddit filler. The prompt now scores first-screen hook, discussion potential, Shorts/long-form fit, novelty, character-voice fit, AI-slop risk, source/link dependency, duplicate risk, and legal risk. For `shorts`, it receives the complete short-source body up to the Shorts source-length limit, not the old 800-character preview.

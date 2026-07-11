@@ -70,7 +70,7 @@ on:
       content_format:
         description: 'Content length target for manual test runs'
         required: false
-        default: 'shorts'
+        default: 'auto'
         type: choice
         options: [auto, shorts, long]
       voice_settings_profile:
@@ -103,7 +103,10 @@ jobs:
               TOPIC=""
             fi
             PRIV="${{ github.event.inputs.privacy_status }}"
-            FORMAT="${{ github.event.inputs.content_format || 'shorts' }}"
+            FORMAT="${{ github.event.inputs.content_format || 'auto' }}"
+            if [ "$FORMAT" = "auto" ]; then
+              if [ "$CH" = "acc1" ]; then FORMAT="long"; else FORMAT="shorts"; fi
+            fi
             VOICE="${{ github.event.inputs.voice_settings_profile || 'default' }}"
             echo "matrix=[{\"channel\":\"${CH}\",\"slot\":\"${SLOT}\",\"time_filter\":\"${TF}\",\"topic_family\":\"${TOPIC}\",\"privacy_status\":\"${PRIV}\",\"content_format\":\"${FORMAT}\",\"voice_settings_profile\":\"${VOICE}\"}]" >> $GITHUB_OUTPUT
             exit 0
@@ -120,13 +123,13 @@ jobs:
             2)   # 02:00 UTC → acc4 slot2 (20:00 CST)
                  ENTRIES='[{"channel":"acc4","slot":"2","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             9)   # 09:00 UTC → acc1 slot1 (12:00 MSK)
-                 ENTRIES='[{"channel":"acc1","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
+                 ENTRIES='[{"channel":"acc1","slot":"1","time_filter":"auto","privacy_status":"unlisted","content_format":"long"}]' ;;
             11)  # 11:00 UTC → acc3 + acc6 + acc7 slot1 (12:00 CET)
                  ENTRIES='[{"channel":"acc3","slot":"1","time_filter":"auto","privacy_status":"unlisted"},{"channel":"acc6","slot":"1","time_filter":"auto","privacy_status":"unlisted"},{"channel":"acc7","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             15)  # 15:00 UTC → acc5 slot1 (12:00 BRT)
                  ENTRIES='[{"channel":"acc5","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             17)  # 17:00 UTC → acc1 slot2 (20:00 MSK) + acc2 slot1 (12:00 EST)
-                 ENTRIES='[{"channel":"acc1","slot":"2","time_filter":"auto","privacy_status":"unlisted"},{"channel":"acc2","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
+                 ENTRIES='[{"channel":"acc1","slot":"2","time_filter":"auto","privacy_status":"unlisted","content_format":"long"},{"channel":"acc2","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             18)  # 18:00 UTC → acc4 slot1 (12:00 CST)
                  ENTRIES='[{"channel":"acc4","slot":"1","time_filter":"auto","privacy_status":"unlisted"}]' ;;
             19)  # 19:00 UTC → acc3 + acc6 + acc7 slot2 (20:00 CET)

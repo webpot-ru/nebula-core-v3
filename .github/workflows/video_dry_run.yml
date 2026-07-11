@@ -51,7 +51,7 @@ on:
       content_format:
         description: 'Content length target for the dry-run artifact'
         required: false
-        default: 'shorts'
+        default: 'auto'
         type: choice
         options:
           - auto
@@ -104,7 +104,10 @@ jobs:
             TOPIC_FAMILY=""
           fi
           VIDEO_SLOT="${{ github.event.inputs.video_slot || '1' }}"
-          CONTENT_FORMAT="${{ github.event.inputs.content_format || 'shorts' }}"
+          CONTENT_FORMAT="${{ github.event.inputs.content_format || 'auto' }}"
+          if [ "$CONTENT_FORMAT" = "auto" ]; then
+            if [ "$CHANNEL_ID" = "acc1" ]; then CONTENT_FORMAT="long"; else CONTENT_FORMAT="shorts"; fi
+          fi
           VOICE_SETTINGS_PROFILE="${{ github.event.inputs.voice_settings_profile || 'default' }}"
           echo "channel_id=${CHANNEL_ID}" >> $GITHUB_OUTPUT
           echo "time_filter=${TIME_FILTER}" >> $GITHUB_OUTPUT

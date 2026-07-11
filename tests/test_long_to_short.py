@@ -68,6 +68,13 @@ class LongToShortContractTests(unittest.TestCase):
             self.assertIn("--format-intent shorts_from_long", workflow)
             self.assertIn("--long-to-short --max-body-chars 2200", workflow)
 
+    def test_acc1_auto_and_scheduled_routes_are_longform_first(self):
+        auto_publish = (ROOT / ".github/workflows/auto_publish.yml").read_text(encoding="utf-8")
+        dry_run = (ROOT / ".github/workflows/video_dry_run.yml").read_text(encoding="utf-8")
+        self.assertIn('if [ "$CH" = "acc1" ]; then FORMAT="long"', auto_publish)
+        self.assertIn('"channel":"acc1","slot":"1","time_filter":"auto","privacy_status":"unlisted","content_format":"long"', auto_publish)
+        self.assertIn('if [ "$CHANNEL_ID" = "acc1" ]; then CONTENT_FORMAT="long"', dry_run)
+
 
 if __name__ == "__main__":
     unittest.main()

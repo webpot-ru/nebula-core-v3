@@ -41,7 +41,7 @@ The existing numeric `topic_mix` values are not approved publishing weights. Eac
 
 | Channel | Owned viewer promise | Owned bets | Required lane | Current readiness | Cadence after gate |
 |---|---|---|---|---|---|
-| `acc1` Russian | Dark first-person stories with one memorable rule, escalation, and reveal | modern horror fiction; claimed personal encounters; later verified strange cases | Reddit story card for fiction/claims; evidence dossier for real cases | `SOURCE VALIDATION REQUIRED` | 4 Shorts/week pilot; long-form only from a winner |
+| `acc1` Russian | Dark first-person stories with one memorable rule, escalation, and reveal | modern horror fiction; claimed personal encounters; later verified strange cases | Full-story atmospheric long-form; source-backed Shorts only as trailers after the long episode | `LONG-FORM PILOT REQUIRED` | Six unlisted 12-30 minute pilots; Shorts only after the source episode exists |
 | `acc2` English | The hidden story behind the internet's strangest moments | internet case files; spectacle curiosity; exceptional high-concept human cases | Evidence dossier | `EVIDENCE LANE REQUIRED` | 3 high-concept pilots/week after lane exists |
 | `acc3` German | Clear, precise explanation of how digital systems, scams, privacy, and technology affect real life | digital-system consequences; scam/privacy mechanisms; counterintuitive science | Evidence dossier | `EVIDENCE LANE REQUIRED` | 3 evidence-backed pilots/week after lane exists |
 | `acc4` LATAM Spanish | One intimate conflict, two sides, one turn that changes the case; the viewer gives the verdict | relationship betrayal; family/money/entitlement; revenge/public humiliation | Reddit story card | `REDDIT PILOT CANDIDATE` | 5 Shorts/week after committed-config source gate; long-form from top-quartile Shorts only |
@@ -247,9 +247,9 @@ The corrected gates were pushed at commit `0b21d75` and checked with two bounded
 
 The correction is successful as a safety/routing change: no AITA was substituted into `acc1`, `acc5`, or `acc7`, and no OutOfTheLoop question appeared in these four channel pools. It does not yet prove audience performance or authorize publishing.
 
-### Russian long-source Shorts path
+### Optional Russian long-source Shorts trailer path
 
-The `acc1` blocker is source length rather than absence of dark material. The isolated `shorts_from_long` contract therefore accepts complete 2,800-25,000 character dark sources for candidate selection while keeping the final output as Shorts. The next adapter step must:
+The `acc1` blocker was source length rather than absence of dark material. Competitor/source analysis now makes the complete long story the primary product. The isolated `shorts_from_long` contract remains available only for a later trailer or standalone source-backed scene after the long episode exists. It must:
 
 - produce at most 2,200 characters;
 - preserve the actual setup/rule, escalation, and source ending;
@@ -257,7 +257,7 @@ The `acc1` blocker is source length rather than absence of dark material. The is
 - introduce no new fact, dialogue, motive, relationship, place, number, or ending;
 - fail when the story cannot survive compression honestly.
 
-This exception applies only to `acc1` Shorts. It does not re-enable arbitrary body trimming for other channels.
+This exception applies only to `acc1` trailers. It does not re-enable arbitrary body trimming for other channels and is not the default Russian-channel format.
 
 ## Market Signals
 
