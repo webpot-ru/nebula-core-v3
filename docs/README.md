@@ -463,6 +463,8 @@ For no-audio metadata readback through the repository secret, use the manual wor
 
 For audible review, use the manual workflow `.github/workflows/audit_voice_youtube.yml` with `generate_voice_samples=true`. It generates short AI33 samples for the configured narrator/comment voices and uploads them as the `ai33-voice-samples` artifact. This spends AI33 TTS credits but does not call Reddit, Gemini/VectorEngine, render, or YouTube upload. The workflow now exposes `text_style` and `voice_settings_profile`; start with `text_style=emotional` and `voice_settings_profile=creative`, then compare against `natural` if the voice becomes too theatrical or unstable.
 
+Verified `acc1` Eleven v3 comparison: GitHub run `29153420437` used emotional text with the `default` settings profile; run `29153423227` used the same text/voices and `creative` settings. Both manifests recorded `model_id=eleven_v3` and `required_model_id=eleven_v3`, both voice-sample jobs succeeded, and both YouTube mapping jobs were skipped. Use these artifacts for listening comparison; duration/codec validity alone does not determine which performance sounds better.
+
 Local no-spend dry-run:
 
 ```bash
