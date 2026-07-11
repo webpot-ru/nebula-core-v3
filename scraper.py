@@ -458,13 +458,26 @@ TOPIC_BET_PRESETS = {
 
 def channel_producer_context(channel: dict | None) -> dict:
     if not channel:
-        return CHANNEL_PRODUCER_PRESETS["en"]
+        return dict(CHANNEL_PRODUCER_PRESETS["en"])
     lang = str(channel.get("lang") or "en").lower()
     normalized = lang.replace("_", "-")
     if normalized in CHANNEL_PRODUCER_PRESETS:
-        return CHANNEL_PRODUCER_PRESETS[normalized]
-    base = normalized.split("-", 1)[0]
-    return CHANNEL_PRODUCER_PRESETS.get(base, CHANNEL_PRODUCER_PRESETS["en"])
+        context = dict(CHANNEL_PRODUCER_PRESETS[normalized])
+    else:
+        base = normalized.split("-", 1)[0]
+        context = dict(CHANNEL_PRODUCER_PRESETS.get(base, CHANNEL_PRODUCER_PRESETS["en"]))
+
+    viewer_promise = str(channel.get("viewer_promise") or "").strip()
+    if viewer_promise:
+        context["audience_job"] = viewer_promise
+
+    producer_brief = channel.get("producer_brief")
+    if isinstance(producer_brief, dict):
+        for key in ("must_feel_like", "winning_bets", "weak_topic_traps"):
+            value = str(producer_brief.get(key) or "").strip()
+            if value:
+                context[key] = value
+    return context
 
 
 def topic_bet_context(topic_family: str | None) -> dict:
@@ -616,11 +629,17 @@ def producer_quality_score(local_score: int, ai_result: dict) -> float:
     return round((local_score * 0.35) + (positives * 4.0) - (risks * 3.2) + verdict_bonus + evidence_bonus + format_bonus, 2)
 
 
-def producer_queue_entry(candidate: dict, ai_rank: int, ai_result: dict) -> dict:
+def producer_queue_entry(
+    candidate: dict,
+    ai_rank: int,
+    ai_result: dict,
+    include_source_body: bool = False,
+) -> dict:
     post = candidate["post"]
+    source_body = post.selftext or ""
     local_score = int(candidate.get("score") or 0)
     producer_score = producer_quality_score(local_score, ai_result)
-    return {
+    entry = {
         "ai_rank": ai_rank,
         "producer_score": producer_score,
         "local_score": local_score,
@@ -632,6 +651,11 @@ def producer_queue_entry(candidate: dict, ai_rank: int, ai_result: dict) -> dict
         "url": f"https://reddit.com{post.permalink}",
         "upvotes": post.score,
         "comments": post.num_comments,
+        "source_body_chars": len(source_body),
+        "source_has_url": bool(re.search(r"https?://|www\.", source_body, flags=re.IGNORECASE)),
+        "source_has_markdown_link": bool(re.search(r"\[[^\]]+\]\([^)]+\)", source_body)),
+        "source_has_markdown_image": bool(re.search(r"!\[[^\]]*\]\([^)]+\)", source_body)),
+        "source_question_count": source_body.count("?"),
         "topic_family": candidate["topic"]["family"],
         "topic_label": candidate["topic"]["label"],
         "time_window": candidate["time_window"],
@@ -669,6 +693,9 @@ def producer_queue_entry(candidate: dict, ai_rank: int, ai_result: dict) -> dict
         "hook_evidence": hook_evidence_items(ai_result),
         "reason": ai_result.get("reason"),
     }
+    if include_source_body:
+        entry["source_body"] = source_body
+    return entry
 
 
 def write_producer_queue(
@@ -1017,11 +1044,24 @@ def history_channels_for_post(history: dict, post_id: str) -> set[str]:
     return set()
 
 
-def history_has_post(history: dict, post_id: str, channel_id: str) -> bool:
-    return channel_id in history_channels_for_post(history, post_id)
+def history_has_post(
+    history: dict,
+    post_id: str,
+    channel_id: str,
+    network_wide: bool = True,
+) -> bool:
+    channels = history_channels_for_post(history, post_id)
+    if network_wide:
+        return bool(channels)
+    return channel_id in channels
 
 
-def history_has_signature(history: dict, signature: str, channel_id: str) -> bool:
+def history_has_signature(
+    history: dict,
+    signature: str,
+    channel_id: str,
+    network_wide: bool = True,
+) -> bool:
     if not signature:
         return False
     for record in history_posts(history).values():
@@ -1030,10 +1070,16 @@ def history_has_signature(history: dict, signature: str, channel_id: str) -> boo
         if record.get("story_signature") != signature:
             continue
         channels = record.get("channels", {})
-        if isinstance(channels, dict) and channel_id in channels:
-            return True
-        if isinstance(channels, list) and channel_id in channels:
-            return True
+        if isinstance(channels, dict):
+            if network_wide and channels:
+                return True
+            if channel_id in channels:
+                return True
+        if isinstance(channels, list):
+            if network_wide and channels:
+                return True
+            if channel_id in channels:
+                return True
     return False
 
 
@@ -1042,6 +1088,7 @@ def history_has_similar_keyword_signature(
     keyword_signature: str,
     channel_id: str,
     threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+    network_wide: bool = True,
 ) -> tuple[bool, float]:
     best = 0.0
     if not keyword_signature:
@@ -1050,9 +1097,9 @@ def history_has_similar_keyword_signature(
         if not isinstance(record, dict):
             continue
         channels = record.get("channels", {})
-        if isinstance(channels, dict) and channel_id not in channels:
+        if isinstance(channels, dict) and not network_wide and channel_id not in channels:
             continue
-        if isinstance(channels, list) and channel_id not in channels:
+        if isinstance(channels, list) and not network_wide and channel_id not in channels:
             continue
         if not isinstance(channels, (dict, list)):
             continue
@@ -1070,13 +1117,18 @@ def history_duplicate_reason(
     channel_id: str,
     keyword_signature: str = "",
     similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+    network_wide: bool = True,
 ) -> str | None:
-    if history_has_post(history, post_id, channel_id):
+    if history_has_post(history, post_id, channel_id, network_wide=network_wide):
         return "already_published_post_id"
-    if history_has_signature(history, signature, channel_id):
+    if history_has_signature(history, signature, channel_id, network_wide=network_wide):
         return "already_published_story_signature"
     is_similar, similarity = history_has_similar_keyword_signature(
-        history, keyword_signature, channel_id, threshold=similarity_threshold
+        history,
+        keyword_signature,
+        channel_id,
+        threshold=similarity_threshold,
+        network_wide=network_wide,
     )
     if is_similar:
         return f"similar_story_keywords_{similarity:.2f}"
@@ -1269,6 +1321,8 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                      channel_config=None, skip_rank=0, max_ai_candidates=None,
                      candidate_limit=DEFAULT_CANDIDATE_LIMIT, topic_family=None,
                      similarity_threshold=DEFAULT_SIMILARITY_THRESHOLD,
+                     allow_cross_channel_reuse=False,
+                     include_source_body_in_queue=False,
                      format_intent: str | None = None,
                      producer_queue_output: str | None = "producer_queue.json"):
     """
@@ -1290,6 +1344,8 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
     candidate_limit: int        - top posts fetched per subreddit/window source
     topic_family   : str|None   - force one topic family for experiments
     similarity_threshold: float - keyword overlap threshold for semantic dedupe
+    allow_cross_channel_reuse: bool - opt out of the default network-wide duplicate guard
+    include_source_body_in_queue: bool - preserve bounded candidate bodies in review artifacts
     format_intent  : str|None   - auto | shorts | long; passed to Gemini producer gate
     producer_queue_output: str|None - JSON report of all AI-scored candidates
 
@@ -1362,7 +1418,13 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                         keyword_signature = topic_keyword_signature(post.title, body)
                         signature = story_signature(post.title, body)
                         duplicate_reason = history_duplicate_reason(
-                            history, post.id, signature, channel_id, keyword_signature, similarity_threshold
+                            history,
+                            post.id,
+                            signature,
+                            channel_id,
+                            keyword_signature,
+                            similarity_threshold,
+                            network_wide=not allow_cross_channel_reuse,
                         )
                         if duplicate_reason:
                             print(f"    skip duplicate ({duplicate_reason}) | {post.title[:55]}")
@@ -1487,7 +1549,12 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
             print(f"   Pack   : {qc.get('packaging_thesis')}")
         print(f"   Reason : {qc.get('reason', '')}")
 
-        queue_entry = producer_queue_entry(candidate, rank + 1, qc)
+        queue_entry = producer_queue_entry(
+            candidate,
+            rank + 1,
+            qc,
+            include_source_body=include_source_body_in_queue,
+        )
         queue_entries.append(queue_entry)
         print(f"   Prod   : {queue_entry['producer_score']}")
 
@@ -1619,6 +1686,21 @@ def load_channel_config(channel_id=None):
     return channels[0]
 
 
+class ChannelAutomationDisabledError(RuntimeError):
+    """Raised when an unvalidated channel is used without an explicit review override."""
+
+
+def ensure_channel_automation_enabled(channel: dict | None, allow_disabled: bool = False) -> None:
+    if not channel or channel.get("automation_enabled", True) is not False or allow_disabled:
+        return
+    channel_id = channel.get("id") or channel.get("handle") or "unknown"
+    status = channel.get("strategy_status") or "not_ready"
+    raise ChannelAutomationDisabledError(
+        f"Channel {channel_id} is fail-closed for automated selection "
+        f"(strategy_status={status}). Use --allow-disabled-channel only for an approved read-only review."
+    )
+
+
 # ─────────────────────────────────────────────
 #  CLI entry point
 #
@@ -1672,6 +1754,12 @@ if __name__ == "__main__":
                         help="Validate Reddit environment configuration without importing PRAW or making a network request.")
     parser.add_argument("--no-save-history", action="store_true",
                         help="Do not append a selected candidate to published_history.json; use for read-only source reviews.")
+    parser.add_argument("--allow-disabled-channel", action="store_true",
+                        help="Allow an automation-disabled channel only for an explicitly approved review.")
+    parser.add_argument("--allow-cross-channel-reuse", action="store_true",
+                        help="Use channel-only duplicate protection instead of the default network-wide guard.")
+    parser.add_argument("--include-source-body-in-queue", action="store_true",
+                        help="Preserve bounded candidate selftext in producer_queue.json for a private source review.")
     args = parser.parse_args()
 
     if args.check_reddit_config:
@@ -1692,6 +1780,11 @@ if __name__ == "__main__":
     else:
         channel = load_channel_config(args.channel)
         if channel:
+            try:
+                ensure_channel_automation_enabled(channel, allow_disabled=args.allow_disabled_channel)
+            except ChannelAutomationDisabledError as exc:
+                print(f"Channel strategy preflight failed: {exc}", file=sys.stderr)
+                sys.exit(3)
             subreddits = channel.get("subreddits", ["AskReddit"])
             print(f"Mode: channel strategy → {channel.get('handle')} "
                   f"({channel.get('niche_label')})")
@@ -1718,6 +1811,8 @@ if __name__ == "__main__":
         comment_limit=args.comment_limit,
         topic_family=args.topic_family,
         similarity_threshold=args.similarity_threshold,
+        allow_cross_channel_reuse=args.allow_cross_channel_reuse,
+        include_source_body_in_queue=args.include_source_body_in_queue,
         format_intent=args.format_intent,
         producer_queue_output=None if args.no_producer_queue else args.producer_queue_output,
     )

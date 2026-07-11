@@ -1,4 +1,6 @@
 {
+  "strategy_version": "2026-07-10-audience-ownership-v2",
+  "strategy_goal": "Build distinct channel franchises optimized for engaged views, retention, comments, shares, and returning viewers; topic_mix remains candidate-scouting input until source and audience gates pass.",
   "channels": [
     {
       "id": "acc1",
@@ -7,18 +9,36 @@
       "lang": "ru",
       "region": "RU/CIS",
       "audience": "Россия, русскоязычная диаспора за рубежом",
-      "niche": "dark_curiosity_drama_facts",
-      "niche_label": "Dark Curiosity + Human Drama + Strange Facts",
+      "niche": "dark_first_person_stories",
+      "niche_label": "Modern Dark Stories + Claimed Encounters",
+      "automation_enabled": false,
+      "strategy_status": "source_validation_required",
+      "viewer_promise": "Тёмные истории от первого лица, после которых хочется дважды проверить дверь: правило, эскалация, развязка.",
+      "owned_content_bets": [
+        {"id": "modern_horror_fiction", "source_lane": "reddit_fiction", "readiness": "pilot"},
+        {"id": "claimed_personal_encounter", "source_lane": "reddit_first_person", "readiness": "pilot"},
+        {"id": "verified_strange_case", "source_lane": "evidence_dossier", "readiness": "blocked"}
+      ],
+      "forbidden_bets": ["generic AITA", "gaming-server drama", "politics", "unverified fact explainer", "fiction presented as real"],
+      "evidence_policy": "Label r/nosleep as fiction and all other personal accounts as unverified claims; factual cases require independent evidence.",
+      "render_contract": "Reddit story card: one concrete rule or anomaly, escalating first-person incident, and payoff; never a factual dossier on one card.",
+      "producer_brief": {
+        "must_feel_like": "specific, tense, modern, easy to retell, and clearly labeled as fiction or an unverified account",
+        "winning_bets": "delivery, apartment, workplace, travel, or online encounters with one memorable rule and an escalating reveal",
+        "weak_topic_traps": "generic creepypasta, gore, politics, dry trivia, gaming, and low-stakes moral filler"
+      },
+      "cadence_plan": {"mode": "hold_until_source_gate", "pilot_shorts_per_week": 4, "longform": "winner_only"},
       "subreddits": [
         "nosleep", "AmItheAsshole", "AITAH", "relationship_advice",
         "todayilearned", "LetsNotMeet", "Glitch_in_the_Matrix",
         "creepyencounters", "mildlyinteresting", "InternetIsBeautiful"
       ],
       "topic_mix": [
-        {"family": "dark_curiosity", "weight": 0.40},
-        {"family": "human_drama", "weight": 0.35},
-        {"family": "curiosity_facts", "weight": 0.25}
+        {"family": "dark_curiosity", "weight": 0.45},
+        {"family": "curiosity_facts", "weight": 0.35},
+        {"family": "human_drama", "weight": 0.20}
       ],
+      "topic_mix_status": "unvalidated_candidate_scouting_only",
       "topic_exclusions": [
         "minecraft",
         "game server",
@@ -30,7 +50,7 @@
         "game world"
       ],
       "format": ["shorts", "long"],
-      "videos_per_day": 2,
+      "videos_per_day": 0,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "elevenlabs_rQOBu7YxCDxGiFdTm28w",
@@ -46,8 +66,25 @@
       "lang": "en",
       "region": "US/UK/AU/CA",
       "audience": "USA, UK, Canada, Australia",
-      "niche": "spectacle_curiosity_drama",
-      "niche_label": "Spectacle / Curiosity + Internet Lore + Drama",
+      "niche": "internet_case_files",
+      "niche_label": "High-Concept Internet Case Files",
+      "automation_enabled": false,
+      "strategy_status": "evidence_lane_required",
+      "viewer_promise": "The hidden story behind the internet's strangest moments: what happened, why people cared, and what changed.",
+      "owned_content_bets": [
+        {"id": "internet_case_file", "source_lane": "evidence_dossier", "readiness": "blocked"},
+        {"id": "spectacle_curiosity", "source_lane": "evidence_dossier", "readiness": "blocked"},
+        {"id": "exceptional_human_case", "source_lane": "reddit_first_person", "readiness": "pilot"}
+      ],
+      "forbidden_bets": ["generic AITA", "ordinary chores", "thin trivia", "question post without an answer", "creator allegation based only on Reddit"],
+      "evidence_policy": "Internet and creator claims require primary or independent corroboration; Reddit may be a discovery lead, not the factual source.",
+      "render_contract": "Evidence dossier with timeline and original producer take; generic translated Reddit-card readings are off-promise.",
+      "producer_brief": {
+        "must_feel_like": "high-concept, instantly clear, specific, and meaningfully more useful than the source post",
+        "winning_bets": "internet mysteries, creator-community conflicts, bizarre systems, and surprising consequences with a clean timeline",
+        "weak_topic_traps": "generic Reddit reads, saturated AITA tropes, fandom minutiae, and link-dependent questions"
+      },
+      "cadence_plan": {"mode": "hold_until_evidence_lane", "pilot_shorts_per_week": 3, "longform": "winner_only"},
       "subreddits": [
         "AmItheAsshole", "todayilearned", "offmychest", "relationship_advice",
         "tifu", "prorevenge", "MaliciousCompliance", "mildlyinteresting"
@@ -57,8 +94,9 @@
         {"family": "curiosity_facts", "weight": 0.35},
         {"family": "internet_lore", "weight": 0.25}
       ],
+      "topic_mix_status": "unvalidated_candidate_scouting_only",
       "format": ["shorts", "long"],
-      "videos_per_day": 2,
+      "videos_per_day": 0,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "elevenlabs_sB7vwSCyX0tQmU24cW2C",
@@ -74,19 +112,37 @@
       "lang": "de",
       "region": "DE/AT/CH",
       "audience": "Германия, Австрия, Швейцария",
-      "niche": "science_curiosity_tech",
-      "niche_label": "Science / Curiosity / Experiments + Strange Facts",
+      "niche": "digital_system_explainers",
+      "niche_label": "Digital Systems / Scams / Tech Consequences",
+      "automation_enabled": false,
+      "strategy_status": "evidence_lane_required",
+      "viewer_promise": "Warum digitale Systeme, Technik und Online-Trends plötzlich unser Leben verändern - klar, präzise und ohne Hype erklärt.",
+      "owned_content_bets": [
+        {"id": "digital_system_consequence", "source_lane": "evidence_dossier", "readiness": "blocked"},
+        {"id": "scam_privacy_mechanism", "source_lane": "evidence_dossier", "readiness": "blocked"},
+        {"id": "counterintuitive_science", "source_lane": "evidence_dossier", "readiness": "blocked"}
+      ],
+      "forbidden_bets": ["vague creepypasta", "celebrity gossip", "political outrage", "thin trivia", "OutOfTheLoop question used as an answer"],
+      "evidence_policy": "Every explanatory claim needs primary or independent evidence; Reddit questions may only identify a topic.",
+      "render_contract": "Fast evidence explainer with mechanism, consequence, and visual proof; the current single Reddit card is insufficient.",
+      "producer_brief": {
+        "must_feel_like": "credible, precise, useful, visually explainable, and free of sensationalism",
+        "winning_bets": "privacy systems, scams, technology consequences, counterintuitive mechanisms, and explainable discoveries",
+        "weak_topic_traps": "unverified claims, dry announcements, celebrity drama, vague horror, and facts requiring unavailable footage"
+      },
+      "cadence_plan": {"mode": "hold_until_evidence_lane", "pilot_shorts_per_week": 3, "longform": "winner_only"},
       "subreddits": [
         "todayilearned", "explainlikeimfive", "mildlyinteresting", "nosleep",
         "Damnthatsinteresting", "science", "space", "Glitch_in_the_Matrix"
       ],
       "topic_mix": [
-        {"family": "curiosity_facts", "weight": 0.65},
-        {"family": "internet_lore", "weight": 0.25},
-        {"family": "dark_curiosity", "weight": 0.10}
+        {"family": "curiosity_facts", "weight": 0.45},
+        {"family": "internet_lore", "weight": 0.35},
+        {"family": "dark_curiosity", "weight": 0.20}
       ],
+      "topic_mix_status": "unvalidated_candidate_scouting_only",
       "format": ["shorts", "long"],
-      "videos_per_day": 2,
+      "videos_per_day": 0,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "elevenlabs_aTTiK3YzK3dXETpuDE2h",
@@ -102,19 +158,39 @@
       "lang": "es-419",
       "region": "LATAM",
       "audience": "México, Argentina, Colombia, Chile, Perú, Centroamérica",
-      "niche": "human_drama_scandals",
-      "niche_label": "Human Drama + Entitled Scandals + Internet Lore",
+      "niche": "latam_moral_court",
+      "niche_label": "LATAM Moral Court / Mini-Telenovela Conflict",
+      "automation_enabled": false,
+      "strategy_status": "reddit_pilot_candidate",
+      "viewer_promise": "Un conflicto íntimo, dos bandos y un giro que cambia el caso: tú das el veredicto.",
+      "owned_content_bets": [
+        {"id": "relationship_betrayal", "source_lane": "reddit_first_person", "readiness": "ready"},
+        {"id": "family_money_entitlement", "source_lane": "reddit_first_person", "readiness": "ready"},
+        {"id": "revenge_public_humiliation", "source_lane": "reddit_first_person", "readiness": "pilot"}
+      ],
+      "forbidden_bets": ["low-stakes chores", "US-only context with no localization", "one-sided advice prompt", "factual allegation", "question post without payoff"],
+      "evidence_policy": "Frame every case as an unverified first-person Reddit account; never convert a claim into established fact.",
+      "render_contract": "Reddit moral-court card: accusation in the first screen, escalation, counterpoint, twist, and a natural verdict question.",
+      "producer_brief": {
+        "must_feel_like": "intimate, emotionally charged, conversational, and debatable like a compact telenovela",
+        "winning_bets": "relationship betrayal, family loyalty, money boundaries, entitlement, parenting, and public humiliation with two arguable sides",
+        "weak_topic_traps": "flat advice, roommate chores, missing context, no emotional reversal, and generic translated filler"
+      },
+      "cadence_plan": {"mode": "manual_pilot_after_config_smoke", "pilot_shorts_per_week": 5, "longform": "top_quartile_short_only"},
       "subreddits": [
         "AmItheAsshole", "relationship_advice", "confession", "entitledparents",
         "offmychest", "tifu", "prorevenge", "MaliciousCompliance"
       ],
       "topic_mix": [
-        {"family": "human_drama", "weight": 0.70},
-        {"family": "internet_lore", "weight": 0.20},
-        {"family": "visual_comedy", "weight": 0.10}
+        {"family": "human_drama", "weight": 0.45},
+        {"family": "dark_curiosity", "weight": 0.20},
+        {"family": "curiosity_facts", "weight": 0.20},
+        {"family": "internet_lore", "weight": 0.10},
+        {"family": "visual_comedy", "weight": 0.05}
       ],
+      "topic_mix_status": "superseded_pending_rebuild",
       "format": ["shorts", "long"],
-      "videos_per_day": 2,
+      "videos_per_day": 0,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "elevenlabs_22VndfJPBU7AZORAZZTT",
@@ -130,19 +206,38 @@
       "lang": "pt-BR",
       "region": "BR",
       "audience": "Brasil",
-      "niche": "curiosities_football_drama",
-      "niche_label": "Curiosities + Football Culture + Emotional Stories",
+      "niche": "football_human_stories",
+      "niche_label": "Football Identity / Human Stakes / Comebacks",
+      "automation_enabled": false,
+      "strategy_status": "evidence_lane_required",
+      "viewer_promise": "O lado humano do futebol: lealdade, injustiça, pressão e viradas que importam além do placar.",
+      "owned_content_bets": [
+        {"id": "player_human_arc", "source_lane": "evidence_dossier", "readiness": "blocked"},
+        {"id": "fan_identity_conflict", "source_lane": "evidence_dossier", "readiness": "blocked"},
+        {"id": "comeback_injustice_loyalty", "source_lane": "evidence_dossier", "readiness": "blocked"}
+      ],
+      "forbidden_bets": ["score-only news", "transfer rumor", "match-footage dependency", "unverified accusation", "generic AITA unrelated to football"],
+      "evidence_policy": "Football claims require independent evidence and attribution; Reddit is only a discovery lead or explicitly framed fan account.",
+      "render_contract": "Rights-safe evidence dossier using timeline, maps, statistics, and original commentary; no match footage and no single-card factual claim.",
+      "producer_brief": {
+        "must_feel_like": "energetic, emotional, culturally Brazilian, and meaningful beyond the latest score",
+        "winning_bets": "player arcs, fan loyalty, club identity, pressure, injustice, comeback, and community consequences",
+        "weak_topic_traps": "transfer chatter, live-score reaction, rights-dependent clips, dry stats, and unsupported allegations"
+      },
+      "cadence_plan": {"mode": "hold_until_evidence_lane", "pilot_shorts_per_week": 3, "longform": "winner_only"},
       "subreddits": [
         "todayilearned", "soccer", "offmychest", "relationship_advice",
         "Damnthatsinteresting", "mildlyinteresting", "tifu", "confession"
       ],
       "topic_mix": [
-        {"family": "curiosity_facts", "weight": 0.40},
-        {"family": "football_culture", "weight": 0.35},
-        {"family": "human_drama", "weight": 0.25}
+        {"family": "curiosity_facts", "weight": 0.35},
+        {"family": "human_drama", "weight": 0.30},
+        {"family": "dark_curiosity", "weight": 0.20},
+        {"family": "football_culture", "weight": 0.15}
       ],
+      "topic_mix_status": "superseded_pending_evidence_lane",
       "format": ["shorts", "long"],
-      "videos_per_day": 2,
+      "videos_per_day": 0,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "elevenlabs_dX7gRq1dIvLTgUaWpEFn",
@@ -158,19 +253,37 @@
       "lang": "fr",
       "region": "FR/BE/CA-QC",
       "audience": "France, Belgique, Canada",
-      "niche": "mystery_true_stories",
-      "niche_label": "Mystery / True Stories + Pop Culture + Gaming Lore",
+      "niche": "web_mystery_dossiers",
+      "niche_label": "Verified Web Mysteries / Case Dossiers",
+      "automation_enabled": false,
+      "strategy_status": "evidence_lane_required",
+      "viewer_promise": "Un mystère du web, les faits, les théories et ce qui reste réellement inexpliqué.",
+      "owned_content_bets": [
+        {"id": "web_mystery_timeline", "source_lane": "evidence_dossier", "readiness": "blocked"},
+        {"id": "strange_real_case", "source_lane": "evidence_dossier", "readiness": "blocked"},
+        {"id": "theory_check", "source_lane": "evidence_dossier", "readiness": "blocked"}
+      ],
+      "forbidden_bets": ["nosleep presented as true", "thin horror", "celebrity gossip", "political outrage", "OutOfTheLoop question without verified answer"],
+      "evidence_policy": "Separate facts, sourced claims, theories, and unknowns; Reddit can surface a lead but cannot establish the case.",
+      "render_contract": "Evidence dossier with a visible timeline and source-backed distinctions between fact, claim, theory, and unknown; current single card is insufficient.",
+      "producer_brief": {
+        "must_feel_like": "intriguing, stylish, structured, skeptical, and genuinely investigative",
+        "winning_bets": "web mysteries, strange documented events, lost-media timelines, and theories that can be checked",
+        "weak_topic_traps": "question-only posts, vague paranormal claims, gore, gossip, and fiction presented as reporting"
+      },
+      "cadence_plan": {"mode": "hold_until_evidence_lane", "pilot_shorts_per_week": 3, "longform": "winner_only"},
       "subreddits": [
         "UnresolvedMysteries", "nosleep", "gaming", "LetsNotMeet",
         "creepyencounters", "Glitch_in_the_Matrix", "todayilearned", "mildlyinteresting"
       ],
       "topic_mix": [
-        {"family": "dark_curiosity", "weight": 0.55},
-        {"family": "internet_lore", "weight": 0.30},
+        {"family": "dark_curiosity", "weight": 0.45},
+        {"family": "internet_lore", "weight": 0.40},
         {"family": "curiosity_facts", "weight": 0.15}
       ],
+      "topic_mix_status": "superseded_pending_evidence_lane",
       "format": ["shorts", "long"],
-      "videos_per_day": 2,
+      "videos_per_day": 0,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "elevenlabs_wufFsVwuYBePWKO6dMMN",
@@ -186,25 +299,43 @@
       "lang": "it",
       "region": "IT",
       "audience": "Italia",
-      "niche": "comedy_football_drama",
-      "niche_label": "Visual Comedy / Food Identity + Football + Human Drama",
+      "niche": "italian_social_absurdity",
+      "niche_label": "Italian Social Absurdity / Food / Etiquette",
+      "automation_enabled": false,
+      "strategy_status": "reddit_pilot_candidate",
+      "viewer_promise": "Una scena quotidiana assurda, un'escalation sociale e un ribaltone che fa scegliere da che parte stare.",
+      "owned_content_bets": [
+        {"id": "food_etiquette_conflict", "source_lane": "reddit_first_person", "readiness": "pilot"},
+        {"id": "dating_family_awkwardness", "source_lane": "reddit_first_person", "readiness": "pilot"},
+        {"id": "neighbor_work_reversal", "source_lane": "reddit_first_person", "readiness": "pilot"}
+      ],
+      "forbidden_bets": ["football news", "generic AITA with no visible scene", "slow internet lore", "English-only wordplay", "sketch requiring original footage"],
+      "evidence_policy": "Frame stories as unverified first-person accounts; any public-person, football, or factual claim needs a separate evidence lane.",
+      "render_contract": "Narrated social absurdity on a Reddit card: concrete scene, social pressure, escalation, and comic reversal; not a visual sketch.",
+      "producer_brief": {
+        "must_feel_like": "expressive, concrete, culturally legible, playful, and built around a scene the viewer can instantly imagine",
+        "winning_bets": "food etiquette, dates, family rules, neighbors, service encounters, and work situations with an absurd reversal",
+        "weak_topic_traps": "generic moral debate, football news, slow lore, wordplay-only jokes, and stories with no scene or payoff"
+      },
+      "cadence_plan": {"mode": "manual_pilot_after_config_smoke", "pilot_shorts_per_week": 5, "longform": "top_quartile_short_only"},
       "subreddits": [
         "AmItheAsshole", "soccer", "talesfromyourserver", "relationship_advice",
         "tifu", "confession", "mildlyinteresting", "entitledparents"
       ],
       "topic_mix": [
-        {"family": "visual_comedy", "weight": 0.40},
-        {"family": "football_culture", "weight": 0.30},
-        {"family": "human_drama", "weight": 0.30}
+        {"family": "human_drama", "weight": 0.50},
+        {"family": "internet_lore", "weight": 0.30},
+        {"family": "curiosity_facts", "weight": 0.20}
       ],
+      "topic_mix_status": "superseded_pending_rebuild",
       "format": ["shorts", "long"],
-      "videos_per_day": 2,
+      "videos_per_day": 0,
       "long_duration_min": 8,
       "long_duration_max": 18,
       "tts_voice": "elevenlabs_ImsA1Fn5TNc843fFdz99",
       "comment_tts_voice": "elevenlabs_RXoaSpLaWTEckJgPUBG3",
       "tts_provider": "ai33",
-      "translate_prompt": "Traduci in italiano colloquiale. Mantieni lo stile informale di Reddit, usa espressioni naturali giovanili e adatta il tono ai contesti drammatici o calcistici.",
+      "translate_prompt": "Traduci in italiano colloquiale. Mantieni lo stile informale di Reddit, usa espressioni naturali giovanili e adatta il tono a scene sociali, familiari, alimentari o di vicinato.",
       "priority": "medium"
     }
   ]
