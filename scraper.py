@@ -313,6 +313,11 @@ FORMAT_INTENT_RULES = {
         "The source title/body must already fit the Shorts runtime; do not approve a long source that would need raw story truncation. "
         "Skip slow-burn stories that only become interesting after long context."
     ),
+    "shorts_from_long": (
+        "This is a Russian dark-story Shorts pilot sourced from a complete long first-person story. "
+        "Require one memorable rule or anomaly, a concrete escalation, and a source-backed payoff that can be condensed without inventing facts. "
+        "Reject stories whose ending depends on extensive lore, whose payoff cannot survive compression, or whose strongest hook is not supported by the source text."
+    ),
     "long": (
         "This will be a horizontal long-form video. Require enough plot, timeline, stakes, explanation depth, or comment debate "
         "for an 8-18 minute episode. The source must be substantial enough to read/adapt without padding or cutting. "
@@ -327,6 +332,12 @@ FORMAT_LENGTH_PROFILES = {
         "max_body_chars": 2400,
         "policy": "select_short_source_only",
         "description": "Shorts must start from a complete short source story; never trim a long story down after selection.",
+    },
+    "shorts_from_long": {
+        "min_body_chars": 2800,
+        "max_body_chars": 25000,
+        "policy": "select_complete_long_source_for_source_backed_shorts_adaptation",
+        "description": "Acc1 may condense a complete long dark story only through the explicit source-backed long-to-short adapter.",
     },
     "long": {
         "min_body_chars": 2800,
@@ -785,16 +796,37 @@ def ai_quality_check(
     body_text = post_body or ""
     if format_intent == "shorts":
         body_preview_limit = 2600
+        body_preview = body_text[:body_preview_limit]
+        body_preview_label = (
+            "full body"
+            if len(body_text) <= body_preview_limit
+            else f"first {body_preview_limit} chars"
+        )
+    elif format_intent == "shorts_from_long":
+        head_limit = 3500
+        tail_limit = 2500
+        if len(body_text) <= head_limit + tail_limit:
+            body_preview = body_text
+            body_preview_label = "full body"
+        else:
+            body_preview = body_text[:head_limit] + "\n\n[...middle omitted for bounded review...]\n\n" + body_text[-tail_limit:]
+            body_preview_label = f"first {head_limit} and last {tail_limit} chars"
     elif format_intent == "long":
         body_preview_limit = 1800
+        body_preview = body_text[:body_preview_limit]
+        body_preview_label = (
+            "full body"
+            if len(body_text) <= body_preview_limit
+            else f"first {body_preview_limit} chars"
+        )
     else:
         body_preview_limit = 1200
-    body_preview = body_text[:body_preview_limit]
-    body_preview_label = (
-        "full body"
-        if len(body_text) <= body_preview_limit
-        else f"first {body_preview_limit} chars"
-    )
+        body_preview = body_text[:body_preview_limit]
+        body_preview_label = (
+            "full body"
+            if len(body_text) <= body_preview_limit
+            else f"first {body_preview_limit} chars"
+        )
     topic_label = topic_context.get("label") or topic_context.get("family") or "Unspecified"
     topic_family = topic_context.get("family")
     topic_rules = topic_context.get("quality_rules") or "Use the channel profile and Reddit metrics."

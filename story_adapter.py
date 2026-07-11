@@ -110,6 +110,29 @@ def evidence_items(payload: dict[str, Any]) -> list[dict[str, str]]:
     return items
 
 
+def story_beat_evidence_items(payload: dict[str, Any]) -> list[dict[str, str]]:
+    raw = payload.get("story_beat_evidence")
+    if not isinstance(raw, list):
+        return []
+    items: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        beat = clean_text(item.get("beat")).casefold()
+        quote = clean_text(item.get("quote"))
+        if beat not in {"setup", "escalation", "payoff"} or not quote:
+            continue
+        items.append({"beat": beat, "quote": quote[:500]})
+    return items
+
+
+def long_to_short_evidence_is_source_backed(story: dict[str, Any], payload: dict[str, Any]) -> bool:
+    source = normalize_for_match(story_source_text(story))
+    items = story_beat_evidence_items(payload)
+    beats = {item["beat"] for item in items if normalize_for_match(item["quote"]) in source}
+    return beats == {"setup", "escalation", "payoff"}
+
+
 def evidence_is_source_backed(story: dict[str, Any], payload: dict[str, Any]) -> bool:
     source = normalize_for_match(story_source_text(story))
     if not source:
@@ -154,12 +177,29 @@ def story_payload_for_prompt(story: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_prompt(story: dict[str, Any], channel: dict[str, Any], max_body_chars: int | None) -> str:
+def build_prompt(
+    story: dict[str, Any],
+    channel: dict[str, Any],
+    max_body_chars: int | None,
+    *,
+    long_to_short: bool = False,
+) -> str:
     language = channel.get("lang") or "en"
     max_body_rule = (
-        f"- Keep adapted_body under {max_body_chars} characters if possible.\n"
+        f"- adapted_body MUST be at most {max_body_chars} characters.\n"
         if max_body_chars and max_body_chars > 0
         else ""
+    )
+    adaptation_mode_rules = (
+        """
+- This is an explicit long-to-short adaptation of a complete source, not raw truncation.
+- Preserve a complete mini-arc: setup/rule, escalation, and actual source payoff.
+- Condense only facts and events present in the source. Do not create bridging events, dialogue, motives, or a new ending.
+- Return exactly three story_beat_evidence items: setup, escalation, and payoff. Each quote must be copied exactly from the source.
+- If the story cannot form a coherent short retelling under the limit, set safe_to_publish=false.
+""".strip()
+        if long_to_short
+        else "- The source already fits the intended runtime; preserve its complete arc instead of summarizing a long story."
     )
     return f"""
 You are an editor for a multilingual YouTube Reddit-story pipeline.
@@ -171,12 +211,13 @@ Channel:
 - language: {language}
 - region: {channel.get('region')}
 - audience: {channel.get('audience')}
-- promise: {channel.get('niche_label') or channel.get('niche')}
+- promise: {channel.get('viewer_promise') or channel.get('niche_label') or channel.get('niche')}
 
 Rules:
 - Preserve every factual claim, timeline, point of view, and speaker role.
 - Do not invent new betrayals, deaths, crimes, secrets, relationships, numbers, places, quotes, updates, or motives.
-- Do not remove the ending or any necessary story beat. For Shorts, the source was already selected to be short enough; keep the complete source arc instead of summarizing a long story.
+- Do not remove the ending or any necessary story beat.
+{adaptation_mode_rules}
 - You may remove repetition, filler, Reddit housekeeping, and low-value edits.
 - You may move one source-backed hook into the title/opening if it is supported by an exact quote from title/body/comment.
 - Keep URLs exactly as source text if they are relevant; do not add new URLs.
@@ -197,6 +238,11 @@ Return JSON:
   "hook_evidence": [
     {{"field": "title|body|comment[0]", "quote": "<exact quote from source text>", "why_it_matters": "<why this supports the hook>"}}
   ],
+  "story_beat_evidence": [
+    {"beat": "setup", "quote": "<exact source quote>"},
+    {"beat": "escalation", "quote": "<exact source quote>"},
+    {"beat": "payoff", "quote": "<exact source quote>"}
+  ],
   "removed_or_compressed": ["<short note>"],
   "facts_not_in_source": [],
   "adaptation_notes": "<one sentence>",
@@ -214,6 +260,8 @@ def validate_adaptation(
     *,
     strict_evidence: bool,
     max_expansion_ratio: float,
+    max_body_chars: int | None = None,
+    long_to_short: bool = False,
 ) -> list[str]:
     failures: list[str] = []
     if not payload.get("safe_to_publish", True):
@@ -226,6 +274,12 @@ def validate_adaptation(
         failures.append("facts_not_in_source is not empty.")
     if strict_evidence and not evidence_is_source_backed(story, payload):
         failures.append("hook_evidence has no exact quote found in source title/body/comments.")
+    if long_to_short and not long_to_short_evidence_is_source_backed(story, payload):
+        failures.append("long-to-short adaptation requires exact setup, escalation, and payoff source quotes.")
+    if max_body_chars and len(clean_text(payload.get("adapted_body"))) > max_body_chars:
+        failures.append(
+            f"adapted_body exceeds the hard limit: {len(clean_text(payload.get('adapted_body')))}>{max_body_chars}."
+        )
 
     original_len = len(clean_text(story.get("title"))) + len(clean_text(story.get("body")))
     adapted_len = len(clean_text(payload.get("adapted_title"))) + len(clean_text(payload.get("adapted_body")))
@@ -301,6 +355,8 @@ def apply_adaptation(story: dict[str, Any], payload: dict[str, Any], channel: di
             if clean_text(item)
         ][:12],
         "adaptation_notes": clean_text(payload.get("adaptation_notes")),
+        "mode": "long_to_short" if story.get("format_intent") == "shorts_from_long" else "standard",
+        "story_beat_evidence": story_beat_evidence_items(payload),
         "risk_flags": [
             clean_text(item)
             for item in payload.get("risk_flags") or []
@@ -339,7 +395,10 @@ def adapt_story(args: argparse.Namespace) -> dict[str, Any]:
             "Re-run with --confirm-spend or use --dry-run."
         )
 
-    max_body_chars = args.max_body_chars if args.allow_body_trim else None
+    long_to_short = bool(args.long_to_short or story.get("format_intent") == "shorts_from_long")
+    max_body_chars = args.max_body_chars if (args.allow_body_trim or long_to_short) else None
+    if long_to_short and not max_body_chars:
+        raise StoryAdapterError("Long-to-short adaptation requires --max-body-chars.")
     if args.max_body_chars and not args.allow_body_trim:
         print(
             "Ignoring --max-body-chars because adapter body trimming is disabled. "
@@ -348,7 +407,7 @@ def adapt_story(args: argparse.Namespace) -> dict[str, Any]:
 
     try:
         raw = call_gemini_json(
-            prompt=build_prompt(story, channel, max_body_chars),
+            prompt=build_prompt(story, channel, max_body_chars, long_to_short=long_to_short),
             model=args.model,
             temperature=args.temperature,
             max_output_tokens=args.max_output_tokens,
@@ -361,6 +420,8 @@ def adapt_story(args: argparse.Namespace) -> dict[str, Any]:
         raw,
         strict_evidence=args.strict_evidence,
         max_expansion_ratio=args.max_expansion_ratio,
+        max_body_chars=max_body_chars,
+        long_to_short=long_to_short,
     )
     if failures:
         raise StoryAdapterError("Unsafe story adaptation: " + "; ".join(failures))
@@ -382,6 +443,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-if-adapted", action="store_true", help="Do nothing if story already has editorial_adaptation.")
     parser.add_argument("--max-body-chars", type=int, default=None, help="Deprecated safety valve: ask Gemini to shorten adapted body. Ignored unless --allow-body-trim is set.")
     parser.add_argument("--allow-body-trim", action="store_true", help="Allow adapter-level body shortening. Production workflows should not use this.")
+    parser.add_argument("--long-to-short", action="store_true", help="Explicitly condense a complete long source into a source-backed short with setup/escalation/payoff evidence.")
     parser.add_argument("--max-expansion-ratio", type=float, default=1.15, help="Fail if adapted title/body expands too much.")
     return parser
 

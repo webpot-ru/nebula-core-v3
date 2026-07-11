@@ -247,6 +247,18 @@ The corrected gates were pushed at commit `0b21d75` and checked with two bounded
 
 The correction is successful as a safety/routing change: no AITA was substituted into `acc1`, `acc5`, or `acc7`, and no OutOfTheLoop question appeared in these four channel pools. It does not yet prove audience performance or authorize publishing.
 
+### Russian long-source Shorts path
+
+The `acc1` blocker is source length rather than absence of dark material. The isolated `shorts_from_long` contract therefore accepts complete 2,800-25,000 character dark sources for candidate selection while keeping the final output as Shorts. The next adapter step must:
+
+- produce at most 2,200 characters;
+- preserve the actual setup/rule, escalation, and source ending;
+- return one exact source quote for each of those three beats;
+- introduce no new fact, dialogue, motive, relationship, place, number, or ending;
+- fail when the story cannot survive compression honestly.
+
+This exception applies only to `acc1` Shorts. It does not re-enable arbitrary body trimming for other channels.
+
 ## Market Signals
 
 These signals guide positioning; they do not prove that a proposed ChonkerTalks format will win.
