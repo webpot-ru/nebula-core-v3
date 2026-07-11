@@ -1,12 +1,16 @@
 # 🚀 nebula-core-v3 — Project Documentation
 
+Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJECT_STATE.md`](PROJECT_STATE.md) before non-trivial work.
+
 **Internal project name**: `nebula-core-v3`  
 **GitHub**: [github.com/lalishka/nebula-core-v3](https://github.com/lalishka/nebula-core-v3) *(private)*  
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-07-04
+**Last updated**: 2026-07-10
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
+
+**Current topic decision**: [`topic-strategy-research-2026-07-10.md`](topic-strategy-research-2026-07-10.md) is the source of truth for channel ownership, source lanes, the 90-day plan, evidence boundaries, and validation gates.
 
 ---
 
@@ -46,7 +50,9 @@ The system is modeled after the successful **LUNA 2** architecture — orchestra
 
 Status: **supersedes the older "one language = one Reddit niche" plan.**
 
-`channels.json` is still the current execution config for scripts, voices, scraper inputs, and initial topic weights. Its `topic_mix` entries now follow the audience-first strategy below, but the weights are hypotheses until live artifacts and retention/readback prove them.
+`channels.json` is the current execution and strategy config for scripts, voices, scraper inputs, viewer promises, owned content bets, evidence/render contracts, and cadence gates. In the local working tree, all seven channels are `automation_enabled=false`; numeric `topic_mix` arrays are marked candidate-scouting-only or superseded and are not approved publishing weights. These guards do not affect GitHub until a separately approved commit/push.
+
+After the committed-config source review exposed cross-channel substitutions, `acc1`, `acc4`, `acc5`, and `acc7` use single-family `forced_family_validation_only` gates. Their `1.0` values mean "do not substitute another family when this source is empty," not "this topic has proven 100 percent audience performance." All channels remain automation-disabled.
 
 ### Strategy Rule
 
@@ -57,32 +63,30 @@ Operational split:
 - **Long-form**: expand proven Shorts topics into 8-18 minute explainers, story documentaries, moral-drama breakdowns, mystery timelines, or compilation-style episodes.
 - **Reddit**: one source of story material, especially for human drama and scary stories. It should not be treated as the whole channel concept.
 
-### Recommended Channel Concepts
+### Channel Ownership
 
-| Market / Language | Primary Channel Promise | Shorts Mix | Long-form Mix | Priority |
-|---|---|---|---|---|
-| LATAM Spanish | Emotional story entertainment: drama, internet lore, challenges, scary hooks | family scandals, AITA-style choices, creator/internet drama, quick mysteries | mini-telenovela-style story breakdowns, internet lore, challenge/adventure explainers | Highest |
-| Brazil Portuguese | Curiosities, football culture, emotional human stories | strange facts, football stories, moral drama hooks, pop-culture moments | football documentaries without match footage, curiosity explainers, strong personal stories | Highest |
-| French | Mystery, true stories, pop culture, gaming/creator lore | creepy facts, case hooks, creator drama, gaming lore | mystery timelines, true-story explainers, pop-culture dossiers | High |
-| German | Science/curiosity, experiments, strange facts, tech/internet explainers | "what happens if...", visual facts, tech hooks, strange discoveries | quality explainers, experiment recaps, internet/science documentaries | High |
-| Italian | Visual social comedy, football/food identity, relationship drama | visual sketches, relationship mini-scenes, football moments, food/culture hooks | social-experiment episodes, football/food culture stories, drama compilations | Medium-high |
-| English | Spectacle curiosity, internet lore, story hooks | experiments, gadgets, internet drama, "what happened next" hooks | high-production explainers, creator/internet lore, mystery or science stories | High upside / high competition |
-| Russian-speaking / CIS diaspora | Dark curiosity, human drama, and strange facts, with platform-risk awareness | scary hooks, moral-conflict mini stories, surprising facts | dark-story compilations, mystery/fact explainers, moral-drama breakdowns | Opportunistic |
+| Channel | Owned viewer promise | Production lane | Status |
+|---|---|---|---|
+| `acc1` Russian | dark first-person story with one memorable rule, escalation, and reveal | labeled Reddit fiction / claimed encounter | source validation required |
+| `acc2` English | high-concept internet case file: what happened, why people cared, what changed | evidence dossier | evidence lane required |
+| `acc3` German | precise explanation of digital systems, scams, privacy, and tech consequences | evidence dossier | evidence lane required |
+| `acc4` LATAM Spanish | intimate moral conflict with two sides and a verdict-changing turn | Reddit story card | Reddit pilot candidate |
+| `acc5` Brazil Portuguese | human football story about identity, loyalty, pressure, injustice, or comeback | rights-safe evidence dossier | evidence lane required |
+| `acc6` French | skeptical web-mystery dossier separating facts, theories, and unknowns | evidence dossier | evidence lane required |
+| `acc7` Italian | concrete everyday social absurdity with escalation and a comic reversal | Reddit story card | Reddit pilot candidate |
 
-### Topic Families to Test
+The detailed owned bets, forbidden bets, cadence gates, and 90-day rollout are in [`topic-strategy-research-2026-07-10.md`](topic-strategy-research-2026-07-10.md).
 
-1. **Dark Curiosity / Strange Stories** — disappearances, creepy internet lore, unresolved mysteries, unusual real events.
-2. **Human Drama / AITA Court** — relationship conflict, family scandals, workplace drama, "who is right?" formats.
-3. **Curiosity / Experiments / Facts** — visual explainers, surprising science, everyday experiments, "did you know?" formats.
-4. **Football Culture** — player arcs, club lore, transfer drama, fan culture, rights-safe documentaries and quizzes.
-5. **Pop Culture / Internet Lore** — meme histories, creator drama, fandom moments, gaming and series timelines.
-6. **Visual Social Comedy** — language-light Shorts, relationship sketches, expectation-vs-reality, street-style prompts.
+### Production Lanes
+
+1. **`reddit_story_card`** - only complete first-person moral conflict, complete social absurdity, clearly labeled scary fiction, or explicitly framed unverified encounter. The current renderer supports this lane.
+2. **`evidence_dossier`** - required for facts, science/tech, scams, real mysteries, public-person allegations, internet timelines, and football. It needs independent evidence, an original script, and timeline/evidence visuals; one Reddit card is not sufficient.
 
 ### Evidence Basis
 
-- Top-channel patterns reviewed through SocialBlade country lists for [Brazil](https://socialblade.com/youtube/top/country/br/mostsubscribed), [Mexico](https://socialblade.com/youtube/top/country/mx/mostsubscribed), [Germany](https://socialblade.com/youtube/top/country/de/mostsubscribed), [France](https://socialblade.com/youtube/lists/top/50/subscribers/all/FR), [Italy](https://socialblade.com/youtube/lists/top/50/subscribers/all/IT), [UK](https://socialblade.com/youtube/lists/top/50/subscribers/all/GB), [US](https://socialblade.com/youtube/lists/top/50/subscribers/all/US), and [Russia](https://socialblade.com/youtube/lists/top/50/subscribers/all/RU).
-- YouTube Shorts research indicates Shorts over-index toward entertainment, while regular long-form supports a wider range of topics: [arXiv:2403.00454](https://arxiv.org/abs/2403.00454).
-- Russia/CIS YouTube strategy carries extra platform-access risk, so treat it as opportunistic rather than the first launch market.
+- Official YouTube reviews support creator-driven franchises and audience participation in [Hispanic America](https://blog.youtube/intl/es-419/culture-and-trends/listas-eoy/), scripted-reality/family and football demand in [Brazil](https://blog.youtube/intl/pt-br/culture-and-trends/listas-fim-de-ano-2025/), and strong edutainment/explainer demand in [Germany](https://blog.youtube/intl/de-de/creator-and-artist-stories/die-erfolgreichsten-videos-creatorinnen-und-trends-des-jahres-2025/).
+- YouTube's next-generation research describes fast, layered audiovisual complexity and participatory narrative culture; the static card is a pilot surface, not a universal format: [YouTube Creative Maximalism](https://blog.youtube/culture-and-trends/next-gen-creativity/).
+- YouTube's channel-level inauthentic-content policy makes materially original editorial treatment and substance variation mandatory: [YouTube channel monetization policies](https://support.google.com/youtube/answer/1311392?hl=en).
 
 ### Scraper / Source Filtering Rules
 
@@ -97,7 +101,8 @@ For Reddit-derived stories only:
 - **Outside-in brief**: before scoring the Reddit post, Gemini receives a market/channel producer brief and a `content_bet` brief for the topic family. It must decide whether the idea would be worth pitching even without Reddit metrics, then return packaging fields such as `content_bet`, `audience_job_fit`, `first_screen_promise`, `first_screen_text`, `packaging_thesis`, `why_now`, `shorts_cut`, and `longform_angle`.
 - **Evidence-backed hooks**: Gemini must return `hook_evidence` with an exact title/body quote supporting the hook. The scraper writes `producer_queue.json`, ranks all approved candidates by producer score, and only then picks the slot winner.
 - **No-invent adaptation**: `story_adapter.py` runs after selection and before metadata/translation. It may tighten, clean, and move a source-backed hook into the opening, but it must preserve facts, point of view, URLs, and timeline. In `--strict-evidence` mode it fails if no hook quote is found in the source text.
-- **Duplicate guard**: exact Reddit post ids, normalized story signatures, and similar keyword signatures are skipped per channel.
+- **Network ownership guard**: exact Reddit post ids, normalized story signatures, and similar keyword signatures are blocked across the whole channel network by default. `--allow-cross-channel-reuse` is an explicit escape hatch for a separately approved campaign.
+- **Strategy preflight**: `automation_enabled=false` channels fail before Reddit access. `--allow-disabled-channel` is reserved for an approved review and is used by the isolated source-smoke workflow.
 - **Velocity scoring**: fresh `day/week` candidates get a small bonus for upvotes/hour and comments/hour, so rising stories can beat older high-total posts.
 - **Topic fatigue**: recently repeated topic families receive a penalty so one channel does not publish the same kind of story too many times in a row.
 - **Channel exclusions**: channels can define `topic_exclusions` in `channels.json`. `acc1` uses this to block Minecraft/gaming-server topics before Gemini quality checks, because the Russian channel default promise is dark curiosity / human drama / strange facts rather than gaming.
@@ -214,7 +219,7 @@ ffprobe final_output.mp4
 
 `storyboard_generator.py` now emits `render_slides` for the simulator. Story/comment text advances as clean centered card screens rather than a scrolling page. For multi-screen posts, the first screen shows the post header/title and hides the footer, middle screens show continuation text only, and only the final story screen shows upvotes/comments/share. In the current production mode, karaoke highlighting is disabled: each slide shows its text cleanly while the narration audio plays. Comment continuations follow the same rule: only the first comment chunk shows the comment header, and only the final chunk shows comment actions. Slide limits are tuned to use the available 9:16 and 16:9 card space, with an anti-orphan merge so a tiny final sentence is not split onto its own mostly empty screen.
 
-`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic slide-progress screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. Current workflows pass `--no-karaoke`, so `narration.json` is not required and transcript timing does not affect the visual render. Use `--report render_report.json` so downstream QA can verify render format, frame schedule, duration, and audio merge.
+`render.py` opens the existing RedditSim UI (`index.html` + `app.js`) in headless Chrome/Chromium, loads `render_story` from `storyboard.json`, samples deterministic slide screenshots, and uses FFmpeg to encode them into `final_output.mp4`. If `narration.mp3` exists, it is merged into the MP4 as an AAC audio track. Current workflows pass `--no-karaoke`, so no yellow karaoke highlight is shown, but they still request `narration.json`; when usable word timings exist, `render.py` uses slide `word_start` boundaries to switch clean static screens in sync with the narration. If timing data is missing, the renderer falls back to word-weighted slide boundaries instead of equal-progress timing. Use `--report render_report.json` so downstream QA can verify render format, frame schedule, duration, transcript use, and audio merge.
 
 `pre_publish_qa.py` is the fail-closed local/upload gate. It reads `story_data.json`, `storyboard.json`, `youtube_metadata.json`, `narration.mp3`, `render_report.json`, and `final_output.mp4`; checks that the MP4 has video/audio streams, audio/video durations match, raw URLs are not spoken in narration fields, source-backed hook evidence exists, story adaptation ran, and metadata language/title length are valid. `auto_publish.yml` and live `video_dry_run.yml` run this before upload/artifact handoff. Karaoke checks run only when `--require-karaoke` is explicitly passed.
 
@@ -234,11 +239,7 @@ Current GitHub verification status: previously recovered after the `startup_fail
 
 ### Current Status
 
-> [!NOTE]
-> ✅ **PRAW OAuth2 integration complete.** `scraper.py` fully rewritten and pushed to GitHub.
-> Reddit App: **red 2025** | Account: `Complex_Lack4476`
-> GitHub Secrets set: `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USERNAME`
-> ⏳ Only missing: `REDDIT_PASSWORD` — add with: `gh secret set REDDIT_PASSWORD --body "your_password"`
+> PRAW OAuth2 credentials are supplied only through explicit environment variables. GitHub Actions injects repository secrets into its runner; a local terminal does not inherit them automatically.
 
 ### Root Cause: Why All Third-Party Scrapers Also Fail in 2026
 
@@ -246,44 +247,57 @@ Current GitHub verification status: previously recovered after the `startup_fail
 |---|---|---|
 | ScrapiReddit (zero-auth) | ❌ Dead | Reddit blocked unauthenticated endpoints since May 2026 |
 | URS | ✅ Works | Uses PRAW with approved OAuth keys |
-| **Our scraper.py** | ✅ **Working** | **PRAW OAuth2 integrated, virality scoring added** |
+| **Our scraper.py** | ✅ GitHub source access verified | PRAW OAuth2 succeeded in source-only run `29069048314`; local terminals still require explicit environment credentials. |
 
 ### Reddit API Credentials
 
 | Field | Value |
 |---|---|
-| App name | red 2025 |
-| Type | personal use script |
-| Client ID | `JYA8zMAO2b1GTIZnHoITbg` |
-| Client Secret | stored in GitHub Secrets |
-| Reddit Account | `Complex_Lack4476` |
+| Client ID | `REDDIT_CLIENT_ID` environment variable / GitHub Secret |
+| Client Secret | `REDDIT_CLIENT_SECRET` environment variable / GitHub Secret |
+| Script credentials | Optional paired `REDDIT_USERNAME` + `REDDIT_PASSWORD` environment variables / GitHub Secrets |
 | Reddit App URL | [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) |
 
-#### GitHub Secrets Status
+#### Required names
+```text
+REDDIT_CLIENT_ID
+REDDIT_CLIENT_SECRET
+REDDIT_USERNAME       # optional, but only with REDDIT_PASSWORD
+REDDIT_PASSWORD       # optional, but only with REDDIT_USERNAME
 ```
-REDDIT_CLIENT_ID      ✅ Set
-REDDIT_CLIENT_SECRET  ✅ Set
-REDDIT_USERNAME       ✅ Set (Complex_Lack4476)
-REDDIT_PASSWORD       ⏳ Needed → gh secret set REDDIT_PASSWORD --body "..."
-```
+
+Never put credential values in `scraper.py`, documentation, chat, or a tracked local env file. For a no-network configuration check, run `python3 scraper.py --check-reddit-config`; it reports only the chosen OAuth mode or missing variable names.
 
 ### scraper.py — CLI Usage
 
 ```bash
-# Scan subreddits from channels.json (channel #1 by default)
+# Production-style channel scans fail closed while automation_enabled=false
 python3 scraper.py
 
 # Scan a specific subreddit
 python3 scraper.py nosleep
 
-# Use a specific channel's subreddit strategy
+# Validate local credential wiring without calling Reddit
+python3 scraper.py --check-reddit-config
+
+# Explicit approved review: bypass the channel hold but do not change history
+python3 scraper.py --allow-disabled-channel --no-save-history --channel acc5 --time auto --max-ai-candidates 0 --output /tmp/reddit-story.json
+
+# Run the isolated GitHub source smoke with repository Secrets; no Gemini, AI33, render, YouTube, or git write
+gh workflow run reddit_source_smoke.yml --ref main \
+  -f channel=acc4 -f video_slot=1 -f topic_family=human_drama \
+  -f time_filter=auto -f candidate_limit=10 \
+  -f max_subreddits_per_topic=2 -f max_time_windows_per_topic=1 \
+  -f review_label=snapshot-a
+
+# Use a specific channel after its automation gate is enabled in channels.json
 python3 scraper.py --channel acc4
 
 # Topic-family auto mode: searches weighted topic families and their time windows
 python3 scraper.py --channel acc4 --time auto
 
-# Force one topic family for experiments
-python3 scraper.py --channel acc4 --topic-family human_drama
+# Force one topic family for an approved held-channel review
+python3 scraper.py --allow-disabled-channel --no-save-history --channel acc4 --topic-family human_drama
 
 # Custom time filter and hard Gemini budget
 python3 scraper.py --channel acc1 --time month --max-ai-candidates 8 --similarity-threshold 0.72
@@ -301,7 +315,8 @@ python3 scraper.py --channel acc3 --output story_ru.json
 | `build_topic_sources(...)` | Builds topic-family + time-window source plans from `channels.json` |
 | `fetch_best_story(subreddits)` | Scans topic sources, dedupes, ranks, and AI-checks a bounded candidate pool |
 | `fetch_top_comments(reddit, post_id)` | Fetches top 3 comments (excludes AutoModerator) |
-| `load_channel_config(channel_id)` | Reads subreddit list from channels.json |
+| `load_channel_config(channel_id)` | Reads the full channel strategy from channels.json |
+| `ensure_channel_automation_enabled(...)` | Fails held channels before Reddit access unless an explicit review override is present |
 
 ### Virality Scoring Algorithm
 
@@ -364,9 +379,21 @@ python3 translator_tts.py --channel acc3 --comment-voice-id elevenlabs_LB5G0Z4EP
 
 Before TTS, the script now localizes `story_data.json` for non-English target channels through the shared Gemini text provider using the channel's `translate_prompt`. By default `vectorengine_client.py` uses direct Google Gemini when `GOOGLE_GEMINI_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` is present, and falls back to VectorEngine Gemini only when no Google Gemini key is configured. The translation step translates the story `title`, story `body`, and each comment `body`, preserves usernames/metadata, writes localization metadata into the story JSON, and by default overwrites `--story` so `storyboard_generator.py` and `render.py` consume the translated display text. Raw URLs stay visible in the display fields; the script adds narration-only fields such as `narration_body` / `comments[].narration_body` when TTS should say the localized "link on screen" phrase instead of reading the URL aloud. For Russian narration, visible numeric tokens stay unchanged in display fields while narration-only fields spell the number for TTS, for example `6500+` -> `более чем шесть тысяч пятьсот` and `100%` -> `сто процентов`. Use `--translated-story-output story_localized_<lang>.json` to keep the original file untouched, `--skip-translation` for an explicit no-localization run, or `--force-translation` to refresh existing localized text.
 
-The default narration order mirrors visible card text: title, body, then comment bodies. If narration-only fields exist, TTS uses them and the card keeps the display fields, so a voice line like "link on screen" corresponds to an actual visible URL on the card, and Russian numeric display tokens can still be voiced naturally. If `channels.json` defines `comment_tts_voice`, `translator_tts.py` automatically splits narration into role segments: title/body use `tts_voice`, comments use `comment_tts_voice`, then FFmpeg concatenates the segments into one `narration.mp3`. Current production workflows do not request `--with-transcript` and do not render word highlights. Retryable AI33 task errors during multi-voice segment generation are retried with `--tts-retries` and `--tts-retry-delay`. If a voiceover should explicitly say localized "Comment by user" labels, pass `--include-comment-labels`.
+The default narration order mirrors visible card text: title, body, then comment bodies. If narration-only fields exist, TTS uses them and the card keeps the display fields, so a voice line like "link on screen" corresponds to an actual visible URL on the card, and Russian numeric display tokens can still be voiced naturally. If `channels.json` defines `comment_tts_voice`, `translator_tts.py` automatically splits narration into role segments: title/body use `tts_voice`, comments use `comment_tts_voice`, then FFmpeg concatenates the segments into one `narration.mp3`. Current workflows request `--with-transcript` for slide timing, but render with `--no-karaoke`, so no yellow word highlights or visible subtitles are shown. `translator_tts.py` accepts AI33/ElevenLabs word timings, character alignment, phrase-level timed text, and inline or linked SRT/VTT subtitle payloads; it converts all usable timing sources into `narration.json` words for `render.py`. Retryable AI33 task errors during multi-voice segment generation are retried with `--tts-retries` and `--tts-retry-delay`. If a voiceover should explicitly say localized "Comment by user" labels, pass `--include-comment-labels`.
 
 Use `--single-voice` to force one voice for the full narration. Use `--comment-voice-id` for a one-off override without editing `channels.json`. Optional provider voice settings can be passed with `--voice-settings-json '{"stability":0.45}'` or `AI33_VOICE_SETTINGS_JSON`, but they should be sound-tested before production because more expressive settings or audio tags can affect pacing and clarity.
+
+For less monotone ElevenLabs/AI33 delivery, the current test recommendation is:
+
+- Keep `model_id=eleven_v3` for multilingual channels.
+- Pick native/accent-correct voices first; settings cannot fully fix a weak voice-language match.
+- Test `stability=0.35`, `similarity_boost=0.75`, `style=0` for a more expressive read.
+- If that is too unstable, move to `stability=0.50`, `similarity_boost=0.75`, `style=0`.
+- Avoid making `context_chaining` the default; AI33 documents it as a higher-credit path in this project workflow.
+- Do not raise `style` by default. ElevenLabs documents style exaggeration as more resource-heavy and less stable, and recommends keeping it at `0` for most cases.
+- For voice samples only, sparse Eleven v3 audio tags such as `[curious]`, `[sighs]`, and `[whispers]` are useful for checking whether a voice can perform. Add them to production narration only after a listening test confirms the voice does not speak the tags aloud.
+
+Manual `video_dry_run.yml` and `auto_publish.yml` runs expose `voice_settings_profile`. Leave it as `default` for unchanged provider behavior, or set it to `creative` for the first emotional test. Scheduled runs still use `default` unless the workflow is changed intentionally.
 
 The script sends multipart FormData to:
 
@@ -434,7 +461,29 @@ Verification note: the AI33 metadata endpoint is `GET /v3/voices?provider=eleven
 
 For no-audio metadata readback through the repository secret, use the manual workflow `.github/workflows/voice_metadata_check.yml`. It calls AI33 voice metadata endpoints with `AI33_API_KEY`, prints only sanitized metadata for requested voice IDs, and does not call `/v3/text-to-speech`.
 
-For audible review, use the manual workflow `.github/workflows/audit_voice_youtube.yml` with `generate_voice_samples=true`. It generates short AI33 samples for the configured narrator/comment voices and uploads them as the `ai33-voice-samples` artifact. This spends AI33 TTS credits but does not call Reddit, Gemini/VectorEngine, render, or YouTube upload.
+For audible review, use the manual workflow `.github/workflows/audit_voice_youtube.yml` with `generate_voice_samples=true`. It generates short AI33 samples for the configured narrator/comment voices and uploads them as the `ai33-voice-samples` artifact. This spends AI33 TTS credits but does not call Reddit, Gemini/VectorEngine, render, or YouTube upload. The workflow now exposes `text_style` and `voice_settings_profile`; start with `text_style=emotional` and `voice_settings_profile=creative`, then compare against `natural` if the voice becomes too theatrical or unstable.
+
+Local no-spend dry-run:
+
+```bash
+python3 scripts/generate_ai33_voice_samples.py --channels acc1 --text-style emotional --voice-settings-profile creative --dry-run
+python3 scripts/generate_ai33_voice_samples.py --channels all --text-style emotional --voice-settings-profile natural --dry-run
+```
+
+Local audible sample run after explicit approval to spend AI33 credits:
+
+```bash
+python3 scripts/generate_ai33_voice_samples.py --channels acc1 --text-style emotional --voice-settings-profile creative --output-dir build/voice_samples
+```
+
+Available voice-settings profiles:
+
+| Profile | Sent `voice_settings` | Use |
+|---|---|---|
+| `creative` | `{"stability":0.35,"similarity_boost":0.75,"style":0}` | First emotional sample pass; more range, more variability |
+| `natural` | `{"stability":0.5,"similarity_boost":0.75,"style":0}` | Safer default if creative is too unstable |
+| `robust` | `{"stability":0.7,"similarity_boost":0.75,"style":0}` | Consistency check; can sound flatter |
+| `default` | omitted | AI33/ElevenLabs provider default |
 
 Latest sample artifact: run `28457170166` generated all 14 configured narrator/comment samples on 2026-06-30. The downloaded local review page is `build/audit/run_28457170166/ai33-voice-samples/20260630T154616Z/voice_samples_review.html`.
 
@@ -456,6 +505,8 @@ For ElevenLabs-backed voices, `translator_tts.py` sends `model_id=eleven_v3` by 
 python3 translator_tts.py en --voice-id elevenlabs_... --model-id eleven_v3
 AI33_TTS_MODEL_ID=eleven_v3 python3 translator_tts.py en --voice-id elevenlabs_...
 ```
+
+Production and dry-run workflows pass both `--model-id eleven_v3` and `--require-model-id eleven_v3`. The second flag is a pre-spend guard: a v2 override fails before the AI33 request. Successful requests write `tts_request_metadata.json` with the requested model, voice ids, whether voice settings were supplied, and any model id explicitly reported by the provider. `provider_not_reported` means the client request is proven but AI33 did not echo the resolved model; it must not be described as provider-confirmed. `pre_publish_qa.py --require-tts-model eleven_v3` fails when the audit artifact is missing, requests another model, or records a provider mismatch.
 
 ### AI33 Task Handling
 
@@ -651,14 +702,14 @@ storyboard display text keeps visible URLs; TTS says localized "link on screen" 
     ↓
 storyboard_generator.py → storyboard.json with centered render_slides
     ↓
-render.py → final_output.mp4 + render_report.json with audio track and clean static slide-progress visuals
+render.py → final_output.mp4 + render_report.json with audio track and clean static timed-slide visuals
     ↓
 pre_publish_qa.py → pre_publish_qa.json fail-closed gate
     ↓
 uploader.py → channel preflight, YouTube upload, metadata readback
 ```
 
-`render.py` uses `--orientation auto` by default: narration/storyboard duration up to 180 seconds stays vertical 9:16 for Shorts, and anything longer than 180 seconds becomes horizontal 16:9 for long-form YouTube. Both orientations use larger render-mode text and slide chunking so the card stays readable instead of squeezing a long post onto one screen. Current workflows pass `--no-karaoke`; upload is blocked on audio/adaptation/evidence/metadata/render QA, not transcript timing.
+`render.py` uses `--orientation auto` by default: narration/storyboard duration up to 180 seconds stays vertical 9:16 for Shorts, and anything longer than 180 seconds becomes horizontal 16:9 for long-form YouTube. Both orientations use larger render-mode text and slide chunking so the card stays readable instead of squeezing a long post onto one screen. Current workflows pass `--no-karaoke` to disable visual highlights, while still using `narration.json` timing for slide boundaries when available; upload is blocked on audio/adaptation/evidence/metadata/render QA, not on karaoke.
 
 ### ⚠️ Orchestration Rule (CRITICAL)
 
@@ -721,12 +772,14 @@ gh workflow run auto_publish.yml --ref main
 # Trigger one manual publish run as unlisted first, scoped to one topic family
 gh workflow run auto_publish.yml --ref main -f channel=acc4 -f time_filter=auto -f topic_family=human_drama -f video_slot=1 -f privacy_status=unlisted
 gh workflow run auto_publish.yml --ref main -f channel=acc1 -f time_filter=auto -f topic_family=channel_mix -f video_slot=1 -f privacy_status=unlisted
+gh workflow run auto_publish.yml --ref main -f channel=acc1 -f time_filter=auto -f topic_family=channel_mix -f video_slot=1 -f privacy_status=unlisted -f content_format=shorts -f voice_settings_profile=creative
 
 # Do not use privacy_status=public until token-to-channel preflight/readback matches channels.json
 
 # Trigger live GitHub render dry-run manually; this can spend Reddit/Gemini/AI33 provider usage
 gh workflow run video_dry_run.yml --ref main
 gh workflow run video_dry_run.yml --ref main -f channel=acc1 -f time_filter=auto -f topic_family=channel_mix -f video_slot=1 -f content_format=shorts
+gh workflow run video_dry_run.yml --ref main -f channel=acc1 -f time_filter=auto -f topic_family=channel_mix -f video_slot=1 -f content_format=shorts -f voice_settings_profile=creative
 
 # Check secrets
 gh secret list
@@ -737,6 +790,9 @@ python3 uploader.py --check-channel-only --account-index 4
 # Generate narration through AI33 without spending credits
 python3 translator_tts.py es --dry-run
 
+# Preview emotional AI33 voice sample payloads without spending credits
+python3 scripts/generate_ai33_voice_samples.py --channels acc1 --text-style emotional --voice-settings-profile creative --dry-run
+
 # Test topic-family source planning without Gemini spend
 AI_QUALITY_CHECK=0 python3 scraper.py --channel acc4 --time auto --max-ai-candidates 0 --output /tmp/story_data_check.json
 
@@ -745,6 +801,9 @@ GOOGLE_GEMINI_API_KEY=... python3 scraper.py --channel acc4 --time auto --max-ai
 
 # Generate narration through AI33 (spends AI33 credits)
 AI33_API_KEY=... python3 translator_tts.py es --output narration_es.mp3
+
+# Generate short emotional voice samples through AI33 (spends AI33 credits)
+AI33_API_KEY=... python3 scripts/generate_ai33_voice_samples.py --channels acc1 --text-style emotional --voice-settings-profile creative --output-dir build/voice_samples
 
 # Generate YouTube SEO metadata through Gemini without spending quota
 python3 metadata_generator.py --story story_data.json --channel acc4 --dry-run
@@ -772,29 +831,36 @@ ffprobe final_output.mp4
 - [x] GitHub private repo `nebula-core-v3`
 - [x] YouTube OAuth secrets exist for all 7 accounts
 - [x] YouTube refresh-token mapping reported verified against expected channel handles after the 2026-06-30 scope reissue
-- [x] `channels.json` — execution config now includes weighted `topic_mix` per channel
-- [x] `scraper.py` — **PRAW OAuth2 + virality scoring + topic-family search + bounded Gemini producer queue**
+- [x] `channels.json` - seven unique viewer promises, owned content bets, evidence/render contracts, cadence gates, and fail-closed strategy status; numeric mixes remain unvalidated/superseded
+- [x] `scraper.py` - **PRAW OAuth2 + virality scoring + topic-family search + bounded Gemini producer queue + network-wide dedupe + held-channel preflight**
 - [x] `translator_tts.py` switched to AI33 TTS v3, `uploader.py` base script
 - [x] `story_adapter.py` connected to the Gemini text provider for source-backed no-invent cleanup
 - [x] `metadata_generator.py` connected to the Gemini text provider for packaging options + SEO metadata
 - [x] `pre_publish_qa.py` blocks upload when audio, adaptation, evidence, metadata, or render report fail
 - [x] `thumbnail_generator.py` connected to VectorEngine image generation behind explicit spend confirmation
 - [x] `storyboard_generator.py` and `render.py` create a no-spend dry-run `final_output.mp4`
-- [x] Slide-based RedditSim rendering: first story screen without comments, comment-only screens, long story chunking, clean no-karaoke visuals, and larger render-mode fonts
+- [x] Slide-based RedditSim rendering: first story screen without comments, comment-only screens, long story chunking, clean no-karaoke visuals, timed slide boundaries, and larger Reddit-like render-mode fonts
 - [x] GitHub Actions workflow `video_dry_run.yml` renders and uploads a live dry-run MP4 artifact
 - [x] GitHub Actions workflow `auto_publish.yml`
 - [x] Scrapers research & comparison documentation
-- [x] Reddit App registered: **red 2025** (Complex_Lack4476)
 - [x] Verified GitHub dry-run rendering (`chonkertalks-dry-run-video` artifact generated)
 
 ### 🔄 Next Steps (Priority Order)
-- [ ] **1. Run one post-fix unlisted live smoke** and inspect channel, language, translated card text, voiceover audio, clean no-karaoke slide render, SEO metadata, and uploaded metadata readback before public scheduled publishing.
-- [ ] **2. Select final ElevenLabs/MiniMax voices** from AI33 Voice Library for each channel if emotion tags should be default.
-- [ ] **3. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2.
-- [ ] **4. Add authenticated uploader readback** for title, description, tags, language, privacy, and channel id after upload.
+- [ ] **1. Commit-aware source validation** - record git SHA/config digest, force one family per review, save bounded candidate bodies, and compare two independent snapshots.
+- [ ] **2. Validate distinct Reddit-native pilots** for `acc4`, `acc7`, then `acc1`; keep every channel automation-disabled until its gate passes.
+- [ ] **3. Build the evidence-dossier lane** for `acc2`, `acc3`, `acc5`, and `acc6` with independent sources, original scripts, timelines, and evidence visuals.
+- [ ] **4. Fix delayed-cron routing** so scheduled jobs map from `github.event.schedule` rather than the runner's current UTC hour.
+- [ ] **5. Run small unlisted pilots and analytics readback** before any public schedule; collect Engaged views, Stayed to watch, average percentage viewed, shares/comments/subscribers per 1,000 engaged views, and returning viewers.
+- [ ] **6. Select final voices and channel art** only after the channel promise and pilot format are accepted.
 
 ### 🔮 Future
-- [ ] Broader source discovery beyond Reddit: YouTube comments, Google Trends, TikTok/Shorts trend scouts, and RSS/news sources behind explicit spend/API boundaries
+- [ ] Broader source discovery beyond Reddit: primary sources, official data, Google Trends, rights-safe archives, and RSS/news sources behind explicit spend/API boundaries
 - [ ] Custom Chonker cat avatars per language
-- [ ] Analytics readback — track best performing content per language
+- [ ] Analytics readback - promote repeated winning story signatures and retire bottom-half content bets
 - [ ] Auto A/B test thumbnails
+
+## DESIGN.md Agent Bridge
+
+Status: DESIGN.md agent bridge installed 2026-07-08.
+
+[`../DESIGN.md`](../DESIGN.md) is the project-root visual source for AI/UI agents. It uses the plain Markdown DESIGN.md pattern from https://github.com/VoltAgent/awesome-design-md, but it does not replace this documentation index or the topic-specific source-of-truth documents. For visual/frontend work, read `AGENTS.md`, this `docs/README.md`, `docs/PROJECT_STATE.md`, the relevant topic document, and then `DESIGN.md`.
