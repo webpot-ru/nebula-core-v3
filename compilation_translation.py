@@ -7,6 +7,7 @@ while the CLI imports the repository Gemini client only after ``--confirm-spend`
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -131,15 +132,44 @@ def _paragraph_chunks(body: str, limit: int) -> list[str]:
     return chunks
 
 
-def _chunk_translate(provider: Provider, title: str, body: str, config: TranslationConfig) -> dict[str, Any]:
+def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def _chunk_translate(
+    provider: Provider, title: str, body: str, config: TranslationConfig,
+    *, checkpoint_path: Path | None = None,
+) -> dict[str, Any]:
     chunks = _paragraph_chunks(body, config.chunk_chars)
-    glossary = _call(provider, f"Extract a continuity glossary from the complete story and translate its title. Return JSON "
-        f'{{"translated_title":"...","glossary":{{}},"continuity":"..."}}. TITLE: {title}\nSTORY:\n{body}', config)
+    source_hash = hashlib.sha256(json.dumps({"title": title, "body": body, "chunk_chars": config.chunk_chars}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    state: dict[str, Any] = {"schema_version": 1, "source_hash": source_hash, "glossary": None, "chunks": []}
+    if checkpoint_path and checkpoint_path.is_file():
+        state = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        if state.get("source_hash") != source_hash or not isinstance(state.get("chunks"), list):
+            raise TranslationError("chunk translation checkpoint does not match source")
+    glossary = state.get("glossary")
+    if not isinstance(glossary, dict):
+        glossary = _call(provider, f"Extract a continuity glossary from the complete story and translate its title. Return JSON "
+            f'{{"translated_title":"...","glossary":{{}},"continuity":"..."}}. TITLE: {title}\nSTORY:\n{body}', config)
+        state["glossary"] = glossary
+        if checkpoint_path:
+            _atomic_json(checkpoint_path, state)
     translated_title = str(glossary.get("translated_title") or "").strip()
     if not translated_title:
         raise IncompleteTranslation("chunk fallback glossary is missing translated_title")
     translated: list[str] = []
     for index, chunk in enumerate(chunks):
+        chunk_hash = hashlib.sha256(chunk.encode()).hexdigest()
+        saved_chunks = state["chunks"]
+        if index < len(saved_chunks):
+            saved = saved_chunks[index]
+            if saved.get("source_sha256") != chunk_hash or not str(saved.get("body") or "").strip():
+                raise TranslationError(f"chunk translation checkpoint changed at chunk {index + 1}")
+            translated.append(str(saved["body"]).strip())
+            continue
         prompt = f"""Translate chunk {index + 1}/{len(chunks)} into narrated Russian without omissions or additions.
 Return JSON {{"body":"...","complete":true}}. Keep continuity with prior translation and glossary.
 GLOSSARY: {json.dumps(glossary, ensure_ascii=False)}
@@ -149,6 +179,9 @@ CHUNK:\n{chunk}"""
         if payload.get("complete") is not True or not str(payload.get("body") or "").strip():
             raise IncompleteTranslation(f"chunk {index + 1} is incomplete")
         translated.append(str(payload["body"]).strip())
+        saved_chunks.append({"index": index, "source_sha256": chunk_hash, "body": translated[-1]})
+        if checkpoint_path:
+            _atomic_json(checkpoint_path, state)
     result = {"title": translated_title, "body": "\n\n".join(translated), "complete": True, "ending_preserved": True}
     _validate_translation(body, result, config)
     return result
@@ -156,7 +189,7 @@ CHUNK:\n{chunk}"""
 
 def translate_and_review_story(
     story: dict[str, Any], *, provider: Provider, reviewer: Provider | None = None,
-    config: TranslationConfig | None = None,
+    config: TranslationConfig | None = None, chunk_checkpoint_path: Path | None = None,
 ) -> dict[str, Any]:
     """Translate full-story-first, fallback only on incomplete output, then review."""
     config = config or TranslationConfig()
@@ -164,16 +197,20 @@ def translate_and_review_story(
     anchors = source_anchors(body)
     used_chunk_fallback = False
     try:
-        translated = _call(provider, _translation_prompt(title, body, anchors), config)
-        _validate_translation(body, translated, config)
+        if chunk_checkpoint_path and chunk_checkpoint_path.is_file():
+            used_chunk_fallback = True
+            translated = _chunk_translate(provider, title, body, config, checkpoint_path=chunk_checkpoint_path)
+        else:
+            translated = _call(provider, _translation_prompt(title, body, anchors), config)
+            _validate_translation(body, translated, config)
     except IncompleteTranslation:
         used_chunk_fallback = True
-        translated = _chunk_translate(provider, title, body, config)
+        translated = _chunk_translate(provider, title, body, config, checkpoint_path=chunk_checkpoint_path)
     except Exception as exc:
         if not _looks_like_truncated_json_error(exc):
             raise
         used_chunk_fallback = True
-        translated = _chunk_translate(provider, title, body, config)
+        translated = _chunk_translate(provider, title, body, config, checkpoint_path=chunk_checkpoint_path)
 
     review_provider = reviewer or provider
     revisions = 0

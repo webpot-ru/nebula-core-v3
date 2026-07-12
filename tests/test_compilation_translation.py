@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 
 from compilation_translation import (
     DEFAULT_MAX_OUTPUT_TOKENS, TranslationConfig, TranslationError,
@@ -54,6 +56,31 @@ class CompilationTranslationTests(unittest.TestCase):
         reviewer = QueueProvider([{"verdict": "PASS", "issues": [], "ending_preserved": True}])
         result = translate_and_review_story(STORY, provider=provider, reviewer=reviewer, config=TranslationConfig(chunk_chars=1000))
         self.assertTrue(result["translation_audit"]["chunk_fallback"])
+
+    def test_chunk_fallback_resumes_without_repeating_saved_calls(self):
+        story = {"title": "Door", "body": "First part.\n\nSecond part.\n\nThird part."}
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "chunks.json"
+            interrupted = QueueProvider([
+                RuntimeError('Gemini did not return JSON: {"body":"cut'),
+                {"translated_title": "Дверь", "glossary": {}, "continuity": "first person"},
+                {"body": "Первая часть.", "complete": True},
+                RuntimeError("temporary provider interruption"),
+            ])
+            with self.assertRaisesRegex(RuntimeError, "interruption"):
+                translate_and_review_story(story, provider=interrupted,
+                    config=TranslationConfig(chunk_chars=12, min_length_ratio=0.1),
+                    chunk_checkpoint_path=checkpoint)
+            resumed = QueueProvider([
+                {"body": "Вторая часть.", "complete": True},
+                {"body": "Третья часть.", "complete": True},
+                {"verdict": "PASS", "issues": [], "ending_preserved": True},
+            ])
+            result = translate_and_review_story(story, provider=resumed,
+                config=TranslationConfig(chunk_chars=12, min_length_ratio=0.1),
+                chunk_checkpoint_path=checkpoint)
+        self.assertTrue(result["translation_audit"]["chunk_fallback"])
+        self.assertEqual(len(resumed.calls), 3)
 
     def test_auth_error_does_not_trigger_paid_fallback(self):
         provider = QueueProvider([RuntimeError("Google Gemini HTTP 401: invalid key")])

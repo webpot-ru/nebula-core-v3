@@ -152,7 +152,7 @@ reddit/                            ← Project root (nebula-core-v3)
 ├── thumbnail_generator.py         ← VectorEngine image thumbnail generator
 ├── vectorengine_client.py         ← Shared Gemini text router + VectorEngine image client
 ├── translator_tts.py              ← AI33 TTS v3 narration generator
-├── compilation_translation.py      ← full-story-first Russian translation + independent review
+├── compilation_translation.py      ← full-story-first Russian translation + atomic chunk resume + independent review
 ├── compilation_tts_runner.py       ← chunked Eleven v3 state/resume for long compilations
 ├── compilation_images.py           ← guarded GPT Image 2 visual per accepted story
 ├── compilation_storyboard.py       ← local-only 16:9 compilation storyboard
