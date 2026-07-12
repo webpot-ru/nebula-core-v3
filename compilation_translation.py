@@ -89,6 +89,14 @@ def _call(provider: Provider, prompt: str, config: TranslationConfig, *, tempera
     return result
 
 
+def _looks_like_truncated_json_error(exc: Exception) -> bool:
+    message = str(exc).casefold()
+    return any(marker in message for marker in (
+        "did not return json", "returned empty text", "empty text",
+        "unterminated string", "expecting ',' delimiter", "expecting value",
+    ))
+
+
 def _validate_translation(source_body: str, payload: dict[str, Any], config: TranslationConfig) -> None:
     body = str(payload.get("body") or "").strip()
     if not str(payload.get("title") or "").strip() or not body:
@@ -159,6 +167,11 @@ def translate_and_review_story(
         translated = _call(provider, _translation_prompt(title, body, anchors), config)
         _validate_translation(body, translated, config)
     except IncompleteTranslation:
+        used_chunk_fallback = True
+        translated = _chunk_translate(provider, title, body, config)
+    except Exception as exc:
+        if not _looks_like_truncated_json_error(exc):
+            raise
         used_chunk_fallback = True
         translated = _chunk_translate(provider, title, body, config)
 

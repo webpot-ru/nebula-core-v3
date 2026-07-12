@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Callable
@@ -15,16 +16,38 @@ class CompilationPipelineError(RuntimeError):
     pass
 
 
-def translate_manifest(manifest: dict[str, Any], provider: Callable[..., dict[str, Any]]) -> dict[str, Any]:
+def _source_hash(snapshot: dict[str, Any]) -> str:
+    value = json.dumps({"title": snapshot.get("title"), "body": snapshot.get("body"), "model": "gemini-3.5-flash", "max_output_tokens": 16_384}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def translate_manifest(
+    manifest: dict[str, Any], provider: Callable[..., dict[str, Any]],
+    *, checkpoint_dir: Path | None = None,
+) -> dict[str, Any]:
     translated_stories: list[dict[str, Any]] = []
     for selected in manifest.get("stories") or []:
         snapshot = selected.get("source_snapshot") or {}
-        result = translate_and_review_story(
-            {"title": snapshot.get("title"), "body": snapshot.get("body")},
-            provider=provider,
-            reviewer=provider,
-            config=TranslationConfig(max_output_tokens=16_384),
-        )
+        checkpoint_path = checkpoint_dir / f"story-{snapshot.get('post_id')}.json" if checkpoint_dir else None
+        expected_hash = _source_hash(snapshot)
+        result = None
+        if checkpoint_path and checkpoint_path.is_file():
+            saved = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            if saved.get("source_hash") != expected_hash or not isinstance(saved.get("translation"), dict):
+                raise CompilationPipelineError(f"translation checkpoint changed for {snapshot.get('post_id')}")
+            result = saved["translation"]
+        if result is None:
+            result = translate_and_review_story(
+                {"title": snapshot.get("title"), "body": snapshot.get("body")},
+                provider=provider,
+                reviewer=provider,
+                config=TranslationConfig(max_output_tokens=16_384),
+            )
+            if checkpoint_path:
+                checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = checkpoint_path.with_suffix(".tmp")
+                temporary.write_text(json.dumps({"source_hash": expected_hash, "translation": result}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                temporary.replace(checkpoint_path)
         truth_mode = snapshot.get("truth_mode")
         disclosure = (
             "fiction: художественная история с Reddit"
@@ -66,6 +89,7 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--confirm-spend", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--checkpoint-dir")
     args = parser.parse_args()
     manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     if args.dry_run:
@@ -74,7 +98,10 @@ def main() -> int:
     if not args.confirm_spend:
         raise CompilationPipelineError("refusing compilation translation without --confirm-spend")
     from vectorengine_client import call_gemini_json
-    compilation = translate_manifest(manifest, call_gemini_json)
+    compilation = translate_manifest(
+        manifest, call_gemini_json,
+        checkpoint_dir=Path(args.checkpoint_dir) if args.checkpoint_dir else None,
+    )
     Path(args.output).write_text(json.dumps(compilation, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 0
 

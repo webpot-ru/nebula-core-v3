@@ -16,7 +16,10 @@ class QueueProvider:
 
     def __call__(self, **kwargs):
         self.calls.append(kwargs)
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class CompilationTranslationTests(unittest.TestCase):
@@ -41,6 +44,22 @@ class CompilationTranslationTests(unittest.TestCase):
             config=TranslationConfig(chunk_chars=1000))
         self.assertTrue(result["translation_audit"]["chunk_fallback"])
         self.assertIn("continuity glossary", provider.calls[1]["prompt"])
+
+    def test_truncated_json_provider_error_triggers_chunk_fallback(self):
+        provider = QueueProvider([
+            RuntimeError('Gemini did not return JSON: {"title":"Дверь","body":"обрыв'),
+            {"translated_title": "Дверь", "glossary": {}, "continuity": "first person"},
+            {"body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.", "complete": True},
+        ])
+        reviewer = QueueProvider([{"verdict": "PASS", "issues": [], "ending_preserved": True}])
+        result = translate_and_review_story(STORY, provider=provider, reviewer=reviewer, config=TranslationConfig(chunk_chars=1000))
+        self.assertTrue(result["translation_audit"]["chunk_fallback"])
+
+    def test_auth_error_does_not_trigger_paid_fallback(self):
+        provider = QueueProvider([RuntimeError("Google Gemini HTTP 401: invalid key")])
+        with self.assertRaisesRegex(RuntimeError, "401"):
+            translate_and_review_story(STORY, provider=provider)
+        self.assertEqual(len(provider.calls), 1)
 
     def test_reviewer_can_request_two_revisions_then_pass(self):
         translation = {"title": "Дверь", "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.", "complete": True, "ending_preserved": True}

@@ -76,7 +76,8 @@ jobs:
         run: |
           python compilation_pipeline.py \
             --manifest build/acc1-pilot/compilation-manifest.json \
-            --output build/acc1-pilot/compilation-script.json --confirm-spend
+            --output build/acc1-pilot/compilation-script.json \
+            --checkpoint-dir build/acc1-pilot/translation-checkpoints --confirm-spend
       - name: Generate honest compilation packaging
         env:
           GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
