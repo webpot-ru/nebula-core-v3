@@ -90,19 +90,25 @@ class CompilationTranslationTests(unittest.TestCase):
 
     def test_reviewer_can_request_two_revisions_then_pass(self):
         translation = {"title": "Дверь", "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.", "complete": True, "ending_preserved": True}
-        provider = QueueProvider([translation, translation, translation])
+        provider = QueueProvider([translation])
         reviewer = QueueProvider([
-            {"verdict": "REVISE", "issues": [{"kind": "tone"}], "ending_preserved": True},
-            {"verdict": "REVISE", "issues": [{"kind": "number"}], "ending_preserved": True},
+            {"verdict": "REVISE", "issues": [{"kind": "tone", "source_quote": "I heard a knock.", "translation_quote": "Я услышал стук.", "replacement": "Я услышал громкий стук."}], "ending_preserved": True},
+            {"verdict": "REVISE", "issues": [{"kind": "place", "source_quote": "I hid in the hall.", "translation_quote": "Я спрятался в коридоре.", "replacement": "Я затаился в коридоре."}], "ending_preserved": True},
             {"verdict": "PASS", "issues": [], "ending_preserved": True},
         ])
         result = translate_and_review_story(STORY, provider=provider, reviewer=reviewer)
         self.assertEqual(result["translation_audit"]["revisions"], 2)
+        self.assertIn("громкий стук", result["body"])
+        self.assertEqual(len(provider.calls), 1)
 
     def test_third_revision_is_blocked(self):
         translation = {"title": "Дверь", "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.", "complete": True, "ending_preserved": True}
-        provider = QueueProvider([translation, translation, translation])
-        reviewer = QueueProvider([{"verdict": "REVISE", "issues": [], "ending_preserved": True}] * 3)
+        provider = QueueProvider([translation])
+        reviewer = QueueProvider([
+            {"verdict": "REVISE", "issues": [{"kind": "one", "source_quote": "I heard a knock.", "translation_quote": "Я услышал стук.", "replacement": "Я услышал громкий стук."}], "ending_preserved": True},
+            {"verdict": "REVISE", "issues": [{"kind": "two", "source_quote": "I hid in the hall.", "translation_quote": "Я спрятался в коридоре.", "replacement": "Я затаился в коридоре."}], "ending_preserved": True},
+            {"verdict": "REVISE", "issues": [{"kind": "three", "source_quote": "At dawn", "translation_quote": "На рассвете", "replacement": "С рассветом"}], "ending_preserved": True},
+        ])
         with self.assertRaisesRegex(TranslationError, "maximum"):
             translate_and_review_story(STORY, provider=provider, reviewer=reviewer)
 
@@ -114,8 +120,12 @@ class CompilationTranslationTests(unittest.TestCase):
 
     def test_review_failure_checkpoint_preserves_decisions(self):
         translation = {"title": "Дверь", "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.", "complete": True, "ending_preserved": True}
-        provider = QueueProvider([translation, translation, translation])
-        reviewer = QueueProvider([{"verdict": "REVISE", "issues": [{"kind": "ending"}], "ending_preserved": False}] * 3)
+        provider = QueueProvider([translation])
+        reviewer = QueueProvider([
+            {"verdict": "REVISE", "issues": [{"kind": "one", "source_quote": "I heard a knock.", "translation_quote": "Я услышал стук.", "replacement": "Я услышал громкий стук."}], "ending_preserved": True},
+            {"verdict": "REVISE", "issues": [{"kind": "two", "source_quote": "I hid in the hall.", "translation_quote": "Я спрятался в коридоре.", "replacement": "Я затаился в коридоре."}], "ending_preserved": True},
+            {"verdict": "REVISE", "issues": [{"kind": "three", "source_quote": "At dawn", "translation_quote": "На рассвете", "replacement": "С рассветом"}], "ending_preserved": True},
+        ])
         with tempfile.TemporaryDirectory() as temp:
             checkpoint = Path(temp) / "review.json"
             with self.assertRaisesRegex(TranslationError, "maximum"):
@@ -124,6 +134,8 @@ class CompilationTranslationTests(unittest.TestCase):
             saved = __import__("json").loads(checkpoint.read_text())
         self.assertEqual(saved["revisions_completed"], 2)
         self.assertEqual(len(saved["review_history"]), 3)
+        self.assertEqual(saved["schema_version"], 2)
+        self.assertIn("громкий стук", saved["current_translation"]["body"])
 
 
 if __name__ == "__main__":

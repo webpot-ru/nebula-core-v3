@@ -74,8 +74,35 @@ def _review_prompt(source_title: str, source_body: str, translated: dict[str, An
     return f"""Independently compare the complete source and Russian translation. Do not rewrite it.
 Fail on omitted/added events, altered uncertainty, broken chronology, changed names/numbers,
 unnatural Russian that changes meaning, or a missing/changed ending. Return strict JSON:
-{{"verdict":"PASS|REVISE","issues":[{{"kind":"...","evidence":"...","instruction":"..."}}],"ending_preserved":true}}
+{{"verdict":"PASS|REVISE","issues":[{{"kind":"...","source_quote":"exact source quote","translation_quote":"exact current Russian quote","replacement":"exact Russian replacement","explanation":"..."}}],"ending_preserved":true}}
+For every REVISE issue, translation_quote must occur verbatim in the current translation and replacement
+must be the complete local replacement for only that quote. Do not request or perform a full rewrite.
 SOURCE TITLE: {source_title}\nSOURCE BODY:\n{source_body}\nTRANSLATION:\n{json.dumps(translated, ensure_ascii=False)}"""
+
+
+def _apply_review_patches(source_title: str, source_body: str, translated: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
+    patched = dict(translated)
+    fields = {"title": str(patched.get("title") or ""), "body": str(patched.get("body") or "")}
+    issues = review.get("issues")
+    if not isinstance(issues, list) or not issues:
+        raise TranslationError("REVISE verdict requires structured issues")
+    for index, issue in enumerate(issues, 1):
+        if not isinstance(issue, dict):
+            raise TranslationError(f"review issue {index} is not an object")
+        source_quote = str(issue.get("source_quote") or "").strip()
+        old = str(issue.get("translation_quote") or "").strip()
+        new = str(issue.get("replacement") or "").strip()
+        if not source_quote or (source_quote not in source_body and source_quote not in source_title):
+            raise TranslationError(f"review issue {index} lacks an exact source quote")
+        if not old or not new or old == new:
+            raise TranslationError(f"review issue {index} lacks a usable local replacement")
+        matches = [(field, text.count(old)) for field, text in fields.items() if old in text]
+        if sum(count for _, count in matches) != 1:
+            raise TranslationError(f"review issue {index} translation quote is not uniquely patchable")
+        field = matches[0][0]
+        fields[field] = fields[field].replace(old, new, 1)
+    patched.update(fields)
+    return patched
 
 
 def _call(provider: Provider, prompt: str, config: TranslationConfig, *, temperature: float | None = None) -> dict[str, Any]:
@@ -197,8 +224,18 @@ def translate_and_review_story(
     title, body = str(story.get("title") or ""), str(story.get("body") or "")
     anchors = source_anchors(body)
     used_chunk_fallback = False
+    saved_review: dict[str, Any] | None = None
+    if review_checkpoint_path and review_checkpoint_path.is_file():
+        candidate = json.loads(review_checkpoint_path.read_text(encoding="utf-8"))
+        if (candidate.get("schema_version") == 2
+                and candidate.get("source_sha256") == hashlib.sha256(body.encode()).hexdigest()
+                and isinstance(candidate.get("current_translation"), dict)):
+            saved_review = candidate
     try:
-        if chunk_checkpoint_path and chunk_checkpoint_path.is_file():
+        if saved_review:
+            translated = saved_review["current_translation"]
+            _validate_translation(body, translated, config)
+        elif chunk_checkpoint_path and chunk_checkpoint_path.is_file():
             used_chunk_fallback = True
             translated = _chunk_translate(provider, title, body, config, checkpoint_path=chunk_checkpoint_path)
         else:
@@ -214,17 +251,18 @@ def translate_and_review_story(
         translated = _chunk_translate(provider, title, body, config, checkpoint_path=chunk_checkpoint_path)
 
     review_provider = reviewer or provider
-    revisions = 0
-    review_history: list[dict[str, Any]] = []
+    revisions = int(saved_review.get("revisions_completed") or 0) if saved_review else 0
+    review_history: list[dict[str, Any]] = list(saved_review.get("review_history") or []) if saved_review else []
     while True:
         review = _call(review_provider, _review_prompt(title, body, translated), config, temperature=0.0)
         review_history.append(review)
         if review_checkpoint_path:
             _atomic_json(review_checkpoint_path, {
-                "schema_version": 1,
+                "schema_version": 2,
                 "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
                 "revisions_completed": revisions,
                 "review_history": review_history,
+                "current_translation": translated,
             })
         if review.get("verdict") == "PASS" and review.get("ending_preserved") is True:
             break
@@ -233,17 +271,15 @@ def translate_and_review_story(
         if revisions >= config.max_story_revisions:
             raise TranslationError("translation remains REVISE after maximum story revisions")
         revisions += 1
-        translated = _call(provider, "Revise only the cited translation defects. Preserve all other wording. "
-            "Return the full strict translation JSON with complete=true and ending_preserved=true.\n"
-            f"ISSUES: {json.dumps(review.get('issues') or [], ensure_ascii=False)}\n"
-            f"SOURCE: {body}\nCURRENT: {json.dumps(translated, ensure_ascii=False)}", config)
+        translated = _apply_review_patches(title, body, translated, review)
         _validate_translation(body, translated, config)
         if review_checkpoint_path:
             _atomic_json(review_checkpoint_path, {
-                "schema_version": 1,
+                "schema_version": 2,
                 "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
                 "revisions_completed": revisions,
                 "review_history": review_history,
+                "current_translation": translated,
             })
 
     return {
