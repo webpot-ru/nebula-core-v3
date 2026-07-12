@@ -31,15 +31,18 @@ class EmotionVideoSampleTests(unittest.TestCase):
         self.assertIn(r"\{один\}", value)
         self.assertEqual(ass_time(65.5), "0:01:05.50")
 
-    def test_reddit_pages_repeat_body_but_not_title_and_end_with_actions(self):
+    def test_reddit_pages_accumulate_one_paragraph_without_repeating_title(self):
         chunks = [{"start": index * 2.0, "end": index * 2.0 + 1.5, "text": f"Чанк {index}"} for index in range(7)]
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "reddit.ass"
-            write_reddit_pages_ass(chunks, path, duration=16.0, title="Заголовок", chunks_per_page=3)
+            write_reddit_pages_ass(chunks, path, duration=16.0, title="Заголовок",
+                                   first_page_chars=40, continuation_page_chars=40)
             value = path.read_text()
         self.assertEqual(value.count("Заголовок"), 1)
         self.assertEqual(value.count("Style: Body"), 1)
         self.assertEqual(value.count("Dialogue: 0"), 9)
+        self.assertIn("Чанк 0 Чанк 1", value)
+        self.assertNotIn(r"Чанк 0\NЧанк 1", value)
         self.assertIn("Комментарии 438", value)
 
 

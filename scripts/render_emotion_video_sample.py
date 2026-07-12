@@ -104,10 +104,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 def write_reddit_pages_ass(
     chunks: list[dict[str, Any]], path: Path, *, duration: float,
     title: str = "Ночная смена: последнее правило",
-    chunks_per_page: int = 3,
+    first_page_chars: int = 185,
+    continuation_page_chars: int = 300,
 ) -> None:
-    if chunks_per_page < 1:
-        raise EmotionVideoError("chunks_per_page must be positive")
+    if first_page_chars < 40 or continuation_page_chars < 40:
+        raise EmotionVideoError("Reddit page character capacities are too small")
     header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1920
@@ -125,24 +126,36 @@ Style: Actions,DejaVu Sans,30,&H00E4E7EB,&H000000FF,&H00101010,&H00000000,-1,0,0
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events: list[str] = []
-    page_count = (len(chunks) + chunks_per_page - 1) // chunks_per_page
-    for page_index in range(page_count):
-        page = chunks[page_index * chunks_per_page:(page_index + 1) * chunks_per_page]
+    pages: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    for item in chunks:
+        capacity = first_page_chars if not pages else continuation_page_chars
+        candidate = " ".join([str(value["text"]) for value in current] + [str(item["text"])])
+        if current and len(candidate) > capacity:
+            pages.append(current)
+            current = []
+        current.append(item)
+    if current:
+        pages.append(current)
+
+    for page_index, page in enumerate(pages):
         page_start = float(page[0]["start"])
-        page_end = float(chunks[(page_index + 1) * chunks_per_page]["start"]) if page_index + 1 < page_count else duration
+        page_end = float(pages[page_index + 1][0]["start"]) if page_index + 1 < len(pages) else duration
         if page_index == 0:
             events.append(f"Dialogue: 0,{ass_time(page_start)},{ass_time(page_end)},Meta,,0,0,0,,{{\\pos(150,80)\\fad(150,180)}}r/NoSleep  •  опубликовано пользователем u/anonymous")
             events.append(f"Dialogue: 0,{ass_time(page_start)},{ass_time(page_end)},Title,,0,0,0,,{{\\pos(150,135)\\fad(150,180)}}{ass_escape(title)}")
             base_y = 255
         else:
             base_y = 125
+        accumulated: list[str] = []
         for row, item in enumerate(page):
             start = float(item["start"])
-            y = base_y + row * 185
-            text = ass_escape(str(item["text"]))
+            end = float(page[row + 1]["start"]) if row + 1 < len(page) else page_end
+            accumulated.append(str(item["text"]))
+            text = ass_escape(" ".join(accumulated))
             events.append(
-                f"Dialogue: 0,{ass_time(start)},{ass_time(page_end)},Body,,0,0,0,,"
-                f"{{\\pos(150,{y})\\fad(120,180)}}{text}"
+                f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Body,,0,0,0,,"
+                f"{{\\pos(150,{base_y})\\fad(90,0)}}{text}"
             )
     actions_start = max(0.0, duration - 3.2)
     events.append(
