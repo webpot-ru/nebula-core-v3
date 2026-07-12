@@ -7,7 +7,9 @@ import json
 import re
 from typing import Any
 
-from translator_tts import clean_text_for_narration_and_karaoke
+from translator_tts import (
+    clean_text_for_narration_and_karaoke, ru_int_to_words, ru_plural_form,
+)
 
 
 RISKY_NUMBER_PATTERNS = (
@@ -23,14 +25,37 @@ class NarrationPreflightError(RuntimeError):
     pass
 
 
+def normalize_ru_clock_times(text: str) -> tuple[str, int]:
+    changes = 0
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal changes
+        hour, minute = int(match.group(1)), int(match.group(2))
+        if hour > 23 or minute > 59:
+            return match.group(0)
+        changes += 1
+        hour_words = ru_int_to_words(hour)
+        hour_unit = ru_plural_form(hour, ("час", "часа", "часов"))
+        if minute == 0:
+            return f"{hour_words} {hour_unit} ровно"
+        minute_words = ru_int_to_words(minute)
+        minute_unit = ru_plural_form(minute, ("минута", "минуты", "минут"))
+        return f"{hour_words} {hour_unit} {minute_words} {minute_unit}"
+
+    pattern = re.compile(r"(?<!\w)(\d{1,2}):(\d{2})(?!\w)")
+    return pattern.sub(replace, str(text or "")), changes
+
+
 def narration_preflight(text: str) -> dict[str, Any]:
     original = str(text or "")
-    cleaned, changes = clean_text_for_narration_and_karaoke(text, "ru")
+    clock_safe, clock_changes = normalize_ru_clock_times(original)
+    cleaned, changes = clean_text_for_narration_and_karaoke(clock_safe, "ru")
+    changes += clock_changes
     issues: list[dict[str, str]] = []
     if re.search(r"(?i)https?://|www\.", cleaned):
         issues.append({"kind": "raw_url", "token": "URL"})
     for kind, pattern in RISKY_NUMBER_PATTERNS:
-        for match in pattern.finditer(original):
+        for match in pattern.finditer(clock_safe):
             issues.append({"kind": kind, "token": match.group(0)[:80]})
     return {
         "status": "PASS" if not issues else "BLOCKED",

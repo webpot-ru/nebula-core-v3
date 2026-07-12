@@ -261,6 +261,9 @@ jobs:
             --dir /tmp/reddit-resume
           test -d /tmp/reddit-resume/translation-checkpoints
           cp /tmp/reddit-resume/translation-checkpoints/*.json /tmp/reddit-source-smoke/translation-checkpoints/
+          if [ -d /tmp/reddit-resume/images ] && [ -f /tmp/reddit-resume/compilation-script-with-images.json ]; then
+            cp -R /tmp/reddit-resume/images /tmp/reddit-source-smoke/images
+          fi
 
       - name: Install compilation dependencies
         if: inputs.run_compilation_pilot
@@ -299,11 +302,15 @@ jobs:
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
+          RESUME_IMAGE_ARGS=()
+          if [ -f /tmp/reddit-resume/compilation-script-with-images.json ]; then
+            RESUME_IMAGE_ARGS+=(--resume-compilation /tmp/reddit-resume/compilation-script-with-images.json)
+          fi
           python compilation_images.py \
             --compilation /tmp/reddit-source-smoke/compilation-script.json \
             --output-dir /tmp/reddit-source-smoke/images \
             --updated-compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
-            --model gpt-image-2 --size 1536x864 --confirm-spend
+            --model gpt-image-2 --size 1536x864 "${RESUME_IMAGE_ARGS[@]}" --confirm-spend
 
       - name: Build compilation storyboard
         if: inputs.run_compilation_pilot

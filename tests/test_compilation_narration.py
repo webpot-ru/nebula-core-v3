@@ -12,9 +12,15 @@ class CompilationNarrationTests(unittest.TestCase):
         self.assertIn("более чем шесть тысяч пятьсот", result["narration_text"])
 
     def test_context_sensitive_numbers_block(self):
-        for text in ("Это было в 2024 году", "В 03:15", "Цена $50", "Около 2.5 метров"):
+        for text in ("Это было в 2024 году", "В 25:99", "Цена $50", "Около 2.5 метров"):
             with self.subTest(text=text):
                 self.assertEqual(narration_preflight(text)["status"], "BLOCKED")
+
+    def test_clock_time_has_deterministic_russian_spoken_form(self):
+        result = narration_preflight("Нужно вымыть пол ровно в 3:15, а вернуться в 4:00.")
+        self.assertEqual(result["status"], "PASS")
+        self.assertIn("три часа пятнадцать минут", result["narration_text"])
+        self.assertIn("четыре часа ровно", result["narration_text"])
 
     def test_builds_ordered_story_segments(self):
         compilation = {
