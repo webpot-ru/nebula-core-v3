@@ -112,6 +112,19 @@ class CompilationTranslationTests(unittest.TestCase):
         with self.assertRaisesRegex(TranslationError, "unsafe verdict"):
             translate_and_review_story(STORY, provider=provider, reviewer=reviewer)
 
+    def test_review_failure_checkpoint_preserves_decisions(self):
+        translation = {"title": "Дверь", "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.", "complete": True, "ending_preserved": True}
+        provider = QueueProvider([translation, translation, translation])
+        reviewer = QueueProvider([{"verdict": "REVISE", "issues": [{"kind": "ending"}], "ending_preserved": False}] * 3)
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "review.json"
+            with self.assertRaisesRegex(TranslationError, "maximum"):
+                translate_and_review_story(STORY, provider=provider, reviewer=reviewer,
+                    review_checkpoint_path=checkpoint)
+            saved = __import__("json").loads(checkpoint.read_text())
+        self.assertEqual(saved["revisions_completed"], 2)
+        self.assertEqual(len(saved["review_history"]), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

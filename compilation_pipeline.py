@@ -43,6 +43,7 @@ def translate_manifest(
                 reviewer=provider,
                 config=TranslationConfig(max_output_tokens=16_384),
                 chunk_checkpoint_path=(checkpoint_dir / f"story-{snapshot.get('post_id')}.chunks.json") if checkpoint_dir else None,
+                review_checkpoint_path=(checkpoint_dir / f"story-{snapshot.get('post_id')}.review.json") if checkpoint_dir else None,
             )
             if checkpoint_path:
                 checkpoint_path.parent.mkdir(parents=True, exist_ok=True)

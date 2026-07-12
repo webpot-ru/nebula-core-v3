@@ -190,6 +190,7 @@ CHUNK:\n{chunk}"""
 def translate_and_review_story(
     story: dict[str, Any], *, provider: Provider, reviewer: Provider | None = None,
     config: TranslationConfig | None = None, chunk_checkpoint_path: Path | None = None,
+    review_checkpoint_path: Path | None = None,
 ) -> dict[str, Any]:
     """Translate full-story-first, fallback only on incomplete output, then review."""
     config = config or TranslationConfig()
@@ -214,8 +215,17 @@ def translate_and_review_story(
 
     review_provider = reviewer or provider
     revisions = 0
+    review_history: list[dict[str, Any]] = []
     while True:
         review = _call(review_provider, _review_prompt(title, body, translated), config, temperature=0.0)
+        review_history.append(review)
+        if review_checkpoint_path:
+            _atomic_json(review_checkpoint_path, {
+                "schema_version": 1,
+                "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                "revisions_completed": revisions,
+                "review_history": review_history,
+            })
         if review.get("verdict") == "PASS" and review.get("ending_preserved") is True:
             break
         if review.get("verdict") != "REVISE":
@@ -228,6 +238,13 @@ def translate_and_review_story(
             f"ISSUES: {json.dumps(review.get('issues') or [], ensure_ascii=False)}\n"
             f"SOURCE: {body}\nCURRENT: {json.dumps(translated, ensure_ascii=False)}", config)
         _validate_translation(body, translated, config)
+        if review_checkpoint_path:
+            _atomic_json(review_checkpoint_path, {
+                "schema_version": 1,
+                "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                "revisions_completed": revisions,
+                "review_history": review_history,
+            })
 
     return {
         **story,

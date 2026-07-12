@@ -21,6 +21,7 @@ class Acc1CompilationWorkflowTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/reddit_source_smoke.yml").read_text(encoding="utf-8")
         for required in (
             "run_compilation_pilot:", "confirm_provider_spend:",
+            "resume_artifact_run_id:", "Restore compatible translation checkpoints",
             "if: inputs.run_compilation_pilot", "--model gpt-image-2",
             "--model-id eleven_v3", "compilation_qa.py",
         ):
