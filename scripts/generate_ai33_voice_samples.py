@@ -33,7 +33,8 @@ VOICE_SETTINGS_PROFILES: dict[str, dict[str, float] | None] = {
     "robust": {"stability": 0.70, "similarity_boost": 0.75, "style": 0},
 }
 
-VOICE_ID_RE = re.compile(r"^(?:elevenlabs_)?[A-Za-z0-9_-]{8,128}$")
+VOICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+VOICE_PROVIDER_PREFIXES = ("elevenlabs_", "minimax_", "clone_", "edge_", "kokoro_", "vbee_", "fishaudio_")
 
 
 SAMPLE_TEXTS: dict[str, dict[str, dict[str, str]]] = {
@@ -135,6 +136,8 @@ def normalize_voice_id_override(value: str | None) -> str | None:
     candidate = value.strip()
     if not VOICE_ID_RE.fullmatch(candidate):
         raise Ai33Error("--voice-id-override has an invalid voice ID format.")
+    if not candidate.startswith(VOICE_PROVIDER_PREFIXES):
+        candidate = f"elevenlabs_{candidate}"
     return candidate
 
 

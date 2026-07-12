@@ -17,7 +17,11 @@ class TtsModelContractTests(unittest.TestCase):
     def test_voice_sample_override_is_narrow_and_validated(self):
         self.assertEqual(
             generate_ai33_voice_samples.normalize_voice_id_override(" cCYjmrGZaI86GUJ7F2Nn "),
-            "cCYjmrGZaI86GUJ7F2Nn",
+            "elevenlabs_cCYjmrGZaI86GUJ7F2Nn",
+        )
+        self.assertEqual(
+            generate_ai33_voice_samples.normalize_voice_id_override("elevenlabs_cCYjmrGZaI86GUJ7F2Nn"),
+            "elevenlabs_cCYjmrGZaI86GUJ7F2Nn",
         )
         with self.assertRaises(translator_tts.Ai33Error):
             generate_ai33_voice_samples.normalize_voice_id_override("bad voice id")
