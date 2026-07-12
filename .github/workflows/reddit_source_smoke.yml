@@ -88,6 +88,24 @@ on:
         required: true
         default: snapshot-a
         type: string
+      acc1_source_mode:
+        description: Source lane for acc1 compilation manifest
+        required: false
+        default: nosleep
+        type: choice
+        options:
+          - nosleep
+          - letsnotmeet
+      acc1_story_count:
+        description: Complete stories in the acc1 compilation manifest
+        required: false
+        default: "3"
+        type: choice
+        options:
+          - "3"
+          - "4"
+          - "5"
+          - "6"
 
 permissions:
   contents: read
@@ -195,8 +213,19 @@ jobs:
           python scripts/review_reddit_topics.py \
             --queue /tmp/reddit-source-smoke/queue.json \
             --output /tmp/reddit-source-smoke/topic-review.json \
-            --top-n 3 \
+            --top-n 6 \
             --allow-missing
+
+      - name: Build acc1 compilation manifest
+        if: always() && inputs.channel == 'acc1'
+        run: |
+          python scripts/select_acc1_pilots.py \
+            --queue /tmp/reddit-source-smoke/queue.json \
+            --review /tmp/reddit-source-smoke/topic-review.json \
+            --output /tmp/reddit-source-smoke/compilation-manifest.json \
+            --story-count "${{ inputs.acc1_story_count }}" \
+            --source-mode "${{ inputs.acc1_source_mode }}" \
+            --time-filter "${{ inputs.time_filter }}"
 
       - name: Upload Reddit smoke evidence
         if: always()

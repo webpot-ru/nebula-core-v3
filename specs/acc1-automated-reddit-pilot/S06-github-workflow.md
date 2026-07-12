@@ -7,9 +7,11 @@ Run one or two sequential artifact-only pilots with durable checkpoints and no u
 ## Deliverables
 
 - Dedicated manual workflow with `permissions: contents: read`.
-- Inputs: `pilot_count=1|2`, `time_filter=month|year`, voice profile, and explicit provider-spend confirmation.
-- Checkpoint artifacts upload with `if: always()`; pilots run sequentially with distinct post IDs.
+- Inputs: `story_count=3..6`, `time_filter=month|year`, and explicit provider-spend confirmation.
+- Checkpoint artifacts upload with `if: always()`; the first workflow is the `r/nosleep` artifact-only pilot.
 - Static tests assert no uploader, YouTube secrets, history write, or model other than required `eleven_v3`.
+
+Implemented locally as `.github/workflows/acc1_compilation_pilot.yml`. It remains unverified in GitHub until an explicitly approved provider-spend run is dispatched.
 
 ## Done when
 

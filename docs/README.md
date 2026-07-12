@@ -73,7 +73,7 @@ Operational split:
 
 | Channel | Owned viewer promise | Production lane | Status |
 |---|---|---|---|
-| `acc1` Russian | first-person Reddit horror with one memorable rule, escalation, and an emotionally complete ending | rights-cleared Reddit story transformed into a Russian horror episode | rights/editorial lane required |
+| `acc1` Russian | long themed Reddit horror listening session | 3-6 source-preserving stories in a 45-60 minute compilation | compilation lane in progress |
 | `acc2` English | high-concept internet case file: what happened, why people cared, what changed | evidence dossier | evidence lane required |
 | `acc3` German | precise explanation of digital systems, scams, privacy, and tech consequences | evidence dossier | evidence lane required |
 | `acc4` LATAM Spanish | intimate moral conflict with two sides and a verdict-changing turn | Reddit story card | Reddit pilot candidate |
@@ -85,7 +85,7 @@ The detailed owned bets, forbidden bets, cadence gates, and 90-day rollout are i
 
 ### Production Lanes
 
-1. **`reddit_horror_episode`** - required for `acc1`: rights-cleared Reddit source, dedicated Russian episode script, fiction disclosure, independent editorial acceptance, and scene-based original visuals. Reddit supplies every story, but the public post alone does not grant production rights.
+1. **`reddit_horror_compilation`** - required for `acc1`: 3-6 complete Reddit stories, source-preserving Russian editing, per-story disclosure and review, segmented Eleven v3 narration, and a 45-60 minute 16:9 compilation. `r/nosleep` and `r/LetsNotMeet` remain separate series.
 2. **`reddit_story_card`** - only complete first-person moral conflict or complete social absurdity for the channels that own those treatments. The current renderer supports this lane.
 3. **`evidence_dossier`** - required for facts, science/tech, scams, real mysteries, public-person allegations, internet timelines, and football. It needs independent evidence, an original script, and timeline/evidence visuals; one Reddit card is not sufficient.
 
@@ -102,7 +102,7 @@ For Reddit-derived stories only:
 - **Comments ratio**: high comment/upvote ratio indicates controversy and discussion potential.
 - **Time window**: `auto` uses topic-family windows such as `day + week` for fresh drama and `week + month` for mystery/lore; manual `day|week|month|year` is still available for experiments.
 - **Body length**: minimum 300 characters for narration depth. Format-specific generation must choose the right source length before adaptation: `shorts` uses complete short source stories, while `long` requires a substantial long source. Production workflows must not cut a selected story body just to fit a runtime.
-- **Russian Reddit long-form first**: `acc1` targets a 30-50 minute approved Russian episode built from a rights-cleared Reddit story. Direct translation or a cleaned Reddit reading is not the target product. Shorts are trailer-only after the full episode exists.
+- **Russian Reddit compilation first**: `acc1` targets 45-60 minutes from 3-6 complete stories. Events/order/endings remain source-preserving; literary Russian cleanup is allowed, artificial plot expansion is not. Shorts are trailer-only after the compilation exists.
 - **Topic families**: channels now use weighted `topic_mix` values instead of one flat subreddit list. The scraper has rules for `human_drama`, `dark_curiosity`, `curiosity_facts`, `football_culture`, `internet_lore`, and `visual_comedy`.
 - **AI budget**: Gemini quality checks are bounded by `MAX_AI_CANDIDATES` / `--max-ai-candidates`; local Reddit metrics and duplicate guards run before any AI call.
 - **Producer gate**: Gemini must reject topics that are merely high-metric Reddit filler. The prompt now scores first-screen hook, discussion potential, Shorts/long-form fit, novelty, character-voice fit, AI-slop risk, source/link dependency, duplicate risk, and legal risk. For `shorts`, it receives the complete short-source body up to the Shorts source-length limit, not the old 800-character preview.
@@ -152,6 +152,13 @@ reddit/                            ← Project root (nebula-core-v3)
 ├── thumbnail_generator.py         ← VectorEngine image thumbnail generator
 ├── vectorengine_client.py         ← Shared Gemini text router + VectorEngine image client
 ├── translator_tts.py              ← AI33 TTS v3 narration generator
+├── compilation_translation.py      ← full-story-first Russian translation + independent review
+├── compilation_tts_runner.py       ← chunked Eleven v3 state/resume for long compilations
+├── compilation_images.py           ← guarded GPT Image 2 visual per accepted story
+├── compilation_storyboard.py       ← local-only 16:9 compilation storyboard
+├── compilation_renderer.py         ← deterministic H.264/AAC compilation renderer
+├── compilation_metadata.py         ← three-angle packaging for a compilation
+├── compilation_qa.py               ← fail-closed compilation artifact gate
 ├── storyboard_generator.py        ← Deterministic story_data.json → storyboard.json
 ├── render.py                      ← RedditSim dry-run renderer: storyboard.json → final_output.mp4
 ├── pre_publish_qa.py              ← Fail-closed audio/evidence/render QA gate
@@ -233,6 +240,10 @@ ffprobe final_output.mp4
 `pre_publish_qa.py` is the fail-closed local/upload gate. It reads `story_data.json`, `storyboard.json`, `youtube_metadata.json`, `narration.mp3`, `render_report.json`, and `final_output.mp4`; checks that the MP4 has video/audio streams, audio/video durations match, raw URLs are not spoken in narration fields, source-backed hook evidence exists, story adaptation ran, and metadata language/title length are valid. `auto_publish.yml` and live `video_dry_run.yml` run this before upload/artifact handoff. Karaoke checks run only when `--require-karaoke` is explicitly passed.
 
 Narration text may intentionally differ from display text only for service-safe substitutions. Raw links stay visible on the card while TTS reads a localized "link on screen" phrase. For Russian narration, standalone numeric tokens are expanded only inside `narration_title`, `narration_body`, and `comments[].narration_body`; for example visible `6500+` can be voiced as `более чем шесть тысяч пятьсот`.
+
+The acc1 compilation lane applies a stricter rule. Source URLs live in manifests/descriptions and are not narrated. Inline links become `ссылка на экране`; Markdown labels such as `фото` may become `фото (ссылка на экране)`. Static native Reddit images from `i.redd.it` or `preview.redd.it` are recorded as metadata in `source_media`; arbitrary outbound images, animation and video are rejected. Rendering an image still requires a later bounded downloader plus MIME/size/dimension/checksum validation and a local-only storyboard asset, so capture metadata does not yet mean the image is rendered.
+
+`compilation_narration.py` is the no-spend narration preflight. It builds ordered `intro`, `story_*`, `transition_*`, and `outro` segments, forces `eleven_v3`, removes raw spoken URLs, and reuses the existing Russian integer/percent/plus normalization. Context-sensitive years, dates, clock times, decimals, and currencies currently fail closed until the translated script provides an explicit natural spoken form; they are not sent to AI33 as ambiguous digits.
 
 Render orientation is duration-aware. In default `--orientation auto` mode, videos up to 180 seconds render as vertical Shorts (`1080x1920`, mobile layout), while videos longer than 180 seconds render as horizontal long-form video (`1920x1080`, desktop layout). Horizontal render fills the 16:9 viewport with a clean centered Reddit card and hides editor/sidebar widgets. Override only intentionally with `--orientation vertical` or `--orientation horizontal`.
 
@@ -376,6 +387,8 @@ The quality prompt is intentionally strict. Upvotes are treated as evidence, not
 ## 7. Translation & TTS Pipeline
 
 ### Current: AI33 TTS v3
+
+Full-story Gemini translation allows 16,384 output tokens by default instead of 4,096. Override it with `--translation-max-output-tokens` or `GEMINI_TRANSLATION_MAX_OUTPUT_TOKENS` when the selected provider/model supports a different response limit.
 
 `translator_tts.py` now submits narration text to AI33's unified v3 endpoint:
 

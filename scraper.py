@@ -4,6 +4,8 @@ import sys
 import os
 import re
 import hashlib
+import html
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 
 # ─────────────────────────────────────────────
@@ -14,6 +16,7 @@ from datetime import datetime, timezone
 
 REDDIT_CLIENT_ENV = ("REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET")
 REDDIT_SCRIPT_ENV = ("REDDIT_USERNAME", "REDDIT_PASSWORD")
+REDDIT_IMAGE_HOSTS = {"i.redd.it", "preview.redd.it"}
 
 
 class RedditCredentialConfigError(RuntimeError):
@@ -73,6 +76,81 @@ def format_count(n):
     if n >= 1000:
         return f"{round(n / 1000, 1)}k"
     return str(n)
+
+
+def _safe_reddit_image_url(value) -> str | None:
+    url = html.unescape(str(value or "").strip())
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or (parsed.hostname or "").casefold() not in REDDIT_IMAGE_HOSTS:
+        return None
+    return url
+
+
+def reddit_media_manifest(post) -> list[dict]:
+    """Return ordered metadata for native static Reddit images without downloading them."""
+    assets: list[dict] = []
+    seen: set[str] = set()
+
+    def append_asset(*, media_id: str, url, width=0, height=0, caption="", order=0) -> None:
+        safe_url = _safe_reddit_image_url(url)
+        if not safe_url or media_id in seen:
+            return
+        seen.add(media_id)
+        assets.append({
+            "media_id": media_id,
+            "kind": "image",
+            "source_url": safe_url,
+            "width": int(width or 0),
+            "height": int(height or 0),
+            "caption": str(caption or "").strip(),
+            "order": int(order),
+            "reddit_hosted": True,
+            "download_status": "not_downloaded",
+        })
+
+    gallery_data = getattr(post, "gallery_data", None) or {}
+    media_metadata = getattr(post, "media_metadata", None) or {}
+    for order, item in enumerate(gallery_data.get("items") or []):
+        if not isinstance(item, dict):
+            continue
+        media_id = str(item.get("media_id") or "")
+        metadata = media_metadata.get(media_id) if isinstance(media_metadata, dict) else None
+        if not media_id or not isinstance(metadata, dict):
+            continue
+        if metadata.get("status") != "valid" or metadata.get("e") != "Image":
+            continue
+        source = metadata.get("s") or {}
+        append_asset(
+            media_id=media_id,
+            url=source.get("u"),
+            width=source.get("x"),
+            height=source.get("y"),
+            caption=item.get("caption"),
+            order=order,
+        )
+
+    if assets:
+        return assets
+
+    preview = getattr(post, "preview", None) or {}
+    images = preview.get("images") or []
+    if images and isinstance(images[0], dict):
+        source = images[0].get("source") or {}
+        append_asset(
+            media_id=str(getattr(post, "id", "image")),
+            url=source.get("url"),
+            width=source.get("width"),
+            height=source.get("height"),
+        )
+
+    if not assets and str(getattr(post, "post_hint", "")) == "image":
+        append_asset(
+            media_id=str(getattr(post, "id", "image")),
+            url=getattr(post, "url_overridden_by_dest", None) or getattr(post, "url", None),
+        )
+    return assets
 
 
 def trim_text_at_word_boundary(text: str, max_chars: int) -> tuple[str, bool]:
@@ -667,6 +745,7 @@ def producer_queue_entry(
         "source_has_markdown_link": bool(re.search(r"\[[^\]]+\]\([^)]+\)", source_body)),
         "source_has_markdown_image": bool(re.search(r"!\[[^\]]*\]\([^)]+\)", source_body)),
         "source_question_count": source_body.count("?"),
+        "source_media": reddit_media_manifest(post),
         "topic_family": candidate["topic"]["family"],
         "topic_label": candidate["topic"]["label"],
         "time_window": candidate["time_window"],
@@ -1689,6 +1768,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
         "hook_evidence": hook_evidence_items(ai_result),
         "hook_override": hook_override,
         "url": f"https://reddit.com{chosen_post.permalink}",
+        "source_media": reddit_media_manifest(chosen_post),
         "post_id": chosen_post.id,
         "comments": comments
     }

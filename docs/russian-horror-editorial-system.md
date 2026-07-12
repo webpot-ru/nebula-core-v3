@@ -4,7 +4,7 @@
 
 `acc1` is a Russian horror channel built from Reddit stories, not a literal translated-Reddit reading channel.
 
-The primary product is one first-person fictional horror episode built for Russian listening habits, normally around 30-50 minutes. The episode must have an owned editorial identity, natural Russian prose, scene-level escalation, an emotionally complete ending, original narration direction, and a visual/sound treatment that is recognizably ours. Shorts are trailers made after the full episode, and long compilations are library products made only after individual stories prove themselves.
+The primary product is a 45-60 minute themed compilation of 3-6 complete Reddit horror stories built for Russian listening habits. `r/nosleep` fiction and `r/LetsNotMeet` unverified encounters are separate series and are not mixed inside one compilation. Stories receive natural literary Russian editing but are not expanded into new plots: events, characters, order, and ending remain source-preserving.
 
 Reddit is the primary story source and author-acquisition surface. The pipeline should find complete Reddit stories, shortlist them, obtain the required rights from the Reddit author, and then turn the cleared source into an original Russian-language episode. A public post is not a publishing license. The first two explicitly approved internal, artifact-only automation tests may cross into adaptation, paid AI, voice, and render with `rights_mode=test_only_not_cleared` and `publication_authorized=false`; they may not upload or publish. Any distribution beyond that test boundary requires a recorded rights basis.
 
@@ -29,13 +29,13 @@ Every candidate needs a fail-closed rights record before any adaptation spend. T
 
 ## Ideal Story Contract
 
-An ideal `acc1` episode starts with a familiar place, job, or relationship and introduces one impossible rule or anomaly. Breaking or testing it must cause a causal escalation through several distinguishable scenes, not repetitions of the same scare. The protagonist needs a concrete want and meaningful cost. The ending may remain mysterious, but the emotional arc must close and the episode must not simply stop to advertise Part 2.
+An ideal story starts with a familiar place, job, or relationship and introduces one impossible rule, anomaly, or threatening encounter. The compilation combines materially different threats and rejects incomplete serial fragments. Every selected story must preserve its own setup, escalation, payoff, and ending.
 
 Promising initial archetypes are a night shift, remote work camp or taiga road, last train, apartment entrance or intercom, archive recording, village, bathhouse, hospital corridor, delivery route, and an inherited house. These are hypotheses from competitor packaging, not proven channel winners. YouTube appeal, retention, and satisfaction data must decide which become franchises.
 
 One breakout video is evidence for a hypothesis, not a franchise decision. Promote a signature only after it repeats across distinct Reddit sources; store the signature as setting, impossible rule, threat, emotional cost, and payoff type so the system learns a reusable viewer promise instead of copying one successful plot.
 
-Runtime is measured from the approved Russian narration script, not English source characters. The first pilots target the competitor-supported 30-50 minute listening lane. A shorter exceptional story may proceed when its arc is unusually strong; a thin source must never be padded.
+Runtime is measured from the combined approved Russian narration, not English source characters. The target is 45-60 minutes, with a hard QA envelope of 40-70 minutes. A thin source is never padded; the selector adds another complete story instead.
 
 ## Editorial Ownership
 
@@ -44,11 +44,11 @@ The pipeline separates responsibilities deliberately:
 1. **Scout** - deterministic collection, deduplication, provenance, structural tags, and demand signals. It proposes leads only.
 2. **Producer model** - reads the complete beginning, middle, and ending and returns an advisory shortlist. It cannot approve rights or truth claims.
 3. **Rights producer** - a human owner records permission or license evidence and is the only role that can clear a third-party text.
-4. **Russian story writer** - produces a scene-based Russian draft only after clearance. AI may assist, but the draft is not automatically approved.
+4. **Russian translator/editor** - produces a natural source-preserving Russian narration for each complete story. AI may assist, but it may not invent or expand events.
 5. **Russian story editor** - owns natural language, pacing, cultural fit, audience promise, fiction labeling, and the final meaning of the episode.
 6. **Continuity reviewer** - compares the script with the licensed canon and the change ledger, catching lost beats, unsupported additions, accidental factual framing, and unresolved series dependence.
 7. **Narration director** - approves the performance script and voice direction before AI33/Eleven v3 synthesis.
-8. **Visual and sound director** - turns acts and scenes into an original storyboard and sound plan; a Reddit card may appear as attribution context but is not the full-length visual product.
+8. **Visual and sound director** - builds the compilation treatment. Verified Reddit-hosted source photos may appear at the relevant point; arbitrary linked images are not fetched, and a Reddit card is only attribution context.
 9. **Pre-publish QA** - checks rights, fiction/claim disclosure, source-versus-script integrity, approved changes, ad suitability, reused-content risk, runtime, packaging truth, TTS contract, and the rendered artifact.
 
 The same model must not silently act as producer, writer, translator, continuity reviewer, and final approver. Independent gates matter more than model branding.
@@ -59,7 +59,7 @@ The first two automation tests may use `rights_mode=test_only_not_cleared` as a 
 
 ## Script Contract
 
-The production artifact should be an episode script, separate from the source snapshot. It needs a cold open, scene or act boundaries, narration, optional dialogue, source/canon references, visual and sound direction, an afterword or producer perspective, fiction disclosure, and a change ledger.
+The production artifact is a compilation script separate from all source snapshots. It contains a short intro, 3-6 ordered Russian story narrations, short transitions, an outro/question, per-story disclosure, ending-preservation evidence, media manifests, and change ledgers.
 
 A licensed adaptation may reorganize or dramatize only what the agreement allows. Any newly written bridge, composite detail, dialogue, or ending must be identified in the change ledger and approved by the Russian editor and continuity reviewer. It must never be presented as something the source author claimed.
 

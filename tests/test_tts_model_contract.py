@@ -18,6 +18,7 @@ class TtsModelContractTests(unittest.TestCase):
         self.assertEqual(args.model_id, "eleven_v3")
         self.assertEqual(args.require_model_id, "eleven_v3")
         self.assertEqual(args.request_metadata_output, "tts_request_metadata.json")
+        self.assertEqual(args.translation_max_output_tokens, 16384)
 
     def test_post_request_includes_explicit_model_id(self):
         response = SimpleNamespace(

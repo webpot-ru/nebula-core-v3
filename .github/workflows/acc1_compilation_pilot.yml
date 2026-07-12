@@ -1,0 +1,136 @@
+name: acc1 Reddit Horror Compilation Pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      time_filter:
+        required: true
+        default: month
+        type: choice
+        options: [month, year]
+      story_count:
+        required: true
+        default: "3"
+        type: choice
+        options: ["3", "4", "5", "6"]
+      confirm_provider_spend:
+        description: Explicitly allow Gemini, GPT Image 2 and AI33 for this artifact-only run
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  artifact-only-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Deterministic tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Require explicit provider-spend confirmation
+        run: test '${{ inputs.confirm_provider_spend }}' = 'true'
+      - name: Fetch bounded complete Reddit candidates
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
+          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
+          AI_QUALITY_CHECK: "0"
+          AI_QUALITY_FAIL_OPEN: "0"
+          MAX_SUBREDDITS_PER_TOPIC: "1"
+          MAX_TIME_WINDOWS_PER_TOPIC: "1"
+        run: |
+          mkdir -p build/acc1-pilot
+          python scraper.py --channel acc1 --time '${{ inputs.time_filter }}' \
+            --topic-family dark_curiosity --format-intent long --candidate-limit 10 \
+            --max-ai-candidates 0 --comment-limit 0 --allow-disabled-channel \
+            --include-source-body-in-queue --no-save-history \
+            --output build/acc1-pilot/source-winner.json \
+            --producer-queue-output build/acc1-pilot/queue.json
+          python scripts/review_reddit_topics.py --queue build/acc1-pilot/queue.json \
+            --output build/acc1-pilot/topic-review.json --top-n 6
+          python scripts/select_acc1_pilots.py --queue build/acc1-pilot/queue.json \
+            --review build/acc1-pilot/topic-review.json \
+            --output build/acc1-pilot/compilation-manifest.json \
+            --story-count '${{ inputs.story_count }}' --source-mode nosleep \
+            --time-filter '${{ inputs.time_filter }}'
+      - name: Translate and independently review every story
+        env:
+          GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          GEMINI_TRANSLATION_MAX_OUTPUT_TOKENS: "16384"
+        run: |
+          python compilation_pipeline.py \
+            --manifest build/acc1-pilot/compilation-manifest.json \
+            --output build/acc1-pilot/compilation-script.json --confirm-spend
+      - name: Generate honest compilation packaging
+        env:
+          GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          python compilation_metadata.py --compilation build/acc1-pilot/compilation-script.json \
+            --output build/acc1-pilot/youtube-metadata.json --confirm-spend
+      - name: Generate one GPT Image 2 visual per story
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          python compilation_images.py --compilation build/acc1-pilot/compilation-script.json \
+            --output-dir build/acc1-pilot/images \
+            --updated-compilation build/acc1-pilot/compilation-script-with-images.json \
+            --model gpt-image-2 --size 1536x864 --confirm-spend
+      - name: Build local-only compilation storyboard
+        run: |
+          python compilation_storyboard.py \
+            --compilation build/acc1-pilot/compilation-script-with-images.json \
+            --artifact-root build/acc1-pilot --output build/acc1-pilot/storyboard.json
+      - name: Generate resumable Eleven v3 narration
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+        run: |
+          VOICE_ID=$(python -c "import json; print(next(c['tts_voice'] for c in json.load(open('channels.json'))['channels'] if c['id']=='acc1'))")
+          python compilation_tts_runner.py \
+            --compilation build/acc1-pilot/compilation-script-with-images.json \
+            --output-dir build/acc1-pilot/tts --voice-id "$VOICE_ID" \
+            --model-id eleven_v3 --confirm-spend
+      - name: Render 16x9 compilation
+        run: |
+          python compilation_renderer.py --storyboard build/acc1-pilot/storyboard.json \
+            --artifact-root build/acc1-pilot \
+            --audio build/acc1-pilot/tts/compilation_narration.mp3 \
+            --output build/acc1-pilot/final_output.mp4 \
+            --report build/acc1-pilot/render-report.json
+      - name: Fail-closed compilation QA
+        run: |
+          python compilation_qa.py \
+            --compilation build/acc1-pilot/compilation-script-with-images.json \
+            --metadata build/acc1-pilot/youtube-metadata.json \
+            --tts-state build/acc1-pilot/tts/compilation_tts_state.json \
+            --storyboard build/acc1-pilot/storyboard.json \
+            --render-report build/acc1-pilot/render-report.json \
+            --artifact-root build/acc1-pilot \
+            --video build/acc1-pilot/final_output.mp4 \
+            --output build/acc1-pilot/compilation-qa.json
+      - name: Upload checkpoints and final artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-compilation-pilot-${{ github.run_id }}
+          path: build/acc1-pilot
+          if-no-files-found: error
+          retention-days: 7

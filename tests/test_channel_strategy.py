@@ -155,6 +155,7 @@ class SourceReviewEvidenceTests(unittest.TestCase):
         self.assertTrue(entry["source_has_markdown_link"])
         self.assertFalse(entry["source_has_markdown_image"])
         self.assertEqual(entry["source_question_count"], 1)
+        self.assertEqual(entry["source_media"], [])
 
     def test_workflow_records_commit_config_and_review_scope(self):
         workflow = (ROOT / ".github/workflows/reddit_source_smoke.yml").read_text(encoding="utf-8")

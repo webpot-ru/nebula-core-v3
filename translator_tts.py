@@ -441,7 +441,10 @@ def translate_story_text(
     lang_code: str,
     model: str,
     temperature: float,
+    max_output_tokens: int = 16384,
 ) -> dict[str, Any]:
+    if max_output_tokens < 1024:
+        raise Ai33Error("translation max output tokens must be at least 1024")
     try:
         from vectorengine_client import VectorEngineError, call_gemini_json, gemini_source_label
     except ImportError as exc:
@@ -452,7 +455,7 @@ def translate_story_text(
             prompt=build_translation_prompt(story, channel, lang_code),
             model=model,
             temperature=temperature,
-            max_output_tokens=4096,
+            max_output_tokens=max_output_tokens,
         )
     except VectorEngineError as exc:
         raise Ai33Error(f"Gemini translation failed: {exc}") from exc
@@ -1948,6 +1951,7 @@ def process_story_audio(args: argparse.Namespace) -> None:
             lang_code=lang_code,
             model=args.translation_model,
             temperature=args.translation_temperature,
+            max_output_tokens=args.translation_max_output_tokens,
         )
 
     sanitization_changes = 0
@@ -2195,6 +2199,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--translation-model", default="gemini-3.5-flash", help="Gemini model for story localization.")
     parser.add_argument("--translation-temperature", type=float, default=0.2, help="Gemini temperature for story localization.")
+    parser.add_argument(
+        "--translation-max-output-tokens",
+        type=int,
+        default=int(os.environ.get("GEMINI_TRANSLATION_MAX_OUTPUT_TOKENS", "16384")),
+        help="Maximum Gemini output tokens for one full-story translation (default: 16384).",
+    )
     parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load before Gemini/AI33 calls.")
     parser.add_argument("--voice-id", help="AI33 prefixed voice_id from Voice Library.")
     parser.add_argument("--comment-voice-id", help="AI33 prefixed voice_id for comment segments.")

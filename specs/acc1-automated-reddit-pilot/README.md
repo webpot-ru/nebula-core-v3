@@ -2,25 +2,26 @@
 
 ## Outcome
 
-Two repeatable, artifact-only `acc1` pilots can take a complete Reddit candidate through a Russian long-form episode script, independent editorial review, Eleven v3 narration, a scene-based 16:9 render, and fail-closed QA without YouTube upload or publication-history writes.
+Two repeatable, artifact-only `acc1` pilots can take 3-6 complete Reddit stories through source-preserving Russian translation/editing, independent review, Eleven v3 narration, a 45-60 minute 16:9 compilation render, and fail-closed QA without YouTube upload or publication-history writes.
 
 ## Invariants
 
 - Reddit is the source; Reddit-only claims are labelled fiction or unverified personal accounts, never verified fact.
 - Test runs use `rights_mode=test_only_not_cleared` and `publication_authorized=false`. Rights do not block internal artifacts, but the artifacts cannot authorize publication.
 - The complete source body is snapshotted and hashed before any paid call.
-- Long scripts are planned and written per scene; no single model response owns the whole episode.
+- `r/nosleep` fiction and `r/LetsNotMeet` unverified encounters are tested as separate compilations and never mixed.
+- Events, characters, order, and ending are preserved; the model may improve Russian narration but may not expand a source into a new plot.
 - Deterministic validation runs before provider calls and between every paid stage.
-- Review may request targeted scene changes at most twice. A third failure is `BLOCKED_EDITORIAL`.
+- Review may request a targeted story correction at most twice. A third failure is `BLOCKED_EDITORIAL`.
 - Metadata is produced only from the accepted Russian script.
-- AI33 requests and validates `eleven_v3`; scene-level checkpoints prevent duplicate paid submissions on resume.
+- AI33 requests and validates `eleven_v3`; story/chunk checkpoints prevent duplicate paid submissions on resume.
 - The lane has no uploader, YouTube secret, history mutation, or public-publish step.
 
 ## Slice graph
 
 1. [S01: Episode contract](S01-episode-contract.md)
 2. [S02: Source selection](S02-source-selection.md)
-3. [S03: Plan and scene writing](S03-plan-and-scenes.md)
+3. [S03: Translation and story editing](S03-plan-and-scenes.md)
 4. [S04: Review loop](S04-review-loop.md)
 5. [S05: Audio, storyboard, render and QA](S05-media-and-qa.md)
 6. [S06: GitHub pilot workflow](S06-github-workflow.md)
@@ -36,7 +37,7 @@ Two repeatable, artifact-only `acc1` pilots can take a complete Reddit candidate
 
 ## First review surface
 
-The first checkpoint is a fixture-built `episode_script.json` plus `episode_validation.json`. It proves the contract, runtime accounting, source anchors, disclosure, change ledger, and revision ceiling before Gemini or AI33 can be called.
+The first checkpoint is a fixture-built `compilation_script.json` plus validation report. It proves distinct sources, 45-60 minute target accounting, disclosures, ending preservation, safe narration, and the revision ceiling before Gemini or AI33 can be called.
 
 ## Breakout principle
 

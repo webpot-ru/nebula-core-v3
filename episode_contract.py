@@ -1,4 +1,4 @@
-"""Deterministic contracts for the acc1 artifact-only long-form pilot."""
+"""Deterministic contract for an acc1 artifact-only Reddit horror compilation."""
 
 from __future__ import annotations
 
@@ -10,10 +10,12 @@ from typing import Any
 
 TRUTH_MODES = {"fiction", "unverified_personal_account"}
 REVIEW_VERDICTS = {"PASS", "REVISE", "BLOCK"}
-MIN_SCENES = 6
-MAX_SCENES = 10
-MIN_MINUTES = 30.0
-MAX_MINUTES = 50.0
+MIN_STORIES = 3
+MAX_STORIES = 6
+TARGET_MINUTES = 45.0
+TARGET_MAX_MINUTES = 60.0
+HARD_MIN_MINUTES = 40.0
+HARD_MAX_MINUTES = 70.0
 DEFAULT_WORDS_PER_MINUTE = 130.0
 
 
@@ -49,64 +51,71 @@ def validate_source_snapshot(snapshot: dict[str, Any]) -> list[str]:
     return failures
 
 
-def validate_episode_script(script: dict[str, Any]) -> dict[str, Any]:
+def validate_compilation(script: dict[str, Any]) -> dict[str, Any]:
     failures: list[str] = []
     warnings: list[str] = []
-    snapshot = script.get("source_snapshot")
-    if not isinstance(snapshot, dict):
-        failures.append("source_snapshot must be an object")
-        snapshot = {}
-    else:
-        failures.extend(validate_source_snapshot(snapshot))
+    if script.get("publication_authorized") is not False:
+        failures.append("publication_authorized must be false for internal pilots")
+    if script.get("rights_mode") != "test_only_not_cleared":
+        failures.append("rights_mode must be test_only_not_cleared")
 
-    scenes = script.get("scenes")
-    if not isinstance(scenes, list):
-        failures.append("scenes must be a list")
-        scenes = []
-    if not MIN_SCENES <= len(scenes) <= MAX_SCENES:
-        failures.append(f"scene count must be between {MIN_SCENES} and {MAX_SCENES}")
+    stories = script.get("stories")
+    if not isinstance(stories, list):
+        failures.append("stories must be a list")
+        stories = []
+    if not MIN_STORIES <= len(stories) <= MAX_STORIES:
+        failures.append(f"story count must be between {MIN_STORIES} and {MAX_STORIES}")
 
-    source = normalized_text(f"{snapshot.get('title', '')}\n{snapshot.get('body', '')}")
     seen: set[str] = set()
     total_words = 0
-    for index, scene in enumerate(scenes):
-        prefix = f"scenes[{index}]"
-        if not isinstance(scene, dict):
+    truth_modes: set[str] = set()
+    for index, story in enumerate(stories):
+        prefix = f"stories[{index}]"
+        if not isinstance(story, dict):
             failures.append(f"{prefix} must be an object")
             continue
-        scene_id = str(scene.get("scene_id") or "").strip()
-        if not scene_id:
-            failures.append(f"{prefix}.scene_id is required")
-        elif scene_id in seen:
-            failures.append(f"duplicate scene_id: {scene_id}")
-        seen.add(scene_id)
-        narration = str(scene.get("narration_ru") or "").strip()
+        snapshot = story.get("source_snapshot")
+        if not isinstance(snapshot, dict):
+            failures.append(f"{prefix}.source_snapshot must be an object")
+            snapshot = {}
+        else:
+            failures.extend(f"{prefix}: {item}" for item in validate_source_snapshot(snapshot))
+        post_id = str(snapshot.get("post_id") or "").strip()
+        if post_id in seen:
+            failures.append(f"duplicate post_id: {post_id}")
+        seen.add(post_id)
+        truth_modes.add(str(snapshot.get("truth_mode") or ""))
+
+        narration = str(story.get("narration_ru") or "").strip()
         if not narration:
             failures.append(f"{prefix}.narration_ru is required")
         total_words += len(_words(narration))
-        anchors = scene.get("source_anchors")
-        if not isinstance(anchors, list) or not anchors:
-            failures.append(f"{prefix}.source_anchors must not be empty")
-        else:
-            for anchor in anchors:
-                if normalized_text(anchor) not in source:
-                    failures.append(f"{prefix} has an anchor not found in source")
-        if scene.get("invented_factual_claims"):
+        if re.search(r"(?i)https?://|www\.", narration):
+            failures.append(f"{prefix}.narration_ru contains a raw URL")
+        if story.get("invented_factual_claims"):
             failures.append(f"{prefix}.invented_factual_claims must be empty")
-        if not isinstance(scene.get("change_ledger"), list):
+        if not isinstance(story.get("change_ledger"), list):
             failures.append(f"{prefix}.change_ledger must be a list")
-        if not isinstance(scene.get("visual_beats"), list) or not scene.get("visual_beats"):
-            failures.append(f"{prefix}.visual_beats must not be empty")
+        if not isinstance(story.get("editorial_review"), dict) or story["editorial_review"].get("verdict") != "PASS":
+            failures.append(f"{prefix}.editorial_review must PASS")
+        if not str(story.get("ending_preserved_evidence") or "").strip():
+            failures.append(f"{prefix}.ending_preserved_evidence is required")
+        media = snapshot.get("source_media") or []
+        if not isinstance(media, list):
+            failures.append(f"{prefix}.source_snapshot.source_media must be a list")
+
+        disclosure = normalized_text(story.get("disclosure"))
+        required_term = "fiction" if snapshot.get("truth_mode") == "fiction" else "unverified"
+        if required_term not in disclosure:
+            failures.append(f"{prefix}.disclosure must explicitly label the story as {required_term}")
 
     minutes = estimate_minutes(total_words)
-    if not MIN_MINUTES <= minutes <= MAX_MINUTES:
-        failures.append(f"estimated runtime must be {MIN_MINUTES:.0f}-{MAX_MINUTES:.0f} minutes, got {minutes:.2f}")
-
-    disclosure = normalized_text(script.get("disclosure"))
-    truth_mode = snapshot.get("truth_mode")
-    required_term = "fiction" if truth_mode == "fiction" else "unverified"
-    if required_term not in disclosure:
-        failures.append(f"disclosure must explicitly label the story as {required_term}")
+    if not HARD_MIN_MINUTES <= minutes <= HARD_MAX_MINUTES:
+        failures.append(f"estimated runtime must be {HARD_MIN_MINUTES:.0f}-{HARD_MAX_MINUTES:.0f} minutes, got {minutes:.2f}")
+    elif not TARGET_MINUTES <= minutes <= TARGET_MAX_MINUTES:
+        warnings.append(f"estimated runtime is outside the 45-60 minute target: {minutes:.2f}")
+    if len(truth_modes) > 1:
+        failures.append("a compilation must not mix fiction and unverified encounter lanes")
 
     try:
         revision_count = int(script.get("revision_count", 0))
@@ -126,7 +135,7 @@ def validate_episode_script(script: dict[str, Any]) -> dict[str, Any]:
         "status": "PASS" if not failures else "BLOCKED",
         "failures": failures,
         "warnings": warnings,
-        "scene_count": len(scenes),
+        "story_count": len(stories),
         "word_count": total_words,
         "estimated_minutes": minutes,
         "script_hash": content_hash(script),
