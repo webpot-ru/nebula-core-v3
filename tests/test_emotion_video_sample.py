@@ -13,6 +13,13 @@ class EmotionVideoSampleTests(unittest.TestCase):
         self.assertNotIn("whispers", " ".join(item["text"] for item in chunks))
         self.assertEqual(chunks[0]["start"], 0.0)
 
+    def test_caption_chunks_prefer_phrase_punctuation(self):
+        words = estimated_words("Я почти смеялся над ними, пока часы не показали три пятнадцать.", 7.0)
+        chunks = caption_chunks(words)
+        self.assertEqual([item["text"] for item in chunks], [
+            "Я почти смеялся над ними,", "пока часы не показали три пятнадцать.",
+        ])
+
     def test_ass_output_is_timed_and_escaped(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "captions.ass"

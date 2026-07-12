@@ -45,7 +45,7 @@ def estimated_words(text: str, duration: float) -> list[dict[str, Any]]:
     return words
 
 
-def caption_chunks(words: list[dict[str, Any]], *, max_words: int = 8, max_chars: int = 58) -> list[dict[str, Any]]:
+def caption_chunks(words: list[dict[str, Any]], *, max_words: int = 10, max_chars: int = 72) -> list[dict[str, Any]]:
     chunks: list[dict[str, Any]] = []
     current: list[dict[str, Any]] = []
     for word in words:
@@ -58,6 +58,10 @@ def caption_chunks(words: list[dict[str, Any]], *, max_words: int = 8, max_chars
                            "text": " ".join(str(item["word"]) for item in current)})
             current = []
         current.append({**word, "word": token})
+        if len(current) >= 4 and re.search(r"[,;:—.!?…][\"»)]?$", token):
+            chunks.append({"start": float(current[0]["start"]), "end": float(current[-1]["end"]),
+                           "text": " ".join(str(item["word"]) for item in current)})
+            current = []
     if current:
         chunks.append({"start": float(current[0]["start"]), "end": float(current[-1]["end"]),
                        "text": " ".join(str(item["word"]) for item in current)})
@@ -87,7 +91,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,DejaVu Sans,58,&H00FFFFFF,&H000000FF,&H00101010,&H90000000,-1,0,0,0,100,100,0,0,3,3,0,2,150,150,105,1
+Style: Caption,DejaVu Sans,52,&H00FFFFFF,&H000000FF,&H00101010,&H78000000,-1,0,0,0,100,100,0,0,3,3,0,2,150,150,105,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -107,7 +111,7 @@ def render(background: Path, audio: Path, captions: Path, output: Path, duration
         f"scale=2200:1238:force_original_aspect_ratio=increase,crop=2200:1238,"
         f"zoompan=z='min(zoom+0.00012,1.08)':x='iw/2-(iw/zoom/2)+sin(on/180)*12':"
         f"y='ih/2-(ih/zoom/2)+cos(on/220)*8':d={frames}:s=1920x1080:fps=30,"
-        f"eq=brightness=-0.14:saturation=0.85,drawbox=x=0:y=0:w=iw:h=ih:color=black@0.18:t=fill,"
+        f"eq=brightness=-0.04:saturation=0.90,drawbox=x=0:y=0:w=iw:h=ih:color=black@0.08:t=fill,"
         f"ass='{escaped_ass}'"
     )
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -129,9 +133,14 @@ def main() -> int:
     if len(samples) != 1:
         raise EmotionVideoError("manifest must contain exactly one narrator sample")
     sample = samples[0]
+    manifest_dir = Path(args.manifest).resolve().parent
     audio = Path(sample["file"])
+    if not audio.is_file():
+        audio = manifest_dir / audio.name
     duration = probe_duration(audio)
     timing_path = Path(str(sample.get("timings_file") or ""))
+    if not timing_path.is_file():
+        timing_path = manifest_dir / timing_path.name
     timing = json.loads(timing_path.read_text(encoding="utf-8")) if timing_path.is_file() else {}
     words = timing.get("words") if isinstance(timing.get("words"), list) else []
     timing_source = "ai33" if words else "estimated"
