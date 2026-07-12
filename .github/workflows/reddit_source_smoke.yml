@@ -106,6 +106,16 @@ on:
           - "4"
           - "5"
           - "6"
+      run_compilation_pilot:
+        description: Run the artifact-only acc1 compilation lane after source review
+        required: false
+        default: false
+        type: boolean
+      confirm_provider_spend:
+        description: Explicitly allow Gemini, GPT Image 2 and AI33 for the compilation lane
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -226,6 +236,95 @@ jobs:
             --story-count "${{ inputs.acc1_story_count }}" \
             --source-mode "${{ inputs.acc1_source_mode }}" \
             --time-filter "${{ inputs.time_filter }}"
+
+      - name: Require explicit compilation spend confirmation
+        if: inputs.run_compilation_pilot
+        run: test '${{ inputs.confirm_provider_spend }}' = 'true'
+
+      - name: Install compilation dependencies
+        if: inputs.run_compilation_pilot
+        run: |
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Translate and review compilation stories
+        if: inputs.run_compilation_pilot
+        env:
+          GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          GEMINI_TRANSLATION_MAX_OUTPUT_TOKENS: "16384"
+        run: |
+          python compilation_pipeline.py \
+            --manifest /tmp/reddit-source-smoke/compilation-manifest.json \
+            --output /tmp/reddit-source-smoke/compilation-script.json --confirm-spend
+
+      - name: Generate compilation packaging
+        if: inputs.run_compilation_pilot
+        env:
+          GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          python compilation_metadata.py \
+            --compilation /tmp/reddit-source-smoke/compilation-script.json \
+            --output /tmp/reddit-source-smoke/youtube-metadata.json --confirm-spend
+
+      - name: Generate GPT Image 2 story visuals
+        if: inputs.run_compilation_pilot
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          python compilation_images.py \
+            --compilation /tmp/reddit-source-smoke/compilation-script.json \
+            --output-dir /tmp/reddit-source-smoke/images \
+            --updated-compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
+            --model gpt-image-2 --size 1536x864 --confirm-spend
+
+      - name: Build compilation storyboard
+        if: inputs.run_compilation_pilot
+        run: |
+          python compilation_storyboard.py \
+            --compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
+            --artifact-root /tmp/reddit-source-smoke \
+            --output /tmp/reddit-source-smoke/compilation-storyboard.json
+
+      - name: Generate resumable Eleven v3 narration
+        if: inputs.run_compilation_pilot
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+        run: |
+          VOICE_ID=$(python -c "import json; print(next(c['tts_voice'] for c in json.load(open('channels.json'))['channels'] if c['id']=='acc1'))")
+          python compilation_tts_runner.py \
+            --compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
+            --output-dir /tmp/reddit-source-smoke/tts --voice-id "$VOICE_ID" \
+            --model-id eleven_v3 --confirm-spend
+
+      - name: Render compilation MP4
+        if: inputs.run_compilation_pilot
+        run: |
+          python compilation_renderer.py \
+            --storyboard /tmp/reddit-source-smoke/compilation-storyboard.json \
+            --artifact-root /tmp/reddit-source-smoke \
+            --audio /tmp/reddit-source-smoke/tts/compilation_narration.mp3 \
+            --output /tmp/reddit-source-smoke/final_output.mp4 \
+            --report /tmp/reddit-source-smoke/render-report.json
+
+      - name: Run fail-closed compilation QA
+        if: inputs.run_compilation_pilot
+        run: |
+          python compilation_qa.py \
+            --compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
+            --metadata /tmp/reddit-source-smoke/youtube-metadata.json \
+            --tts-state /tmp/reddit-source-smoke/tts/compilation_tts_state.json \
+            --storyboard /tmp/reddit-source-smoke/compilation-storyboard.json \
+            --render-report /tmp/reddit-source-smoke/render-report.json \
+            --artifact-root /tmp/reddit-source-smoke \
+            --video /tmp/reddit-source-smoke/final_output.mp4 \
+            --output /tmp/reddit-source-smoke/compilation-qa.json
 
       - name: Upload Reddit smoke evidence
         if: always()

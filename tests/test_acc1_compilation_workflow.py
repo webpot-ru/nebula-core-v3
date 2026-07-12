@@ -17,6 +17,15 @@ class Acc1CompilationWorkflowTests(unittest.TestCase):
         for forbidden in ("uploader.py", "YOUTUBE_REFRESH_TOKEN", "youtube.upload", "git push", "published_history.json"):
             self.assertNotIn(forbidden, workflow)
 
+    def test_registered_source_workflow_can_carry_branch_pilot(self):
+        workflow = (ROOT / ".github/workflows/reddit_source_smoke.yml").read_text(encoding="utf-8")
+        for required in (
+            "run_compilation_pilot:", "confirm_provider_spend:",
+            "if: inputs.run_compilation_pilot", "--model gpt-image-2",
+            "--model-id eleven_v3", "compilation_qa.py",
+        ):
+            self.assertIn(required, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
