@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from translator_tts import (
     AI33_TTS_MODEL_ID,
     Ai33Error,
+    collect_transcript_words,
     generate_tts_audio,
     get_api_key,
     normalize_voice_settings_json,
@@ -65,7 +66,7 @@ SAMPLE_TEXTS: dict[str, dict[str, dict[str, str]]] = {
     },
     "emotional": {
         "ru": {
-            "narrator": "[curious] Сегодня у нас история с Reddit. Сначала это звучит как обычная ссора. Но потом появляется одна деталь... [whispers] и после нее вся история становится намного страннее.",
+            "narrator": "[curious] Ночная смена начиналась совершенно обычно. Пустой коридор, холодный свет и список простых правил. Я почти смеялся над ними, пока часы не показали три пятнадцать. [whispers] В этот момент из закрытого туалета раздался тихий стук. Один раз. Потом второй. [sighs] Я замер, потому что последнее правило запрещало отвечать. Но за дверью уже произнесли мое имя.",
             "comment": "[sighs] Я бы на твоем месте остановился прямо здесь. Слишком много деталей не сходится.",
         },
         "en": {
@@ -182,6 +183,7 @@ def main() -> int:
     parser.add_argument("--tts-retries", type=int, default=1)
     parser.add_argument("--tts-retry-delay", type=int, default=10)
     parser.add_argument("--with-transcript", action="store_true")
+    parser.add_argument("--roles", default="narrator,comment", help="Comma-separated roles: narrator,comment")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -196,6 +198,9 @@ def main() -> int:
         raise Ai33Error("--tts-retry-delay must be 0 or greater.")
 
     selected = parse_channel_filter(args.channels)
+    selected_roles = {item.strip() for item in args.roles.split(",") if item.strip()}
+    if not selected_roles or not selected_roles.issubset({"narrator", "comment"}):
+        raise Ai33Error("--roles must contain narrator and/or comment")
     channels = load_channels(Path(args.channels_json))
     channels = [channel for channel in channels if selected is None or channel.get("id") in selected]
     if not channels:
@@ -231,6 +236,8 @@ def main() -> int:
             "samples": [],
         }
         for role, voice_id in voices:
+            if role not in selected_roles:
+                continue
             if not voice_id:
                 raise Ai33Error(f"{channel_id} has no {role} voice configured.")
             text = sample_text_for(channel, role, args.text_style)
@@ -255,13 +262,22 @@ def main() -> int:
                 continue
             output_path.parent.mkdir(parents=True, exist_ok=True)
             print(f"Generating {channel_id} {role}: voice_id={voice_id}, chars={len(text)}")
-            generate_tts_audio(
+            payload = generate_tts_audio(
                 api_key=str(api_key),
                 text=text,
                 voice_id=str(voice_id),
                 output_path=output_path,
                 args=tts_args,
             )
+            words = collect_transcript_words(payload, api_key=str(api_key)) if args.with_transcript else []
+            timing_path = output_path.with_suffix(".timings.json")
+            timing_path.write_text(json.dumps({
+                "version": 1,
+                "timing_status": "ai33" if words else "missing",
+                "words": words,
+            }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            sample_record["timings_file"] = str(timing_path)
+            sample_record["timing_status"] = "ai33" if words else "missing"
         manifest["channels"].append(channel_manifest)
 
     if not args.dry_run:
