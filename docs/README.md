@@ -14,6 +14,10 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Russian long-form decision**: [`russian-longform-competitor-analysis-2026-07-11.md`](russian-longform-competitor-analysis-2026-07-11.md) records the competitor evidence, long-form product contract, source-duration fit, reuse-risk boundary, and six-video `acc1` pilot.
 
+**Russian horror editorial contract**: [`russian-horror-editorial-system.md`](russian-horror-editorial-system.md) is the canonical source for `acc1` sourcing rights, story shape, editorial ownership, script artifacts, and pre-spend gates.
+
+**Automated acc1 pilot implementation**: [`../specs/acc1-automated-reddit-pilot/README.md`](../specs/acc1-automated-reddit-pilot/README.md) defines the isolated artifact-only slice graph, fail-closed contracts, provider boundaries, and two-pilot GitHub target.
+
 ---
 
 ## 📋 Table of Contents
@@ -69,7 +73,7 @@ Operational split:
 
 | Channel | Owned viewer promise | Production lane | Status |
 |---|---|---|---|
-| `acc1` Russian | dark first-person story with one memorable rule, escalation, and reveal | labeled Reddit fiction / claimed encounter | source validation required |
+| `acc1` Russian | first-person Reddit horror with one memorable rule, escalation, and an emotionally complete ending | rights-cleared Reddit story transformed into a Russian horror episode | rights/editorial lane required |
 | `acc2` English | high-concept internet case file: what happened, why people cared, what changed | evidence dossier | evidence lane required |
 | `acc3` German | precise explanation of digital systems, scams, privacy, and tech consequences | evidence dossier | evidence lane required |
 | `acc4` LATAM Spanish | intimate moral conflict with two sides and a verdict-changing turn | Reddit story card | Reddit pilot candidate |
@@ -81,8 +85,9 @@ The detailed owned bets, forbidden bets, cadence gates, and 90-day rollout are i
 
 ### Production Lanes
 
-1. **`reddit_story_card`** - only complete first-person moral conflict, complete social absurdity, clearly labeled scary fiction, or explicitly framed unverified encounter. The current renderer supports this lane.
-2. **`evidence_dossier`** - required for facts, science/tech, scams, real mysteries, public-person allegations, internet timelines, and football. It needs independent evidence, an original script, and timeline/evidence visuals; one Reddit card is not sufficient.
+1. **`reddit_horror_episode`** - required for `acc1`: rights-cleared Reddit source, dedicated Russian episode script, fiction disclosure, independent editorial acceptance, and scene-based original visuals. Reddit supplies every story, but the public post alone does not grant production rights.
+2. **`reddit_story_card`** - only complete first-person moral conflict or complete social absurdity for the channels that own those treatments. The current renderer supports this lane.
+3. **`evidence_dossier`** - required for facts, science/tech, scams, real mysteries, public-person allegations, internet timelines, and football. It needs independent evidence, an original script, and timeline/evidence visuals; one Reddit card is not sufficient.
 
 ### Evidence Basis
 
@@ -97,10 +102,11 @@ For Reddit-derived stories only:
 - **Comments ratio**: high comment/upvote ratio indicates controversy and discussion potential.
 - **Time window**: `auto` uses topic-family windows such as `day + week` for fresh drama and `week + month` for mystery/lore; manual `day|week|month|year` is still available for experiments.
 - **Body length**: minimum 300 characters for narration depth. Format-specific generation must choose the right source length before adaptation: `shorts` uses complete short source stories, while `long` requires a substantial long source. Production workflows must not cut a selected story body just to fit a runtime.
-- **Russian long-form first**: `acc1` uses the complete long source as its primary 12-30 minute product. Explicit Shorts are trailer-only and may use `shorts_from_long`, capped at 2,200 characters with exact setup/escalation/payoff quotes. No other channel receives this exception.
+- **Russian Reddit long-form first**: `acc1` targets a 30-50 minute approved Russian episode built from a rights-cleared Reddit story. Direct translation or a cleaned Reddit reading is not the target product. Shorts are trailer-only after the full episode exists.
 - **Topic families**: channels now use weighted `topic_mix` values instead of one flat subreddit list. The scraper has rules for `human_drama`, `dark_curiosity`, `curiosity_facts`, `football_culture`, `internet_lore`, and `visual_comedy`.
 - **AI budget**: Gemini quality checks are bounded by `MAX_AI_CANDIDATES` / `--max-ai-candidates`; local Reddit metrics and duplicate guards run before any AI call.
 - **Producer gate**: Gemini must reject topics that are merely high-metric Reddit filler. The prompt now scores first-screen hook, discussion potential, Shorts/long-form fit, novelty, character-voice fit, AI-slop risk, source/link dependency, duplicate risk, and legal risk. For `shorts`, it receives the complete short-source body up to the Shorts source-length limit, not the old 800-character preview.
+- **No-spend topic review**: `scripts/review_reddit_topics.py` converts a bounded full-body queue into explicit theme clusters and a diverse three-item rights-review shortlist. It is deterministic and advisory: `SHORTLIST_FOR_RIGHTS_REVIEW` is not publication, rights, or quality approval.
 - **Outside-in brief**: before scoring the Reddit post, Gemini receives a market/channel producer brief and a `content_bet` brief for the topic family. It must decide whether the idea would be worth pitching even without Reddit metrics, then return packaging fields such as `content_bet`, `audience_job_fit`, `first_screen_promise`, `first_screen_text`, `packaging_thesis`, `why_now`, `shorts_cut`, and `longform_angle`.
 - **Evidence-backed hooks**: Gemini must return `hook_evidence` with an exact title/body quote supporting the hook. The scraper writes `producer_queue.json`, ranks all approved candidates by producer score, and only then picks the slot winner.
 - **No-invent adaptation**: `story_adapter.py` runs after selection and before metadata/translation. It may tighten, clean, and move a source-backed hook into the opening, but it must preserve facts, point of view, URLs, and timeline. In `--strict-evidence` mode it fails if no hook quote is found in the source text.

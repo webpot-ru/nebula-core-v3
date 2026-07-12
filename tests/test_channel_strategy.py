@@ -170,8 +170,16 @@ class SourceReviewEvidenceTests(unittest.TestCase):
             "channels_sha256=%s",
             "channels-snapshot.json",
             "AI_QUALITY_CHECK: \"0\"",
+            "scripts/review_reddit_topics.py",
+            "topic-review.json",
         ):
             self.assertIn(required_text, workflow)
+        self.assertIn(
+            'max_subreddits_per_topic:\n        description: Bounded subreddit count for the selected family\n'
+            '        required: true\n        default: "2"\n        type: choice\n        options:\n'
+            '          - "1"\n          - "2"\n          - "4"',
+            workflow,
+        )
 
 
 if __name__ == "__main__":

@@ -41,7 +41,7 @@ The existing numeric `topic_mix` values are not approved publishing weights. Eac
 
 | Channel | Owned viewer promise | Owned bets | Required lane | Current readiness | Cadence after gate |
 |---|---|---|---|---|---|
-| `acc1` Russian | Dark first-person stories with one memorable rule, escalation, and reveal | modern horror fiction; claimed personal encounters; later verified strange cases | Full-story atmospheric long-form; source-backed Shorts only as trailers after the long episode | `LONG-FORM PILOT REQUIRED` | Six unlisted 12-30 minute pilots; Shorts only after the source episode exists |
+| `acc1` Russian | First-person Reddit horror with one memorable rule, escalation, and an emotionally complete ending | Reddit stories only; production requires author submission/permission or another verified compatible license | Scene-based Russian horror episode; Shorts only as trailers after the long episode | `RIGHTS + EDITORIAL LANE REQUIRED` | Build the lane, then six unlisted 30-50 minute pilots |
 | `acc2` English | The hidden story behind the internet's strangest moments | internet case files; spectacle curiosity; exceptional high-concept human cases | Evidence dossier | `EVIDENCE LANE REQUIRED` | 3 high-concept pilots/week after lane exists |
 | `acc3` German | Clear, precise explanation of how digital systems, scams, privacy, and technology affect real life | digital-system consequences; scam/privacy mechanisms; counterintuitive science | Evidence dossier | `EVIDENCE LANE REQUIRED` | 3 evidence-backed pilots/week after lane exists |
 | `acc4` LATAM Spanish | One intimate conflict, two sides, one turn that changes the case; the viewer gives the verdict | relationship betrayal; family/money/entitlement; revenge/public humiliation | Reddit story card | `REDDIT PILOT CANDIDATE` | 5 Shorts/week after committed-config source gate; long-form from top-quartile Shorts only |
@@ -268,9 +268,22 @@ Two bounded, no-spend GitHub reviews tested `dark_curiosity` through the committ
 | month | `29154057054` | 8 | source availability `PASS`; automatic episode choice `CHANGE` |
 | year | `29154057791` | 11 | source availability `PASS`; automatic episode choice `CHANGE` |
 
-The 19 candidates were distinct and complete enough for long-form review; none required screenshots or images. Eighteen came from `r/nosleep`, so they must be presented as fiction rather than real events. The pool repeatedly produced the promised rule/anomaly/escalation pattern, but ranking was not selective enough: all eight month candidates tied at `124.3`, while the year pool had only two score levels. Both automatically selected stories ended on unresolved danger, not a fully closed payoff. Therefore the family remains the correct pilot lane, but selection needs an explicit closure/payoff and fiction-label gate before a paid episode. This evidence does not justify changing numeric weights.
+The 19 candidates were distinct and complete enough to prove premise supply; none required screenshots or images. Eighteen came from `r/nosleep`, so they are fiction rather than evidence of real events. This review did not prove production readiness: AI quality was disabled, the deterministic score barely separated candidates, and the current long producer prompt sees only the first 1,800 characters. A mysterious ending is not automatically a defect when the emotional arc closes, but an incomplete serial fragment is. More importantly, Reddit publication does not grant commercial adaptation rights. The family remains useful for discovery, but an `acc1` episode now requires rights clearance, full-story review, a dedicated Russian script, independent editorial acceptance, fiction disclosure, and original scene-based production. This evidence does not justify changing numeric weights.
 
 Artifacts: `/tmp/reddit-acc1-long-topic-test-20260711/`.
+
+Two additional no-spend runs checked whether the same long-form lane could depend on freshness:
+
+| Window | Run | Result |
+|---|---:|---|
+| day | `29155023727` | no candidate met the bounded upvote/body-length gates |
+| week | `29155024651` | no candidate met the bounded upvote/body-length gates |
+
+The current long-source search should use `month/year`, not a daily-news cadence. Across the 19 eligible month/year sources, the repeatable topic hypotheses are: one forbidden rule inside an ordinary system; a family or home reality anomaly; a night-work obligation with a precise time or instruction; a public-space/travel trap; and a recording, card, video, or other familiar medium behaving impossibly. This is evidence for what Reddit can supply, not permission to adapt a post and not proof of Russian YouTube performance.
+
+Fresh-run artifacts: `/tmp/reddit-acc1-topic-search-20260711/`.
+
+The local deterministic reviewer now reproduces the theme audit directly from full-body queue artifacts. On the existing month pool its three diverse examples are night-work rules, a family/home anomaly, and a forbidden subway rule. On the year pool they are a family rule, an emergency-dispatcher night-work rule, and an impossible boundary/neighbor anomaly. Every example is `r/nosleep` fiction and is marked `SHORTLIST_FOR_RIGHTS_REVIEW`; none is production-cleared. Outputs: `/tmp/reddit-acc1-topic-search-20260711/month-topic-review.json` and `year-topic-review.json`.
 
 ## Market Signals
 
@@ -314,7 +327,7 @@ Source gate for a Reddit-native pilot:
 1. Start with `acc4` only after its distinct-source gate passes.
 2. Publish or review five Shorts per week, not two random uploads per day.
 3. Add `acc7` only after its food/etiquette/social-scene pool is demonstrably different from `acc4`.
-4. Add `acc1` only after fiction/claim disclosure is visible in artifacts.
+4. Add `acc1` only after rights, Russian script, editorial acceptance, fiction disclosure, and scene-based artifact gates exist and pass.
 5. In parallel, build one evidence-dossier pilot each for `acc3`, `acc5`, and `acc6`.
 6. Keep `acc2` as the final high-competition R&D lane.
 

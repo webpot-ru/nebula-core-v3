@@ -74,6 +74,7 @@ on:
         options:
           - "1"
           - "2"
+          - "4"
       max_time_windows_per_topic:
         description: Bounded time-window count for auto mode
         required: true
@@ -187,6 +188,15 @@ jobs:
             CONFIG_SHA=$(sha256sum channels.json | cut -d' ' -f1)
             printf 'channels_sha256=%s\n' "$CONFIG_SHA" >> /tmp/reddit-source-smoke/run-metadata.txt
           fi
+
+      - name: Build deterministic full-body topic review
+        if: always()
+        run: |
+          python scripts/review_reddit_topics.py \
+            --queue /tmp/reddit-source-smoke/queue.json \
+            --output /tmp/reddit-source-smoke/topic-review.json \
+            --top-n 3 \
+            --allow-missing
 
       - name: Upload Reddit smoke evidence
         if: always()
