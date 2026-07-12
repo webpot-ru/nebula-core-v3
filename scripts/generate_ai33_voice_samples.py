@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,8 @@ VOICE_SETTINGS_PROFILES: dict[str, dict[str, float] | None] = {
     "creative": {"stability": 0.35, "similarity_boost": 0.75, "style": 0},
     "robust": {"stability": 0.70, "similarity_boost": 0.75, "style": 0},
 }
+
+VOICE_ID_RE = re.compile(r"^(?:elevenlabs_)?[A-Za-z0-9_-]{8,128}$")
 
 
 SAMPLE_TEXTS: dict[str, dict[str, dict[str, str]]] = {
@@ -126,6 +129,15 @@ def parse_channel_filter(value: str) -> set[str] | None:
     return set(cleaned)
 
 
+def normalize_voice_id_override(value: str | None) -> str | None:
+    if not value:
+        return None
+    candidate = value.strip()
+    if not VOICE_ID_RE.fullmatch(candidate):
+        raise Ai33Error("--voice-id-override has an invalid voice ID format.")
+    return candidate
+
+
 def sample_text_for(channel: dict[str, Any], role: str, text_style: str) -> str:
     lang = str(channel.get("lang") or "en")
     samples_for_style = SAMPLE_TEXTS.get(text_style) or SAMPLE_TEXTS["emotional"]
@@ -158,6 +170,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate short AI33 samples for narrator/comment voices.")
     parser.add_argument("--channels-json", default="channels.json")
     parser.add_argument("--channels", default="all", help="Comma-separated channel IDs, or all.")
+    parser.add_argument(
+        "--voice-id-override",
+        help="Manual narrator-only voice override for a bounded sample; channels.json is not changed.",
+    )
     parser.add_argument("--output-dir", default="build/voice_samples")
     parser.add_argument("--model-id", default=AI33_TTS_MODEL_ID)
     parser.add_argument("--require-model-id", default="eleven_v3")
@@ -201,6 +217,9 @@ def main() -> int:
     selected_roles = {item.strip() for item in args.roles.split(",") if item.strip()}
     if not selected_roles or not selected_roles.issubset({"narrator", "comment"}):
         raise Ai33Error("--roles must contain narrator and/or comment")
+    voice_id_override = normalize_voice_id_override(args.voice_id_override)
+    if voice_id_override and selected_roles != {"narrator"}:
+        raise Ai33Error("--voice-id-override requires --roles narrator.")
     channels = load_channels(Path(args.channels_json))
     channels = [channel for channel in channels if selected is None or channel.get("id") in selected]
     if not channels:
@@ -238,6 +257,8 @@ def main() -> int:
         for role, voice_id in voices:
             if role not in selected_roles:
                 continue
+            if role == "narrator" and voice_id_override:
+                voice_id = voice_id_override
             if not voice_id:
                 raise Ai33Error(f"{channel_id} has no {role} voice configured.")
             text = sample_text_for(channel, role, args.text_style)

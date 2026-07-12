@@ -39,6 +39,10 @@ on:
         description: 'Optional raw voice_settings JSON override for samples'
         required: false
         default: ''
+      voice_id_override:
+        description: 'Optional narrator voice ID for one bounded manual sample'
+        required: false
+        default: ''
 
 jobs:
   youtube-mapping:
@@ -137,10 +141,14 @@ jobs:
         env:
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
           VOICE_SETTINGS_JSON: ${{ github.event.inputs.voice_settings_json }}
+          VOICE_ID_OVERRIDE: ${{ github.event.inputs.voice_id_override }}
         run: |
           extra_args=()
           if [ -n "$VOICE_SETTINGS_JSON" ]; then
             extra_args+=(--voice-settings-json "$VOICE_SETTINGS_JSON")
+          fi
+          if [ -n "$VOICE_ID_OVERRIDE" ]; then
+            extra_args+=(--voice-id-override "$VOICE_ID_OVERRIDE")
           fi
           python scripts/generate_ai33_voice_samples.py \
             --channels "${{ github.event.inputs.channels }}" \

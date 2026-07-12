@@ -7,12 +7,21 @@ from unittest.mock import patch
 
 import pre_publish_qa
 import translator_tts
+from scripts import generate_ai33_voice_samples
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class TtsModelContractTests(unittest.TestCase):
+    def test_voice_sample_override_is_narrow_and_validated(self):
+        self.assertEqual(
+            generate_ai33_voice_samples.normalize_voice_id_override(" cCYjmrGZaI86GUJ7F2Nn "),
+            "cCYjmrGZaI86GUJ7F2Nn",
+        )
+        with self.assertRaises(translator_tts.Ai33Error):
+            generate_ai33_voice_samples.normalize_voice_id_override("bad voice id")
+
     def test_cli_defaults_fail_closed_on_eleven_v3(self):
         args = translator_tts.build_parser().parse_args([])
         self.assertEqual(args.model_id, "eleven_v3")
@@ -122,6 +131,7 @@ class TtsModelContractTests(unittest.TestCase):
         audit_workflow = (ROOT / ".github/workflows/audit_voice_youtube.yml").read_text(encoding="utf-8")
         self.assertIn("--model-id", audit_workflow)
         self.assertIn("--require-model-id eleven_v3", audit_workflow)
+        self.assertIn("--voice-id-override", audit_workflow)
 
 
 if __name__ == "__main__":
