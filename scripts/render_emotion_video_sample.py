@@ -101,17 +101,69 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
 
-def render(background: Path, audio: Path, captions: Path, output: Path, duration: float) -> None:
+def write_reddit_pages_ass(
+    chunks: list[dict[str, Any]], path: Path, *, duration: float,
+    title: str = "Ночная смена: последнее правило",
+    chunks_per_page: int = 3,
+) -> None:
+    if chunks_per_page < 1:
+        raise EmotionVideoError("chunks_per_page must be positive")
+    header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Meta,DejaVu Sans,28,&H00E4E7EB,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,2,2,7,150,150,90,1
+Style: Title,DejaVu Sans,52,&H00FFFFFF,&H000000FF,&H00101010,&H00000000,-1,0,0,0,100,100,0,0,1,3,2,7,150,150,90,1
+Style: Body,DejaVu Sans,43,&H00FFFFFF,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,3,2,7,150,150,90,1
+Style: Actions,DejaVu Sans,30,&H00E4E7EB,&H000000FF,&H00101010,&H00000000,-1,0,0,0,100,100,0,0,1,2,2,8,150,150,70,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    events: list[str] = []
+    page_count = (len(chunks) + chunks_per_page - 1) // chunks_per_page
+    for page_index in range(page_count):
+        page = chunks[page_index * chunks_per_page:(page_index + 1) * chunks_per_page]
+        page_start = float(page[0]["start"])
+        page_end = float(chunks[(page_index + 1) * chunks_per_page]["start"]) if page_index + 1 < page_count else duration
+        if page_index == 0:
+            events.append(f"Dialogue: 0,{ass_time(page_start)},{ass_time(page_end)},Meta,,0,0,0,,{{\\pos(150,80)\\fad(150,180)}}r/NoSleep  •  опубликовано пользователем u/anonymous")
+            events.append(f"Dialogue: 0,{ass_time(page_start)},{ass_time(page_end)},Title,,0,0,0,,{{\\pos(150,135)\\fad(150,180)}}{ass_escape(title)}")
+            base_y = 255
+        else:
+            base_y = 125
+        for row, item in enumerate(page):
+            start = float(item["start"])
+            y = base_y + row * 185
+            text = ass_escape(str(item["text"]))
+            events.append(
+                f"Dialogue: 0,{ass_time(start)},{ass_time(page_end)},Body,,0,0,0,,"
+                f"{{\\pos(150,{y})\\fad(120,180)}}{text}"
+            )
+    actions_start = max(0.0, duration - 3.2)
+    events.append(
+        f"Dialogue: 1,{ass_time(actions_start)},{ass_time(duration)},Actions,,0,0,0,,"
+        "{\\fad(180,120)}▲ 12,4 тыс.     Комментарии 438     Поделиться     Сохранить"
+    )
+    path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
+
+
+def render(background: Path, audio: Path, captions: Path, output: Path, duration: float, *, direct_background: bool = False) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise EmotionVideoError("ffmpeg is required")
     frames = max(1, round(duration * 30))
     escaped_ass = str(captions.resolve()).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    grade = "eq=brightness=-0.01:saturation=0.92" if direct_background else "eq=brightness=-0.04:saturation=0.90,drawbox=x=0:y=0:w=iw:h=ih:color=black@0.08:t=fill"
     vf = (
         f"scale=2200:1238:force_original_aspect_ratio=increase,crop=2200:1238,"
         f"zoompan=z='min(zoom+0.00012,1.08)':x='iw/2-(iw/zoom/2)+sin(on/180)*12':"
         f"y='ih/2-(ih/zoom/2)+cos(on/220)*8':d={frames}:s=1920x1080:fps=30,"
-        f"eq=brightness=-0.04:saturation=0.90,drawbox=x=0:y=0:w=iw:h=ih:color=black@0.08:t=fill,"
+        f"{grade},"
         f"ass='{escaped_ass}'"
     )
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -126,6 +178,8 @@ def main() -> int:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--background", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--style", choices=("captions", "reddit_pages"), default="captions")
+    parser.add_argument("--reddit-title", default="Ночная смена: последнее правило")
     args = parser.parse_args()
     manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     samples = [sample for channel in manifest.get("channels") or [] for sample in channel.get("samples") or []
@@ -152,12 +206,17 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     ass_path = output_dir / "captions.ass"
-    write_ass(chunks, ass_path)
+    if args.style == "reddit_pages":
+        write_reddit_pages_ass(chunks, ass_path, duration=duration, title=args.reddit_title)
+    else:
+        write_ass(chunks, ass_path)
     video_path = output_dir / "emotion-video-sample.mp4"
-    render(Path(args.background), audio, ass_path, video_path, duration)
+    render(Path(args.background), audio, ass_path, video_path, duration,
+           direct_background=args.style == "reddit_pages")
     (output_dir / "emotion-video-report.json").write_text(json.dumps({
         "status": "PASS", "duration": round(duration, 3), "caption_chunks": len(chunks),
-        "timing_source": timing_source, "video": str(video_path), "audio": str(audio),
+        "timing_source": timing_source, "style": args.style,
+        "video": str(video_path), "audio": str(audio),
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 0
 
