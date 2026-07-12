@@ -264,6 +264,9 @@ jobs:
           if [ -d /tmp/reddit-resume/images ] && [ -f /tmp/reddit-resume/compilation-script-with-images.json ]; then
             cp -R /tmp/reddit-resume/images /tmp/reddit-source-smoke/images
           fi
+          if [ -d /tmp/reddit-resume/tts ]; then
+            cp -R /tmp/reddit-resume/tts /tmp/reddit-source-smoke/tts
+          fi
 
       - name: Install compilation dependencies
         if: inputs.run_compilation_pilot

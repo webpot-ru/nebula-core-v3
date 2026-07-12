@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import argparse
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -27,6 +28,28 @@ REQUIRED_MODEL_ID = "eleven_v3"
 
 class CompilationTtsError(RuntimeError):
     """A fail-closed compilation TTS state or provider-contract error."""
+
+
+def _retryable_poll_error(exc: Exception) -> bool:
+    message = str(exc).casefold().replace(" ", "")
+    return isinstance(exc, Ai33Error) and any(marker in message for marker in (
+        "retryable\":true", "failed(500)", "failed(502)", "failed(503)",
+        "failed(504)", "timedout", "timeout",
+    ))
+
+
+def _poll_with_retries(
+    poll_task: Callable[..., dict[str, Any]], *, retries: int,
+    sleeper: Callable[[float], None], poll_kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    for attempt in range(retries + 1):
+        try:
+            return poll_task(**poll_kwargs)
+        except Exception as exc:
+            if attempt >= retries or not _retryable_poll_error(exc):
+                raise
+            sleeper(min(30, 5 * (2 ** attempt)))
+    raise CompilationTtsError("unreachable polling retry state")
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -153,6 +176,8 @@ def run_compilation_tts(
     poll_interval: int = 5,
     post_task: Callable[..., dict[str, Any]] = post_tts_task,
     poll_task: Callable[..., dict[str, Any]] = poll_for_audio,
+    poll_error_retries: int = 4,
+    sleeper: Callable[[float], None] = time.sleep,
     write_payload: Callable[[dict[str, Any], Path, str], bool] = write_audio_from_payload,
     concat: Callable[[list[Path], Path], None] = concat_audio_segments,
 ) -> dict[str, Any]:
@@ -190,13 +215,9 @@ def run_compilation_tts(
             task_id = item.get("task_id")
             if not task_id:
                 raise CompilationTtsError(f"{item['chunk_id']} is SUBMITTED without task_id")
-            payload = poll_task(
-                api_key=api_key,
-                task_id=task_id,
-                output_path=audio_path,
-                timeout_seconds=timeout_seconds,
-                poll_interval=poll_interval,
-            )
+            payload = _poll_with_retries(poll_task, retries=poll_error_retries, sleeper=sleeper,
+                poll_kwargs={"api_key": api_key, "task_id": task_id, "output_path": audio_path,
+                             "timeout_seconds": timeout_seconds, "poll_interval": poll_interval})
         elif status == "READY":
             payload = post_task(
                 api_key=api_key,
@@ -217,13 +238,9 @@ def run_compilation_tts(
                 item["task_id"] = str(task_id)
             _atomic_json(state_path, state)  # persist provider identity before polling/writing
             if task_id:
-                payload = poll_task(
-                    api_key=api_key,
-                    task_id=str(task_id),
-                    output_path=audio_path,
-                    timeout_seconds=timeout_seconds,
-                    poll_interval=poll_interval,
-                )
+                payload = _poll_with_retries(poll_task, retries=poll_error_retries, sleeper=sleeper,
+                    poll_kwargs={"api_key": api_key, "task_id": str(task_id), "output_path": audio_path,
+                                 "timeout_seconds": timeout_seconds, "poll_interval": poll_interval})
             elif not write_payload(payload, audio_path, api_key):
                 raise CompilationTtsError(f"{item['chunk_id']} response has neither task_id nor audio")
         else:

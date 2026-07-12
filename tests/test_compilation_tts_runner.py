@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from compilation_tts_runner import CompilationTtsError, build_tts_chunks, run_compilation_tts
+from translator_tts import Ai33Error
 
 
 def sample_compilation(body: str = "Первое предложение. Второе предложение."):
@@ -101,6 +102,30 @@ class CompilationTtsRunnerTests(unittest.TestCase):
             self.assertEqual(len(posted), post_count)
             self.assertEqual(concat_orders[0], concat_orders[1])
             self.assertEqual(first["final_audio_sha256"], second["final_audio_sha256"])
+
+    def test_retryable_poll_500_retries_same_saved_task_without_resubmit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            posts = []
+            polls = []
+            sleeps = []
+            def post(**kwargs):
+                posts.append(kwargs["file_name"])
+                return {"task_id": f"task-{len(posts)}", "model_id": "eleven_v3"}
+            def poll(**kwargs):
+                polls.append(kwargs["task_id"])
+                if len(polls) == 1:
+                    raise Ai33Error('AI33 task polling failed (500): {"retryable":true}')
+                kwargs["output_path"].write_bytes(b"audio")
+                return {"success": True, "model_id": "eleven_v3"}
+            def concat(paths, output):
+                output.write_bytes(b"final")
+            state = run_compilation_tts(sample_compilation(), output_dir=root, api_key="secret",
+                voice_id="voice", post_task=post, poll_task=poll, concat=concat,
+                sleeper=sleeps.append)
+        self.assertEqual(polls[:2], ["task-1", "task-1"])
+        self.assertEqual(len(posts), len(state["chunks"]))
+        self.assertEqual(sleeps, [5])
 
     def test_ambiguous_or_changed_state_never_submits(self):
         with tempfile.TemporaryDirectory() as temp:
