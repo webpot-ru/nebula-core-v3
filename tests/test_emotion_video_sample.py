@@ -92,6 +92,14 @@ class EmotionVideoSampleTests(unittest.TestCase):
         self.assertIn(r"\N", value)
         self.assertNotIn(r"\pos(80,90)", value)
 
+    def test_narrow_character_background_column_wraps_before_the_character(self):
+        chunks = [{"start": 0.0, "end": 4.0, "text": "Один два три четыре пять шесть семь восемь"}]
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "narrow.ass"
+            write_reddit_pages_ass(chunks, path, duration=5.0, line_chars=20)
+            value = path.read_text()
+        self.assertIn(r"Один два три четыре\Nпять шесть семь\Nвосемь", value)
+
 
 if __name__ == "__main__":
     unittest.main()

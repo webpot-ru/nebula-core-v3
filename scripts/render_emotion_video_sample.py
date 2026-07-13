@@ -133,6 +133,7 @@ def write_reddit_pages_ass(
     title: str = "Ночная смена: последнее правило",
     first_page_chars: int = 700,
     continuation_page_chars: int = 900,
+    line_chars: int = 76,
 ) -> None:
     if first_page_chars < 40 or continuation_page_chars < 40:
         raise EmotionVideoError("Reddit page character capacities are too small")
@@ -183,10 +184,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             start = float(item["start"])
             end = float(page[row + 1]["start"]) if row + 1 < len(page) else page_end
             accumulated.append(str(item["text"]))
-            text = fixed_wrapped_prefix(full_page_text, " ".join(accumulated))
+            text = fixed_wrapped_prefix(full_page_text, " ".join(accumulated), line_chars=line_chars)
+            escaped_text = ass_escape(text).replace(r"\\N", r"\N")
             events.append(
                 f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Body,,0,0,0,,"
-                f"{{\\pos(80,{base_y})}}{ass_escape(text).replace(r'\\N', r'\N')}"
+                f"{{\\pos(80,{base_y})}}{escaped_text}"
             )
     actions_start = max(float(chunks[0]["start"]), duration - 3.2)
     action_window = f"{ass_time(actions_start)},{ass_time(duration)}"
@@ -249,6 +251,7 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--style", choices=("captions", "reddit_pages"), default="captions")
     parser.add_argument("--reddit-title", default="Ночная смена: последнее правило")
+    parser.add_argument("--reddit-line-chars", type=int, default=76)
     parser.add_argument("--font-dir", help="Directory containing Reddit Sans for ASS rendering")
     args = parser.parse_args()
     manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
@@ -277,7 +280,8 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     ass_path = output_dir / "captions.ass"
     if args.style == "reddit_pages":
-        write_reddit_pages_ass(chunks, ass_path, duration=duration, title=args.reddit_title)
+        write_reddit_pages_ass(chunks, ass_path, duration=duration, title=args.reddit_title,
+                               line_chars=args.reddit_line_chars)
     else:
         write_ass(chunks, ass_path)
     video_path = output_dir / "emotion-video-sample.mp4"
@@ -296,7 +300,7 @@ def main() -> int:
             "left_right_margin_px": 80,
             "header_avatar_px": 46,
             "positions_y_px": {"header": 83, "title": 155, "body": 245, "actions": 975},
-            "line_measure_chars": 76,
+            "line_measure_chars": args.reddit_line_chars,
             "page_capacity_chars": {"first": 700, "continuation": 900},
             "actions_visible_final_seconds": 3.2,
         } if args.style == "reddit_pages" else None),
