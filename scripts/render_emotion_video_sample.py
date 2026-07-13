@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +83,32 @@ def ass_escape(text: str) -> str:
     return str(text).replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}").replace("\n", r"\N")
 
 
+def fixed_wrapped_prefix(full_text: str, prefix_text: str, *, line_chars: int = 76) -> str:
+    """Reveal a prefix inside the final page wrapping so earlier lines never reflow."""
+    if line_chars < 20:
+        raise EmotionVideoError("Reddit line width is too small")
+    full_words = str(full_text or "").split()
+    prefix_words = str(prefix_text or "").split()
+    if prefix_words != full_words[:len(prefix_words)]:
+        raise EmotionVideoError("Reddit reveal text must be a prefix of the final page")
+    final_lines = textwrap.wrap(
+        " ".join(full_words), width=line_chars, break_long_words=False,
+        break_on_hyphens=False, replace_whitespace=True, drop_whitespace=True,
+    )
+    remaining = len(prefix_words)
+    revealed: list[str] = []
+    cursor = 0
+    for line in final_lines:
+        line_word_count = len(line.split())
+        take = min(remaining, line_word_count)
+        if take <= 0:
+            break
+        revealed.append(" ".join(full_words[cursor:cursor + take]))
+        cursor += line_word_count
+        remaining -= take
+    return r"\N".join(revealed)
+
+
 def write_ass(chunks: list[dict[str, Any]], path: Path) -> None:
     header = """[Script Info]
 ScriptType: v4.00+
@@ -104,8 +131,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 def write_reddit_pages_ass(
     chunks: list[dict[str, Any]], path: Path, *, duration: float,
     title: str = "Ночная смена: последнее правило",
-    first_page_chars: int = 185,
-    continuation_page_chars: int = 300,
+    first_page_chars: int = 700,
+    continuation_page_chars: int = 900,
 ) -> None:
     if first_page_chars < 40 or continuation_page_chars < 40:
         raise EmotionVideoError("Reddit page character capacities are too small")
@@ -117,10 +144,12 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Meta,DejaVu Sans,28,&H00E4E7EB,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,2,2,7,150,150,90,1
-Style: Title,DejaVu Sans,52,&H00FFFFFF,&H000000FF,&H00101010,&H00000000,-1,0,0,0,100,100,0,0,1,3,2,7,150,150,90,1
-Style: Body,DejaVu Sans,43,&H00FFFFFF,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,3,2,7,150,150,90,1
-Style: Actions,DejaVu Sans,30,&H00E4E7EB,&H000000FF,&H00101010,&H00000000,-1,0,0,0,100,100,0,0,1,2,2,8,150,150,70,1
+Style: Meta,Reddit Sans,28,&H00A9B8BA,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,80,80,70,1
+Style: Title,Reddit Sans,46,&H00F2F4F5,&H000000FF,&H00101010,&H00000000,-1,0,0,0,100,100,0,0,1,1,0,7,80,80,70,1
+Style: Body,Reddit Sans,40,&H00CFD7D8,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,80,80,70,1
+Style: ActionText,Reddit Sans,27,&H00A9B8BA,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,0,0,0,1
+Style: ActionIcon,Reddit Sans,24,&H00A9B8BA,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,0,0,0,1
+Style: OutlineIcon,Reddit Sans,24,&HFFA9B8BA,&H000000FF,&H00A9B8BA,&H00000000,0,0,0,0,100,100,0,0,1,2,0,7,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -142,45 +171,72 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         page_start = float(page[0]["start"])
         page_end = float(pages[page_index + 1][0]["start"]) if page_index + 1 < len(pages) else duration
         if page_index == 0:
-            events.append(f"Dialogue: 0,{ass_time(page_start)},{ass_time(page_end)},Meta,,0,0,0,,{{\\pos(150,80)\\fad(150,180)}}r/NoSleep  •  опубликовано пользователем u/anonymous")
-            events.append(f"Dialogue: 0,{ass_time(page_start)},{ass_time(page_end)},Title,,0,0,0,,{{\\pos(150,135)\\fad(150,180)}}{ass_escape(title)}")
-            base_y = 255
+            events.append(f"Dialogue: 0,{ass_time(page_start)},{ass_time(page_end)},ActionIcon,,0,0,0,,{{\\pos(80,78)\\c&H000045FF\\p1}}m 23 0 b 36 0 46 10 46 23 b 46 36 36 46 23 46 b 10 46 0 36 0 23 b 0 10 10 0 23 0{{\\p0}}")
+            events.append(f"Dialogue: 1,{ass_time(page_start)},{ass_time(page_end)},Meta,,0,0,0,,{{\\pos(142,83)}}{{\\b1}}u/anonymous{{\\b0}}  •  10 ч. назад")
+            events.append(f"Dialogue: 0,{ass_time(page_start)},{ass_time(page_end)},Title,,0,0,0,,{{\\pos(80,155)}}{ass_escape(title)}")
+            base_y = 245
         else:
-            base_y = 125
+            base_y = 90
+        full_page_text = " ".join(str(value["text"]) for value in page)
         accumulated: list[str] = []
         for row, item in enumerate(page):
             start = float(item["start"])
             end = float(page[row + 1]["start"]) if row + 1 < len(page) else page_end
             accumulated.append(str(item["text"]))
-            text = ass_escape(" ".join(accumulated))
+            text = fixed_wrapped_prefix(full_page_text, " ".join(accumulated))
             events.append(
                 f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Body,,0,0,0,,"
-                f"{{\\pos(150,{base_y})\\fad(90,0)}}{text}"
+                f"{{\\pos(80,{base_y})}}{ass_escape(text).replace(r'\\N', r'\N')}"
             )
-    actions_start = max(0.0, duration - 3.2)
-    events.append(
-        f"Dialogue: 1,{ass_time(actions_start)},{ass_time(duration)},Actions,,0,0,0,,"
-        "{\\fad(180,120)}▲ 12,4 тыс.     Комментарии 438     Поделиться     Сохранить"
-    )
+    actions_start = max(float(chunks[0]["start"]), duration - 3.2)
+    action_window = f"{ass_time(actions_start)},{ass_time(duration)}"
+    vector_actions = [
+        (86, "m 14 0 l 28 16 l 20 16 l 20 34 l 8 34 l 8 16 l 0 16"),
+        (245, "m 0 18 l 14 34 l 28 18 l 20 18 l 20 0 l 8 0 l 8 18"),
+        (330, "m 1 2 l 31 2 l 31 24 l 13 24 l 5 32 l 5 24 l 1 24"),
+        (575, "m 0 30 b 8 12 18 8 28 8 l 28 0 l 42 14 l 28 28 l 28 20 b 16 18 8 22 0 30"),
+    ]
+    for x, drawing in vector_actions:
+        events.append(f"Dialogue: 3,{action_window},OutlineIcon,,0,0,0,,{{\\pos({x},972)\\p1}}{drawing}{{\\p0}}")
+    action_labels = [(137, "12,4 тыс."), (378, "Ответить"), (623, "Поделиться"), (840, "•••")]
+    for x, label in action_labels:
+        events.append(f"Dialogue: 3,{action_window},ActionText,,0,0,0,,{{\\pos({x},975)}}{ass_escape(label)}")
     path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
 
-def render(background: Path, audio: Path, captions: Path, output: Path, duration: float, *, direct_background: bool = False) -> None:
+def render(
+    background: Path, audio: Path, captions: Path, output: Path, duration: float,
+    *, direct_background: bool = False, font_dir: Path | None = None,
+) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise EmotionVideoError("ffmpeg is required")
+    background_is_video = background.suffix.lower() in {".mp4", ".mov", ".mkv", ".webm"}
     frames = max(1, round(duration * 30))
     escaped_ass = str(captions.resolve()).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
     grade = "eq=brightness=-0.01:saturation=0.92" if direct_background else "eq=brightness=-0.04:saturation=0.90,drawbox=x=0:y=0:w=iw:h=ih:color=black@0.08:t=fill"
-    vf = (
-        f"scale=2200:1238:force_original_aspect_ratio=increase,crop=2200:1238,"
-        f"zoompan=z='min(zoom+0.00012,1.08)':x='iw/2-(iw/zoom/2)+sin(on/180)*12':"
-        f"y='ih/2-(ih/zoom/2)+cos(on/220)*8':d={frames}:s=1920x1080:fps=30,"
-        f"{grade},"
-        f"ass='{escaped_ass}'"
-    )
+    ass_filter = f"ass='{escaped_ass}'"
+    if font_dir is not None:
+        if not font_dir.is_dir():
+            raise EmotionVideoError(f"font directory does not exist: {font_dir}")
+        escaped_fonts = str(font_dir.resolve()).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+        ass_filter += f":fontsdir='{escaped_fonts}'"
+    if background_is_video:
+        vf = (
+            "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=30,"
+            f"{grade}," + ass_filter
+        )
+        background_args = ["-stream_loop", "-1", "-i", str(background)]
+    else:
+        vf = (
+            f"scale=2200:1238:force_original_aspect_ratio=increase,crop=2200:1238,"
+            f"zoompan=z='min(zoom+0.00012,1.08)':x='iw/2-(iw/zoom/2)+sin(on/180)*12':"
+            f"y='ih/2-(ih/zoom/2)+cos(on/220)*8':d={frames}:s=1920x1080:fps=30,"
+            f"{grade}," + ass_filter
+        )
+        background_args = ["-loop", "1", "-i", str(background)]
     output.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([ffmpeg, "-y", "-v", "error", "-loop", "1", "-i", str(background), "-i", str(audio),
+    subprocess.run([ffmpeg, "-y", "-v", "error", *background_args, "-i", str(audio),
         "-vf", vf, "-map", "0:v:0", "-map", "1:a:0", "-t", f"{duration:.3f}", "-r", "30",
         "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)], check=True)
@@ -193,6 +249,7 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--style", choices=("captions", "reddit_pages"), default="captions")
     parser.add_argument("--reddit-title", default="Ночная смена: последнее правило")
+    parser.add_argument("--font-dir", help="Directory containing Reddit Sans for ASS rendering")
     args = parser.parse_args()
     manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     samples = [sample for channel in manifest.get("channels") or [] for sample in channel.get("samples") or []
@@ -224,12 +281,25 @@ def main() -> int:
     else:
         write_ass(chunks, ass_path)
     video_path = output_dir / "emotion-video-sample.mp4"
+    font_dir = Path(args.font_dir) if args.font_dir else None
+    if args.style == "reddit_pages" and font_dir is None:
+        raise EmotionVideoError("reddit_pages requires --font-dir with the official Reddit Sans font")
     render(Path(args.background), audio, ass_path, video_path, duration,
-           direct_background=args.style == "reddit_pages")
+           direct_background=args.style == "reddit_pages", font_dir=font_dir)
     (output_dir / "emotion-video-report.json").write_text(json.dumps({
         "status": "PASS", "duration": round(duration, 3), "caption_chunks": len(chunks),
         "timing_source": timing_source, "style": args.style,
         "video": str(video_path), "audio": str(audio),
+        "reddit_layout": ({
+            "font_family": "Reddit Sans",
+            "font_sizes_px": {"meta": 28, "title": 46, "body": 40, "actions": 27},
+            "left_right_margin_px": 80,
+            "header_avatar_px": 46,
+            "positions_y_px": {"header": 83, "title": 155, "body": 245, "actions": 975},
+            "line_measure_chars": 76,
+            "page_capacity_chars": {"first": 700, "continuation": 900},
+            "actions_visible_final_seconds": 3.2,
+        } if args.style == "reddit_pages" else None),
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 0
 

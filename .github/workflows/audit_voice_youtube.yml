@@ -28,7 +28,7 @@ on:
         required: true
         default: 'emotional'
         type: choice
-        options: ['emotional', 'neutral']
+        options: ['emotional', 'horror_plain', 'neutral']
       voice_settings_profile:
         description: 'AI33/ElevenLabs voice_settings profile for samples'
         required: true
