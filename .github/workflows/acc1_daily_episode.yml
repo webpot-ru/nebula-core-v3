@@ -140,8 +140,8 @@ jobs:
       AI_QUALITY_CHECK: "0"
       AI_QUALITY_FAIL_OPEN: "0"
       ACC1_RELEASE_CEILING: READY_FOR_HUMAN_REVIEW
-      WORKDIR: ${{ runner.temp }}/acc1-daily-episode
-      DAILY_PLAN_PATH: ${{ runner.temp }}/acc1-daily-episode/daily-plan.json
+      WORKDIR: build/acc1-daily-episode
+      DAILY_PLAN_PATH: build/acc1-daily-episode/daily-plan.json
     steps:
       - name: Refuse replay of a spend-enabled dispatch
         env:
@@ -166,7 +166,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: acc1-daily-plan-${{ github.run_id }}
-          path: ${{ runner.temp }}/acc1-daily-episode
+          path: build/acc1-daily-episode
       - name: Run no-spend production preflight
         run: |
           set -euo pipefail
@@ -306,7 +306,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: acc1-paid-lease-${{ github.run_id }}
-          path: ${{ runner.temp }}/acc1-daily-episode/spend-lease.json
+          path: build/acc1-daily-episode/spend-lease.json
           if-no-files-found: error
           retention-days: 90
       - name: Produce review-ready episode artifact
@@ -483,6 +483,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: acc1-daily-episode-${{ github.run_id }}
-          path: ${{ runner.temp }}/acc1-daily-episode
+          path: build/acc1-daily-episode
           if-no-files-found: error
           retention-days: 14

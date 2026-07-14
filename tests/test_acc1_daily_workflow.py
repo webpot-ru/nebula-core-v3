@@ -43,6 +43,26 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         self.assertIn("acc1-daily-plan-${{ github.run_id }}", plan_job)
         self.assertIn("run_acc1_episode_factory.py", build_job)
 
+    def test_job_level_env_never_uses_step_only_runner_context(self):
+        build_job = self.workflow.split("\n  build:\n", 1)[1]
+        job_env = build_job.split("\n    steps:\n", 1)[0]
+        self.assertNotIn("${{ runner.", job_env)
+        self.assertIn("WORKDIR: build/acc1-daily-episode", job_env)
+        self.assertIn(
+            "DAILY_PLAN_PATH: build/acc1-daily-episode/daily-plan.json",
+            job_env,
+        )
+        self.assertEqual(
+            self.workflow.splitlines().count(
+                "          path: build/acc1-daily-episode"
+            ),
+            2,
+        )
+        self.assertIn(
+            "path: build/acc1-daily-episode/spend-lease.json",
+            self.workflow,
+        )
+
     def test_one_daily_pilot_and_cross_date_reservation_concurrency_are_explicit(self):
         workflow = self.workflow
         self.assertIn("pilot_id:", workflow)
