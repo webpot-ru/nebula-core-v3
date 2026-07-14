@@ -39,6 +39,9 @@ PROVIDER_CONTRACT: dict[str, Any] = {
         "reasoning_effort": "none",
         "max_output_tokens": 16_384,
         "automatic_retries": 0,
+        "service_tier": "flex",
+        "prompt_cache_key": "acc1-translation-json-v1",
+        "request_timeout_seconds": 300,
     },
     "gemini": {
         "provider": "vectorengine",

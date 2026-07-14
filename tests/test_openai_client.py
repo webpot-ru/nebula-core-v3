@@ -24,10 +24,12 @@ def valid_response(content='{"translated":true}'):
         "choices": [{"message": {"content": content}}],
         "usage": {
             "prompt_tokens": 120,
+            "prompt_tokens_details": {"cached_tokens": 0},
             "completion_tokens": 80,
             "total_tokens": 200,
             "completion_tokens_details": {"reasoning_tokens": 12},
         },
+        "service_tier": "flex",
     }
 
 
@@ -65,14 +67,52 @@ class OpenAIClientTests(unittest.TestCase):
             "reasoning_effort": "none",
             "response_format": {"type": "json_object"},
             "max_completion_tokens": 4096,
+            "service_tier": "flex",
+            "prompt_cache_key": "acc1-translation-json-v1",
         })
-        self.assertEqual(kwargs["timeout"], 120)
+        self.assertEqual(kwargs["timeout"], 300)
         self.assertEqual(result.payload, {"translated": True})
         self.assertEqual(result.response_id, "chatcmpl-test")
         self.assertEqual(result.usage.input_tokens, 120)
+        self.assertEqual(result.usage.cached_input_tokens, 0)
         self.assertEqual(result.usage.output_tokens, 80)
         self.assertEqual(result.usage.total_tokens, 200)
         self.assertEqual(result.usage.reasoning_tokens, 12)
+        self.assertEqual(result.service_tier, "flex")
+
+    def test_flex_tier_and_cached_input_are_proven_by_response(self):
+        payload = valid_response()
+        payload["usage"]["prompt_tokens_details"] = {"cached_tokens": 96}
+        with (
+            mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True),
+            mock.patch.object(openai_client.requests, "post", return_value=FakeResponse(payload=payload)),
+        ):
+            result = openai_client.call_openai_json(prompt="translate")
+        self.assertEqual(result.usage.cached_input_tokens, 96)
+
+        for tier in (None, "default"):
+            with self.subTest(tier=tier):
+                invalid = valid_response()
+                if tier is None:
+                    invalid.pop("service_tier")
+                else:
+                    invalid["service_tier"] = tier
+                with (
+                    mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True),
+                    mock.patch.object(openai_client.requests, "post", return_value=FakeResponse(payload=invalid)),
+                ):
+                    with self.assertRaisesRegex(openai_client.OpenAIClientError, "Flex service tier"):
+                        openai_client.call_openai_json(prompt="translate")
+
+    def test_invalid_cached_input_usage_is_rejected(self):
+        payload = valid_response()
+        payload["usage"]["prompt_tokens_details"] = {"cached_tokens": 121}
+        with (
+            mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True),
+            mock.patch.object(openai_client.requests, "post", return_value=FakeResponse(payload=payload)),
+        ):
+            with self.assertRaisesRegex(openai_client.OpenAIClientError, "cached input tokens exceed"):
+                openai_client.call_openai_json(prompt="translate")
 
     def test_malformed_completion_json_is_rejected(self):
         response = FakeResponse(payload=valid_response("```json\n{}\n```"))

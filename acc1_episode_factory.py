@@ -60,6 +60,8 @@ from compilation_translation import (
 from compilation_tts_runner import build_tts_chunks, run_compilation_tts
 from openai_client import (
     OPENAI_MODEL,
+    PROMPT_CACHE_KEY,
+    REQUIRED_SERVICE_TIER,
     OpenAIJSONResult,
     call_openai_json,
 )
@@ -815,6 +817,7 @@ class CallBudget:
             self.journal["token_cap"] = self.token_cap
             self.journal["usage_totals"] = {
                 "input_tokens": 0,
+                "cached_input_tokens": 0,
                 "output_tokens": 0,
                 "total_tokens": 0,
                 "reasoning_tokens": 0,
@@ -896,10 +899,12 @@ class CallBudget:
             usage = raw_response.usage
             attempt["usage"] = {
                 "input_tokens": usage.input_tokens,
+                "cached_input_tokens": usage.cached_input_tokens,
                 "output_tokens": usage.output_tokens,
                 "total_tokens": usage.total_tokens,
                 "reasoning_tokens": usage.reasoning_tokens,
             }
+            attempt["service_tier"] = raw_response.service_tier
             totals = self.journal.get("usage_totals")
             if not isinstance(totals, dict) or self.token_cap is None:
                 attempt["status"] = "BLOCKED_MISSING_TOKEN_CAP"
@@ -1298,6 +1303,9 @@ def _factory_provider_contract() -> dict[str, Any]:
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
             "automatic_retries": 0,
+            "service_tier": REQUIRED_SERVICE_TIER,
+            "prompt_cache_key": PROMPT_CACHE_KEY,
+            "request_timeout_seconds": 300,
         },
         "image": {
             "provider": "vectorengine",
@@ -1692,6 +1700,9 @@ def run_produce_stage(
             "reviewer_model": OPENAI_MODEL,
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
+            "service_tier": REQUIRED_SERVICE_TIER,
+            "prompt_cache_key": PROMPT_CACHE_KEY,
+            "request_timeout_seconds": 300,
         },
         "image": {"provider": "vectorengine", "model": DEFAULT_IMAGE_MODEL, "size": "1536x864"},
         "tts": {
