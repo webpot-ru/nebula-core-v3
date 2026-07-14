@@ -47,6 +47,47 @@ class RedditCredentialConfigTests(unittest.TestCase):
         self.assertNotIn("username", client.kwargs)
         self.assertNotIn("password", client.kwargs)
 
+    def test_get_reddit_can_install_exact_http_request_cap(self):
+        env = {
+            "REDDIT_CLIENT_ID": "test-client-id",
+            "REDDIT_CLIENT_SECRET": "test-client-secret",
+        }
+
+        class FakePraw:
+            class Reddit:
+                def __init__(self, **kwargs):
+                    self.kwargs = kwargs
+
+        with patch.dict("sys.modules", {"praw": FakePraw}):
+            with patch.dict("os.environ", env, clear=True):
+                client = scraper.get_reddit(request_cap=2)
+
+        requestor_type = client.kwargs["requestor_class"]
+
+        class FakeSession:
+            def __init__(self):
+                self.calls = 0
+                self.headers = {}
+
+            def request(self, *args, **kwargs):
+                self.calls += 1
+                return object()
+
+        session = FakeSession()
+        requestor = requestor_type(
+            session=session,
+            user_agent="macos:ChonkerTalksRequestBudgetTest:v1.0 (local test)",
+        )
+        requestor.request("GET", "https://example.invalid")
+        requestor.request("GET", "https://example.invalid")
+        with self.assertRaisesRegex(scraper.RedditRequestBudgetExceeded, "cap exhausted"):
+            requestor.request("GET", "https://example.invalid")
+        self.assertEqual(session.calls, 2)
+
+    def test_request_cap_must_be_positive_integer(self):
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            scraper._bounded_requestor_class(0)
+
 
 if __name__ == "__main__":
     unittest.main()
