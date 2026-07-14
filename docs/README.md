@@ -46,7 +46,7 @@ The system is modeled after the successful **LUNA 2** architecture — orchestra
 
 Status: **supersedes the older "one language = one Reddit niche" plan.**
 
-`channels.json` is still the current execution config for scripts, voices, scraper inputs, and initial topic weights. Its `topic_mix` entries now follow the audience-first strategy below, but the weights are hypotheses until live artifacts and retention/readback prove them.
+`channels.json` is still the current execution config for scripts, voices, scraper inputs, and channel strategy. For `acc1`, the old numeric `topic_mix` is explicitly superseded: the deterministic six-slot `pilot_matrix` and `pilot_cycle_order` select one SAGA, BUNDLE, or THREAD experiment without cross-pillar fallback. Other channels keep their existing configuration in this rollout.
 
 ### Strategy Rule
 
@@ -55,7 +55,7 @@ One channel should be defined by **language + viewer promise + tone**, not by a 
 Operational split:
 - **Shorts**: fast hook testing, trend response, punchy facts, mini-dramas, mysteries, quizzes.
 - **Long-form**: expand proven Shorts topics into 8-18 minute explainers, story documentaries, moral-drama breakdowns, mystery timelines, or compilation-style episodes.
-- **Reddit**: one source of story material, especially for human drama and scary stories. It should not be treated as the whole channel concept.
+- **Reddit**: the mandatory source for `acc1` stories. Source text and provenance are preserved; Reddit-only claims remain unverified, and `r/nosleep` is labeled as fiction.
 
 ### Recommended Channel Concepts
 
@@ -67,7 +67,7 @@ Operational split:
 | German | Science/curiosity, experiments, strange facts, tech/internet explainers | "what happens if...", visual facts, tech hooks, strange discoveries | quality explainers, experiment recaps, internet/science documentaries | High |
 | Italian | Visual social comedy, football/food identity, relationship drama | visual sketches, relationship mini-scenes, football moments, food/culture hooks | social-experiment episodes, football/food culture stories, drama compilations | Medium-high |
 | English | Spectacle curiosity, internet lore, story hooks | experiments, gadgets, internet drama, "what happened next" hooks | high-production explainers, creator/internet lore, mystery or science stories | High upside / high competition |
-| Russian-speaking / CIS diaspora | Dark curiosity, human drama, and strange facts, with platform-risk awareness | scary hooks, moral-conflict mini stories, surprising facts | dark-story compilations, mystery/fact explainers, moral-drama breakdowns | Opportunistic |
+| Russian-speaking / CIS diaspora | Complete Reddit stories and discussions in Russian with strong conflict, escalation, and payoff | trailers cut only after a long episode exists | SAGA, BUNDLE, and THREAD episodes across relationships, work/justice, confessions, professions, and dark/unexplained stories | Active `acc1` pilot |
 
 ### Topic Families to Test
 
@@ -91,7 +91,7 @@ For Reddit-derived stories only:
 - **Comments ratio**: high comment/upvote ratio indicates controversy and discussion potential.
 - **Time window**: `auto` uses topic-family windows such as `day + week` for fresh drama and `week + month` for mystery/lore; manual `day|week|month|year` is still available for experiments.
 - **Body length**: minimum 300 characters for narration depth. Format-specific generation must choose the right source length before adaptation: `shorts` uses complete short source stories, while `long` requires a substantial long source. Production workflows must not cut a selected story body just to fit a runtime.
-- **Topic families**: channels now use weighted `topic_mix` values instead of one flat subreddit list. The scraper has rules for `human_drama`, `dark_curiosity`, `curiosity_facts`, `football_culture`, `internet_lore`, and `visual_comedy`.
+- **Topic families**: the shared scraper supports weighted channel mixes, but the new `acc1` daily factory resolves the exact pilot first and then uses only that pilot's source family. It never derives the episode from the superseded `acc1.topic_mix`.
 - **AI budget**: Gemini quality checks are bounded by `MAX_AI_CANDIDATES` / `--max-ai-candidates`; local Reddit metrics and duplicate guards run before any AI call.
 - **Producer gate**: Gemini must reject topics that are merely high-metric Reddit filler. The prompt now scores first-screen hook, discussion potential, Shorts/long-form fit, novelty, character-voice fit, AI-slop risk, source/link dependency, duplicate risk, and legal risk. For `shorts`, it receives the complete short-source body up to the Shorts source-length limit, not the old 800-character preview.
 - **Outside-in brief**: before scoring the Reddit post, Gemini receives a market/channel producer brief and a `content_bet` brief for the topic family. It must decide whether the idea would be worth pitching even without Reddit metrics, then return packaging fields such as `content_bet`, `audience_job_fit`, `first_screen_promise`, `first_screen_text`, `packaging_thesis`, `why_now`, `shorts_cut`, and `longform_angle`.
@@ -100,7 +100,7 @@ For Reddit-derived stories only:
 - **Duplicate guard**: exact Reddit post ids, normalized story signatures, and similar keyword signatures are skipped per channel.
 - **Velocity scoring**: fresh `day/week` candidates get a small bonus for upvotes/hour and comments/hour, so rising stories can beat older high-total posts.
 - **Topic fatigue**: recently repeated topic families receive a penalty so one channel does not publish the same kind of story too many times in a row.
-- **Channel exclusions**: channels can define `topic_exclusions` in `channels.json`. `acc1` uses this to block Minecraft/gaming-server topics before Gemini quality checks, because the Russian channel default promise is dark curiosity / human drama / strange facts rather than gaming.
+- **Channel exclusions**: channels can define `topic_exclusions` in `channels.json`. `acc1` blocks gaming/Minecraft filler and also rejects incomplete payoff, wrong-pillar, screenshot/link-dependent, unsafe, PII-heavy, and fictional-as-real candidates before production.
 
 ---
 
@@ -358,7 +358,7 @@ The quality prompt is intentionally strict. Upvotes are treated as evidence, not
 ```bash
 python3 translator_tts.py es --output narration_es.mp3
 python3 translator_tts.py --channel acc4 --output narration_es.mp3
-python3 translator_tts.py ru --voice-id elevenlabs_rQOBu7YxCDxGiFdTm28w
+python3 translator_tts.py ru --voice-id elevenlabs_JBFqnCBsd6RMkjVDRZzb
 python3 translator_tts.py --channel acc3 --comment-voice-id elevenlabs_LB5G0Z4EP98YaEgL654m --output narration.mp3
 ```
 
@@ -392,7 +392,7 @@ The publish workflow remains fail-closed: if either `tts_voice` or `comment_tts_
 
 | Channel | Narrator `tts_voice` | Comment `comment_tts_voice` |
 |---|---|---|
-| Russia | `elevenlabs_rQOBu7YxCDxGiFdTm28w` | `elevenlabs_ymDCYd8puC7gYjxIamPt` |
+| Russia | `elevenlabs_JBFqnCBsd6RMkjVDRZzb` | `elevenlabs_MOgsVr0EwwxqQs5cNDhu` |
 | English | `elevenlabs_sB7vwSCyX0tQmU24cW2C` | `elevenlabs_DODLEQrClDo8wCz460ld` |
 | Germany | `elevenlabs_aTTiK3YzK3dXETpuDE2h` | `elevenlabs_LB5G0Z4EP98YaEgL654m` |
 | LATAM | `elevenlabs_22VndfJPBU7AZORAZZTT` | `elevenlabs_8mBRP99B2Ng2QwsJMFQl` |
@@ -416,8 +416,8 @@ Current ElevenLabs candidates collected from AI33 Voice Library screenshots and 
 | `93nuHbke4dTER9x2pDwE` | `elevenlabs_93nuHbke4dTER9x2pDwE` | AI33 readback verified: French `fr-CA` / `quebec`, male, middle-aged; also supports Portuguese `pt-BR` / `brazilian`, Russian `ru-RU` / `standard`, English `en-US` / `southern`; Spanish is `es-ES` / `peninsular` | French Canada/Québec spare; not main France-standard narrator | LATAM Spanish, German, Italian |
 | `wufFsVwuYBePWKO6dMMN` | `elevenlabs_wufFsVwuYBePWKO6dMMN` | AI33 readback verified: French `fr-FR` / `standard`, male, middle-aged; name `Rudy - Narrator` | Active `acc6` France-standard French narrator | Pending sound test |
 | `i6ke7jvmGEVUyV4zjSaT` | `elevenlabs_i6ke7jvmGEVUyV4zjSaT` | AI33 readback verified: French `fr-FR` / `parisian`, female, young; name `Emilie - Pro` | Active `acc6` French comments | Pending sound test |
-| `ymDCYd8puC7gYjxIamPt` | `elevenlabs_ymDCYd8puC7gYjxIamPt` | AI33 readback verified: Russian `ru-RU` / `standard`, female, middle-aged | Active `acc1` Russian comments | Pending sound test |
-| `rQOBu7YxCDxGiFdTm28w` | `elevenlabs_rQOBu7YxCDxGiFdTm28w` | AI33 readback verified: Russian `ru-RU` / `standard`, male, middle-aged | Active `acc1` Russian narrator | Pending sound test |
+| `MOgsVr0EwwxqQs5cNDhu` | `elevenlabs_MOgsVr0EwwxqQs5cNDhu` | User-selected Russian female voice | Active `acc1` responses/comments | Plain text, speed `1.0`, no emotion tags |
+| `JBFqnCBsd6RMkjVDRZzb` | `elevenlabs_JBFqnCBsd6RMkjVDRZzb` | User-selected Russian male voice | Active `acc1` primary narrator | Plain text, speed `1.0`, no emotion tags |
 | `LB5G0Z4EP98YaEgL654m` | `elevenlabs_LB5G0Z4EP98YaEgL654m` | AI33 readback verified: German `de-DE` / `standard`, female, young | Active `acc3` German comments | Pending sound test |
 | `aTTiK3YzK3dXETpuDE2h` | `elevenlabs_aTTiK3YzK3dXETpuDE2h` | AI33 readback verified: German `de-DE` / `standard`, male, young | Active `acc3` German narrator | Pending sound test |
 | `5KvpaGteYkNayiswuX2h` | `elevenlabs_5KvpaGteYkNayiswuX2h` | AI33 readback verified: German `de-DE` / `standard`, male, old | German spare narrator/character voice; possible authoritative explainer tone | Pending sound test |
@@ -442,7 +442,7 @@ Current candidate coverage:
 
 | Channel | Candidate status |
 |---|---|
-| `acc1` Russian | Standard Russian narrator/comment pair configured in `channels.json`, pending sound test |
+| `acc1` Russian | User-selected male narrator and female response/comment voice configured; first factory artifact remains the production proof gate |
 | `acc2` English | US English narrator/comment pair configured in `channels.json`, with one young male spare, pending sound test |
 | `acc3` German | Standard German narrator/comment pair configured in `channels.json`, with one spare German male voice, pending sound test |
 | `acc4` LATAM Spanish | Spanish Latin-accent narrator/comment pair configured in `channels.json` from user-provided AI33 UI readback, pending sound test |
@@ -629,6 +629,38 @@ scraper.py
 
 It installs FFmpeg explicitly, verifies `final_output.mp4` with `test -s` and `ffprobe`, then uploads the MP4, story, storyboard, narration, transcript, render story, and preview PNGs as a GitHub Actions artifact.
 
+### acc1 Daily Episode Factory
+
+`.github/workflows/acc1_daily_episode.yml` is the manual, artifact-only long-form factory for the Russian channel. It is intentionally separate from `auto_publish.yml`: it never calls `uploader.py`, never authorizes publication, and cannot return a status higher than `READY_FOR_HUMAN_REVIEW`.
+
+One dispatch resolves the Europe/Moscow production date to the canonical six-slot cycle, collects bounded Reddit candidates with `AI_QUALITY_CHECK=0`, and requires 3-5 complete finalists before paid preflight. The selected format is one of:
+
+- `BUNDLE`: 2-5 complete stories, with an exact per-pilot count;
+- `SAGA`: one complete 18-30 minute story;
+- `THREAD`: one prompt plus 8-15 complete, source-bound responses.
+
+Every finalist must pass independent producer and critic reviews at 90/100 or higher, all category floors, and hard vetoes for incomplete payoff, wrong pillar, screenshot/link dependence, unsupported factual framing, fictional-as-real presentation, and viewer-promise mismatch. Reddit metrics are discovery signals, not proof that a claim is true or that an episode will perform.
+
+The winning source is then bound to the script, deterministic intro, packaging, scene images, AI33 `eleven_v3` audio, Reddit-page storyboard, approved copper-cat background, final media QA, and release manifest by exact hashes. The intro order is fixed: source-backed 8-30-word cold open, exact format/count promise, truth disclosure, source note, generic truthful thanks, pillar-safe brand sting, and first-story cue. Named sponsors, invented payment claims, and nonexistent timestamp promises are forbidden.
+
+The uploaded artifact `acc1-daily-episode-<run_id>` contains `final-output.mp4`, `youtube-thumbnail.png`, `youtube-metadata.json`, source/candidate/playoff evidence, script, scene images, narration and timing state, storyboard, layout/runtime/media QA, provider attempt journals, creative-review template, and `release-candidate-manifest.json`. Human creative review and a separately authorized release remain mandatory.
+
+The workflow spends no provider quota until source success, exact confirmations, source-dependent call ceilings, and a cross-dispatch source/spend lease all pass. A GitHub rerun is refused because it would reuse spend confirmations. The first real provider run must be an explicitly approved bounded canary; timeout or partial spend requires artifact inspection rather than automatic retry.
+
+Because the legacy scheduled `auto_publish.yml` does not belong to this lane, it now runs `scripts/check_channel_automation.py` before YouTube credentials, Reddit, or any provider call. The explicit `acc1.automation_enabled=false` / `videos_per_day=0` configuration therefore blocks both scheduled and manual legacy publishing for `acc1`; only the artifact-only daily factory is eligible for a separately approved canary.
+
+```bash
+gh workflow run acc1_daily_episode.yml \
+  --repo webpot-ru/nebula-core-v3 --ref main \
+  -f pilot_id=auto \
+  -f confirm_reddit_read=true -f reddit_request_cap=24 \
+  -f confirm_gemini_spend=true -f gemini_call_cap=128 \
+  -f confirm_image_spend=true -f image_call_cap=16 \
+  -f confirm_ai33_spend=true -f ai33_call_cap=96
+```
+
+This command can consume Reddit/API quota, Gemini, image-generation, AI33, GitHub runner, and artifact storage. Do not run it from automation or without exact approval of that scope. `workflow_dispatch` also requires the workflow file to exist on the default branch.
+
 ### Production Publish Workflow
 
 `auto_publish.yml` has passed one end-to-end unlisted live smoke, but public scheduled publishing should still wait for one post-fix unlisted review. The 2026-06-30 smoke verified localization, AI33 narration, audio-aware render, YouTube upload, and history commit, but readback/user review showed videos landing on the wrong channel for the requested account. Per current user-provided state on 2026-07-02, the OAuth/channel mapping issue has been resolved; the next gate is artifact quality review after the render/TTS fixes.
@@ -779,6 +811,7 @@ ffprobe final_output.mp4
 - [x] `metadata_generator.py` connected to the Gemini text provider for packaging options + SEO metadata
 - [x] `pre_publish_qa.py` blocks upload when audio, adaptation, evidence, metadata, or render report fail
 - [x] `thumbnail_generator.py` connected to VectorEngine image generation behind explicit spend confirmation
+- [x] Manual artifact-only `acc1_daily_episode.yml` assembles one source-bound review-ready MP4, thumbnail, metadata, evidence, and QA package without YouTube upload
 - [x] `storyboard_generator.py` and `render.py` create a no-spend dry-run `final_output.mp4`
 - [x] Slide-based RedditSim rendering: first story screen without comments, comment-only screens, long story chunking, clean no-karaoke visuals, and larger render-mode fonts
 - [x] GitHub Actions workflow `video_dry_run.yml` renders and uploads a live dry-run MP4 artifact
@@ -788,10 +821,9 @@ ffprobe final_output.mp4
 - [x] Verified GitHub dry-run rendering (`chonkertalks-dry-run-video` artifact generated)
 
 ### 🔄 Next Steps (Priority Order)
-- [ ] **1. Run one post-fix unlisted live smoke** and inspect channel, language, translated card text, voiceover audio, clean no-karaoke slide render, SEO metadata, and uploaded metadata readback before public scheduled publishing.
-- [ ] **2. Select final ElevenLabs/MiniMax voices** from AI33 Voice Library for each channel if emotion tags should be default.
-- [ ] **3. Channel art** — Generate banners/avatars using Imagen 2 from LUNA 2.
-- [ ] **4. Add authenticated uploader readback** for title, description, tags, language, privacy, and channel id after upload.
+- [ ] **1. Run one explicitly approved bounded `acc1_daily_episode.yml` canary** and inspect exact source evidence, playoff, male/female voice roles, thumbnail, MP4, and QA. A successful build is not audience proof.
+- [ ] **2. Complete human creative review for the exact hash-bound artifact** before any separate unlisted release decision.
+- [ ] **3. Keep scheduled/public publishing disabled** until the new artifact passes review and authenticated YouTube readback is proven for that release path.
 
 ### 🔮 Future
 - [ ] Broader source discovery beyond Reddit: YouTube comments, Google Trends, TikTok/Shorts trend scouts, and RSS/news sources behind explicit spend/API boundaries

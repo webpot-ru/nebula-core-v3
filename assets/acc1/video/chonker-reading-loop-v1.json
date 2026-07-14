@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "asset": "assets/acc1/video/chonker-reading-loop-v1.mp4",
+  "sha256": "88e943c6c675f1327eb7020d755e312dbec3864e19dae0d021d909131c349e61",
+  "container": "mp4",
+  "video_codec": "h264",
+  "resolution": [1280, 720],
+  "fps": 24,
+  "duration_sec": 8.0,
+  "loop": true,
+  "audio_policy": "discard",
+  "status": "local_project_asset_not_live_verified"
+}

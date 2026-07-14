@@ -1,19 +1,29 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-04
+Last updated: 2026-07-14
 
 ## Current Shape
 
 `/Users/lali/Projects/reddit` is a multilingual YouTube story-entertainment pipeline for the ChonkerTalks channel network.
 
-Current content strategy: the old "one language = one Reddit niche" plan has been replaced. The active plan is audience-first:
+Current network strategy remains audience-first, but `acc1` now has an explicit Russian Reddit-story contract rather than a numeric mixed-topic publishing weight:
 
-- One channel is defined by language, viewer promise, and tone.
-- Shorts test fast hooks across region-specific entertainment topics.
-- Long-form videos expand the winners into 8-18 minute explainers, story documentaries, moral-drama breakdowns, mystery timelines, or compilations.
-- Reddit stories remain one useful source, not the whole strategy.
-- `acc1` is configured as dark curiosity / human drama / strange facts for Russian-speaking viewers, not gaming. Its default `topic_mix` includes `human_drama` for complete short moral-conflict sources, excludes `internet_lore`, `r/gaming` was removed from the channel subreddit list, and `topic_exclusions` block Minecraft/gaming-server topics before Gemini quality checks.
-- The strongest priority markets are LATAM Spanish and Brazil Portuguese, followed by France, Germany, English, Italy, and opportunistic Russian-speaking/CIS diaspora coverage.
+- `acc1` promises complete Reddit stories and discussions in Russian with strong conflict, escalation, and payoff. Reddit is the mandatory source, Reddit-only claims remain unverified, and `r/nosleep` is labeled as fiction.
+- Five content pillars are allowed: relationships/family, work/money/justice, confessions/awkward/taboo, professions/human experience, and strange/dark/unexplained. Horror is one series, not the entire channel.
+- The deterministic six-slot cycle is `pilot_01, pilot_04, pilot_02, pilot_05, pilot_03, pilot_06`. It selects exact SAGA, BUNDLE, or THREAD pilots and never falls back across pillars.
+- The old `acc1.topic_mix` is retained only as inert legacy configuration and marked `superseded_pending_rebuild`; it is not used by the daily planner or factory.
+- `automation_enabled=false` and `videos_per_day=0` remain fail-closed. The new lane creates review artifacts only and never uploads to YouTube.
+- This rollout changes only the `acc1` object in `channels.json`; `acc2` through `acc7` remain structurally identical to `origin/main`.
+
+## acc1 Daily Factory Rollout
+
+- `.github/workflows/acc1_daily_episode.yml` implements one manual Europe/Moscow daily-plan dispatch through bounded source collection, 3-5 candidate review, independent topic playoff, translation, packaging, scene images, AI33 `eleven_v3` narration, Reddit-page/copper-cat render, media QA, and a checksum-bound release manifest.
+- The maximum result is `READY_FOR_HUMAN_REVIEW` with `publication_authorized=false`. The artifact includes `final-output.mp4`, `youtube-thumbnail.png`, `youtube-metadata.json`, source and review evidence, script, audio/timings, storyboard, layout/runtime/media QA, creative-review template, provider journals, and `release-candidate-manifest.json`.
+- The legacy `auto_publish.yml` now calls `scripts/check_channel_automation.py` before channel credentials, Reddit, or provider work. With the explicit disabled `acc1` config, the old scheduled/manual upload lane fails closed instead of being affected indirectly by this rollout.
+- The deterministic intro is source-bound and fail-closed: 8-30-word cold open, exact format/count promise, truth disclosure, source note, truthful generic thanks, pillar-safe Chonker sting, and first-story cue. Fake sponsors, unsupported payment claims, and nonexistent timestamp promises are forbidden.
+- The current `acc1` voice contract is the user-selected male narrator `elevenlabs_JBFqnCBsd6RMkjVDRZzb` and female response/comment voice `elevenlabs_MOgsVr0EwwxqQs5cNDhu`, both at provider speed `1.0` with plain text and no emotion tags.
+- Clean rollout verification passes Python compilation, deterministic planning for `2026-07-14` as `pilot_01 / BUNDLE / relationships_family`, exact background checksum, and 317/317 local unit tests. No Reddit, Gemini, image, AI33, GitHub workflow, or YouTube call was made by this verification.
+- The first provider-backed run is still unverified and requires a separately approved bounded canary. A successful artifact is engineering/creative evidence, not a guarantee of views or retention.
 
 - `index.html`, `style.css`, `app.js` implement the local RedditSim recorder UI.
 - `scraper.py` fetches candidate Reddit stories through PRAW OAuth2, weighted topic-family source planning, local duplicate/signature/similarity guards, channel `topic_exclusions`, velocity scoring, topic-fatigue penalties, and a bounded Gemini producer-quality gate, then writes `story_data.json` and `producer_queue.json`. The Gemini gate now works outside-in: it receives the market/channel audience job and a topic `content_bet` brief before scoring a Reddit post. It must decide whether the idea is worth pitching for the audience, then score first-screen hook, discussion potential, Shorts/long-form fit, novelty, character-voice fit, AI-slop risk, source/link dependency, duplicate risk, and legal risk before returning `PUBLISH | REWRITE | SKIP`. It also requires source-backed `hook_evidence`; the scraper ranks all approved candidates by producer score before picking the slot winner.
@@ -57,7 +67,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 ## Verified Locally
 
 - Python syntax check passed for `scraper.py`, `translator_tts.py`, and `uploader.py`.
-- `channels.json` parses as valid JSON and now includes weighted `topic_mix` per channel; the weights are initial production hypotheses and still need live artifact tuning.
+- `channels.json` parses as valid JSON. The `acc1` daily planner ignores the superseded numeric mix and resolves the exact six-pilot cycle; the other six channel objects are unchanged in this rollout.
 - `node --check app.js` and `python3 -B -m py_compile storyboard_generator.py render.py` passed on 2026-07-04 after the deferred final-footer render update.
 - Browser localhost QA passed on 2026-07-04 for the deferred final post footer in both target render sizes: vertical 1080x1920 mobile layout and horizontal 1920x1080 desktop layout. In both checks, the final story slide started with `meta-deferred` / hidden footer and changed to `meta-revealed` / visible footer on the final karaoke phrase; editor/sidebar/nav controls were hidden and browser console logs were clean.
 - `python3 -m py_compile storyboard_generator.py render.py translator_tts.py scraper.py` passed on 2026-07-02.
@@ -80,7 +90,7 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 - Raw ElevenLabs candidate ids provided from AI33 Voice Library screenshots/readback must be written with AI33 prefixes in this repo, for example `elevenlabs_cCYjmrGZaI86GUJ7F2Nn`. Currently documented candidates include active pairs for Russian, English, German, LATAM Spanish, Brazil Portuguese, French, and Italian, plus spare/alternate voices.
 - Voice selection is per channel and per role; there is no need to find one universal voice for every language. `acc4` now has a Spanish Latin-accent narrator/comment pair in `channels.json`: `elevenlabs_22VndfJPBU7AZORAZZTT` for title/body narration and `elevenlabs_8mBRP99B2Ng2QwsJMFQl` for comments. AI33 metadata readback confirmed both as Spanish `es-AR` with `latin american` accent. This still needs a short AI33 sound test before public use.
 - `acc5` now has a Brazilian-accent narrator/comment pair in `channels.json`: `elevenlabs_dX7gRq1dIvLTgUaWpEFn` for title/body narration and `elevenlabs_4r3G9XKliGgVZLKMgjik` for comments. AI33 metadata readback confirmed both as Portuguese `pt-BR` with `brazilian` accent. This still needs a short AI33 sound test before public use.
-- `acc1` now has a standard Russian narrator/comment pair in `channels.json`: `elevenlabs_rQOBu7YxCDxGiFdTm28w` for title/body narration and `elevenlabs_ymDCYd8puC7gYjxIamPt` for comments. AI33 metadata readback confirmed both as Russian `ru-RU` with `standard` accent. This still needs a short AI33 sound test before public use.
+- `acc1` uses the user-selected `elevenlabs_JBFqnCBsd6RMkjVDRZzb` male primary narrator and `elevenlabs_MOgsVr0EwwxqQs5cNDhu` female response/comment voice. The production contract is speed `1.0`, plain narration, and no emotion tags; the first daily-factory artifact remains the end-to-end proof gate.
 - `acc3` now has a standard German narrator/comment pair in `channels.json`: `elevenlabs_aTTiK3YzK3dXETpuDE2h` for title/body narration and `elevenlabs_LB5G0Z4EP98YaEgL654m` for comments. AI33 metadata readback confirmed both as German `de-DE` with `standard` accent. `elevenlabs_5KvpaGteYkNayiswuX2h` is documented as a spare older German male voice. This still needs a short AI33 sound test before public use.
 - `acc2` now has a US English narrator/comment pair in `channels.json`: `elevenlabs_sB7vwSCyX0tQmU24cW2C` for title/body narration and `elevenlabs_DODLEQrClDo8wCz460ld` for comments. AI33 metadata readback confirmed both as English `en-US` with `american` accent. `elevenlabs_nzFihrBIvB34imQBuxub` is documented as a spare young English male voice. This still needs a short AI33 sound test before public use.
 - `acc6` now has a France-standard French narrator/comment pair in `channels.json`: `elevenlabs_wufFsVwuYBePWKO6dMMN` for title/body narration and `elevenlabs_i6ke7jvmGEVUyV4zjSaT` for comments. AI33 metadata readback confirmed `wuf...` as French `fr-FR` standard male and `i6...` as French `fr-FR` Parisian female. `elevenlabs_93nuHbke4dTER9x2pDwE` remains a Québec male spare. This still needs a short AI33 sound test before public use.
@@ -133,15 +143,15 @@ Current content strategy: the old "one language = one Reddit niche" plan has bee
 
 ## Known Blockers
 
-- Topic-family weights in `channels.json` are configured but not yet validated against retention/readback.
+- The new `acc1_daily_episode.yml` factory has no provider-backed GitHub artifact yet. Source availability, final voice performance, generated scene quality, thumbnail quality, render duration, and human creative acceptance remain unproven until one separately approved bounded canary.
+- A successful artifact stops at `READY_FOR_HUMAN_REVIEW`; release/upload remains a separate decision and the legacy release gate is not part of this rollout.
 - Public scheduled publishing can move past the OAuth-token blocker, but should still run one live unlisted workflow smoke after the producer queue / adapter / QA changes before switching scheduled runs to public.
 - Direct Google Gemini text routing is implemented and verified in dry-run `28703717316`: metadata and localization artifacts reported `source=google-gemini`. The key that was pasted into chat should still be treated as exposed and rotated before production use.
 - `scripts/move-to-trash.sh` is the project safe-trash helper; generated scratch artifacts should be moved through that workflow, not direct deletion commands.
  
 ## Next Steps
- 
-1. Listen to `build/audit/run_28457170166/ai33-voice-samples/20260630T154616Z/voice_samples_review.html` and decide which voices to keep or replace.
-2. Review `build/github-artifacts/run_28703717316/chonker-test-acc1/final_output.mp4`, `producer_queue.json`, `story_data.json.editorial_adaptation`, `youtube_metadata.json.packaging_options`, and `pre_publish_qa.json` for subjective topic/voice quality. If accepted, run one no-karaoke unlisted `auto_publish.yml` smoke before enabling scheduled public uploads.
-3. Add authenticated uploader readback for title, description, tags, language, privacy, channel id, and optionally thumbnail state.
-4. Run one intentional VectorEngine image generation smoke if custom thumbnail generation should be enabled in the automated path.
-5. Tune `topic_mix` weights from live candidate variety, Gemini verdicts, and YouTube retention now that account mapping is safe.
+
+1. Run one explicitly approved bounded `acc1_daily_episode.yml` canary from `main`; inspect the exact source evidence, topic playoff, voice roles, thumbnail, MP4, and all QA reports.
+2. Complete human creative review of that exact hash-bound artifact. Do not infer audience demand from a successful build.
+3. Decide separately whether to adapt the release gate and run an unlisted YouTube review with authenticated metadata/channel readback.
+4. Use 24h/72h/7d/28d retention and CTR evidence from released pilots before promoting any format or changing topic weights.

@@ -14,6 +14,7 @@ DEFAULT_METADATA = "youtube_metadata.json"
 DEFAULT_VIDEO = "final_output.mp4"
 DEFAULT_AUDIO = "narration.mp3"
 DEFAULT_TRANSCRIPT = "narration.json"
+DEFAULT_TTS_REQUEST_METADATA = "tts_request_metadata.json"
 DEFAULT_RENDER_REPORT = "render_report.json"
 DEFAULT_OUTPUT = "pre_publish_qa.json"
 WORD_RE = re.compile(r"[\wÀ-ÖØ-öø-ÿА-Яа-яЁё]+", re.UNICODE)
@@ -137,6 +138,30 @@ def transcript_status(path: Path) -> dict[str, Any]:
     }
 
 
+def tts_model_status(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"exists": False, "requested_model_id": None, "model_verification": "missing_file"}
+    try:
+        data = load_json(path)
+    except (OSError, json.JSONDecodeError, PrePublishQAError):
+        return {"exists": True, "requested_model_id": None, "model_verification": "malformed"}
+    return {
+        "exists": True,
+        "requested_model_id": data.get("requested_model_id"),
+        "required_model_id": data.get("required_model_id"),
+        "provider_reported_model_ids": data.get("provider_reported_model_ids") or [],
+        "model_verification": data.get("model_verification") or "unknown",
+    }
+
+
+def tts_model_contract_passes(status: dict[str, Any], required_model: str) -> bool:
+    return bool(
+        status.get("exists")
+        and status.get("requested_model_id") == required_model
+        and status.get("model_verification") != "provider_mismatch"
+    )
+
+
 def narration_text_parts(story: dict[str, Any]) -> list[str]:
     parts = []
     for field in ("title", "body"):
@@ -210,6 +235,7 @@ def run_qa(args: argparse.Namespace) -> dict[str, Any]:
     video_path = Path(args.video)
     audio_path = Path(args.audio)
     transcript_path = Path(args.transcript)
+    tts_metadata_path = Path(args.tts_request_metadata)
 
     add_check(checks, "video_exists", video_path.exists() and video_path.stat().st_size > 0, str(video_path))
     video_probe = ffprobe_json(video_path) if video_path.exists() else {}
@@ -249,6 +275,21 @@ def run_qa(args: argparse.Namespace) -> dict[str, Any]:
             "render_karaoke_enabled",
             bool(render_report.get("karaokeEnabled")),
             f"karaokeEnabled={render_report.get('karaokeEnabled')} frameSchedule={render_report.get('frameSchedule')}",
+            required=True,
+        )
+
+    tts_model = tts_model_status(tts_metadata_path)
+    if args.require_tts_model:
+        model_ok = tts_model_contract_passes(tts_model, args.require_tts_model)
+        add_check(
+            checks,
+            "tts_model_contract",
+            bool(model_ok),
+            (
+                f"required={args.require_tts_model} requested={tts_model.get('requested_model_id')} "
+                f"provider_reported={tts_model.get('provider_reported_model_ids')} "
+                f"verification={tts_model.get('model_verification')}"
+            ),
             required=True,
         )
 
@@ -304,6 +345,7 @@ def run_qa(args: argparse.Namespace) -> dict[str, Any]:
         "resolution": video_resolution(video_probe),
         "expectedNarrationWords": expected_words,
         "transcript": transcript,
+        "ttsModel": tts_model,
         "karaokeCoverage": round(coverage, 4),
         "failures": failures,
         "warnings": warnings,
@@ -319,6 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--video", default=DEFAULT_VIDEO)
     parser.add_argument("--audio", default=DEFAULT_AUDIO)
     parser.add_argument("--transcript", default=DEFAULT_TRANSCRIPT)
+    parser.add_argument("--tts-request-metadata", default=DEFAULT_TTS_REQUEST_METADATA)
     parser.add_argument("--render-report", default=DEFAULT_RENDER_REPORT)
     parser.add_argument("--channel", "-c")
     parser.add_argument("--output", "-o", default=DEFAULT_OUTPUT)
@@ -327,6 +370,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--require-adaptation", action="store_true")
     parser.add_argument("--require-evidence", action="store_true")
     parser.add_argument("--require-render-report", action="store_true")
+    parser.add_argument("--require-tts-model", help="Require the safe TTS audit artifact to record this requested model id.")
     parser.add_argument("--min-karaoke-coverage", type=float, default=0.72)
     parser.add_argument("--min-duration-sec", type=float, default=3.0)
     parser.add_argument("--max-duration-mismatch-sec", type=float, default=2.5)

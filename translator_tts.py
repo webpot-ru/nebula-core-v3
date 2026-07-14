@@ -21,6 +21,7 @@ AI33_TTS_URL = os.environ.get(
     f"{AI33_API_BASE}/v3/text-to-speech",
 )
 AI33_TTS_MODEL_ID = os.environ.get("AI33_TTS_MODEL_ID", "eleven_v3")
+AI33_REQUIRED_MODEL_ID = os.environ.get("AI33_REQUIRED_MODEL_ID", "eleven_v3")
 AI33_VOICE_SETTINGS_JSON = os.environ.get("AI33_VOICE_SETTINGS_JSON")
 AI33_TASK_URL_TEMPLATE = os.environ.get(
     "AI33_TASK_URL_TEMPLATE",
@@ -167,6 +168,36 @@ AUDIO_BASE64_KEYS = {
     "base64_audio",
     "audio",
     "file_base64",
+}
+
+SUBTITLE_URL_KEYS = {
+    "subtitle_url",
+    "subtitles_url",
+    "captions_url",
+    "caption_url",
+    "srt_url",
+    "vtt_url",
+    "transcript_url",
+}
+
+SUBTITLE_TEXT_KEYS = {
+    "subtitle",
+    "subtitles",
+    "caption",
+    "captions",
+    "srt",
+    "vtt",
+    "transcript_srt",
+    "transcript_vtt",
+}
+
+SUBTITLE_BASE64_KEYS = {
+    "subtitle_base64",
+    "subtitles_base64",
+    "caption_base64",
+    "captions_base64",
+    "srt_base64",
+    "vtt_base64",
 }
 
 
@@ -410,7 +441,10 @@ def translate_story_text(
     lang_code: str,
     model: str,
     temperature: float,
+    max_output_tokens: int = 16384,
 ) -> dict[str, Any]:
+    if max_output_tokens < 1024:
+        raise Ai33Error("translation max output tokens must be at least 1024")
     try:
         from vectorengine_client import VectorEngineError, call_gemini_json, gemini_source_label
     except ImportError as exc:
@@ -421,7 +455,7 @@ def translate_story_text(
             prompt=build_translation_prompt(story, channel, lang_code),
             model=model,
             temperature=temperature,
-            max_output_tokens=4096,
+            max_output_tokens=max_output_tokens,
         )
     except VectorEngineError as exc:
         raise Ai33Error(f"Gemini translation failed: {exc}") from exc
@@ -879,6 +913,76 @@ def resolve_voice_settings_json(args: argparse.Namespace) -> str | None:
     )
 
 
+def collect_reported_model_ids(payload: Any) -> list[str]:
+    """Collect sanitized model identifiers explicitly reported by AI33 task payloads."""
+    found: list[str] = []
+
+    def visit(value: Any, depth: int = 0) -> None:
+        if depth > 5:
+            return
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if str(key).casefold() in {"model", "model_id", "modelid"} and isinstance(nested, str):
+                    normalized = nested.strip()
+                    if normalized and normalized not in found:
+                        found.append(normalized)
+                elif isinstance(nested, (dict, list)):
+                    visit(nested, depth + 1)
+        elif isinstance(value, list):
+            for nested in value:
+                visit(nested, depth + 1)
+
+    visit(payload)
+    return found
+
+
+def write_tts_request_metadata(
+    *,
+    output_path: Path,
+    args: argparse.Namespace,
+    narrator_voice_id: str,
+    comment_voice_id: str,
+    voice_mode: str,
+    payloads: list[dict[str, Any]],
+) -> dict[str, Any]:
+    requested_model = str(args.model_id or "").strip()
+    required_model = str(args.require_model_id or "").strip()
+    reported_models: list[str] = []
+    for payload in payloads:
+        for model_id in collect_reported_model_ids(payload):
+            if model_id not in reported_models:
+                reported_models.append(model_id)
+
+    mismatches = [model_id for model_id in reported_models if model_id != requested_model]
+    verification = "provider_confirmed" if reported_models and not mismatches else "provider_not_reported"
+    if mismatches:
+        verification = "provider_mismatch"
+
+    metadata = {
+        "version": 1,
+        "provider": "ai33",
+        "endpoint": "/v3/text-to-speech",
+        "requested_model_id": requested_model,
+        "required_model_id": required_model or None,
+        "provider_reported_model_ids": reported_models,
+        "model_verification": verification,
+        "voice_mode": voice_mode,
+        "narrator_voice_id": narrator_voice_id,
+        "comment_voice_id": comment_voice_id,
+        "voice_settings_provided": bool(resolve_voice_settings_json(args)),
+        "speed": args.speed,
+        "segment_count": len(payloads),
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if mismatches:
+        raise Ai33Error(
+            f"AI33 reported model(s) {mismatches}, but {requested_model!r} was requested. "
+            f"Saved audit metadata to {output_path}."
+        )
+    return metadata
+
+
 def post_tts_task(
     *,
     api_key: str,
@@ -1265,9 +1369,208 @@ def words_from_character_alignment(value: Any) -> list[dict[str, Any]]:
     return words
 
 
-def collect_transcript_words(value: Any, found: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+SUBTITLE_TIMING_RE = re.compile(
+    r"(?P<start>(?:\d{1,2}:)?\d{1,2}:\d{2}[\.,]\d{1,3})\s*-->\s*"
+    r"(?P<end>(?:\d{1,2}:)?\d{1,2}:\d{2}[\.,]\d{1,3})"
+)
+
+
+def subtitle_timestamp_seconds(value: str) -> float | None:
+    raw = str(value or "").strip().replace(",", ".")
+    if not raw:
+        return None
+    parts = raw.split(":")
+    try:
+        if len(parts) == 3:
+            hours = float(parts[0])
+            minutes = float(parts[1])
+            seconds = float(parts[2])
+        elif len(parts) == 2:
+            hours = 0.0
+            minutes = float(parts[0])
+            seconds = float(parts[1])
+        else:
+            return None
+    except ValueError:
+        return None
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def clean_subtitle_text(value: str) -> str:
+    text = re.sub(r"<[^>]+>", "", str(value or ""))
+    text = re.sub(r"\{\\[^}]+\}", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def words_from_text_span(text: str, start: float, end: float, source: str) -> list[dict[str, Any]]:
+    cleaned = clean_subtitle_text(text)
+    tokens = re.findall(r"\S+", cleaned)
+    if not tokens or end <= start:
+        return []
+    weights = [max(len(token.strip()), 1) for token in tokens]
+    total_weight = max(1, sum(weights))
+    duration = end - start
+    words: list[dict[str, Any]] = []
+    cursor = start
+    for index, (token, weight) in enumerate(zip(tokens, weights)):
+        word_end = end if index == len(tokens) - 1 else cursor + duration * weight / total_weight
+        if word_end < cursor:
+            word_end = cursor
+        words.append({
+            "word": token,
+            "start": round(cursor, 3),
+            "end": round(word_end, 3),
+            "timing_source": source,
+        })
+        cursor = word_end
+    return words
+
+
+def looks_like_subtitle_text(value: str) -> bool:
+    text = str(value or "")
+    return "-->" in text and bool(SUBTITLE_TIMING_RE.search(text))
+
+
+def words_from_subtitle_text(value: str) -> list[dict[str, Any]]:
+    if not looks_like_subtitle_text(value):
+        return []
+    lines = str(value).replace("\ufeff", "").splitlines()
+    words: list[dict[str, Any]] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        match = SUBTITLE_TIMING_RE.search(line)
+        if not match:
+            index += 1
+            continue
+        start = subtitle_timestamp_seconds(match.group("start"))
+        end = subtitle_timestamp_seconds(match.group("end"))
+        index += 1
+        text_lines: list[str] = []
+        while index < len(lines) and lines[index].strip():
+            candidate = lines[index].strip()
+            if not candidate.isdigit() and not candidate.startswith(("NOTE", "STYLE", "WEBVTT")):
+                text_lines.append(candidate)
+            index += 1
+        if start is not None and end is not None and text_lines:
+            words.extend(words_from_text_span(" ".join(text_lines), start, end, "subtitle"))
+        index += 1
+    return words
+
+
+def collect_subtitle_strings(value: Any, found: list[str] | None = None) -> list[str]:
     if found is None:
         found = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_name = str(key)
+            if key_name in SUBTITLE_TEXT_KEYS and isinstance(item, str) and looks_like_subtitle_text(item):
+                found.append(item)
+            elif key_name in SUBTITLE_BASE64_KEYS and isinstance(item, str):
+                try:
+                    decoded = base64.b64decode(item.split(",", 1)[-1], validate=False).decode("utf-8", errors="replace")
+                except (binascii.Error, ValueError):
+                    decoded = ""
+                if looks_like_subtitle_text(decoded):
+                    found.append(decoded)
+            else:
+                collect_subtitle_strings(item, found)
+    elif isinstance(value, list):
+        for item in value:
+            collect_subtitle_strings(item, found)
+    elif isinstance(value, str) and looks_like_subtitle_text(value):
+        found.append(value)
+    return found
+
+
+def collect_subtitle_urls(value: Any, found: list[str] | None = None) -> list[str]:
+    if found is None:
+        found = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_name = str(key)
+            if isinstance(item, str) and item.startswith(("http://", "https://")):
+                lowered = item.lower().split("?", 1)[0]
+                if key_name in SUBTITLE_URL_KEYS or lowered.endswith((".srt", ".vtt")):
+                    found.append(item)
+            else:
+                collect_subtitle_urls(item, found)
+    elif isinstance(value, list):
+        for item in value:
+            collect_subtitle_urls(item, found)
+    return found
+
+
+def fetch_subtitle_words(payload: Any, api_key: str | None) -> list[dict[str, Any]]:
+    words: list[dict[str, Any]] = []
+    seen_texts: set[str] = set()
+    for text in collect_subtitle_strings(payload):
+        if text in seen_texts:
+            continue
+        seen_texts.add(text)
+        words.extend(words_from_subtitle_text(text))
+    if words or not api_key:
+        return words
+
+    seen_urls: set[str] = set()
+    for url in collect_subtitle_urls(payload):
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        headers = {"xi-api-key": api_key}
+        if AI33_TASK_AUTH_HEADER != "xi-api-key":
+            headers[AI33_TASK_AUTH_HEADER] = api_key
+        try:
+            response = requests.get(url, headers=headers, timeout=60)
+        except requests.RequestException:
+            continue
+        if not response.ok:
+            continue
+        fetched = response.content.decode("utf-8", errors="replace")
+        words.extend(words_from_subtitle_text(fetched))
+        if words:
+            break
+    return words
+
+
+def words_from_timed_text_item(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, dict):
+        return []
+    start_key = ""
+    start_raw = None
+    for key in ("start", "startTime", "start_time", "startMs", "start_ms", "begin", "beginTime", "begin_time", "offset", "offsetMs", "offset_ms"):
+        if key in value and value[key] is not None:
+            start_key = key
+            start_raw = value[key]
+            break
+    end_key = ""
+    end_raw = None
+    for key in ("end", "endTime", "end_time", "endMs", "end_ms", "finish", "finishTime", "finish_time", "stop", "stopTime", "stop_time"):
+        if key in value and value[key] is not None:
+            end_key = key
+            end_raw = value[key]
+            break
+    start = coerce_seconds(start_raw, start_key)
+    end = coerce_seconds(end_raw, end_key)
+    text = first_present(value, ("word", "text", "punctuated_word", "token", "value", "caption", "subtitle"))
+    if start is None or end is None or end < start or not text:
+        return []
+    source = "ai33" if len(re.findall(r"\S+", str(text))) <= 1 else "timed_text"
+    return words_from_text_span(str(text), start, end, source)
+
+
+def collect_transcript_words(value: Any, found: list[dict[str, Any]] | None = None, api_key: str | None = None) -> list[dict[str, Any]]:
+    if found is None:
+        found = []
+    subtitle_words = fetch_subtitle_words(value, api_key)
+    if subtitle_words:
+        found.extend(subtitle_words)
+        return found
+    timed_text_words = words_from_timed_text_item(value)
+    if timed_text_words:
+        found.extend(timed_text_words)
+        return found
     normalized = normalize_transcript_word(value)
     if normalized:
         found.append(normalized)
@@ -1278,10 +1581,10 @@ def collect_transcript_words(value: Any, found: list[dict[str, Any]] | None = No
             found.extend(alignment_words)
             return found
         for item in value.values():
-            collect_transcript_words(item, found)
+            collect_transcript_words(item, found, api_key=api_key)
     elif isinstance(value, list):
         for item in value:
-            collect_transcript_words(item, found)
+            collect_transcript_words(item, found, api_key=api_key)
     return found
 
 
@@ -1328,6 +1631,27 @@ TIMING_SHAPE_KEYS = {
     "timestamps",
     "transcript",
     "segments",
+    "subtitle",
+    "subtitles",
+    "caption",
+    "captions",
+    "srt",
+    "vtt",
+    "subtitle_url",
+    "subtitles_url",
+    "caption_url",
+    "captions_url",
+    "srt_url",
+    "vtt_url",
+    "transcript_url",
+    "transcript_srt",
+    "transcript_vtt",
+    "subtitle_base64",
+    "subtitles_base64",
+    "caption_base64",
+    "captions_base64",
+    "srt_base64",
+    "vtt_base64",
 }
 
 
@@ -1371,6 +1695,8 @@ def write_combined_transcript(
     segment_durations: list[float],
     narrator_voice_id: str,
     comment_voice_id: str,
+    api_key: str | None = None,
+    model_id: str | None = None,
 ) -> bool:
     words: list[dict[str, Any]] = []
     segments: list[dict[str, Any]] = []
@@ -1380,7 +1706,7 @@ def write_combined_transcript(
     missing_timing_debug: list[dict[str, Any]] = []
 
     for index, (payload, spec, duration) in enumerate(zip(segment_payloads, segment_specs, segment_durations)):
-        raw_words = collect_transcript_words(payload)
+        raw_words = collect_transcript_words(payload, api_key=api_key)
         segment_words = raw_words
         timing_source = "ai33"
         if not segment_words:
@@ -1451,6 +1777,7 @@ def write_combined_transcript(
         "timing_status": timing_status,
         "narrator_voice_id": narrator_voice_id,
         "comment_voice_id": comment_voice_id,
+        "requested_model_id": model_id,
         "duration": round(offset, 3),
         "segments": segments,
         "words": usable_words,
@@ -1474,8 +1801,10 @@ def write_single_voice_transcript(
     narration_text: str,
     audio_duration: float,
     voice_id: str,
+    api_key: str | None = None,
+    model_id: str | None = None,
 ) -> bool:
-    raw_words = collect_transcript_words(payload)
+    raw_words = collect_transcript_words(payload, api_key=api_key)
     words = raw_words
     timing_status = "ok"
     timing_source = "ai33"
@@ -1514,6 +1843,7 @@ def write_single_voice_transcript(
         "source": "translator_tts_single_voice",
         "timing_status": timing_status,
         "voice_id": voice_id,
+        "requested_model_id": model_id,
         "duration": round(audio_duration, 3),
         "words": normalized_words if timing_status in {"ok", "estimated"} else [],
         "word_count": len(normalized_words) if timing_status in {"ok", "estimated"} else 0,
@@ -1602,6 +1932,13 @@ def process_story_audio(args: argparse.Namespace) -> None:
     story_path = Path(args.story).resolve()
     output_path = Path(args.output or f"narration_{lang_code}.mp3").resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    requested_model = str(args.model_id or "").strip()
+    required_model = str(args.require_model_id or "").strip()
+    if required_model and requested_model != required_model:
+        raise Ai33Error(
+            f"AI33 model preflight failed: required {required_model!r}, got {requested_model or '(omitted)'!r}."
+        )
+    request_metadata_path = Path(args.request_metadata_output).resolve()
 
     story = load_story(story_path)
     translation_needed = should_translate_story(story, lang_code, args)
@@ -1614,6 +1951,7 @@ def process_story_audio(args: argparse.Namespace) -> None:
             lang_code=lang_code,
             model=args.translation_model,
             temperature=args.translation_temperature,
+            max_output_tokens=args.translation_max_output_tokens,
         )
 
     sanitization_changes = 0
@@ -1703,6 +2041,15 @@ def process_story_audio(args: argparse.Namespace) -> None:
 
         concat_audio_segments(segment_paths, output_path)
         print(f"Saved multi-voice audio to {output_path}")
+        write_tts_request_metadata(
+            output_path=request_metadata_path,
+            args=args,
+            narrator_voice_id=voice_id,
+            comment_voice_id=comment_voice_id,
+            voice_mode="multi_voice",
+            payloads=segment_payloads,
+        )
+        print(f"Saved AI33 request/model metadata to {request_metadata_path}")
 
         if args.with_transcript:
             transcript_path = output_path.with_suffix(".json")
@@ -1713,6 +2060,8 @@ def process_story_audio(args: argparse.Namespace) -> None:
                 segment_durations=segment_durations,
                 narrator_voice_id=voice_id,
                 comment_voice_id=comment_voice_id,
+                api_key=api_key,
+                model_id=args.model_id,
             )
             if transcript_has_word_timings:
                 print(f"Saved combined transcript/metadata to {transcript_path}")
@@ -1740,6 +2089,15 @@ def process_story_audio(args: argparse.Namespace) -> None:
 
     if write_audio_from_payload(payload, output_path, api_key):
         print(f"Saved audio to {output_path}")
+        write_tts_request_metadata(
+            output_path=request_metadata_path,
+            args=args,
+            narrator_voice_id=voice_id,
+            comment_voice_id=comment_voice_id,
+            voice_mode="single_voice",
+            payloads=[payload],
+        )
+        print(f"Saved AI33 request/model metadata to {request_metadata_path}")
         if args.with_transcript:
             transcript_path = output_path.with_suffix(".json")
             ffprobe = find_binary("ffprobe")
@@ -1749,6 +2107,8 @@ def process_story_audio(args: argparse.Namespace) -> None:
                 narration_text=narration_text,
                 audio_duration=probe_audio_duration(ffprobe, output_path),
                 voice_id=voice_id,
+                api_key=api_key,
+                model_id=args.model_id,
             )
             if transcript_has_word_timings:
                 print(f"Saved task transcript/metadata to {transcript_path}")
@@ -1764,7 +2124,16 @@ def process_story_audio(args: argparse.Namespace) -> None:
     if args.no_poll:
         task_path = output_path.with_suffix(".ai33-task.json")
         task_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_tts_request_metadata(
+            output_path=request_metadata_path,
+            args=args,
+            narrator_voice_id=voice_id,
+            comment_voice_id=comment_voice_id,
+            voice_mode="single_voice_submission_only",
+            payloads=[payload],
+        )
         print(f"Polling disabled. Saved task metadata to {task_path}")
+        print(f"Saved AI33 request/model metadata to {request_metadata_path}")
         return
 
     payload = poll_for_audio(
@@ -1775,6 +2144,15 @@ def process_story_audio(args: argparse.Namespace) -> None:
         poll_interval=args.poll_interval,
     )
     print(f"Saved audio to {output_path}")
+    write_tts_request_metadata(
+        output_path=request_metadata_path,
+        args=args,
+        narrator_voice_id=voice_id,
+        comment_voice_id=comment_voice_id,
+        voice_mode="single_voice",
+        payloads=[payload],
+    )
+    print(f"Saved AI33 request/model metadata to {request_metadata_path}")
 
     if args.with_transcript:
         transcript_path = output_path.with_suffix(".json")
@@ -1785,6 +2163,8 @@ def process_story_audio(args: argparse.Namespace) -> None:
             narration_text=narration_text,
             audio_duration=probe_audio_duration(ffprobe, output_path),
             voice_id=voice_id,
+            api_key=api_key,
+            model_id=args.model_id,
         )
         if transcript_has_word_timings:
             print(f"Saved task transcript/metadata to {transcript_path}")
@@ -1819,6 +2199,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--translation-model", default="gemini-3.5-flash", help="Gemini model for story localization.")
     parser.add_argument("--translation-temperature", type=float, default=0.2, help="Gemini temperature for story localization.")
+    parser.add_argument(
+        "--translation-max-output-tokens",
+        type=int,
+        default=int(os.environ.get("GEMINI_TRANSLATION_MAX_OUTPUT_TOKENS", "16384")),
+        help="Maximum Gemini output tokens for one full-story translation (default: 16384).",
+    )
     parser.add_argument("--env-file", action="append", default=[], help="Optional env file to load before Gemini/AI33 calls.")
     parser.add_argument("--voice-id", help="AI33 prefixed voice_id from Voice Library.")
     parser.add_argument("--comment-voice-id", help="AI33 prefixed voice_id for comment segments.")
@@ -1843,6 +2229,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--model-id",
         default=AI33_TTS_MODEL_ID,
         help="AI33/ElevenLabs model_id sent with TTS requests (default: eleven_v3).",
+    )
+    parser.add_argument(
+        "--require-model-id",
+        default=AI33_REQUIRED_MODEL_ID,
+        help="Fail before TTS when --model-id differs from this required model (default: eleven_v3).",
+    )
+    parser.add_argument(
+        "--request-metadata-output",
+        default="tts_request_metadata.json",
+        help="Safe JSON audit artifact for requested/reported TTS model and voice settings.",
     )
     parser.add_argument(
         "--voice-settings-json",
