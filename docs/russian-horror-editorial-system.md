@@ -69,7 +69,7 @@ An ambiguous ending is acceptable when the story resolves the protagonist's emot
 
 ## Current Implementation Boundary
 
-The local `acc1` factory now implements an artifact-only pilot path: bounded source collection, source review, source-preserving Russian translation, scene/image planning, AI33 narration, Reddit-card/cat rendering, media QA, and a `READY_FOR_HUMAN_REVIEW` ceiling. It does not yet implement the full rights-cleared product in this document: there is no recorded rights manifest, author-clearance workflow, or publication authorization. The OpenAI-capable factory revision is also not yet merged to GitHub `main`; current deployment status belongs in [`PROJECT_STATE.md`](PROJECT_STATE.md).
+The `acc1` factory now implements an artifact-only pilot path on GitHub `main`: bounded source collection, source review, source-preserving Russian translation, scene/image planning, AI33 narration, Reddit-card/cat rendering, media QA, and a `READY_FOR_HUMAN_REVIEW` ceiling. It does not yet implement the full rights-cleared product in this document: there is no recorded rights manifest, author-clearance workflow, or publication authorization. Current deployment status belongs in [`PROJECT_STATE.md`](PROJECT_STATE.md).
 
 Before an `acc1` production pilot, implementation therefore needs:
 
@@ -81,6 +81,6 @@ Before an `acc1` production pilot, implementation therefore needs:
 6. metadata generation from the approved Russian script;
 7. scene-based storyboard and editorial QA gates.
 
-Until those exist, an artifact may prove source and render readiness only; it cannot authorize distribution. The local configuration keeps legacy automation blocked, while GitHub `main` must receive that hold separately before its scheduled legacy workflow can be considered safe.
+Until those exist, an artifact may prove source and render readiness only; it cannot authorize distribution. Both the local configuration and GitHub `main` keep legacy automation blocked.
 
 The isolated implementation plan lives in [`../specs/acc1-automated-reddit-pilot/README.md`](../specs/acc1-automated-reddit-pilot/README.md). A local deterministic contract or selector does not mean that a paid pilot has run.
