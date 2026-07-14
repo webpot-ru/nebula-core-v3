@@ -134,6 +134,18 @@ def reddit_media_manifest(post) -> list[dict]:
     """Return ordered metadata for native static Reddit images without downloading them."""
     assets: list[dict] = []
     seen: set[str] = set()
+    # PRAW lazily fetches a submission when an absent attribute is accessed
+    # through ``getattr``.  Candidate rows already carry the listing payload,
+    # so media inspection must stay inside that hydrated snapshot; otherwise
+    # building a source-only queue can silently consume one HTTP request per
+    # candidate and exhaust the bounded Reddit budget.
+    try:
+        loaded = vars(post)
+    except TypeError:
+        loaded = {}
+
+    def loaded_value(name: str, default=None):
+        return loaded.get(name, default)
 
     def append_asset(*, media_id: str, url, width=0, height=0, caption="", order=0) -> None:
         safe_url = _safe_reddit_image_url(url)
@@ -152,8 +164,8 @@ def reddit_media_manifest(post) -> list[dict]:
             "download_status": "not_downloaded",
         })
 
-    gallery_data = getattr(post, "gallery_data", None) or {}
-    media_metadata = getattr(post, "media_metadata", None) or {}
+    gallery_data = loaded_value("gallery_data") or {}
+    media_metadata = loaded_value("media_metadata") or {}
     for order, item in enumerate(gallery_data.get("items") or []):
         if not isinstance(item, dict):
             continue
@@ -176,21 +188,21 @@ def reddit_media_manifest(post) -> list[dict]:
     if assets:
         return assets
 
-    preview = getattr(post, "preview", None) or {}
+    preview = loaded_value("preview") or {}
     images = preview.get("images") or []
     if images and isinstance(images[0], dict):
         source = images[0].get("source") or {}
         append_asset(
-            media_id=str(getattr(post, "id", "image")),
+            media_id=str(loaded_value("id", "image")),
             url=source.get("url"),
             width=source.get("width"),
             height=source.get("height"),
         )
 
-    if not assets and str(getattr(post, "post_hint", "")) == "image":
+    if not assets and str(loaded_value("post_hint", "")) == "image":
         append_asset(
-            media_id=str(getattr(post, "id", "image")),
-            url=getattr(post, "url_overridden_by_dest", None) or getattr(post, "url", None),
+            media_id=str(loaded_value("id", "image")),
+            url=loaded_value("url_overridden_by_dest") or loaded_value("url"),
         )
     return assets
 

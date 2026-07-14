@@ -1,4 +1,5 @@
 name: Reddit Source Smoke
+run-name: Reddit source ${{ inputs.review_label }} ${{ inputs.channel }} ${{ inputs.topic_family }} pilot=${{ inputs.acc1_pilot_id }} slot=${{ inputs.video_slot }}
 
 on:
   workflow_dispatch:
@@ -24,6 +25,53 @@ on:
         options:
           - "1"
           - "2"
+      topic_family:
+        description: Force one family for comparable source evidence, or use channel_mix
+        required: true
+        default: human_drama
+        type: choice
+        options:
+          - channel_mix
+          - human_drama
+          - dark_curiosity
+          - curiosity_facts
+          - football_culture
+          - internet_lore
+          - visual_comedy
+      time_filter:
+        description: Reddit top time filter; auto uses the configured family window
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - day
+          - week
+          - month
+          - year
+      format_intent:
+        description: Candidate completeness rules for the intended video format
+        required: true
+        default: shorts
+        type: choice
+        options:
+          - shorts
+          - shorts_from_long
+          - long
+          - saga
+      acc1_pilot_id:
+        description: Execute one canonical acc1 pilot source plan, or none for legacy/channel-family review
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - pilot_01
+          - pilot_02
+          - pilot_03
+          - pilot_04
+          - pilot_05
+          - pilot_06
       candidate_limit:
         description: Maximum posts fetched per bounded source
         required: true
@@ -32,14 +80,79 @@ on:
         options:
           - "5"
           - "10"
+      max_subreddits_per_topic:
+        description: Bounded subreddit count for the selected family
+        required: true
+        default: "2"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "4"
+      max_time_windows_per_topic:
+        description: Bounded time-window count for auto mode
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "2"
+      review_label:
+        description: Human-readable snapshot label stored in artifact metadata
+        required: true
+        default: snapshot-a
+        type: string
+      acc1_source_mode:
+        description: Source lane for acc1 compilation manifest
+        required: false
+        default: nosleep
+        type: choice
+        options:
+          - nosleep
+          - letsnotmeet
+      acc1_story_count:
+        description: Complete stories in the acc1 compilation manifest
+        required: false
+        default: "3"
+        type: choice
+        options:
+          - "3"
+          - "4"
+          - "5"
+          - "6"
+      acc1_visuals_per_story:
+        description: Paid GPT Image 2 scene visuals per story when the compilation branch is approved
+        required: false
+        default: "4"
+        type: choice
+        options:
+          - "3"
+          - "4"
+          - "5"
+      run_compilation_pilot:
+        description: Run the artifact-only acc1 compilation lane after source review
+        required: false
+        default: false
+        type: boolean
+      confirm_provider_spend:
+        description: Explicitly allow Gemini, GPT Image 2 and AI33 for the compilation lane
+        required: false
+        default: false
+        type: boolean
+      resume_artifact_run_id:
+        description: Prior compatible run ID whose translation checkpoints should be restored
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   reddit-source-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -50,11 +163,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Reddit dependency
-        run: python -m pip install praw
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
 
-      - name: Run credential unit tests
-        run: python -m unittest tests/test_scraper_reddit_config.py
+      - name: Run local unit tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
 
       - name: Verify Reddit credential wiring
         env:
@@ -74,19 +187,35 @@ jobs:
           REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
           AI_QUALITY_CHECK: "0"
           AI_QUALITY_FAIL_OPEN: "0"
-          MAX_SUBREDDITS_PER_TOPIC: "1"
-          MAX_TIME_WINDOWS_PER_TOPIC: "1"
+          MAX_SUBREDDITS_PER_TOPIC: ${{ inputs.max_subreddits_per_topic }}
+          MAX_TIME_WINDOWS_PER_TOPIC: ${{ inputs.max_time_windows_per_topic }}
         run: |
-          set -o pipefail
+          set -euo pipefail
           mkdir -p /tmp/reddit-source-smoke
+          TOPIC_ARGS=()
+          PILOT_ARGS=()
+          FORMAT_ARGS=()
+          if [ "${{ inputs.acc1_pilot_id }}" != "none" ]; then
+            test "${{ inputs.channel }}" = "acc1"
+            PILOT_ARGS+=(--pilot-id "${{ inputs.acc1_pilot_id }}")
+          else
+            if [ "${{ inputs.topic_family }}" != "channel_mix" ]; then
+              TOPIC_ARGS+=(--topic-family "${{ inputs.topic_family }}")
+            fi
+            FORMAT_ARGS+=(--format-intent "${{ inputs.format_intent }}")
+          fi
           python scraper.py \
             --channel "${{ inputs.channel }}" \
-            --time auto \
+            --time "${{ inputs.time_filter }}" \
             --video-slot "${{ inputs.video_slot }}" \
+            "${TOPIC_ARGS[@]}" \
+            "${PILOT_ARGS[@]}" \
+            "${FORMAT_ARGS[@]}" \
             --max-ai-candidates 0 \
             --candidate-limit "${{ inputs.candidate_limit }}" \
             --comment-limit 0 \
-            --format-intent shorts \
+            --allow-disabled-channel \
+            --include-source-body-in-queue \
             --no-save-history \
             --output /tmp/reddit-source-smoke/story.json \
             --producer-queue-output /tmp/reddit-source-smoke/queue.json \
@@ -94,12 +223,225 @@ jobs:
 
       - name: Record smoke metadata
         if: always()
+        env:
+          REVIEW_CHANNEL: ${{ inputs.channel }}
+          REVIEW_VIDEO_SLOT: ${{ inputs.video_slot }}
+          REVIEW_TOPIC_FAMILY: ${{ inputs.topic_family }}
+          REVIEW_TIME_FILTER: ${{ inputs.time_filter }}
+          REVIEW_FORMAT_INTENT: ${{ inputs.format_intent }}
+          REVIEW_ACC1_PILOT_ID: ${{ inputs.acc1_pilot_id }}
+          REVIEW_CANDIDATE_LIMIT: ${{ inputs.candidate_limit }}
+          REVIEW_MAX_SUBREDDITS: ${{ inputs.max_subreddits_per_topic }}
+          REVIEW_MAX_TIME_WINDOWS: ${{ inputs.max_time_windows_per_topic }}
+          REVIEW_LABEL: ${{ inputs.review_label }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
         run: |
+          set -euo pipefail
           mkdir -p /tmp/reddit-source-smoke
-          printf 'channel=%s\n' '${{ inputs.channel }}' > /tmp/reddit-source-smoke/run-metadata.txt
-          printf 'video_slot=%s\n' '${{ inputs.video_slot }}' >> /tmp/reddit-source-smoke/run-metadata.txt
-          printf 'candidate_limit=%s\n' '${{ inputs.candidate_limit }}' >> /tmp/reddit-source-smoke/run-metadata.txt
-          printf 'smoke_outcome=%s\n' '${{ steps.smoke.outcome }}' >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'channel=%s\n' "$REVIEW_CHANNEL" > /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'video_slot=%s\n' "$REVIEW_VIDEO_SLOT" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'requested_topic_family=%s\n' "$REVIEW_TOPIC_FAMILY" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'time_filter=%s\n' "$REVIEW_TIME_FILTER" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'requested_format_intent=%s\n' "$REVIEW_FORMAT_INTENT" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'acc1_pilot_id=%s\n' "$REVIEW_ACC1_PILOT_ID" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'candidate_limit=%s\n' "$REVIEW_CANDIDATE_LIMIT" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'max_subreddits_per_topic=%s\n' "$REVIEW_MAX_SUBREDDITS" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'max_time_windows_per_topic=%s\n' "$REVIEW_MAX_TIME_WINDOWS" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'review_label=%s\n' "$REVIEW_LABEL" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'git_sha=%s\n' "$GITHUB_SHA" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'ai_quality_check=0\n' >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'smoke_outcome=%s\n' "$SMOKE_OUTCOME" >> /tmp/reddit-source-smoke/run-metadata.txt
+          if [ "$REVIEW_ACC1_PILOT_ID" != "none" ]; then
+            printf 'preliminary_story_artifact=story.json\n' >> /tmp/reddit-source-smoke/run-metadata.txt
+            printf 'source_handoff_authority=greenlight-draft.json+queue.json\n' >> /tmp/reddit-source-smoke/run-metadata.txt
+          fi
+          python -c 'import json, pathlib; p=pathlib.Path("/tmp/reddit-source-smoke/queue.json"); q=json.loads(p.read_text()) if p.is_file() else {}; plan=q.get("source_plan") or {}; out=pathlib.Path("/tmp/reddit-source-smoke/run-metadata.txt"); f=out.open("a", encoding="utf-8"); print("effective_topic_family=" + str(plan.get("topic_family") or "mixed_or_unresolved"), file=f); print("effective_format_intent=" + str(q.get("format_intent") or "unresolved"), file=f); f.close()'
+          if [ -f channels.json ]; then
+            cp channels.json /tmp/reddit-source-smoke/channels-snapshot.json
+            CONFIG_SHA=$(sha256sum channels.json | cut -d' ' -f1)
+            printf 'channels_sha256=%s\n' "$CONFIG_SHA" >> /tmp/reddit-source-smoke/run-metadata.txt
+          fi
+
+      - name: Build deterministic full-body topic review
+        if: always()
+        run: |
+          python scripts/review_reddit_topics.py \
+            --queue /tmp/reddit-source-smoke/queue.json \
+            --output /tmp/reddit-source-smoke/topic-review.json \
+            --top-n 6 \
+            --allow-missing
+
+      - name: Build fail-closed acc1 SAGA greenlight draft
+        if: >-
+          always() && inputs.channel == 'acc1' &&
+          (inputs.acc1_pilot_id == 'pilot_01' ||
+           inputs.acc1_pilot_id == 'pilot_02' ||
+           inputs.acc1_pilot_id == 'pilot_03')
+        run: |
+          python scripts/build_acc1_greenlight_template.py \
+            --queue /tmp/reddit-source-smoke/queue.json \
+            --review /tmp/reddit-source-smoke/topic-review.json \
+            --output /tmp/reddit-source-smoke/greenlight-draft.json
+
+      - name: Require compatible acc1 horror compilation scope
+        if: inputs.run_compilation_pilot
+        run: |
+          test '${{ inputs.channel }}' = 'acc1'
+          test '${{ inputs.acc1_pilot_id }}' = 'none'
+          test '${{ inputs.topic_family }}' = 'dark_curiosity'
+          test '${{ inputs.format_intent }}' = 'long'
+          test '${{ inputs.time_filter }}' = 'month' -o '${{ inputs.time_filter }}' = 'year'
+
+      - name: Build acc1 horror compilation manifest
+        if: inputs.run_compilation_pilot
+        run: |
+          python scripts/select_acc1_pilots.py \
+            --queue /tmp/reddit-source-smoke/queue.json \
+            --review /tmp/reddit-source-smoke/topic-review.json \
+            --output /tmp/reddit-source-smoke/compilation-manifest.json \
+            --story-count "${{ inputs.acc1_story_count }}" \
+            --source-mode "${{ inputs.acc1_source_mode }}" \
+            --time-filter "${{ inputs.time_filter }}"
+
+      - name: Require explicit compilation spend confirmation
+        if: inputs.run_compilation_pilot
+        run: test '${{ inputs.confirm_provider_spend }}' = 'true'
+
+      - name: Restore compatible translation checkpoints
+        if: inputs.run_compilation_pilot && inputs.resume_artifact_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_RUN_ID: ${{ inputs.resume_artifact_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/reddit-resume /tmp/reddit-source-smoke/translation-checkpoints
+          gh run download "$RESUME_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "reddit-source-smoke-acc1-$RESUME_RUN_ID" \
+            --dir /tmp/reddit-resume
+          test -d /tmp/reddit-resume/translation-checkpoints
+          cp /tmp/reddit-resume/translation-checkpoints/*.json /tmp/reddit-source-smoke/translation-checkpoints/
+          if [ -d /tmp/reddit-resume/images ] && [ -f /tmp/reddit-resume/compilation-script-with-images.json ]; then
+            cp -R /tmp/reddit-resume/images /tmp/reddit-source-smoke/images
+          fi
+          if [ -d /tmp/reddit-resume/tts ]; then
+            cp -R /tmp/reddit-resume/tts /tmp/reddit-source-smoke/tts
+          fi
+
+      - name: Install compilation dependencies
+        if: inputs.run_compilation_pilot
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Translate and review compilation stories
+        if: inputs.run_compilation_pilot
+        env:
+          GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          GEMINI_TRANSLATION_MAX_OUTPUT_TOKENS: "16384"
+        run: |
+          python compilation_pipeline.py \
+            --manifest /tmp/reddit-source-smoke/compilation-manifest.json \
+            --output /tmp/reddit-source-smoke/compilation-script.json \
+            --checkpoint-dir /tmp/reddit-source-smoke/translation-checkpoints --confirm-spend
+
+      - name: Generate compilation packaging
+        if: inputs.run_compilation_pilot
+        env:
+          GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          python compilation_metadata.py \
+            --compilation /tmp/reddit-source-smoke/compilation-script.json \
+            --output /tmp/reddit-source-smoke/youtube-metadata.json --confirm-spend
+
+      - name: Generate GPT Image 2 story visuals
+        if: inputs.run_compilation_pilot
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          RESUME_IMAGE_ARGS=()
+          if [ -f /tmp/reddit-resume/compilation-script-with-images.json ]; then
+            RESUME_IMAGE_ARGS+=(--resume-compilation /tmp/reddit-resume/compilation-script-with-images.json)
+          fi
+          python compilation_images.py \
+            --compilation /tmp/reddit-source-smoke/compilation-script.json \
+            --output-dir /tmp/reddit-source-smoke/images \
+            --updated-compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
+            --model gpt-image-2 --size 1536x864 \
+            --images-per-story "${{ inputs.acc1_visuals_per_story }}" \
+            "${RESUME_IMAGE_ARGS[@]}" --confirm-spend
+
+      - name: Compose deterministic Cyrillic thumbnail
+        if: inputs.run_compilation_pilot
+        run: |
+          THUMBNAIL_BASE=$(python -c "import json; c=json.load(open('/tmp/reddit-source-smoke/compilation-script-with-images.json')); print(next(a['local_path'] for s in c['stories'] for a in s.get('generated_media', []) if a.get('download_status') == 'verified'))")
+          python thumbnail_generator.py \
+            --metadata /tmp/reddit-source-smoke/youtube-metadata.json \
+            --base-image "$THUMBNAIL_BASE" \
+            --output /tmp/reddit-source-smoke/youtube-thumbnail.png \
+            --report /tmp/reddit-source-smoke/thumbnail-report.json
+
+      - name: Build compilation storyboard
+        if: inputs.run_compilation_pilot
+        run: |
+          cp assets/acc1/video/chonker-reading-loop-v1.mp4 \
+            /tmp/reddit-source-smoke/chonker-reading-loop-v1.mp4
+          python compilation_storyboard.py \
+            --compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
+            --artifact-root /tmp/reddit-source-smoke \
+            --background-video /tmp/reddit-source-smoke/chonker-reading-loop-v1.mp4 \
+            --output /tmp/reddit-source-smoke/compilation-storyboard.json
+
+      - name: Generate resumable Eleven v3 narration
+        if: inputs.run_compilation_pilot
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+        run: |
+          VOICE_ID=$(python -c "import json; print(next(c['tts_voice'] for c in json.load(open('channels.json'))['channels'] if c['id']=='acc1'))")
+          python compilation_tts_runner.py \
+            --compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
+            --output-dir /tmp/reddit-source-smoke/tts --voice-id "$VOICE_ID" \
+            --model-id eleven_v3 --confirm-spend
+
+      - name: Render compilation MP4
+        if: inputs.run_compilation_pilot
+        run: |
+          python compilation_renderer.py \
+            --storyboard /tmp/reddit-source-smoke/compilation-storyboard.json \
+            --artifact-root /tmp/reddit-source-smoke \
+            --audio /tmp/reddit-source-smoke/tts/compilation_narration.mp3 \
+            --output /tmp/reddit-source-smoke/final_output.mp4 \
+            --report /tmp/reddit-source-smoke/render-report.json
+
+      - name: Run fail-closed compilation QA
+        if: inputs.run_compilation_pilot
+        run: |
+          VOICE_ID=$(python -c "import json; print(next(c['tts_voice'] for c in json.load(open('channels.json'))['channels'] if c['id']=='acc1'))")
+          python compilation_qa.py \
+            --compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
+            --metadata /tmp/reddit-source-smoke/youtube-metadata.json \
+            --tts-state /tmp/reddit-source-smoke/tts/compilation_tts_state.json \
+            --storyboard /tmp/reddit-source-smoke/compilation-storyboard.json \
+            --render-report /tmp/reddit-source-smoke/render-report.json \
+            --artifact-root /tmp/reddit-source-smoke \
+            --video /tmp/reddit-source-smoke/final_output.mp4 \
+            --thumbnail /tmp/reddit-source-smoke/youtube-thumbnail.png \
+            --expected-voice-id "$VOICE_ID" \
+            --output /tmp/reddit-source-smoke/compilation-qa.json
+
+      - name: Create fail-closed creative review template
+        if: inputs.run_compilation_pilot
+        run: |
+          python scripts/build_acc1_creative_review_template.py \
+            --video /tmp/reddit-source-smoke/final_output.mp4 \
+            --thumbnail /tmp/reddit-source-smoke/youtube-thumbnail.png \
+            --output /tmp/reddit-source-smoke/creative-review.json
 
       - name: Upload Reddit smoke evidence
         if: always()

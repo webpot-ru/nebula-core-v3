@@ -77,7 +77,13 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 360", workflow)
 
     def test_every_external_provider_has_exact_confirmation_and_cap(self):
-        for provider in ("reddit_read", "gemini_spend", "image_spend", "ai33_spend"):
+        for provider in (
+            "reddit_read",
+            "gemini_spend",
+            "openai_spend",
+            "image_spend",
+            "ai33_spend",
+        ):
             declaration = re.search(
                 rf"^      confirm_{provider}:\n(?P<body>(?:        .+\n)+)",
                 self.workflow,
@@ -87,12 +93,69 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             self.assertIn("type: boolean", declaration.group("body"))
             self.assertIn("default: false", declaration.group("body"))
 
-        for cap in ("reddit_request_cap", "gemini_call_cap", "image_call_cap", "ai33_call_cap"):
+        for cap in (
+            "reddit_request_cap",
+            "gemini_call_cap",
+            "openai_call_cap",
+            "openai_token_cap",
+            "image_call_cap",
+            "ai33_call_cap",
+        ):
             self.assertIn(f"      {cap}:\n", self.workflow)
             self.assertIn(f'--{cap.replace("_", "-")} "$', self.workflow)
         self.assertRegex(
             self.workflow,
             r'ai33_call_cap:\n(?:        .+\n)+?        default: "96"',
+        )
+        self.assertIn(
+            '      openai_call_cap:\n'
+            '        description: Hard cap for OpenAI translation calls in this episode run\n'
+            '        required: true\n'
+            '        default: "96"\n'
+            '        type: choice\n'
+            '        options: ["16", "24", "32", "48", "64", "96"]\n',
+            self.workflow,
+        )
+        self.assertIn(
+            '      openai_token_cap:\n'
+            '        description: Hard cap for OpenAI translation tokens in this episode run\n'
+            '        required: true\n'
+            '        default: "500000"\n'
+            '        type: choice\n'
+            '        options: ["100000", "250000", "500000", "750000"]\n',
+            self.workflow,
+        )
+
+    def test_openai_secret_is_scoped_to_paid_preflight_and_produce(self):
+        workflow = self.workflow
+        secret_binding = "OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}"
+        self.assertEqual(workflow.count(secret_binding), 2)
+
+        plan_job, build_job = workflow.split("\n  build:\n", 1)
+        self.assertNotIn("OPENAI_API_KEY", plan_job)
+        source_section = build_job.split(
+            "- name: Build source evidence before any paid stage", 1,
+        )[1].split(
+            "- name: Refuse cross-date reserved-source overlap before paid stages", 1,
+        )[0]
+        lease_section = build_job.split(
+            "- name: Create exact source-bound paid spend lease", 1,
+        )[1].split(
+            "- name: Persist paid spend lease before the first paid request", 1,
+        )[0]
+        self.assertNotIn("OPENAI_API_KEY", source_section)
+        self.assertNotIn("OPENAI_API_KEY", lease_section)
+
+        for step_name in (
+            "Run source-dependent paid preflight before lease",
+            "Produce review-ready episode artifact",
+        ):
+            section = build_job.split(f"- name: {step_name}", 1)[1]
+            self.assertIn(secret_binding, section.split("- name:", 1)[0])
+
+        self.assertIn(
+            '"openai_translation_attempts": root / "provider-attempts" / "openai-translation.json"',
+            workflow,
         )
 
     def test_source_precedes_every_paid_stage_and_quality_ai_is_off(self):

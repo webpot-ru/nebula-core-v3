@@ -51,12 +51,22 @@ on:
       content_format:
         description: 'Content length target for the dry-run artifact'
         required: false
-        default: 'shorts'
+        default: 'auto'
         type: choice
         options:
           - auto
           - shorts
           - long
+      voice_settings_profile:
+        description: 'AI33/ElevenLabs voice settings for this dry-run'
+        required: false
+        default: 'default'
+        type: choice
+        options:
+          - default
+          - creative
+          - natural
+          - robust
 
 jobs:
   render-dry-run:
@@ -94,13 +104,18 @@ jobs:
             TOPIC_FAMILY=""
           fi
           VIDEO_SLOT="${{ github.event.inputs.video_slot || '1' }}"
-          CONTENT_FORMAT="${{ github.event.inputs.content_format || 'shorts' }}"
+          CONTENT_FORMAT="${{ github.event.inputs.content_format || 'auto' }}"
+          if [ "$CONTENT_FORMAT" = "auto" ]; then
+            if [ "$CHANNEL_ID" = "acc1" ]; then CONTENT_FORMAT="long"; else CONTENT_FORMAT="shorts"; fi
+          fi
+          VOICE_SETTINGS_PROFILE="${{ github.event.inputs.voice_settings_profile || 'default' }}"
           echo "channel_id=${CHANNEL_ID}" >> $GITHUB_OUTPUT
           echo "time_filter=${TIME_FILTER}" >> $GITHUB_OUTPUT
           echo "topic_family=${TOPIC_FAMILY}" >> $GITHUB_OUTPUT
           echo "video_slot=${VIDEO_SLOT}" >> $GITHUB_OUTPUT
           echo "content_format=${CONTENT_FORMAT}" >> $GITHUB_OUTPUT
-          echo "📺 dry-run ${CHANNEL_ID} | slot=${VIDEO_SLOT} | filter=${TIME_FILTER} | topic=${TOPIC_FAMILY:-mixed} | format=${CONTENT_FORMAT}"
+          echo "voice_settings_profile=${VOICE_SETTINGS_PROFILE}" >> $GITHUB_OUTPUT
+          echo "📺 dry-run ${CHANNEL_ID} | slot=${VIDEO_SLOT} | filter=${TIME_FILTER} | topic=${TOPIC_FAMILY:-mixed} | format=${CONTENT_FORMAT} | voice=${VOICE_SETTINGS_PROFILE}"
 
       - name: Fetch viral story from Reddit
         env:
@@ -123,7 +138,11 @@ jobs:
             EXTRA_ARGS+=(--topic-family "${{ steps.target.outputs.topic_family }}")
           fi
           if [ "${{ steps.target.outputs.content_format }}" = "shorts" ]; then
-            EXTRA_ARGS+=(--format-intent shorts --comment-limit 0)
+            if [ "${{ steps.target.outputs.channel_id }}" = "acc1" ]; then
+              EXTRA_ARGS+=(--format-intent shorts_from_long --comment-limit 0)
+            else
+              EXTRA_ARGS+=(--format-intent shorts --comment-limit 0)
+            fi
           elif [ "${{ steps.target.outputs.content_format }}" = "long" ]; then
             EXTRA_ARGS+=(--format-intent long)
           fi
@@ -141,6 +160,9 @@ jobs:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
           ADAPTER_ARGS=()
+          if [ "${{ steps.target.outputs.content_format }}" = "shorts" ] && [ "${{ steps.target.outputs.channel_id }}" = "acc1" ]; then
+            ADAPTER_ARGS+=(--long-to-short --max-body-chars 2200)
+          fi
           python story_adapter.py \
             --channel ${{ steps.target.outputs.channel_id }} \
             --story story_data.json \
@@ -170,7 +192,26 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
-          python translator_tts.py --channel ${{ steps.target.outputs.channel_id }} --output narration.mp3
+          TTS_ARGS=()
+          case "${{ steps.target.outputs.voice_settings_profile }}" in
+            creative)
+              TTS_ARGS+=(--voice-settings-json '{"stability":0.35,"similarity_boost":0.75,"style":0}')
+              ;;
+            natural)
+              TTS_ARGS+=(--voice-settings-json '{"stability":0.5,"similarity_boost":0.75,"style":0}')
+              ;;
+            robust)
+              TTS_ARGS+=(--voice-settings-json '{"stability":0.7,"similarity_boost":0.75,"style":0}')
+              ;;
+          esac
+          python translator_tts.py \
+            --channel ${{ steps.target.outputs.channel_id }} \
+            --output narration.mp3 \
+            --model-id eleven_v3 \
+            --require-model-id eleven_v3 \
+            --request-metadata-output tts_request_metadata.json \
+            --with-transcript \
+            "${TTS_ARGS[@]}"
 
       - name: Generate storyboard JSON
         run: |
@@ -199,6 +240,8 @@ jobs:
             --metadata youtube_metadata.json \
             --video final_output.mp4 \
             --audio narration.mp3 \
+            --tts-request-metadata tts_request_metadata.json \
+            --require-tts-model eleven_v3 \
             --render-report render_report.json \
             --output pre_publish_qa.json \
             --require-audio \
@@ -229,6 +272,8 @@ jobs:
             producer_queue.json
             youtube_metadata.json
             narration.mp3
+            narration.json
+            tts_request_metadata.json
             render_report.json
             pre_publish_qa.json
             build/render/render_story.json

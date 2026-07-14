@@ -115,12 +115,15 @@ def valid_lease(
         head_sha=HEAD_SHA,
         requested_caps={
             "reddit_request_cap": 24,
+            "openai_call_cap": 64,
+            "openai_token_cap": 1_000_000,
             "gemini_call_cap": 128,
             "image_call_cap": 16,
             "ai33_call_cap": 96,
         },
         confirmations={
             "reddit_read": "true",
+            "openai_spend": "true",
             "gemini_spend": "true",
             "image_spend": "true",
             "ai33_spend": "true",
@@ -169,10 +172,13 @@ class Acc1SpendLockTests(unittest.TestCase):
                     "--run-attempt", "1",
                     "--head-sha", HEAD_SHA,
                     "--reddit-request-cap", "24",
+                    "--openai-call-cap", "64",
+                    "--openai-token-cap", "1000000",
                     "--gemini-call-cap", "128",
                     "--image-call-cap", "16",
                     "--ai33-call-cap", "96",
                     "--confirm-reddit-read", "true",
+                    "--confirm-openai-spend", "true",
                     "--confirm-gemini-spend", "true",
                     "--confirm-image-spend", "true",
                     "--confirm-ai33-spend", "true",
@@ -218,13 +224,24 @@ class Acc1SpendLockTests(unittest.TestCase):
 
     def test_lease_binds_source_caps_models_and_never_publication(self):
         lease = valid_lease()
+        self.assertEqual(lease["schema_version"], "acc1_paid_spend_lease_v3")
         self.assertEqual(lease["retention_days"], LEASE_RETENTION_DAYS)
         self.assertEqual(lease["provider_contract"], PROVIDER_CONTRACT)
         self.assertEqual(lease["requested_caps"]["gemini_call_cap"], 128)
+        self.assertEqual(lease["requested_caps"]["openai_call_cap"], 64)
+        self.assertEqual(lease["requested_caps"]["openai_token_cap"], 1_000_000)
+        self.assertEqual(lease["provider_contract"]["openai_translation"], {
+            "provider": "openai",
+            "model": "gpt-5.4-2026-03-05",
+            "reasoning_effort": "none",
+            "max_output_tokens": 16_384,
+            "automatic_retries": 0,
+        })
         self.assertEqual(lease["confirmations"], {
             "ai33_spend": True,
             "gemini_spend": True,
             "image_spend": True,
+            "openai_spend": True,
             "reddit_read": True,
         })
         self.assertFalse(lease["publication_authorized"])
@@ -248,6 +265,56 @@ class Acc1SpendLockTests(unittest.TestCase):
             "source_queue_sha256",
             "source_review_sha256",
         })
+
+    def test_openai_caps_are_required_and_fail_closed_above_exact_maxima(self):
+        plan, stage, pool, queue, review = source_contract()
+        base = {
+            "plan": plan,
+            "source_stage": stage,
+            "candidate_pool": pool,
+            "source_queue": queue,
+            "source_review": review,
+            "repository": REPOSITORY,
+            "workflow_path": WORKFLOW,
+            "run_id": 101,
+            "run_attempt": 1,
+            "head_sha": HEAD_SHA,
+            "requested_caps": {
+                "reddit_request_cap": 24,
+                "openai_call_cap": 64,
+                "openai_token_cap": 1_000_000,
+                "gemini_call_cap": 128,
+                "image_call_cap": 16,
+                "ai33_call_cap": 96,
+            },
+            "confirmations": {
+                "reddit_read": True,
+                "openai_spend": True,
+                "gemini_spend": True,
+                "image_spend": True,
+                "ai33_spend": True,
+            },
+            "created_at": "2026-07-14T12:00:00Z",
+        }
+        for field, value, expected in (
+            ("openai_call_cap", 257, "between 1 and 256"),
+            ("openai_token_cap", 1_000_001, "between 1 and 1000000"),
+        ):
+            with self.subTest(field=field):
+                arguments = copy.deepcopy(base)
+                arguments["requested_caps"][field] = value
+                with self.assertRaisesRegex(SpendLockError, expected):
+                    build_lease(**arguments)
+
+        missing_cap = copy.deepcopy(base)
+        missing_cap["requested_caps"].pop("openai_token_cap")
+        with self.assertRaisesRegex(SpendLockError, "caps are incomplete"):
+            build_lease(**missing_cap)
+
+        missing_confirmation = copy.deepcopy(base)
+        missing_confirmation["confirmations"].pop("openai_spend")
+        with self.assertRaisesRegex(SpendLockError, "confirmations are incomplete"):
+            build_lease(**missing_confirmation)
 
     def test_same_episode_other_run_is_blocked(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -469,12 +536,15 @@ class Acc1SpendLockTests(unittest.TestCase):
                 head_sha=HEAD_SHA,
                 requested_caps={
                     "reddit_request_cap": 24,
+                    "openai_call_cap": 64,
+                    "openai_token_cap": 1_000_000,
                     "gemini_call_cap": 128,
                     "image_call_cap": 16,
                     "ai33_call_cap": 96,
                 },
                 confirmations={
                     "reddit_read": True,
+                    "openai_spend": True,
                     "gemini_spend": True,
                     "image_spend": True,
                     "ai33_spend": True,
@@ -512,12 +582,15 @@ class Acc1SpendLockTests(unittest.TestCase):
                         head_sha=HEAD_SHA,
                         requested_caps={
                             "reddit_request_cap": 24,
+                            "openai_call_cap": 64,
+                            "openai_token_cap": 1_000_000,
                             "gemini_call_cap": 128,
                             "image_call_cap": 16,
                             "ai33_call_cap": 96,
                         },
                         confirmations={
                             "reddit_read": True,
+                            "openai_spend": True,
                             "gemini_spend": True,
                             "image_spend": True,
                             "ai33_spend": True,
@@ -542,12 +615,15 @@ class Acc1SpendLockTests(unittest.TestCase):
                     workflow_path=WORKFLOW,
                     requested_caps={
                         "reddit_request_cap": 24,
+                        "openai_call_cap": 64,
+                        "openai_token_cap": 1_000_000,
                         "gemini_call_cap": 128,
                         "image_call_cap": 16,
                         "ai33_call_cap": 96,
                     },
                     confirmations={
                         "reddit_read": True,
+                        "openai_spend": True,
                         "gemini_spend": True,
                         "image_spend": True,
                         "ai33_spend": True,
@@ -571,12 +647,15 @@ class Acc1SpendLockTests(unittest.TestCase):
             "workflow_path": WORKFLOW,
             "requested_caps": {
                 "reddit_request_cap": 24,
+                "openai_call_cap": 64,
+                "openai_token_cap": 1_000_000,
                 "gemini_call_cap": 128,
                 "image_call_cap": 16,
                 "ai33_call_cap": 96,
             },
             "confirmations": {
                 "reddit_read": True,
+                "openai_spend": True,
                 "gemini_spend": True,
                 "image_spend": True,
                 "ai33_spend": True,
