@@ -22,6 +22,32 @@ Raw Reddit upvotes, a successful scraper run, or an AI `PUBLISH` label are not a
 
 ## Decision
 
+### Exact acc1 SAGA live decision - 2026-07-14
+
+The committed acc1 strategy is broader Russian Reddit-story entertainment with two long-form formats: `SAGA` and `THREAD`; horror remains one series. Commit `e4461c3` was checked through two bounded, no-spend snapshots per exact SAGA pilot with `AI_QUALITY_CHECK=0`, `--no-save-history`, `run_compilation_pilot=false`, and `confirm_provider_spend=false`. Every credential preflight and bounded PRAW read worked. No Gemini, AI33, image, render, or YouTube step ran.
+
+| Pilot | Snapshot A | Snapshot B | Decision | Evidence |
+|---|---:|---:|---|---|
+| `pilot_01` relationships/family | `29300645110` auto day/week | `29300849127` year | `BLOCKED` | Zero source met 2,340 words; observed maxima were 1,087 and 1,449 words. This is a source-format mismatch, not an access failure. |
+| `pilot_02` work/money/justice | `29300645452` auto day/week | `29300844733` year | `BLOCKED` | Zero source met 2,340 words; observed maxima were 559 and 1,352 words. The single-post 18-30 minute contract is not repeatable for these sources. |
+| `pilot_03` strange/dark/unexplained | `29300645077` auto week/month | `29300845370` year | `CHANGE` | Snapshot A produced 2/2 eligible sources; snapshot B produced 3 runtime candidates but only 1 payoff-complete eligible source. Every eligible source was `r/nosleep` fiction. |
+
+| Gate | `pilot_01` | `pilot_02` | `pilot_03` |
+|---|---|---|---|
+| Candidate diversity | `BLOCKED`: no pool | `BLOCKED`: no pool | `CHANGE`: multiple premises, one subreddit/truth mode |
+| Viewer-promise fit | Not assessable | Not assessable | `PASS` for the dark-series pillar only |
+| Full source/payoff | Not assessable | Not assessable | `PASS`: full bodies, 19.29-25.52 estimated minutes, deterministic payoff evidence |
+| Repeatability | `BLOCKED` in both snapshots | `BLOCKED` in both snapshots | `CHANGE`: repeated availability, no cross-subreddit supply |
+| Fictional-as-real | Not assessable | Not assessable | `CHANGE`: truth mode is fiction; visible disclosure is still unproven |
+| Screenshot/link/native-media dependence | Not assessable | Not assessable | `PASS`: no such dependency in eligible rows |
+| Current Reddit-card renderer | No source | No source | Structurally compatible; exact selected-source MP4 remains unverified |
+
+The first month snapshot exposed source identity drift: preliminary queue/story selected `1uel8us`, while deterministic review top-1 was `1u73jt5`. Commit `d6fbb85` removed the silent replacement. Automatic greenlight preserves queue identity; another eligible story requires explicit `--post-id` and records whether the preliminary source was superseded. Run `29301382659` live-verified the mismatched-rank case while retaining `DRAFT_BLOCKED`, `production_authorized=false`, and `publication_authorized=false`.
+
+Decision: keep all numeric `topic_mix` values unchanged. Redesign pilots 01/02 before another source test. Pilot 03 passes source availability only and remains `CHANGE` until diversity, visible fiction labeling, manual packaging/greenlight, and exact-render evidence pass. `r/nosleep` rows are fiction; other Reddit personal accounts remain unverified unless independently corroborated. No Reddit-only claim is recorded here as fact.
+
+Artifacts: `/tmp/acc1-saga-source-snapshot-a-20260714-e4461c3/`, `/tmp/acc1-saga-source-snapshot-b-year-20260714-e4461c3/`, `/tmp/acc1-saga-handoff-readback-29301382659/`, and `/tmp/acc1-saga-selection-contract-staged-20260714/`.
+
 The previous configuration did not create seven distinct products. It reused global English Reddit presets across languages, allowed exact stories to appear on multiple channels, and mixed Reddit-native stories with factual formats that need independent evidence and richer visuals.
 
 The reset establishes:
@@ -41,7 +67,7 @@ The existing numeric `topic_mix` values are not approved publishing weights. Eac
 
 | Channel | Owned viewer promise | Owned bets | Required lane | Current readiness | Cadence after gate |
 |---|---|---|---|---|---|
-| `acc1` Russian | First-person Reddit horror with one memorable rule, escalation, and an emotionally complete ending | Reddit stories only; production requires author submission/permission or another verified compatible license | Scene-based Russian horror episode; Shorts only as trailers after the long episode | `RIGHTS + EDITORIAL LANE REQUIRED` | Build the lane, then six unlisted 30-50 minute pilots |
+| `acc1` Russian | Compelling Reddit stories, confessions, and discussions in Russian with a complete payoff | Reddit stories only; personal accounts stay unverified and `r/nosleep` stays fiction | SAGA: one complete story; THREAD: 8-15 complete responses; horror is one series | `SAGA 03 SOURCE-AVAILABLE; SAGA 01/02 + THREAD BLOCKED` | Pilot 03 only after explicit human fiction/source/packaging greenlight; redesign 01/02 before another run |
 | `acc2` English | The hidden story behind the internet's strangest moments | internet case files; spectacle curiosity; exceptional high-concept human cases | Evidence dossier | `EVIDENCE LANE REQUIRED` | 3 high-concept pilots/week after lane exists |
 | `acc3` German | Clear, precise explanation of how digital systems, scams, privacy, and technology affect real life | digital-system consequences; scam/privacy mechanisms; counterintuitive science | Evidence dossier | `EVIDENCE LANE REQUIRED` | 3 evidence-backed pilots/week after lane exists |
 | `acc4` LATAM Spanish | One intimate conflict, two sides, one turn that changes the case; the viewer gives the verdict | relationship betrayal; family/money/entitlement; revenge/public humiliation | Reddit story card | `REDDIT PILOT CANDIDATE` | 5 Shorts/week after committed-config source gate; long-form from top-quartile Shorts only |
@@ -53,7 +79,7 @@ The existing numeric `topic_mix` values are not approved publishing weights. Eac
 
 - `acc4` owns serious emotional moral court: betrayal, family loyalty, money boundaries, parenting, entitlement, and two arguable sides.
 - `acc7` owns performable social absurdity: a concrete scene involving food, etiquette, dates, neighbors, service, or work, ending in a reversal. Generic AITA is not enough.
-- `acc1` owns dark story tension. `r/nosleep` must be labeled fiction; claimed encounters remain unverified personal accounts.
+- `acc1` owns Russian Reddit-story entertainment; horror is one series. `r/nosleep` must be labeled fiction, and other personal accounts remain unverified unless independently corroborated.
 - `acc2` does not publish generic English Reddit readings. Heavy English competition requires a high-concept evidence-first case file.
 - `acc3` owns mechanism and consequence, not vague mystery or celebrity gossip.
 - `acc5` owns human football culture, not live scores, match clips, or transfer rumors.

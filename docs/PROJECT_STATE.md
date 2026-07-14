@@ -1,12 +1,31 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-12
+Last updated: 2026-07-14
 
 ## Current Shape
 
 `/Users/lali/Projects/reddit` is a multilingual YouTube story-entertainment pipeline for the ChonkerTalks channel network.
 
 Current content strategy: the old multilingual translated-Reddit pool has been replaced locally by explicit channel ownership. The full source of truth is [`topic-strategy-research-2026-07-10.md`](topic-strategy-research-2026-07-10.md).
+
+
+### Exact acc1 SAGA source readback - 2026-07-14
+
+This dated block is the current source-readiness state and supersedes older acc1 source-readiness statements below. The committed acc1 execution config now models Russian Reddit-story entertainment with `SAGA` and `THREAD`; horror remains one series. Automation and publishing remain disabled, and no numeric `topic_mix` weight is approved.
+
+| Pilot | Snapshot A | Snapshot B | Decision | Confirmed source result |
+|---|---:|---:|---|---|
+| `pilot_01` relationships/family | `29300645110` auto day/week | `29300849127` year | `BLOCKED` | Reddit auth/read passed, but zero post met the 2,340-word SAGA minimum; observed maxima were 1,087 and 1,449 words. |
+| `pilot_02` work/money/justice | `29300645452` auto day/week | `29300844733` year | `BLOCKED` | Reddit auth/read passed, but zero post met 2,340 words; observed maxima were 559 and 1,352 words. |
+| `pilot_03` strange/dark/unexplained | `29300645077` auto week/month | `29300845370` year | `CHANGE` | Month produced 2/2 eligible sources; year produced 3 runtime candidates and 1 payoff-complete eligible source. All eligible rows were `r/nosleep` fiction, so source diversity is not proven. |
+
+Eligible pilot 03 rows were full-body, 19.29-25.52 estimated minutes, payoff-complete, and independent of screenshots, Markdown links/images, and native Reddit media. That proves dark-series source availability, not audience performance or channel-wide topic weights. Visible fiction labeling, manual packaging, and human greenlight remain mandatory; nothing found only on Reddit is treated as independently verified fact.
+
+The first month artifact exposed an identity drift: queue/story selected `1uel8us`, while deterministic review top-1 was `1u73jt5`. Commit `d6fbb85` now preserves queue identity by default and requires explicit `--post-id` for a different eligible source. No-spend run `29301382659` live-verified `queue_selected_post_id=1uel8us`, `review_top_post_id=1u73jt5`, default greenlight source `1uel8us`, `preliminary_story_superseded=false`, `DRAFT_BLOCKED`, `production_authorized=false`, and `publication_authorized=false`. The authoritative handoff is `greenlight-draft.json + queue.json`; `story.json` is preliminary.
+
+Local verification is 179/179 tests. The exact first source-only commit tree passed 111/111; the identity-handoff tree passed 113/113 plus compile/YAML and real-artifact replay. No listed run called Gemini, AI33, image generation, render, or YouTube.
+
+Artifacts: `/tmp/acc1-saga-source-snapshot-a-20260714-e4461c3/`, `/tmp/acc1-saga-source-snapshot-b-year-20260714-e4461c3/`, `/tmp/acc1-saga-handoff-readback-29301382659/`, and `/tmp/acc1-saga-selection-contract-staged-20260714/`.
 
 - Each channel now has one unique `viewer_promise`, owned content bets, forbidden bets, an evidence policy, a render contract, and a gated cadence in `channels.json`.
 - `acc1` owns Russian first-person horror sourced from Reddit; `acc2` high-concept internet case files; `acc3` digital-system explainers; `acc4` LATAM moral court; `acc5` human football stories; `acc6` skeptical web-mystery dossiers; `acc7` Italian social absurdity.
@@ -56,7 +75,7 @@ Current content strategy: the old multilingual translated-Reddit pool has been r
 - `uploader.py` is a YouTube Data API uploader with a fail-closed channel-token preflight against `channels.json` and post-upload metadata readback.
 - `.github/workflows/auto_publish.yml` runs the cloud publish pipeline. It verifies the YouTube refresh token against `channels.json` before Reddit/Gemini/AI33/render work. The first full live smoke succeeded as an unlisted upload; the later OAuth/channel-mapping blocker is reported resolved by the user as of 2026-07-02, but the fail-closed preflight remains mandatory before any content-generation spend or upload.
 - `.github/workflows/video_dry_run.yml` is currently a live manual workflow: it fetches Reddit content, can spend Gemini/AI33 quota or credits for quality/adaptation/metadata/localization/TTS, renders `final_output.mp4` with clean no-karaoke visuals, runs `pre_publish_qa.py`, and uploads story, producer queue, metadata, audio, transcript, render report, QA report, video, and previews. Manual dry-runs now support `topic_family`, `video_slot`, `content_format`, and `voice_settings_profile`; use `content_format=shorts` to exercise live search/filtering while forcing a vertical artifact without YouTube upload, and use `voice_settings_profile=creative` only for intentional expressive-voice tests.
-- `.github/workflows/reddit_source_smoke.yml` supports forced family/time/source bounds, `format_intent`, and a review label, preserves bounded queue source bodies, and records git SHA, `channels.json` SHA-256, exact inputs, and a config snapshot. It still forces AI quality off, writes no history, and calls no Gemini, AI33, renderer, or YouTube path. The long-form review scope is committed and pushed on branch `codex/reddit-topic-source-review-20260711` at `1206e39`; `origin/main` is unchanged.
+- `.github/workflows/reddit_source_smoke.yml` supports exact `acc1_pilot_id`, forced time/source bounds, `format_intent`, and a review label; preserves bounded full source bodies; and records git SHA, config hash, inputs, preliminary/source authority, and a config snapshot. Source-only mode forces `AI_QUALITY_CHECK=0`, writes no history, and skips Gemini, AI33, images, render, and YouTube. Exact routing ran live in six snapshot runs; identity handoff ran live in `29301382659`. The optional compilation branch remains separately spend-gated and was skipped in all seven runs.
 - The follow-up adds `scripts/review_reddit_topics.py` to that source-review lane. It reads complete queued bodies, classifies title-visible `acc1` archetypes, records fiction/unverified/evidence truth mode, flags source dependency, series/open-ending and target-runtime risks, and returns three diverse `SHORTLIST_FOR_RIGHTS_REVIEW` examples in `topic-review.json`. It never authorizes production. The workflow input now permits up to four bounded subreddits; live four-source GitHub validation has not run.
 
 ## GitHub Dry-Run Status
@@ -180,18 +199,19 @@ Current content strategy: the old multilingual translated-Reddit pool has been r
 - The current Reddit-card output still needs a visibly original producer take and fiction/claim disclosure contract before it can be treated as safe from inauthentic-content/reused-reading risk.
 - `acc1` has no permission/license ledger or distribution rights gate. Public Reddit text is user-owned; attribution and Reddit upvotes do not grant commercial adaptation rights. The two internal artifact-only tests are the sole temporary exception for paid adaptation/TTS/render and remain fail-closed against upload; any distribution remains blocked until the rights gate exists.
 - Scheduled runs `29070128277` and `29072898300` were verified no-ops: each completed only `resolve`, while `publish` was skipped. The scheduler derives routing from the runner's actual UTC hour, so delayed GitHub cron starts can miss the intended matrix hour. This is an operations blocker, not a content success.
-- GitHub Reddit source access itself is healthy: isolated source-only run `29069048314` and all twelve 2026-07-10 review runs passed credential preflight, bounded PRAW fetch, artifact upload, and result enforcement. The local terminal still needs explicit `REDDIT_*` environment values.
+- GitHub Reddit source access itself is healthy: isolated run `29069048314`, the twelve 2026-07-10 reviews, and the seven exact-pilot/readback runs on 2026-07-14 passed credential preflight and bounded PRAW access. Pilot 01/02 failures occurred after healthy reads because no source met the SAGA length gate; evidence artifacts still uploaded fail-closed. The local terminal still needs explicit `REDDIT_*` environment values.
 - Direct Google Gemini text routing is implemented and verified in dry-run `28703717316`: metadata and localization artifacts reported `source=google-gemini`. The key that was pasted into chat should still be treated as exposed and rotated before production use.
 - `scripts/move-to-trash.sh` is the project safe-trash helper; generated scratch artifacts should be moved through that workflow, not direct deletion commands.
  
 ## Next Steps
  
-1. Review branch `codex/reddit-topic-source-review-20260711`; do not merge it as permission to enable publishing or spend.
-2. Stop additional `acc1` Reddit popularity reviews: premise supply is already proven. Build its rights manifest, full-story reviewer, Russian episode-script artifact, independent editorial checkpoints, and scene-based storyboard before any paid pilot.
-3. Keep all numeric topic weights unapproved until audience pilots produce retention evidence; source weights cannot substitute for rights or editorial readiness.
-4. Build one deterministic `evidence_dossier` fixture with fact/claim/theory separation and timeline/evidence visuals before testing `acc2`, `acc3`, `acc5`, or `acc6`.
-5. Fix scheduled routing so delayed cron starts map from `github.event.schedule` rather than the runner's current UTC hour, while keeping all channels fail-closed.
-6. After source gates pass, run small manual/unlisted pilots and collect `Engaged views`, `Stayed to watch`, average percentage viewed, shares/comments/subscribers per 1,000 engaged views, and returning-viewer readback. Change numeric topic weights only from repeated winners.
+1. Keep numeric weights unchanged. Redesign pilots 01/02 away from one raw 18-30 minute post, then live-review the replacement source architecture before changing `channels.json`.
+2. For pilot 03, complete an explicit human source/fiction/packaging greenlight. The manually reviewed month pool prefers post `1u73jt5`; any switch from the preliminary source must use explicit `--post-id`, preserve the fiction label, and remain hash-bound.
+3. Run the current Reddit-card renderer on the exact selected pilot 03 source before any provider-spend E2E.
+4. Run one separately approved bounded THREAD collector proof before wiring pilots 04-06.
+5. Keep all automation/publishing disabled until a branded candidate passes human review; only then run a separately approved unlisted pilot and collect 24h/72h/7d/28d audience readback.
+6. Build one deterministic `evidence_dossier` fixture before testing `acc2`, `acc3`, `acc5`, or `acc6`.
+7. Fix delayed-cron routing while keeping every channel fail-closed.
 
 ## DESIGN.md Agent Bridge
 
