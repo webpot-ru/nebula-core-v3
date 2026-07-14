@@ -4,6 +4,8 @@
 The command is deliberately no-spend and does not turn a reviewed Reddit
 source into an approved episode.  It copies only deterministic source evidence
 from an exact queue/review pair; all creative fields remain empty and blocked.
+Without an explicit ``--post-id`` it preserves the queue-selected story identity
+instead of silently replacing ``story.json`` with the reviewer's top-ranked row.
 """
 
 from __future__ import annotations
@@ -66,26 +68,44 @@ def _verify_bindings(queue: dict[str, Any], review: dict[str, Any]) -> tuple[str
     return source_sha256, review_sha256
 
 
-def _select_candidate(review: dict[str, Any], post_id: str | None) -> dict[str, Any]:
+def _select_candidate(
+    queue: dict[str, Any],
+    review: dict[str, Any],
+    post_id: str | None,
+) -> tuple[dict[str, Any], str]:
     raw_topics = review.get("top_topics")
     if not isinstance(raw_topics, list):
         raise GreenlightTemplateError("topic-review top_topics must be a list")
     topics = [item for item in raw_topics if isinstance(item, dict)]
+    if not topics:
+        raise GreenlightTemplateError("topic-review has no candidate available for source selection")
+
+    requested_post_id = _text(post_id)
+    selection_mode = "explicit_post_id" if requested_post_id else "queue_selected_post_id"
+    if not requested_post_id:
+        requested_post_id = _text(queue.get("selected_post_id"))
+        if not requested_post_id:
+            raise GreenlightTemplateError("queue selected_post_id is required for default source selection")
+
+    selected = [
+        item for item in topics
+        if _text(item.get("post_id")) == requested_post_id
+    ]
     if post_id:
-        selected = [item for item in topics if _text(item.get("post_id")) == post_id]
         if len(selected) != 1:
             raise GreenlightTemplateError("--post-id must match exactly one topic-review top_topics candidate")
-        candidate = selected[0]
     else:
-        if not topics:
-            raise GreenlightTemplateError("topic-review has no candidate available for deterministic top-1 selection")
-        candidate = topics[0]
+        if len(selected) != 1:
+            raise GreenlightTemplateError(
+                "queue selected_post_id must match exactly one eligible topic-review top_topics candidate"
+            )
+    candidate = selected[0]
 
     if candidate.get("review_status") != ELIGIBLE_STATUS:
         raise GreenlightTemplateError("selected candidate is not SAGA_SOURCE_ELIGIBLE_FOR_GREENLIGHT")
     if candidate.get("blocking_reasons"):
         raise GreenlightTemplateError("selected candidate contains blocking reasons")
-    return candidate
+    return candidate, selection_mode
 
 
 def _verify_exact_queue_candidate(
@@ -173,9 +193,13 @@ def build_template(
 ) -> dict[str, Any]:
     """Build one deterministic draft without asserting any creative PASS."""
     source_sha256, review_sha256 = _verify_bindings(queue, review)
-    candidate = _select_candidate(review, _text(post_id) or None)
+    candidate, selection_mode = _select_candidate(queue, review, _text(post_id) or None)
     source_plan, _entry = _verify_exact_queue_candidate(queue, review, candidate)
     source_url = _text(candidate.get("source_url"))
+    queue_selected_post_id = _text(queue.get("selected_post_id"))
+    top_topics = [item for item in review.get("top_topics") or [] if isinstance(item, dict)]
+    review_top_post_id = _text(top_topics[0].get("post_id")) if top_topics else ""
+    selected_post_id = _text(candidate.get("post_id"))
 
     return {
         "version": 1,
@@ -187,6 +211,14 @@ def build_template(
         "artifact_bindings": {
             "source_sha256": source_sha256,
             "review_sha256": review_sha256,
+        },
+        "selection_contract": {
+            "authority": "greenlight_source_post_id",
+            "mode": selection_mode,
+            "queue_selected_post_id": queue_selected_post_id,
+            "review_top_post_id": review_top_post_id,
+            "selected_post_id": selected_post_id,
+            "preliminary_story_superseded": selected_post_id != queue_selected_post_id,
         },
         "source": {
             "post_id": _text(candidate.get("post_id")),
@@ -236,7 +268,10 @@ def main() -> int:
     parser.add_argument("--queue", required=True, help="Exact candidate queue JSON")
     parser.add_argument("--review", required=True, help="Exact topic-review JSON")
     parser.add_argument("--output", required=True, help="Draft greenlight JSON to create")
-    parser.add_argument("--post-id", help="Eligible top_topics post ID; defaults to deterministic top-1")
+    parser.add_argument(
+        "--post-id",
+        help="Explicit eligible top_topics post ID; defaults to the exact queue selected_post_id",
+    )
     args = parser.parse_args()
 
     queue = _read_object(Path(args.queue), "queue")

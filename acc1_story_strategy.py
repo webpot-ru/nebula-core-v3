@@ -57,6 +57,10 @@ SAGA_PILLAR_SUBREDDITS = {
 READY_SAGA_SOURCE_STATUSES = {"manual_forced_family_review", "ready"}
 READY_THREAD_SOURCE_STATUSES = {"manual_source_review_available", "ready"}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+# Keep source-body counts identical across scraper, deterministic review,
+# greenlight draft, and final greenlight validation.  Ages, dates, and money
+# amounts are narration tokens too, so digits must not disappear at handoff.
+WORD_RE = re.compile(r"[A-Za-z0-9']+")
 
 EXPECTED_PILOT_MATRIX = (
     ("pilot_01", "SAGA", "relationships_family"),
@@ -275,7 +279,7 @@ def _verify_selected_saga_source(
             failures.append("selected source_queue entry has no full source_body")
         elif hashlib.sha256(source_body.encode("utf-8")).hexdigest() != _text(candidate.get("source_body_sha256")):
             failures.append("selected source_queue body does not match the reviewed candidate hash")
-        actual_word_count = len(re.findall(r"[A-Za-z']+", source_body))
+        actual_word_count = len(WORD_RE.findall(source_body))
         if actual_word_count != candidate.get("source_word_count"):
             failures.append("selected source_queue word count does not match the reviewed candidate")
         queue_url = _text(queue_entry.get("url") or queue_entry.get("source_url"))

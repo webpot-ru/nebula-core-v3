@@ -239,6 +239,10 @@ jobs:
           printf 'git_sha=%s\n' "$GITHUB_SHA" >> /tmp/reddit-source-smoke/run-metadata.txt
           printf 'ai_quality_check=0\n' >> /tmp/reddit-source-smoke/run-metadata.txt
           printf 'smoke_outcome=%s\n' "$SMOKE_OUTCOME" >> /tmp/reddit-source-smoke/run-metadata.txt
+          if [ "$REVIEW_ACC1_PILOT_ID" != "none" ]; then
+            printf 'preliminary_story_artifact=story.json\n' >> /tmp/reddit-source-smoke/run-metadata.txt
+            printf 'source_handoff_authority=greenlight-draft.json+queue.json\n' >> /tmp/reddit-source-smoke/run-metadata.txt
+          fi
           python -c 'import json, pathlib; p=pathlib.Path("/tmp/reddit-source-smoke/queue.json"); q=json.loads(p.read_text()) if p.is_file() else {}; plan=q.get("source_plan") or {}; out=pathlib.Path("/tmp/reddit-source-smoke/run-metadata.txt"); f=out.open("a", encoding="utf-8"); print("effective_topic_family=" + str(plan.get("topic_family") or "mixed_or_unresolved"), file=f); print("effective_format_intent=" + str(q.get("format_intent") or "unresolved"), file=f); f.close()'
           if [ -f channels.json ]; then
             cp channels.json /tmp/reddit-source-smoke/channels-snapshot.json

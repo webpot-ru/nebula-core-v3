@@ -120,6 +120,10 @@ def content_hash(payload: Any) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _text(value: Any) -> str:
+    return str(value or "").strip()
+
+
 def bind_artifact_hashes(review: dict[str, Any], queue: dict[str, Any]) -> dict[str, Any]:
     bound = dict(review)
     bound["source_sha256"] = content_hash(queue)
@@ -426,6 +430,17 @@ def build_saga_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
     eligible = [item for item in candidates if not item["blocking_reasons"]]
     eligible.sort(key=lambda item: item["shortlist_score"], reverse=True)
     chosen = eligible[:top_n]
+    queue_selected_post_id = _text(queue.get("selected_post_id"))
+    review_top_post_id = _text(chosen[0].get("post_id")) if chosen else ""
+    eligible_ids = {_text(item.get("post_id")) for item in eligible}
+    if not queue_selected_post_id:
+        selection_alignment = "queue_selection_missing"
+    elif queue_selected_post_id == review_top_post_id:
+        selection_alignment = "aligned"
+    elif queue_selected_post_id in eligible_ids:
+        selection_alignment = "queue_selection_eligible_not_review_top"
+    else:
+        selection_alignment = "queue_selection_not_eligible"
     return bind_artifact_hashes({
         "version": 2,
         "status": "review_ready" if chosen else "no_eligible_saga_candidate",
@@ -438,6 +453,9 @@ def build_saga_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
         "failures": [],
         "candidate_reviews": candidates,
         "top_topics": chosen,
+        "queue_selected_post_id": queue_selected_post_id or None,
+        "review_top_post_id": review_top_post_id or None,
+        "selection_alignment": selection_alignment,
         "production_authorized": False,
     }, queue)
 
