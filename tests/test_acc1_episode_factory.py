@@ -191,7 +191,7 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertEqual(len(budget.calls), 2)
 
     def test_paid_provider_budgets_disable_hidden_retries(self):
-        for label in ("gemini", "image"):
+        for label in ("gemini", "image", "openai_translation"):
             with self.subTest(label=label):
                 calls = []
                 budget = factory.CallBudget(
@@ -259,7 +259,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 daily_plan=self.plan,
                 episode_plan=episode_plan,
                 playoff=playoff,
-                gemini=mock.Mock(),
+                openai_translation=mock.Mock(),
                 checkpoint_dir=Path(temp),
             )
         parts = {item["kind"]: item["text"] for item in script["intro_contract"]["parts"]}
@@ -431,6 +431,9 @@ class EpisodeFactoryTests(unittest.TestCase):
                     channels_path=ROOT / "channels.json",
                     confirm_gemini_spend=False,
                     gemini_call_cap=1,
+                    confirm_openai_spend=True,
+                    openai_call_cap=96,
+                    openai_token_cap=500_000,
                     confirm_image_spend=True,
                     image_call_cap=1,
                     confirm_ai33_spend=True,
@@ -441,21 +444,37 @@ class EpisodeFactoryTests(unittest.TestCase):
         queue, review, pool, stage = self._lease_source_contract()
         cap_contract = {
             "gemini_call_cap": 128,
+            "openai_call_cap": 96,
+            "openai_token_cap": 500_000,
             "image_call_cap": 16,
             "ai33_call_cap": 96,
             "required_gemini_calls": 1,
+            "required_openai_calls": 1,
             "required_image_calls": 1,
             "required_ai33_calls": 1,
         }
         cases = (
             (
-                {"GEMINI_PROVIDER": "vectorengine", "AI33_API_KEY": "test-only"},
+                {
+                    "GEMINI_PROVIDER": "vectorengine",
+                    "OPENAI_API_KEY": "test-only",
+                    "AI33_API_KEY": "test-only",
+                },
                 "Gemini/image credentials",
             ),
             (
                 {
                     "GEMINI_PROVIDER": "vectorengine",
                     "VECTORENGINE_API_KEY": "test-only",
+                    "AI33_API_KEY": "test-only",
+                },
+                "OPENAI_API_KEY",
+            ),
+            (
+                {
+                    "GEMINI_PROVIDER": "vectorengine",
+                    "VECTORENGINE_API_KEY": "test-only",
+                    "OPENAI_API_KEY": "test-only",
                 },
                 "AI33_API_KEY",
             ),
@@ -485,6 +504,9 @@ class EpisodeFactoryTests(unittest.TestCase):
                             channels_path=ROOT / "channels.json",
                             confirm_gemini_spend=True,
                             gemini_call_cap=128,
+                            confirm_openai_spend=True,
+                            openai_call_cap=96,
+                            openai_token_cap=500_000,
                             confirm_image_spend=True,
                             image_call_cap=16,
                             confirm_ai33_spend=True,
@@ -529,6 +551,9 @@ class EpisodeFactoryTests(unittest.TestCase):
                         channels_path=ROOT / "channels.json",
                         confirm_gemini_spend=True,
                         gemini_call_cap=1,
+                        confirm_openai_spend=True,
+                        openai_call_cap=96,
+                        openai_token_cap=500_000,
                         confirm_image_spend=True,
                         image_call_cap=16,
                         confirm_ai33_spend=True,
@@ -541,9 +566,12 @@ class EpisodeFactoryTests(unittest.TestCase):
         queue, review, pool, stage = self._lease_source_contract()
         cap_contract = {
             "gemini_call_cap": 128,
+            "openai_call_cap": 96,
+            "openai_token_cap": 500_000,
             "image_call_cap": 16,
             "ai33_call_cap": 96,
             "required_gemini_calls": 10,
+            "required_openai_calls": 96,
             "required_image_calls": 6,
             "required_ai33_calls": 8,
         }
@@ -565,6 +593,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                     {
                         "GEMINI_PROVIDER": "vectorengine",
                         "VECTORENGINE_API_KEY": "test-only",
+                        "OPENAI_API_KEY": "test-only",
                         "AI33_API_KEY": "test-only",
                     },
                     clear=True,
@@ -576,6 +605,9 @@ class EpisodeFactoryTests(unittest.TestCase):
                     channels_path=ROOT / "channels.json",
                     confirm_gemini_spend=True,
                     gemini_call_cap=128,
+                    confirm_openai_spend=True,
+                    openai_call_cap=96,
+                    openai_token_cap=500_000,
                     confirm_image_spend=True,
                     image_call_cap=16,
                     confirm_ai33_spend=True,
@@ -583,6 +615,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 )
             self.assertEqual(report["status"], "PAID_PREFLIGHT_PASS")
             self.assertFalse(report["would_call_gemini"])
+            self.assertFalse(report["would_call_openai"])
             self.assertFalse(report["would_call_image_provider"])
             self.assertFalse(report["would_call_ai33"])
             self.assertEqual(
@@ -619,12 +652,15 @@ class EpisodeFactoryTests(unittest.TestCase):
             requested_caps={
                 "reddit_request_cap": 24,
                 "gemini_call_cap": 128,
+                "openai_call_cap": 96,
+                "openai_token_cap": 500_000,
                 "image_call_cap": 16,
                 "ai33_call_cap": 96,
             },
             confirmations={
                 "reddit_read": True,
                 "gemini_spend": True,
+                "openai_spend": True,
                 "image_spend": True,
                 "ai33_spend": True,
             },
@@ -635,6 +671,8 @@ class EpisodeFactoryTests(unittest.TestCase):
         paid_preflight = {
             "caps": {
                 "gemini_call_cap": 128,
+                "openai_call_cap": 96,
+                "openai_token_cap": 500_000,
                 "image_call_cap": 16,
                 "ai33_call_cap": 96,
             },
@@ -660,6 +698,9 @@ class EpisodeFactoryTests(unittest.TestCase):
                         channels_path=ROOT / "channels.json",
                         confirm_gemini_spend=True,
                         gemini_call_cap=128,
+                        confirm_openai_spend=True,
+                        openai_call_cap=96,
+                        openai_token_cap=500_000,
                         confirm_image_spend=True,
                         image_call_cap=16,
                         confirm_ai33_spend=True,
@@ -845,6 +886,9 @@ class EpisodeFactoryTests(unittest.TestCase):
                         channels_path=ROOT / "channels.json",
                         confirm_gemini_spend=True,
                         gemini_call_cap=128,
+                        confirm_openai_spend=True,
+                        openai_call_cap=96,
+                        openai_token_cap=500_000,
                         confirm_image_spend=True,
                         image_call_cap=16,
                         confirm_ai33_spend=True,
@@ -913,6 +957,9 @@ class EpisodeFactoryTests(unittest.TestCase):
                             channels_path=ROOT / "channels.json",
                             confirm_gemini_spend=True,
                             gemini_call_cap=128,
+                            confirm_openai_spend=True,
+                            openai_call_cap=96,
+                            openai_token_cap=500_000,
                             confirm_image_spend=True,
                             image_call_cap=16,
                             confirm_ai33_spend=True,
@@ -922,7 +969,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                         )
                 self.assertEqual(gemini_calls, [])
 
-    def test_gemini_budget_covers_max_thread_fallback_before_first_call(self):
+    def test_text_budgets_cover_max_thread_fallback_before_first_call(self):
         candidates = [
             {
                 "candidate_id": f"thread-{candidate_index}",
@@ -933,17 +980,20 @@ class EpisodeFactoryTests(unittest.TestCase):
             }
             for candidate_index in range(5)
         ]
-        self.assertEqual(factory._required_gemini_calls(candidates), 107)
+        self.assertEqual(factory._required_gemini_calls(candidates), 11)
+        self.assertEqual(factory._required_openai_calls(candidates), 96)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First short paragraph.\n\nSecond one.\n\nThird one."
-        self.assertEqual(factory._required_gemini_calls(candidates), 107)
+        self.assertEqual(factory._required_gemini_calls(candidates), 11)
+        self.assertEqual(factory._required_openai_calls(candidates), 96)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First" + (" " * 20_000) + "short response."
-        self.assertEqual(factory._required_gemini_calls(candidates), 107)
+        self.assertEqual(factory._required_gemini_calls(candidates), 11)
+        self.assertEqual(factory._required_openai_calls(candidates), 96)
 
     def test_self_hash_detects_release_manifest_tamper(self):
         manifest = {"status": "READY_FOR_HUMAN_REVIEW", "publication_authorized": False}
@@ -1182,6 +1232,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                     {
                         "GEMINI_PROVIDER": "vectorengine",
                         "VECTORENGINE_API_KEY": "test-only",
+                        "OPENAI_API_KEY": "test-only",
                         "AI33_API_KEY": "test-only",
                     },
                     clear=False,
@@ -1196,6 +1247,9 @@ class EpisodeFactoryTests(unittest.TestCase):
                     channels_path=ROOT / "channels.json",
                     confirm_gemini_spend=True,
                     gemini_call_cap=128,
+                    confirm_openai_spend=True,
+                    openai_call_cap=96,
+                    openai_token_cap=500_000,
                     confirm_image_spend=True,
                     image_call_cap=16,
                     confirm_ai33_spend=True,
@@ -1214,7 +1268,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 (workdir / "release-candidate-manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual(len(release["artifact_sha256"]), 6)
-            self.assertEqual(len(release["evidence_sha256"]), 24)
+            self.assertEqual(len(release["evidence_sha256"]), 25)
             self.assertIn("spend_lease", release["evidence_sha256"])
             self.assertIn("paid_preflight", release["evidence_sha256"])
             self.assertIn("runtime_estimate_report", release["evidence_sha256"])

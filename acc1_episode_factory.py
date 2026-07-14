@@ -1,8 +1,8 @@
 """One-command, fail-closed acc1 episode artifact factory.
 
 The factory has two explicit live stages.  ``source`` may perform only a
-bounded read-only Reddit collection.  ``produce`` may call Gemini, GPT Image 2
-through VectorEngine, and AI33 only after exact confirmations and hard caps.
+bounded read-only Reddit collection.  ``produce`` may call Gemini, OpenAI,
+GPT Image 2 through VectorEngine, and AI33 only after exact confirmations and hard caps.
 Neither stage uploads to YouTube, mutates publication history, or authorizes a
 release.  The highest possible result is ``READY_FOR_HUMAN_REVIEW``.
 """
@@ -58,6 +58,11 @@ from compilation_translation import (
     translate_and_review_story,
 )
 from compilation_tts_runner import build_tts_chunks, run_compilation_tts
+from openai_client import (
+    OPENAI_MODEL,
+    OpenAIJSONResult,
+    call_openai_json,
+)
 from scraper import fetch_best_story, get_reddit, history_posts, load_channel_config, load_history
 from source_text_quality import source_text_quality_blockers
 from source_safety import source_safety_evidence
@@ -393,10 +398,9 @@ def _translation_fallback_piece_ceiling(body: str, chunk_chars: int = 7_000) -> 
     return max(1, len(_paragraph_chunks(working_body, chunk_chars)))
 
 
-def _required_gemini_calls(candidates: list[dict[str, Any]]) -> int:
+def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
     """Conservatively budget the full accepted translation/review path."""
-    playoff_calls = len(candidates) * 2
-    winner_translation_ceiling = max(
+    return max(
         (
             sum(
                 5
@@ -410,8 +414,11 @@ def _required_gemini_calls(candidates: list[dict[str, Any]]) -> int:
         ),
         default=0,
     )
-    # One final source-bound packaging selection follows translation.
-    return playoff_calls + winner_translation_ceiling + 1
+
+
+def _required_gemini_calls(candidates: list[dict[str, Any]]) -> int:
+    """Budget producer+critic playoff calls and final packaging only."""
+    return len(candidates) * 2 + 1
 
 
 def _minimum_tts_calls(format_id: str, source_count: int) -> int:
@@ -787,10 +794,15 @@ class CallBudget:
         cap: int,
         label: str,
         journal_path: Path | None = None,
+        token_cap: int | None = None,
     ):
         self.provider = provider
         self.cap = _positive_cap(cap, f"{label}_call_cap", maximum=256)
         self.label = label
+        self.token_cap = (
+            _positive_cap(token_cap, f"{label}_token_cap", maximum=1_000_000)
+            if token_cap is not None else None
+        )
         self.journal_path = Path(journal_path) if journal_path is not None else None
         self.journal: dict[str, Any] = {
             "version": 1,
@@ -799,12 +811,21 @@ class CallBudget:
             "attempts": [],
             "publication_authorized": False,
         }
+        if self.token_cap is not None:
+            self.journal["token_cap"] = self.token_cap
+            self.journal["usage_totals"] = {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "reasoning_tokens": 0,
+            }
         if self.journal_path is not None and self.journal_path.exists():
             previous = _read_object(self.journal_path)
             if (
                 previous.get("version") != 1
                 or previous.get("provider") != label
                 or previous.get("cap") != self.cap
+                or previous.get("token_cap") != self.token_cap
                 or not isinstance(previous.get("attempts"), list)
             ):
                 raise EpisodeFactoryError(f"{label} provider attempt journal is incompatible")
@@ -831,10 +852,22 @@ class CallBudget:
             )
         if len(self.calls) >= self.cap:
             raise EpisodeFactoryError(f"{self.label} call cap exhausted ({self.cap})")
+        if self.token_cap is not None:
+            used = int((self.journal.get("usage_totals") or {}).get("total_tokens") or 0)
+            prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
+            output_ceiling = int(kwargs.get("max_output_tokens") or 0)
+            # UTF-8 bytes are a deliberately conservative upper bound for text
+            # tokenization; reserve before transport so the cap is fail-closed.
+            reserved_ceiling = len(prompt.encode("utf-8")) + 512 + output_ceiling
+            if used + reserved_ceiling > self.token_cap:
+                raise EpisodeFactoryError(
+                    f"{self.label} token cap cannot reserve the next request "
+                    f"({used}+{reserved_ceiling}>{self.token_cap})"
+                )
         # Keep one logical budget unit equal to one paid generation request.
         # Automatic provider retries would otherwise multiply spend behind the
         # explicit factory cap.
-        if self.label in {"gemini", "image"}:
+        if self.label in {"gemini", "image", "openai_translation"}:
             kwargs.setdefault("retries", 0)
         prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
         attempt = {
@@ -851,12 +884,37 @@ class CallBudget:
         self.calls.append(attempt)
         self._write_journal()
         try:
-            response = self.provider(**kwargs)
+            raw_response = self.provider(**kwargs)
         except Exception as exc:
             attempt["status"] = "AMBIGUOUS_ERROR"
             attempt["error_type"] = type(exc).__name__
             self._write_journal()
             raise
+        response = raw_response
+        if isinstance(raw_response, OpenAIJSONResult):
+            response = raw_response.payload
+            usage = raw_response.usage
+            attempt["usage"] = {
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "total_tokens": usage.total_tokens,
+                "reasoning_tokens": usage.reasoning_tokens,
+            }
+            totals = self.journal.get("usage_totals")
+            if not isinstance(totals, dict) or self.token_cap is None:
+                attempt["status"] = "BLOCKED_MISSING_TOKEN_CAP"
+                self._write_journal()
+                raise EpisodeFactoryError("OpenAI response cannot be accepted without token cap")
+            for key in totals:
+                totals[key] = int(totals[key]) + int(attempt["usage"][key])
+            if totals["total_tokens"] > self.token_cap:
+                attempt["status"] = "BLOCKED_TOKEN_CAP_EXCEEDED"
+                self._write_journal()
+                raise EpisodeFactoryError("OpenAI actual usage exceeded the approved token cap")
+        elif self.token_cap is not None:
+            attempt["status"] = "BLOCKED_MISSING_USAGE"
+            self._write_journal()
+            raise EpisodeFactoryError("OpenAI provider returned no validated usage envelope")
         attempt["status"] = "COMPLETE"
         if isinstance(response, dict):
             attempt["response_sha256"] = canonical_hash(_journal_hashable(response))
@@ -1108,7 +1166,7 @@ def _translate_script(
     daily_plan: dict[str, Any],
     episode_plan: dict[str, Any],
     playoff: dict[str, Any],
-    gemini: CallBudget,
+    openai_translation: CallBudget,
     checkpoint_dir: Path,
 ) -> dict[str, Any]:
     translated_stories: list[dict[str, Any]] = []
@@ -1116,10 +1174,10 @@ def _translate_script(
     for index, source in enumerate(sources, start=1):
         translated = translate_and_review_story(
             {"title": source["title"], "body": source["body"]},
-            provider=gemini,
-            reviewer=gemini,
+            provider=openai_translation,
+            reviewer=openai_translation,
             config=TranslationConfig(
-                model=DEFAULT_GEMINI_MODEL,
+                model=OPENAI_MODEL,
                 max_output_tokens=16_384,
                 max_story_revisions=2,
             ),
@@ -1234,6 +1292,13 @@ def _factory_provider_contract() -> dict[str, Any]:
             "max_output_tokens": 16_384,
             "automatic_retries": 0,
         },
+        "openai_translation": {
+            "provider": "openai",
+            "model": OPENAI_MODEL,
+            "reasoning_effort": "none",
+            "max_output_tokens": 16_384,
+            "automatic_retries": 0,
+        },
         "image": {
             "provider": "vectorengine",
             "model": DEFAULT_IMAGE_MODEL,
@@ -1256,10 +1321,14 @@ def _paid_candidate_cap_contract(
     *,
     daily_plan: dict[str, Any],
     gemini_call_cap: int,
+    openai_call_cap: int,
+    openai_token_cap: int,
     image_call_cap: int,
     ai33_call_cap: int,
 ) -> dict[str, int]:
     gemini_cap = _positive_cap(gemini_call_cap, "gemini_call_cap", maximum=256)
+    openai_cap = _positive_cap(openai_call_cap, "openai_call_cap", maximum=256)
+    openai_tokens = _positive_cap(openai_token_cap, "openai_token_cap", maximum=1_000_000)
     image_cap = _positive_cap(image_call_cap, "image_call_cap", maximum=256)
     ai33_cap = _positive_cap(ai33_call_cap, "ai33_call_cap", maximum=256)
     _validate_base_candidate_pool(candidates, daily_plan)
@@ -1268,10 +1337,16 @@ def _paid_candidate_cap_contract(
     image_floor = max(_required_image_calls(format_id, count) for count in source_counts)
     tts_ceiling = _required_ai33_calls(candidates, format_id)
     required_gemini_calls = _required_gemini_calls(candidates)
+    required_openai_calls = _required_openai_calls(candidates)
     if gemini_cap < required_gemini_calls:
         raise EpisodeFactoryError(
             f"source finalists require Gemini cap {required_gemini_calls} before the first "
             f"paid request; configured cap is {gemini_cap}"
+        )
+    if openai_cap < required_openai_calls:
+        raise EpisodeFactoryError(
+            f"source finalists require OpenAI cap {required_openai_calls} before the first "
+            f"translation request; configured cap is {openai_cap}"
         )
     if image_cap < image_floor:
         raise EpisodeFactoryError(
@@ -1284,9 +1359,12 @@ def _paid_candidate_cap_contract(
         )
     return {
         "gemini_call_cap": gemini_cap,
+        "openai_call_cap": openai_cap,
+        "openai_token_cap": openai_tokens,
         "image_call_cap": image_cap,
         "ai33_call_cap": ai33_cap,
         "required_gemini_calls": required_gemini_calls,
+        "required_openai_calls": required_openai_calls,
         "required_image_calls": image_floor,
         "required_ai33_calls": tts_ceiling,
     }
@@ -1299,6 +1377,9 @@ def _paid_preflight_contract(
     channels_path: Path,
     confirm_gemini_spend: str | bool,
     gemini_call_cap: int,
+    confirm_openai_spend: str | bool,
+    openai_call_cap: int,
+    openai_token_cap: int,
     confirm_image_spend: str | bool,
     image_call_cap: int,
     confirm_ai33_spend: str | bool,
@@ -1306,6 +1387,7 @@ def _paid_preflight_contract(
     write_report: bool,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     _exact_confirmation(confirm_gemini_spend, "confirm_gemini_spend")
+    _exact_confirmation(confirm_openai_spend, "confirm_openai_spend")
     _exact_confirmation(confirm_image_spend, "confirm_image_spend")
     _exact_confirmation(confirm_ai33_spend, "confirm_ai33_spend")
     workdir = Path(workdir)
@@ -1316,6 +1398,8 @@ def _paid_preflight_contract(
         candidates,
         daily_plan=daily_plan,
         gemini_call_cap=gemini_call_cap,
+        openai_call_cap=openai_call_cap,
+        openai_token_cap=openai_token_cap,
         image_call_cap=image_call_cap,
         ai33_call_cap=ai33_call_cap,
     )
@@ -1328,6 +1412,8 @@ def _paid_preflight_contract(
         raise EpisodeFactoryError(
             "paid preflight requires GEMINI_PROVIDER=vectorengine to match the spend lease"
         )
+    if not str(os.environ.get("OPENAI_API_KEY") or "").strip():
+        raise EpisodeFactoryError("OPENAI_API_KEY is required before creating the paid spend lease")
     api_key = str(os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY") or "")
     if not api_key:
         raise EpisodeFactoryError("AI33_API_KEY is required before creating the paid spend lease")
@@ -1351,11 +1437,14 @@ def _paid_preflight_contract(
             ),
             "post_ai33_render_qa_reserve_minutes": POST_AI33_RENDER_QA_RESERVE_MINUTES,
             "required_gemini_calls": cap_contract["required_gemini_calls"],
+            "required_openai_calls": cap_contract["required_openai_calls"],
+            "openai_token_cap": cap_contract["openai_token_cap"],
             "required_ai33_calls": cap_contract["required_ai33_calls"],
             "timeout_is_a_ceiling_not_an_sla": True,
             "automatic_paid_resume": False,
         },
         "would_call_gemini": False,
+        "would_call_openai": False,
         "would_call_image_provider": False,
         "would_call_ai33": False,
         "publication_authorized": False,
@@ -1372,6 +1461,9 @@ def run_paid_preflight(
     channels_path: Path,
     confirm_gemini_spend: str | bool,
     gemini_call_cap: int,
+    confirm_openai_spend: str | bool,
+    openai_call_cap: int,
+    openai_token_cap: int,
     confirm_image_spend: str | bool,
     image_call_cap: int,
     confirm_ai33_spend: str | bool,
@@ -1384,6 +1476,9 @@ def run_paid_preflight(
         channels_path=channels_path,
         confirm_gemini_spend=confirm_gemini_spend,
         gemini_call_cap=gemini_call_cap,
+        confirm_openai_spend=confirm_openai_spend,
+        openai_call_cap=openai_call_cap,
+        openai_token_cap=openai_token_cap,
         confirm_image_spend=confirm_image_spend,
         image_call_cap=image_call_cap,
         confirm_ai33_spend=confirm_ai33_spend,
@@ -1427,6 +1522,8 @@ def _validate_spend_lease_contract(
     source_stage: dict[str, Any],
     reddit_request_cap: int,
     gemini_call_cap: int,
+    openai_call_cap: int,
+    openai_token_cap: int,
     image_call_cap: int,
     ai33_call_cap: int,
 ) -> dict[str, Any]:
@@ -1450,12 +1547,15 @@ def _validate_spend_lease_contract(
                     reddit_request_cap, "reddit_request_cap", maximum=100,
                 ),
                 "gemini_call_cap": gemini_call_cap,
+                "openai_call_cap": openai_call_cap,
+                "openai_token_cap": openai_token_cap,
                 "image_call_cap": image_call_cap,
                 "ai33_call_cap": ai33_call_cap,
             },
             confirmations={
                 "reddit_read": True,
                 "gemini_spend": True,
+                "openai_spend": True,
                 "image_spend": True,
                 "ai33_spend": True,
             },
@@ -1476,6 +1576,9 @@ def run_produce_stage(
     channels_path: Path,
     confirm_gemini_spend: str | bool,
     gemini_call_cap: int,
+    confirm_openai_spend: str | bool,
+    openai_call_cap: int,
+    openai_token_cap: int,
     confirm_image_spend: str | bool,
     image_call_cap: int,
     confirm_ai33_spend: str | bool,
@@ -1483,6 +1586,7 @@ def run_produce_stage(
     reddit_request_cap: int = 24,
     spend_lease_path: Path | None = None,
     gemini_provider: Callable[..., dict[str, Any]] = call_gemini_json,
+    openai_provider: Callable[..., OpenAIJSONResult] = call_openai_json,
     image_provider: Callable[..., Path] = call_image_generation,
 ) -> dict[str, Any]:
     """Create the review artifact after source and all spend gates have passed."""
@@ -1493,6 +1597,9 @@ def run_produce_stage(
         channels_path=channels_path,
         confirm_gemini_spend=confirm_gemini_spend,
         gemini_call_cap=gemini_call_cap,
+        confirm_openai_spend=confirm_openai_spend,
+        openai_call_cap=openai_call_cap,
+        openai_token_cap=openai_token_cap,
         confirm_image_spend=confirm_image_spend,
         image_call_cap=image_call_cap,
         confirm_ai33_spend=confirm_ai33_spend,
@@ -1500,6 +1607,8 @@ def run_produce_stage(
         write_report=True,
     )
     gemini_cap = int(paid_preflight["caps"]["gemini_call_cap"])
+    openai_cap = int(paid_preflight["caps"]["openai_call_cap"])
+    openai_tokens = int(paid_preflight["caps"]["openai_token_cap"])
     image_cap = int(paid_preflight["caps"]["image_call_cap"])
     ai33_cap = int(paid_preflight["caps"]["ai33_call_cap"])
     _validate_spend_lease_contract(
@@ -1512,6 +1621,8 @@ def run_produce_stage(
         source_stage=source_stage,
         reddit_request_cap=reddit_request_cap,
         gemini_call_cap=gemini_cap,
+        openai_call_cap=openai_cap,
+        openai_token_cap=openai_tokens,
         image_call_cap=image_cap,
         ai33_call_cap=ai33_cap,
     )
@@ -1526,6 +1637,13 @@ def run_produce_stage(
         cap=gemini_cap,
         label="gemini",
         journal_path=provider_journal_dir / "gemini.json",
+    )
+    openai_translation = CallBudget(
+        openai_provider,
+        cap=openai_cap,
+        token_cap=openai_tokens,
+        label="openai_translation",
+        journal_path=provider_journal_dir / "openai-translation.json",
     )
     images = CallBudget(
         image_provider,
@@ -1567,6 +1685,14 @@ def run_produce_stage(
     greenlight = _greenlight(daily_plan, winner, playoff)
     provider_settings = {
         "gemini": {"provider": resolved_gemini_source, "model": DEFAULT_GEMINI_MODEL, "max_output_tokens": 16_384},
+        "translation": {
+            "provider": "openai",
+            "model": OPENAI_MODEL,
+            "reviewer_provider": "openai",
+            "reviewer_model": OPENAI_MODEL,
+            "reasoning_effort": "none",
+            "max_output_tokens": 16_384,
+        },
         "image": {"provider": "vectorengine", "model": DEFAULT_IMAGE_MODEL, "size": "1536x864"},
         "tts": {
             "provider": "ai33", "model_id": TTS_MODEL_ID,
@@ -1614,7 +1740,7 @@ def run_produce_stage(
         daily_plan=daily_plan,
         episode_plan=episode_plan,
         playoff=playoff,
-        gemini=gemini,
+        openai_translation=openai_translation,
         checkpoint_dir=workdir / "translation-checkpoints",
     )
     try:
@@ -1816,6 +1942,7 @@ def run_produce_stage(
         "media_qa": workdir / "media-qa.json",
         "creative_review": workdir / "creative-review.json",
         "gemini_attempts": provider_journal_dir / "gemini.json",
+        "openai_translation_attempts": provider_journal_dir / "openai-translation.json",
         "image_attempts": provider_journal_dir / "image.json",
         "ai33_attempts": provider_journal_dir / "ai33.json",
     }
@@ -1853,6 +1980,12 @@ def run_produce_stage(
         "provider_usage": {
             "gemini_calls": len(gemini.calls),
             "gemini_call_cap": gemini.cap,
+            "openai_translation_calls": len(openai_translation.calls),
+            "openai_translation_call_cap": openai_translation.cap,
+            "openai_translation_token_cap": openai_translation.token_cap,
+            "openai_translation_usage": copy.deepcopy(
+                openai_translation.journal.get("usage_totals") or {}
+            ),
             "image_calls": len(images.calls),
             "image_call_cap": images.cap,
             "ai33_task_submissions": len(ai33.calls),
@@ -1959,6 +2092,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reddit-request-cap", type=int, default=24)
     parser.add_argument("--confirm-gemini-spend", default="false")
     parser.add_argument("--gemini-call-cap", type=int, default=64)
+    parser.add_argument("--confirm-openai-spend", default="false")
+    parser.add_argument("--openai-call-cap", type=int, default=96)
+    parser.add_argument("--openai-token-cap", type=int, default=500_000)
     parser.add_argument("--confirm-image-spend", default="false")
     parser.add_argument("--image-call-cap", type=int, default=16)
     parser.add_argument("--confirm-ai33-spend", default="false")
@@ -1985,6 +2121,9 @@ def main(argv: list[str] | None = None) -> int:
             channels_path=channels,
             confirm_gemini_spend=args.confirm_gemini_spend,
             gemini_call_cap=args.gemini_call_cap,
+            confirm_openai_spend=args.confirm_openai_spend,
+            openai_call_cap=args.openai_call_cap,
+            openai_token_cap=args.openai_token_cap,
             confirm_image_spend=args.confirm_image_spend,
             image_call_cap=args.image_call_cap,
             confirm_ai33_spend=args.confirm_ai33_spend,
@@ -1997,6 +2136,9 @@ def main(argv: list[str] | None = None) -> int:
             channels_path=channels,
             confirm_gemini_spend=args.confirm_gemini_spend,
             gemini_call_cap=args.gemini_call_cap,
+            confirm_openai_spend=args.confirm_openai_spend,
+            openai_call_cap=args.openai_call_cap,
+            openai_token_cap=args.openai_token_cap,
             confirm_image_spend=args.confirm_image_spend,
             image_call_cap=args.image_call_cap,
             confirm_ai33_spend=args.confirm_ai33_spend,
