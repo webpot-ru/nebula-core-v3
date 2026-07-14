@@ -401,6 +401,11 @@ FORMAT_INTENT_RULES = {
         "for an 8-18 minute episode. The source must be substantial enough to read/adapt without padding or cutting. "
         "Skip thin facts and one-joke stories even if they work as Shorts."
     ),
+    "saga": (
+        "This is one complete acc1 SAGA episode targeting 18-30 narrated minutes. "
+        "Require a self-contained primary story with a source-backed setup, escalation, and closed payoff. "
+        "Reject incomplete updates, serial fragments, link/screenshot-dependent sources, and stories outside the configured word-runtime envelope."
+    ),
 }
 
 
@@ -423,6 +428,16 @@ FORMAT_LENGTH_PROFILES = {
         "policy": "select_long_source_only",
         "description": "Long-form must start from a substantial source story; never pad a thin story into long-form.",
     },
+    "saga": {
+        "min_body_chars": None,
+        "max_body_chars": None,
+        "min_words": 2340,
+        "max_words": 3900,
+        "words_per_minute": 130,
+        "target_duration_minutes": [18, 30],
+        "policy": "select_complete_acc1_saga_source_by_word_runtime",
+        "description": "Acc1 SAGA must fit 18-30 minutes at 130 source words per minute without padding or truncation.",
+    },
 }
 
 
@@ -430,7 +445,13 @@ def format_length_profile(format_intent: str | None) -> dict:
     return FORMAT_LENGTH_PROFILES.get((format_intent or "auto").strip().lower(), {})
 
 
-def format_length_skip_reason(body_length: int, format_intent: str | None) -> str | None:
+def source_word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9']+", str(text or "")))
+
+
+def format_length_skip_reason(
+    body_length: int, format_intent: str | None, *, word_count: int | None = None,
+) -> str | None:
     profile = format_length_profile(format_intent)
     min_chars = profile.get("min_body_chars")
     max_chars = profile.get("max_body_chars")
@@ -438,6 +459,15 @@ def format_length_skip_reason(body_length: int, format_intent: str | None) -> st
         return f"too_short_for_{format_intent}_{body_length}<{int(min_chars)}"
     if max_chars is not None and body_length > int(max_chars):
         return f"too_long_for_{format_intent}_{body_length}>{int(max_chars)}"
+    min_words = profile.get("min_words")
+    max_words = profile.get("max_words")
+    if min_words is not None or max_words is not None:
+        if word_count is None:
+            return f"word_count_required_for_{format_intent}"
+        if min_words is not None and word_count < int(min_words):
+            return f"too_short_for_{format_intent}_{word_count}_words<{int(min_words)}"
+        if max_words is not None and word_count > int(max_words):
+            return f"too_long_for_{format_intent}_{word_count}_words>{int(max_words)}"
     return None
 
 
@@ -692,6 +722,11 @@ def has_hook_evidence(ai_result: dict) -> bool:
 
 
 def producer_quality_score(local_score: int, ai_result: dict) -> float:
+    verdict = str(ai_result.get("verdict") or "").upper()
+    if verdict == "UNREVIEWED":
+        # Source-only reviews deliberately keep deterministic Reddit ranking,
+        # but must not manufacture neutral AI scores or imply editorial approval.
+        return round(float(local_score), 2)
     positive_keys = (
         "niche_fit",
         "hook_strength",
@@ -711,7 +746,6 @@ def producer_quality_score(local_score: int, ai_result: dict) -> float:
     )
     positives = sum(score_int(ai_result.get(key), 5) for key in positive_keys)
     risks = sum(score_int(ai_result.get(key), 5) for key in risk_keys)
-    verdict = str(ai_result.get("verdict") or "").upper()
     verdict_bonus = 14 if verdict == "PUBLISH" else 6 if verdict == "REWRITE" else -30
     evidence_bonus = 8 if has_hook_evidence(ai_result) else -12
     format_bonus = 4 if str(ai_result.get("format_recommendation") or "").lower() in {"shorts", "long", "both"} else 0
@@ -741,6 +775,9 @@ def producer_queue_entry(
         "upvotes": post.score,
         "comments": post.num_comments,
         "source_body_chars": len(source_body),
+        "source_body_sha256": hashlib.sha256(source_body.encode("utf-8")).hexdigest(),
+        "source_word_count": source_word_count(source_body),
+        "source_estimated_minutes_at_130_wpm": round(source_word_count(source_body) / 130, 2),
         "source_has_url": bool(re.search(r"https?://|www\.", source_body, flags=re.IGNORECASE)),
         "source_has_markdown_link": bool(re.search(r"\[[^\]]+\]\([^)]+\)", source_body)),
         "source_has_markdown_image": bool(re.search(r"!\[[^\]]*\]\([^)]+\)", source_body)),
@@ -798,6 +835,7 @@ def write_producer_queue(
     skip_rank: int,
     entries: list[dict],
     chosen_entry: dict | None,
+    source_plan: dict | None = None,
 ) -> None:
     if not output_path:
         return
@@ -811,6 +849,12 @@ def write_producer_queue(
         "skip_rank": skip_rank,
         "selected_post_id": chosen_entry.get("post_id") if chosen_entry else None,
         "selected_producer_score": chosen_entry.get("producer_score") if chosen_entry else None,
+        "quality_review_status": (
+            "UNREVIEWED"
+            if entries and all(str(item.get("verdict") or "").upper() == "UNREVIEWED" for item in entries)
+            else "MIXED_OR_REVIEWED"
+        ),
+        "source_plan": source_plan,
         "entries": entries,
     }
     path = output_path
@@ -834,7 +878,7 @@ def ai_quality_check(
     Send the story to Gemini for a structured quality assessment.
 
     Returns a dict with keys:
-        verdict       : "PUBLISH" | "REWRITE" | "SKIP"
+        verdict       : "PUBLISH" | "REWRITE" | "SKIP" | "UNREVIEWED"
         niche_fit     : int 1-10
         hook_strength : int 1-10
         narrative_arc : int 1-10
@@ -852,7 +896,11 @@ def ai_quality_check(
         hook_evidence : list[dict] with exact source quote(s) for the hook
     """
     if not AI_QUALITY_ENABLED:
-        return {"verdict": "PUBLISH", "reason": "AI quality check disabled."}
+        return {
+            "verdict": "UNREVIEWED",
+            "selection_eligible": True,
+            "reason": "Source-only selection; editorial AI quality review was not run.",
+        }
 
     try:
         from vectorengine_client import call_gemini_json, VectorEngineError, load_dotenv_file
@@ -1341,6 +1389,54 @@ def save_history(post_id: str, channel_id: str, story: dict | None = None) -> No
         print(f"  Warning: could not save history: {e}")
 
 
+class TopicSourcePlanError(RuntimeError):
+    """Raised before Reddit access when topic routing is missing or unsafe."""
+
+
+def resolve_topic_source_request(
+    channel_config: dict | None,
+    *,
+    topic_family: str | None = None,
+    pilot_id: str | None = None,
+) -> tuple[str | None, dict | None]:
+    """Resolve explicit topic-family or acc1 pilot routing without stale fallback."""
+    family = str(topic_family or "").strip() or None
+    if family and family not in TOPIC_FAMILY_PRESETS:
+        raise TopicSourcePlanError(f"unknown topic family: {family}")
+    if pilot_id:
+        if not channel_config or channel_config.get("id") != "acc1":
+            raise TopicSourcePlanError("--pilot-id is only supported for configured acc1 pilots")
+        try:
+            from acc1_story_strategy import StrategyContractError, resolve_pilot_source_plan
+        except ImportError as exc:
+            raise TopicSourcePlanError("acc1 pilot source strategy is unavailable") from exc
+        try:
+            plan = resolve_pilot_source_plan(channel_config, pilot_id)
+        except StrategyContractError as exc:
+            raise TopicSourcePlanError(str(exc)) from exc
+        planned_family = str(plan.get("topic_family") or "").strip()
+        if planned_family not in TOPIC_FAMILY_PRESETS:
+            raise TopicSourcePlanError(
+                f"pilot {pilot_id} resolved an unknown topic family: {planned_family or 'missing'}"
+            )
+        if family and family != planned_family:
+            raise TopicSourcePlanError(
+                f"pilot {pilot_id} requires {planned_family}, not explicit family {family}"
+            )
+        return planned_family, plan
+
+    if (
+        channel_config
+        and channel_config.get("id") == "acc1"
+        and channel_config.get("topic_mix_status") == "superseded_pending_rebuild"
+        and not family
+    ):
+        raise TopicSourcePlanError(
+            "acc1 topic_mix is superseded; select a configured --pilot-id or an explicit --topic-family review"
+        )
+    return family, None
+
+
 def channel_topic_mix(channel_config: dict | None) -> list[dict]:
     if not channel_config:
         return []
@@ -1378,7 +1474,33 @@ def build_topic_sources(
     time_filter: str,
     channel_config: dict | None = None,
     topic_family: str | None = None,
+    planned_subreddits: list[str] | None = None,
 ) -> list[dict]:
+    if topic_family and topic_family not in TOPIC_FAMILY_PRESETS:
+        raise TopicSourcePlanError(f"unknown topic family: {topic_family}")
+    if planned_subreddits is not None:
+        if not topic_family:
+            raise TopicSourcePlanError("planned_subreddits require an explicit topic family")
+        if not planned_subreddits or not all(str(item or "").strip() for item in planned_subreddits):
+            raise TopicSourcePlanError("planned_subreddits must contain configured subreddit names")
+        configured_subreddits = {
+            str(item).strip().casefold(): str(item).strip()
+            for item in (channel_config or {}).get("subreddits") or []
+            if str(item or "").strip()
+        }
+        missing = [
+            str(item).strip()
+            for item in planned_subreddits
+            if str(item).strip().casefold() not in configured_subreddits
+        ]
+        if missing:
+            raise TopicSourcePlanError(
+                "pilot source plan references unconfigured subreddits: " + ", ".join(missing)
+            )
+        planned_subreddits = [
+            configured_subreddits[str(item).strip().casefold()]
+            for item in planned_subreddits
+        ]
     mix = channel_topic_mix(channel_config)
     if topic_family:
         mix = [item for item in mix if item.get("family") == topic_family]
@@ -1413,12 +1535,19 @@ def build_topic_sources(
             "family": family,
             "label": preset["label"],
             "weight": float(item.get("weight", 1.0)),
-            "subreddits": (item.get("subreddits") or preset["subreddits"])[:max_subreddits],
+            "subreddits": (
+                planned_subreddits or item.get("subreddits") or preset["subreddits"]
+            )[:max_subreddits],
             "time_windows": [w for w in windows if w in VALID_TIME_FILTERS][:max_windows],
             "min_upvotes": item.get("min_upvotes", preset.get("min_upvotes")),
             "min_body_length": item.get("min_body_length", preset.get("min_body_length")),
             "quality_rules": item.get("quality_rules") or preset.get("quality_rules"),
         })
+    if not sources:
+        configured = ", ".join(str(item.get("family") or "(missing)") for item in mix)
+        raise TopicSourcePlanError(
+            f"no executable topic sources were resolved from configured families: {configured or '(none)'}"
+        )
     return sources
 
 
@@ -1435,7 +1564,8 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                      allow_cross_channel_reuse=False,
                      include_source_body_in_queue=False,
                      format_intent: str | None = None,
-                     producer_queue_output: str | None = "producer_queue.json"):
+                     producer_queue_output: str | None = "producer_queue.json",
+                     pilot_id: str | None = None):
     """
     Search topic-family sources for the most viral post, then run a bounded AI
     quality gate (Gemini provider selected by vectorengine_client.py) to confirm channel fit, novelty, and
@@ -1464,6 +1594,20 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
     -------
     dict  - story payload ready for story_data.json
     """
+    topic_family, source_plan = resolve_topic_source_request(
+        channel_config,
+        topic_family=topic_family,
+        pilot_id=pilot_id,
+    )
+    if source_plan:
+        requested_format = str(format_intent or "").strip().lower()
+        planned_format = str(source_plan.get("format_intent") or "").strip().lower()
+        if requested_format and requested_format != planned_format:
+            raise TopicSourcePlanError(
+                f"pilot {pilot_id} requires format_intent={planned_format}, not {requested_format}"
+            )
+        format_intent = planned_format
+
     reddit = get_reddit()
     history = load_history()
     max_ai_candidates = DEFAULT_MAX_AI_CANDIDATES if max_ai_candidates is None else max_ai_candidates
@@ -1481,6 +1625,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
         time_filter=time_filter,
         channel_config=channel_config,
         topic_family=topic_family,
+        planned_subreddits=(source_plan or {}).get("subreddits"),
     )
 
     print(f"Topic mode: {len(sources)} source family/families | candidate limit/source={candidate_limit}")
@@ -1490,7 +1635,9 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
             "Format length policy: "
             f"{length_profile.get('policy')} | "
             f"min_body={length_profile.get('min_body_chars') or 'none'} | "
-            f"max_body={length_profile.get('max_body_chars') or 'none'}"
+            f"max_body={length_profile.get('max_body_chars') or 'none'} | "
+            f"min_words={length_profile.get('min_words') or 'none'} | "
+            f"max_words={length_profile.get('max_words') or 'none'}"
         )
 
     for source in sources:
@@ -1517,7 +1664,10 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                             continue
                         if len(body) < source_min_body:
                             continue
-                        length_skip = format_length_skip_reason(len(body), format_intent)
+                        body_word_count = source_word_count(body)
+                        length_skip = format_length_skip_reason(
+                            len(body), format_intent, word_count=body_word_count,
+                        )
                         if length_skip:
                             print(f"    skip length ({length_skip}) | {post.title[:55]}")
                             continue
@@ -1707,13 +1857,19 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
         skip_rank=skip_rank,
         entries=sorted(queue_entries, key=lambda item: item.get("producer_score") or 0, reverse=True),
         chosen_entry=chosen_queue_entry,
+        source_plan=source_plan,
     )
 
     if not chosen_post:
         print("\n❌ No candidate passed within the AI quality budget.")
         return None
 
-    print(f"\n✅ Story approved (producer_score={chosen_producer_score}, virality={chosen_score}, verdict={ai_result.get('verdict')}):")
+    selection_label = (
+        "Source candidate selected; editorial review NOT RUN"
+        if str(ai_result.get("verdict") or "").upper() == "UNREVIEWED"
+        else "Story approved by configured producer gate"
+    )
+    print(f"\n✅ {selection_label} (producer_score={chosen_producer_score}, virality={chosen_score}, verdict={ai_result.get('verdict')}):")
     print(f"   r/{chosen_post.subreddit} — {chosen_post.title[:70]}")
     print(f"   {format_count(chosen_post.score)} upvotes | "
           f"{format_count(chosen_post.num_comments)} comments")
@@ -1728,7 +1884,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
     # If AI suggested a better hook, store it so translator_tts.py can use it
     hook_override = ai_result.get("hook_suggestion") or None
 
-    return {
+    result = {
         "subreddit": f"r/{chosen_post.subreddit}",
         "title": chosen_post.title,
         "author": f"u/{chosen_post.author}" if chosen_post.author else "u/deleted",
@@ -1772,6 +1928,9 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
         "post_id": chosen_post.id,
         "comments": comments
     }
+    if source_plan:
+        result["source_plan"] = source_plan
+    return result
 
 
 def load_channel_config(channel_id=None):
@@ -1844,6 +2003,8 @@ if __name__ == "__main__":
                              "gets a unique story. (default: 1)")
     parser.add_argument("--topic-family", default=None,
                         help="Force one topic family, e.g. human_drama, dark_curiosity, curiosity_facts.")
+    parser.add_argument("--pilot-id", default=None,
+                        help="Resolve one configured acc1 SAGA pilot to its fail-closed source plan.")
     parser.add_argument("--max-ai-candidates", type=int, default=DEFAULT_MAX_AI_CANDIDATES,
                         help=f"Maximum Gemini quality checks per scrape (default: {DEFAULT_MAX_AI_CANDIDATES})")
     parser.add_argument("--candidate-limit", type=int, default=DEFAULT_CANDIDATE_LIMIT,
@@ -1911,23 +2072,28 @@ if __name__ == "__main__":
     skip_rank = max(0, args.video_slot - 1)   # slot 1→skip 0, slot 2→skip 1, etc.
     if skip_rank:
         print(f"Video slot #{args.video_slot}: will skip {skip_rank} already-approved candidate(s).")
-    story = fetch_best_story(
-        subreddits=subreddits,
-        time_filter=args.time,
-        min_upvotes=args.min_upvotes,
-        channel_id=channel_key,
-        channel_config=channel if not args.subreddit else {},
-        skip_rank=skip_rank,
-        max_ai_candidates=args.max_ai_candidates,
-        candidate_limit=args.candidate_limit,
-        comment_limit=args.comment_limit,
-        topic_family=args.topic_family,
-        similarity_threshold=args.similarity_threshold,
-        allow_cross_channel_reuse=args.allow_cross_channel_reuse,
-        include_source_body_in_queue=args.include_source_body_in_queue,
-        format_intent=args.format_intent,
-        producer_queue_output=None if args.no_producer_queue else args.producer_queue_output,
-    )
+    try:
+        story = fetch_best_story(
+            subreddits=subreddits,
+            time_filter=args.time,
+            min_upvotes=args.min_upvotes,
+            channel_id=channel_key,
+            channel_config=channel if not args.subreddit else {},
+            skip_rank=skip_rank,
+            max_ai_candidates=args.max_ai_candidates,
+            candidate_limit=args.candidate_limit,
+            comment_limit=args.comment_limit,
+            topic_family=args.topic_family,
+            similarity_threshold=args.similarity_threshold,
+            allow_cross_channel_reuse=args.allow_cross_channel_reuse,
+            include_source_body_in_queue=args.include_source_body_in_queue,
+            format_intent=args.format_intent,
+            producer_queue_output=None if args.no_producer_queue else args.producer_queue_output,
+            pilot_id=args.pilot_id,
+        )
+    except TopicSourcePlanError as exc:
+        print(f"Topic source preflight failed: {exc}", file=sys.stderr)
+        sys.exit(4)
 
     if story:
         if args.max_body_chars and not args.allow_body_trim:

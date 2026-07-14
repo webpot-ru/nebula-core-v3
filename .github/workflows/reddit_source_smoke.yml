@@ -1,5 +1,5 @@
 name: Reddit Source Smoke
-run-name: Reddit source ${{ inputs.review_label }} ${{ inputs.channel }} ${{ inputs.topic_family }} slot=${{ inputs.video_slot }}
+run-name: Reddit source ${{ inputs.review_label }} ${{ inputs.channel }} ${{ inputs.topic_family }} pilot=${{ inputs.acc1_pilot_id }} slot=${{ inputs.video_slot }}
 
 on:
   workflow_dispatch:
@@ -58,6 +58,17 @@ on:
           - shorts
           - shorts_from_long
           - long
+          - saga
+      acc1_pilot_id:
+        description: Execute one canonical acc1 pilot source plan, or none for legacy/channel-family review
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - pilot_01
+          - pilot_02
+          - pilot_03
       candidate_limit:
         description: Maximum posts fetched per bounded source
         required: true
@@ -170,18 +181,27 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/reddit-source-smoke
           TOPIC_ARGS=()
-          if [ "${{ inputs.topic_family }}" != "channel_mix" ]; then
-            TOPIC_ARGS+=(--topic-family "${{ inputs.topic_family }}")
+          PILOT_ARGS=()
+          FORMAT_ARGS=()
+          if [ "${{ inputs.acc1_pilot_id }}" != "none" ]; then
+            test "${{ inputs.channel }}" = "acc1"
+            PILOT_ARGS+=(--pilot-id "${{ inputs.acc1_pilot_id }}")
+          else
+            if [ "${{ inputs.topic_family }}" != "channel_mix" ]; then
+              TOPIC_ARGS+=(--topic-family "${{ inputs.topic_family }}")
+            fi
+            FORMAT_ARGS+=(--format-intent "${{ inputs.format_intent }}")
           fi
           python scraper.py \
             --channel "${{ inputs.channel }}" \
             --time "${{ inputs.time_filter }}" \
             --video-slot "${{ inputs.video_slot }}" \
             "${TOPIC_ARGS[@]}" \
+            "${PILOT_ARGS[@]}" \
+            "${FORMAT_ARGS[@]}" \
             --max-ai-candidates 0 \
             --candidate-limit "${{ inputs.candidate_limit }}" \
             --comment-limit 0 \
-            --format-intent "${{ inputs.format_intent }}" \
             --allow-disabled-channel \
             --include-source-body-in-queue \
             --no-save-history \
@@ -197,6 +217,7 @@ jobs:
           REVIEW_TOPIC_FAMILY: ${{ inputs.topic_family }}
           REVIEW_TIME_FILTER: ${{ inputs.time_filter }}
           REVIEW_FORMAT_INTENT: ${{ inputs.format_intent }}
+          REVIEW_ACC1_PILOT_ID: ${{ inputs.acc1_pilot_id }}
           REVIEW_CANDIDATE_LIMIT: ${{ inputs.candidate_limit }}
           REVIEW_MAX_SUBREDDITS: ${{ inputs.max_subreddits_per_topic }}
           REVIEW_MAX_TIME_WINDOWS: ${{ inputs.max_time_windows_per_topic }}
@@ -207,9 +228,10 @@ jobs:
           mkdir -p /tmp/reddit-source-smoke
           printf 'channel=%s\n' "$REVIEW_CHANNEL" > /tmp/reddit-source-smoke/run-metadata.txt
           printf 'video_slot=%s\n' "$REVIEW_VIDEO_SLOT" >> /tmp/reddit-source-smoke/run-metadata.txt
-          printf 'topic_family=%s\n' "$REVIEW_TOPIC_FAMILY" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'requested_topic_family=%s\n' "$REVIEW_TOPIC_FAMILY" >> /tmp/reddit-source-smoke/run-metadata.txt
           printf 'time_filter=%s\n' "$REVIEW_TIME_FILTER" >> /tmp/reddit-source-smoke/run-metadata.txt
-          printf 'format_intent=%s\n' "$REVIEW_FORMAT_INTENT" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'requested_format_intent=%s\n' "$REVIEW_FORMAT_INTENT" >> /tmp/reddit-source-smoke/run-metadata.txt
+          printf 'acc1_pilot_id=%s\n' "$REVIEW_ACC1_PILOT_ID" >> /tmp/reddit-source-smoke/run-metadata.txt
           printf 'candidate_limit=%s\n' "$REVIEW_CANDIDATE_LIMIT" >> /tmp/reddit-source-smoke/run-metadata.txt
           printf 'max_subreddits_per_topic=%s\n' "$REVIEW_MAX_SUBREDDITS" >> /tmp/reddit-source-smoke/run-metadata.txt
           printf 'max_time_windows_per_topic=%s\n' "$REVIEW_MAX_TIME_WINDOWS" >> /tmp/reddit-source-smoke/run-metadata.txt
@@ -217,6 +239,7 @@ jobs:
           printf 'git_sha=%s\n' "$GITHUB_SHA" >> /tmp/reddit-source-smoke/run-metadata.txt
           printf 'ai_quality_check=0\n' >> /tmp/reddit-source-smoke/run-metadata.txt
           printf 'smoke_outcome=%s\n' "$SMOKE_OUTCOME" >> /tmp/reddit-source-smoke/run-metadata.txt
+          python -c 'import json, pathlib; p=pathlib.Path("/tmp/reddit-source-smoke/queue.json"); q=json.loads(p.read_text()) if p.is_file() else {}; plan=q.get("source_plan") or {}; out=pathlib.Path("/tmp/reddit-source-smoke/run-metadata.txt"); f=out.open("a", encoding="utf-8"); print("effective_topic_family=" + str(plan.get("topic_family") or "mixed_or_unresolved"), file=f); print("effective_format_intent=" + str(q.get("format_intent") or "unresolved"), file=f); f.close()'
           if [ -f channels.json ]; then
             cp channels.json /tmp/reddit-source-smoke/channels-snapshot.json
             CONFIG_SHA=$(sha256sum channels.json | cut -d' ' -f1)
@@ -232,8 +255,29 @@ jobs:
             --top-n 6 \
             --allow-missing
 
-      - name: Build acc1 compilation manifest
-        if: always() && inputs.channel == 'acc1'
+      - name: Build fail-closed acc1 SAGA greenlight draft
+        if: >-
+          always() && inputs.channel == 'acc1' &&
+          (inputs.acc1_pilot_id == 'pilot_01' ||
+           inputs.acc1_pilot_id == 'pilot_02' ||
+           inputs.acc1_pilot_id == 'pilot_03')
+        run: |
+          python scripts/build_acc1_greenlight_template.py \
+            --queue /tmp/reddit-source-smoke/queue.json \
+            --review /tmp/reddit-source-smoke/topic-review.json \
+            --output /tmp/reddit-source-smoke/greenlight-draft.json
+
+      - name: Require compatible acc1 horror compilation scope
+        if: inputs.run_compilation_pilot
+        run: |
+          test '${{ inputs.channel }}' = 'acc1'
+          test '${{ inputs.acc1_pilot_id }}' = 'none'
+          test '${{ inputs.topic_family }}' = 'dark_curiosity'
+          test '${{ inputs.format_intent }}' = 'long'
+          test '${{ inputs.time_filter }}' = 'month' -o '${{ inputs.time_filter }}' = 'year'
+
+      - name: Build acc1 horror compilation manifest
+        if: inputs.run_compilation_pilot
         run: |
           python scripts/select_acc1_pilots.py \
             --queue /tmp/reddit-source-smoke/queue.json \

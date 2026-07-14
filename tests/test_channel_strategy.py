@@ -58,7 +58,6 @@ class ChannelStrategyConfigTests(unittest.TestCase):
 
     def test_owned_reddit_lanes_fail_closed_to_their_validation_family(self):
         expected = {
-            "acc1": "dark_curiosity",
             "acc4": "human_drama",
             "acc5": "football_culture",
             "acc7": "visual_comedy",
@@ -72,7 +71,9 @@ class ChannelStrategyConfigTests(unittest.TestCase):
         channel = next(item for item in self.channels if item["id"] == "acc1")
         self.assertEqual(channel["primary_format"], "long")
         self.assertEqual(channel["shorts_role"], "trailer_after_long_only")
-        self.assertEqual(channel["cadence_plan"]["mode"], "longform_first_unlisted_pilot")
+        self.assertEqual(channel["cadence_plan"]["mode"], "six_video_saga_thread_pilot_local_only")
+        self.assertEqual(channel["topic_mix_status"], "superseded_pending_rebuild")
+        self.assertFalse(channel["automation_enabled"])
 
     def test_channel_specific_producer_brief_overrides_language_default(self):
         channel = next(item for item in self.channels if item["id"] == "acc7")
@@ -163,9 +164,15 @@ class SourceReviewEvidenceTests(unittest.TestCase):
             "review_label:",
             "topic_family:",
             "format_intent:",
+            "acc1_pilot_id:",
             "max_subreddits_per_topic:",
             '--format-intent "${{ inputs.format_intent }}"',
+            '--pilot-id "${{ inputs.acc1_pilot_id }}"',
+            'FORMAT_ARGS+=(--format-intent "${{ inputs.format_intent }}")',
+            'effective_format_intent=',
+            'effective_topic_family=',
             "format_intent=%s",
+            "acc1_pilot_id=%s",
             "--include-source-body-in-queue",
             "git_sha=%s",
             "channels_sha256=%s",
@@ -173,8 +180,16 @@ class SourceReviewEvidenceTests(unittest.TestCase):
             "AI_QUALITY_CHECK: \"0\"",
             "scripts/review_reddit_topics.py",
             "topic-review.json",
+            "scripts/build_acc1_greenlight_template.py",
+            "greenlight-draft.json",
         ):
             self.assertIn(required_text, workflow)
+        pilot_branch = workflow.split('if [ "${{ inputs.acc1_pilot_id }}" != "none" ]; then', 1)[1]
+        pilot_arm, legacy_arm = pilot_branch.split("else", 1)
+        self.assertIn('PILOT_ARGS+=(--pilot-id "${{ inputs.acc1_pilot_id }}")', pilot_arm)
+        self.assertNotIn("TOPIC_ARGS+=(--topic-family", pilot_arm)
+        self.assertNotIn("FORMAT_ARGS+=(--format-intent", pilot_arm)
+        self.assertIn("TOPIC_ARGS+=(--topic-family", legacy_arm)
         self.assertIn(
             'max_subreddits_per_topic:\n        description: Bounded subreddit count for the selected family\n'
             '        required: true\n        default: "2"\n        type: choice\n        options:\n'

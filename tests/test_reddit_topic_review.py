@@ -26,6 +26,38 @@ class RedditTopicReviewTests(unittest.TestCase):
             "source_has_markdown_image": False,
         }
 
+    def saga_queue(self, pillar, family, entries):
+        pilot_by_pillar = {
+            "relationships_family": "pilot_01",
+            "work_money_justice": "pilot_02",
+            "strange_dark_unexplained": "pilot_03",
+        }
+        subreddits_by_pillar = {
+            "relationships_family": ["relationship_advice", "AmItheAsshole"],
+            "work_money_justice": ["MaliciousCompliance", "prorevenge"],
+            "strange_dark_unexplained": ["nosleep", "LetsNotMeet"],
+        }
+        return {
+            "channel_id": "acc1",
+            "format_intent": "saga",
+            "source_plan": {
+                "pilot_id": pilot_by_pillar[pillar],
+                "format": "SAGA",
+                "pillar": pillar,
+                "topic_family": family,
+                "subreddits": subreddits_by_pillar[pillar],
+                "format_intent": "saga",
+                "target_duration_minutes": [18, 30],
+                "source_word_count": [2340, 3900],
+                "words_per_minute": 130,
+            },
+            "entries": entries,
+        }
+
+    @staticmethod
+    def saga_body(sentence, ending):
+        return (sentence + " ") * 280 + ending
+
     def test_full_body_review_returns_diverse_top_topics(self):
         queue = {
             "channel_id": "acc1",
@@ -91,6 +123,138 @@ class RedditTopicReviewTests(unittest.TestCase):
     def test_missing_source_body_fails(self):
         with self.assertRaises(ValueError):
             review_reddit_topics.analyze_entry({"post_id": "missing", "title": "No body"})
+
+    def test_broad_saga_review_covers_relationship_work_and_dark_pillars(self):
+        cases = (
+            (
+                "relationships_family", "human_drama", "r/relationship_advice",
+                "My husband and my family forced me to choose",
+                "My husband argued with my family and our relationship changed forever.",
+                "Finally, we broke up and I blocked him.",
+            ),
+            (
+                "work_money_justice", "human_drama", "r/MaliciousCompliance",
+                "My boss refused to pay me for my work",
+                "My boss withheld my paycheck at work, so I reported the company.",
+                "In the end, the company paid me and the manager was fired.",
+            ),
+            (
+                "strange_dark_unexplained", "dark_curiosity", "r/nosleep",
+                "One strange rule kept the night shift alive",
+                "Every night the impossible shadow waited behind the locked door.",
+                "That was the last night I saw the shadow, and I never went back.",
+            ),
+        )
+        for index, (pillar, family, subreddit, title, sentence, ending) in enumerate(cases):
+            with self.subTest(pillar=pillar):
+                entry = self.entry(
+                    f"saga-{index}", title, self.saga_body(sentence, ending), subreddit=subreddit,
+                )
+                entry["topic_family"] = family
+                review = review_reddit_topics.build_review(
+                    self.saga_queue(pillar, family, [entry]), 3,
+                )
+                self.assertEqual(review["status"], "review_ready", review)
+                self.assertEqual(review["eligible_candidate_count"], 1)
+                self.assertEqual(review["top_topics"][0]["pillar_id"], pillar)
+                self.assertTrue(review["top_topics"][0]["runtime_fit"])
+                self.assertTrue(review["top_topics"][0]["payoff_complete"])
+                self.assertRegex(review["source_sha256"], r"^[0-9a-f]{64}$")
+                self.assertRegex(review["review_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_saga_link_dependency_is_a_hard_block(self):
+        entry = self.entry(
+            "linked",
+            "My husband and my family forced me to choose",
+            self.saga_body(
+                "My husband argued with my family and our relationship changed forever.",
+                "Finally, we broke up and I blocked him.",
+            ),
+            subreddit="r/relationship_advice",
+        )
+        entry.update({"topic_family": "human_drama", "source_has_markdown_link": True})
+        review = review_reddit_topics.build_review(
+            self.saga_queue("relationships_family", "human_drama", [entry]), 3,
+        )
+        self.assertEqual(review["status"], "no_eligible_saga_candidate")
+        self.assertIn(
+            "screenshot_or_link_dependent", review["candidate_reviews"][0]["blocking_reasons"],
+        )
+
+    def test_saga_native_reddit_media_is_a_hard_block(self):
+        entry = self.entry(
+            "gallery",
+            "My husband and my family forced me to choose",
+            self.saga_body(
+                "My husband argued with my family and our relationship changed forever.",
+                "Finally, we broke up and I blocked him.",
+            ),
+            subreddit="r/relationship_advice",
+        )
+        entry.update({
+            "topic_family": "human_drama",
+            "source_media": [{"kind": "image", "media_id": "gallery-1"}],
+        })
+        review = review_reddit_topics.build_review(
+            self.saga_queue("relationships_family", "human_drama", [entry]), 3,
+        )
+        self.assertEqual(review["status"], "no_eligible_saga_candidate")
+        self.assertTrue(review["candidate_reviews"][0]["depends_on_screenshot_or_link"])
+        self.assertIn(
+            "screenshot_or_link_dependent", review["candidate_reviews"][0]["blocking_reasons"],
+        )
+
+    def test_saga_open_ending_and_wrong_family_fail_closed(self):
+        entry = self.entry(
+            "open",
+            "My boss refused to pay me for my work",
+            self.saga_body(
+                "My boss withheld my paycheck at work, so I reported the company.",
+                "I am still waiting to find out what happens next.",
+            ),
+            subreddit="r/MaliciousCompliance",
+        )
+        entry["topic_family"] = "dark_curiosity"
+        review = review_reddit_topics.build_review(
+            self.saga_queue("work_money_justice", "human_drama", [entry]), 3,
+        )
+        blockers = review["candidate_reviews"][0]["blocking_reasons"]
+        self.assertIn("wrong_source_family", blockers)
+        self.assertIn("possible_open_ending", blockers)
+
+    def test_saga_intent_without_source_plan_cannot_fall_back_to_legacy_review(self):
+        entry = self.entry(
+            "missing-plan",
+            "My husband and family forced me to choose",
+            self.saga_body(
+                "My husband argued with my family and our relationship changed forever.",
+                "Finally, we broke up and I blocked him.",
+            ),
+            subreddit="r/relationship_advice",
+        )
+        entry["topic_family"] = "human_drama"
+        review = review_reddit_topics.build_review(
+            {"channel_id": "acc1", "format_intent": "saga", "entries": [entry]}, 3,
+        )
+        self.assertEqual(review["status"], "blocked_invalid_source_plan")
+        self.assertEqual(review["top_topics"], [])
+
+    def test_noncanonical_saga_pilot_plan_fails_closed(self):
+        entry = self.entry(
+            "wrong-pilot",
+            "My husband and family forced me to choose",
+            self.saga_body(
+                "My husband argued with my family and our relationship changed forever.",
+                "Finally, we broke up and I blocked him.",
+            ),
+            subreddit="r/relationship_advice",
+        )
+        entry["topic_family"] = "human_drama"
+        queue = self.saga_queue("relationships_family", "human_drama", [entry])
+        queue["source_plan"]["pilot_id"] = "pilot_unknown"
+        review = review_reddit_topics.build_review(queue, 3)
+        self.assertEqual(review["status"], "blocked_invalid_source_plan")
+        self.assertTrue(any("not canonical" in item for item in review["failures"]))
 
 
 if __name__ == "__main__":

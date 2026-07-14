@@ -4,19 +4,66 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
 from typing import Any
 
 
-WORD_RE = re.compile(r"[a-zA-Z']+")
+# Keep source-runtime accounting byte-for-byte compatible with
+# ``scraper.source_word_count``. Reddit stories often contain dates, ages, or
+# amounts; dropping those tokens here could make the deterministic review and
+# the later greenlight binding disagree about the same source body.
+WORD_RE = re.compile(r"[A-Za-z0-9']+")
 SERIES_RE = re.compile(r"\b(?:part|chapter|episode|season)\s*(?:one|two|three|[0-9]+)\b|\bseries\b", re.I)
 OPEN_ENDING_RE = re.compile(
     r"\b(?:to be continued|i(?:'m| am) still waiting|i don'?t know what happens next|"
     r"i(?:'m| am) writing this in case|if anything happens to me|in case .{0,60} happens to me)\b",
     re.I,
 )
+CLOSURE_RE = re.compile(
+    r"\b(?:finally|in the end|eventually|after that|since then|turned out|found out|"
+    r"apolog(?:ized|ised)|broke up|divorced|quit|resigned|fired|reported|blocked|paid|refunded|"
+    r"won|lost|settled|never saw|never heard|that was the last|edit|update)\b",
+    re.I,
+)
+SAGA_WORDS_PER_MINUTE = 130
+SAGA_MIN_WORDS = 18 * SAGA_WORDS_PER_MINUTE
+SAGA_MAX_WORDS = 30 * SAGA_WORDS_PER_MINUTE
+SAGA_PILLAR_SOURCE_FAMILY = {
+    "relationships_family": "human_drama",
+    "work_money_justice": "human_drama",
+    "strange_dark_unexplained": "dark_curiosity",
+}
+SAGA_PILOT_PILLAR = {
+    "pilot_01": "relationships_family",
+    "pilot_02": "work_money_justice",
+    "pilot_03": "strange_dark_unexplained",
+}
+SAGA_PILLARS: dict[str, tuple[str, ...]] = {
+    "relationships_family": (
+        "relationship", "husband", "wife", "boyfriend", "girlfriend", "partner", "marriage",
+        "mother", "father", "mom", "dad", "parent", "brother", "sister", "family", "child",
+        "wedding", "divorce", "in-law", "cheated", "breakup",
+    ),
+    "work_money_justice": (
+        "work", "job", "boss", "manager", "coworker", "employee", "company", "office", "shift",
+        "money", "paid", "paycheck", "salary", "rent", "debt", "refund", "stole", "fired", "quit",
+        "revenge", "compliance", "reported", "court", "justice", "customer", "client",
+    ),
+    "strange_dark_unexplained": (
+        "strange", "creepy", "scary", "unexplained", "impossible", "rule", "never", "night",
+        "shadow", "door", "window", "basement", "train", "road", "station", "recording", "camera",
+        "message", "missing", "stranger", "encounter", "glitch",
+    ),
+}
+UNVERIFIED_PERSONAL_SUBREDDITS = {
+    "amitheasshole", "aitah", "relationship_advice", "offmychest", "confession", "tifu",
+    "prorevenge", "maliciouscompliance", "entitledparents", "bestofredditorupdates",
+    "talesfromyourserver", "letsnotmeet", "creepyencounters", "glitch_in_the_matrix",
+    "truescarystories",
+}
 
 
 THEMES: tuple[dict[str, Any], ...] = (
@@ -68,6 +115,20 @@ THEMES: tuple[dict[str, Any], ...] = (
 )
 
 
+def content_hash(payload: Any) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def bind_artifact_hashes(review: dict[str, Any], queue: dict[str, Any]) -> dict[str, Any]:
+    bound = dict(review)
+    bound["source_sha256"] = content_hash(queue)
+    without_review_hash = dict(bound)
+    without_review_hash.pop("review_sha256", None)
+    bound["review_sha256"] = content_hash(without_review_hash)
+    return bound
+
+
 def load_queue(path: Path, allow_missing: bool) -> dict[str, Any]:
     if not path.exists():
         if allow_missing:
@@ -91,7 +152,7 @@ def truth_mode(subreddit: str) -> str:
     normalized = subreddit.casefold().removeprefix("r/")
     if normalized == "nosleep":
         return "fiction"
-    if normalized in {"letsnotmeet", "creepyencounters", "glitch_in_the_matrix", "truescarystories"}:
+    if normalized in UNVERIFIED_PERSONAL_SUBREDDITS:
         return "unverified_personal_account"
     if normalized == "unresolvedmysteries":
         return "evidence_required"
@@ -159,10 +220,239 @@ def analyze_entry(entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _pillar_fit(title: str, body: str, pillar_id: str, topic_family: str) -> dict[str, Any]:
+    terms = SAGA_PILLARS[pillar_id]
+    title_text = normalized_text(title)
+    full_text = normalized_text(f"{title}\n{body}")
+    title_matches = [term for term in terms if re.search(rf"\b{re.escape(term)}\b", title_text)]
+    full_matches = [term for term in terms if re.search(rf"\b{re.escape(term)}\b", full_text)]
+    expected_family = SAGA_PILLAR_SOURCE_FAMILY[pillar_id]
+    family_match = topic_family == expected_family
+    score = (len(title_matches) * 5) + min(len(full_matches), 8) + (3 if family_match else 0)
+    return {
+        "matches": sorted(set(title_matches + full_matches)),
+        "score": score,
+        "family_match": family_match,
+        "passes": family_match and (bool(title_matches) or len(set(full_matches)) >= 2),
+    }
+
+
+def _payoff_evidence(title: str, body: str) -> dict[str, Any]:
+    if SERIES_RE.search(title):
+        return {"complete": False, "reason": "possible_series_dependency", "evidence": ""}
+    ending = body[-1800:].strip()
+    if OPEN_ENDING_RE.search(ending):
+        return {"complete": False, "reason": "possible_open_ending", "evidence": ""}
+    closure = CLOSURE_RE.search(ending)
+    terminal = bool(re.search(r"[.!?][\"')\]]*$", ending))
+    if not closure or not terminal:
+        return {
+            "complete": False,
+            "reason": "payoff_not_structurally_proven",
+            "evidence": closure.group(0) if closure else "",
+        }
+    evidence_start = max(0, closure.start() - 180)
+    evidence_end = min(len(ending), closure.end() + 420)
+    return {
+        "complete": True,
+        "reason": "closure_marker_and_terminal_ending",
+        "evidence": ending[evidence_start:evidence_end].strip(),
+    }
+
+
+def analyze_saga_entry(
+    entry: dict[str, Any],
+    *,
+    pillar_id: str,
+    expected_family: str,
+    allowed_subreddits: set[str],
+) -> dict[str, Any]:
+    body = str(entry.get("source_body") or "")
+    if not body.strip():
+        raise ValueError(f"candidate {entry.get('post_id') or '(unknown)'} has no source_body")
+    title = str(entry.get("title") or "").strip()
+    word_count = len(WORD_RE.findall(body))
+    estimated_minutes = round(word_count / SAGA_WORDS_PER_MINUTE, 2)
+    mode = truth_mode(str(entry.get("subreddit") or ""))
+    topic_family = str(entry.get("topic_family") or "").strip()
+    normalized_subreddit = str(entry.get("subreddit") or "").strip().casefold().removeprefix("r/")
+    pillar_fit = _pillar_fit(title, body, pillar_id, topic_family)
+    payoff = _payoff_evidence(title, body)
+    source_media = entry.get("source_media")
+    has_native_media = bool(
+        isinstance(source_media, list)
+        and any(isinstance(item, dict) for item in source_media)
+    )
+    depends_on_external = bool(
+        entry.get("source_has_url")
+        or entry.get("source_has_markdown_link")
+        or entry.get("source_has_markdown_image")
+        or has_native_media
+    )
+    blocking_reasons: list[str] = []
+    if topic_family != expected_family:
+        blocking_reasons.append("wrong_source_family")
+    if normalized_subreddit not in allowed_subreddits:
+        blocking_reasons.append("subreddit_not_in_source_plan")
+    if not SAGA_MIN_WORDS <= word_count <= SAGA_MAX_WORDS:
+        blocking_reasons.append("outside_saga_runtime")
+    if depends_on_external:
+        blocking_reasons.append("screenshot_or_link_dependent")
+    if mode not in {"fiction", "unverified_personal_account"}:
+        blocking_reasons.append("truth_mode_not_publishable")
+    if not pillar_fit["passes"]:
+        blocking_reasons.append("pillar_fit_not_proven")
+    if not payoff["complete"]:
+        blocking_reasons.append(payoff["reason"])
+
+    body_sha256 = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    recorded_hash = str(entry.get("source_body_sha256") or "").strip()
+    if recorded_hash and recorded_hash != body_sha256:
+        blocking_reasons.append("source_body_hash_mismatch")
+    local_score = int(entry.get("local_score") or 0)
+    shortlist_score = local_score + (pillar_fit["score"] * 4) - (12 * len(blocking_reasons))
+    return {
+        "post_id": entry.get("post_id"),
+        "title": title,
+        "subreddit": entry.get("subreddit"),
+        "source_url": entry.get("url") or entry.get("source_url"),
+        "source_body_chars": len(body),
+        "source_body_sha256": body_sha256,
+        "source_word_count": word_count,
+        "estimated_minutes_at_130_wpm": estimated_minutes,
+        "runtime_target_minutes": [18, 30],
+        "runtime_fit": SAGA_MIN_WORDS <= word_count <= SAGA_MAX_WORDS,
+        "truth_mode": mode,
+        "depends_on_screenshot_or_link": depends_on_external,
+        "payoff_complete": payoff["complete"],
+        "payoff_evidence": payoff["evidence"],
+        "pillar_id": pillar_id,
+        "pillar_fit_score": pillar_fit["score"],
+        "pillar_fit_evidence": pillar_fit["matches"],
+        "source_family": topic_family,
+        "blocking_reasons": blocking_reasons,
+        "shortlist_score": shortlist_score,
+        "review_status": (
+            "SAGA_SOURCE_ELIGIBLE_FOR_GREENLIGHT"
+            if not blocking_reasons
+            else "BLOCKED"
+        ),
+    }
+
+
+def build_saga_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
+    source_plan = queue.get("source_plan")
+    failures: list[str] = []
+    if not isinstance(source_plan, dict):
+        failures.append("source_plan must be an object for SAGA review")
+        source_plan = {}
+    pillar_id = str(source_plan.get("pillar") or "").strip()
+    pilot_id = str(source_plan.get("pilot_id") or "").strip()
+    expected_family = SAGA_PILLAR_SOURCE_FAMILY.get(pillar_id)
+    expected_pillar = SAGA_PILOT_PILLAR.get(pilot_id)
+    if source_plan.get("format") != "SAGA":
+        failures.append("source_plan.format must be SAGA")
+    if expected_pillar != pillar_id:
+        failures.append(
+            f"source_plan pilot/pillar pair is not canonical: {pilot_id or '(missing)'}/{pillar_id or '(missing)'}"
+        )
+    if not expected_family:
+        failures.append(f"unknown SAGA pillar: {pillar_id or '(missing)'}")
+    if expected_family and source_plan.get("topic_family") != expected_family:
+        failures.append(
+            f"source_plan.topic_family must be {expected_family} for pillar {pillar_id}"
+        )
+    if source_plan.get("format_intent") != "saga":
+        failures.append("source_plan.format_intent must be saga")
+    if source_plan.get("target_duration_minutes") != [18, 30]:
+        failures.append("source_plan.target_duration_minutes must be [18, 30]")
+    if source_plan.get("source_word_count") != [SAGA_MIN_WORDS, SAGA_MAX_WORDS]:
+        failures.append(
+            f"source_plan.source_word_count must be [{SAGA_MIN_WORDS}, {SAGA_MAX_WORDS}]"
+        )
+    if source_plan.get("words_per_minute") != SAGA_WORDS_PER_MINUTE:
+        failures.append(f"source_plan.words_per_minute must be {SAGA_WORDS_PER_MINUTE}")
+    raw_subreddits = source_plan.get("subreddits")
+    if not isinstance(raw_subreddits, list) or not raw_subreddits or not all(
+        str(item or "").strip() for item in raw_subreddits
+    ):
+        failures.append("source_plan.subreddits must contain at least one configured subreddit")
+        raw_subreddits = []
+    allowed_subreddits = {
+        str(item).strip().casefold().removeprefix("r/") for item in raw_subreddits
+    }
+    raw_entries = queue.get("entries") or []
+    if failures:
+        return bind_artifact_hashes({
+            "version": 2,
+            "status": "blocked_invalid_source_plan",
+            "review_mode": "deterministic_full_body_saga",
+            "channel_id": queue.get("channel_id"),
+            "format_intent": queue.get("format_intent"),
+            "source_plan": source_plan,
+            "candidate_count": len(raw_entries),
+            "eligible_candidate_count": 0,
+            "failures": failures,
+            "candidate_reviews": [],
+            "top_topics": [],
+            "production_authorized": False,
+        }, queue)
+    if not raw_entries:
+        return bind_artifact_hashes({
+            "version": 2,
+            "status": "no_candidates",
+            "review_mode": "deterministic_full_body_saga",
+            "channel_id": queue.get("channel_id"),
+            "format_intent": queue.get("format_intent"),
+            "source_plan": source_plan,
+            "candidate_count": 0,
+            "eligible_candidate_count": 0,
+            "failures": [],
+            "candidate_reviews": [],
+            "top_topics": [],
+            "production_authorized": False,
+        }, queue)
+
+    candidates = [
+        analyze_saga_entry(
+            entry,
+            pillar_id=pillar_id,
+            expected_family=expected_family,
+            allowed_subreddits=allowed_subreddits,
+        )
+        for entry in raw_entries
+        if isinstance(entry, dict)
+    ]
+    eligible = [item for item in candidates if not item["blocking_reasons"]]
+    eligible.sort(key=lambda item: item["shortlist_score"], reverse=True)
+    chosen = eligible[:top_n]
+    return bind_artifact_hashes({
+        "version": 2,
+        "status": "review_ready" if chosen else "no_eligible_saga_candidate",
+        "review_mode": "deterministic_full_body_saga",
+        "channel_id": queue.get("channel_id"),
+        "format_intent": queue.get("format_intent"),
+        "source_plan": source_plan,
+        "candidate_count": len(candidates),
+        "eligible_candidate_count": len(eligible),
+        "failures": [],
+        "candidate_reviews": candidates,
+        "top_topics": chosen,
+        "production_authorized": False,
+    }, queue)
+
+
 def build_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
+    source_plan = queue.get("source_plan")
+    if queue.get("channel_id") == "acc1" and (
+        str(queue.get("format_intent") or "").strip().casefold() == "saga"
+        or isinstance(source_plan, dict)
+    ):
+        return build_saga_review(queue, top_n)
+
     raw_entries = queue.get("entries") or []
     if not raw_entries:
-        return {
+        return bind_artifact_hashes({
             "version": 1,
             "status": "no_candidates",
             "review_mode": "deterministic_full_body",
@@ -171,7 +461,7 @@ def build_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
             "candidate_count": 0,
             "themes": [],
             "top_topics": [],
-        }
+        }, queue)
 
     candidates = [analyze_entry(entry) for entry in raw_entries if isinstance(entry, dict)]
     theme_rows: list[dict[str, Any]] = []
@@ -241,7 +531,7 @@ def build_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
         used_posts.add(str(candidate["post_id"]))
         remaining_themes = [item for item in remaining_themes if item["id"] != theme["id"]]
 
-    return {
+    return bind_artifact_hashes({
         "version": 1,
         "status": "review_ready" if chosen else "no_theme_match",
         "review_mode": "deterministic_full_body",
@@ -251,7 +541,7 @@ def build_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
         "themes": theme_rows,
         "top_topics": chosen,
         "production_authorized": False,
-    }
+    }, queue)
 
 
 def main() -> int:

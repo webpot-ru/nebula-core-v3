@@ -1,5 +1,5 @@
 {
-  "strategy_version": "2026-07-10-audience-ownership-v2",
+  "strategy_version": "2026-07-13-acc1-broad-reddit-stories-v3",
   "strategy_goal": "Build distinct channel franchises optimized for engaged views, retention, comments, shares, and returning viewers; topic_mix remains candidate-scouting input until source and audience gates pass.",
   "channels": [
     {
@@ -9,36 +9,89 @@
       "lang": "ru",
       "region": "RU/CIS",
       "audience": "Россия, русскоязычная диаспора за рубежом",
-      "niche": "dark_first_person_stories",
-      "niche_label": "Modern Dark Stories + Claimed Encounters",
+      "niche": "russian_reddit_story_entertainment",
+      "niche_label": "Russian Reddit Stories: SAGA + THREAD",
       "automation_enabled": false,
-      "strategy_status": "source_validation_required",
-      "viewer_promise": "Тёмные истории от первого лица, после которых хочется дважды проверить дверь: правило, эскалация, развязка.",
+      "strategy_status": "broad_reddit_story_pilot_local_only",
+      "viewer_promise": "Самые захватывающие истории, признания и обсуждения Reddit на русском: сильный конфликт, эскалация и полноценная развязка без выдуманных продолжений.",
       "owned_content_bets": [
-        {"id": "modern_horror_fiction", "source_lane": "reddit_fiction", "readiness": "pilot"},
-        {"id": "claimed_personal_encounter", "source_lane": "reddit_first_person", "readiness": "pilot"},
-        {"id": "verified_strange_case", "source_lane": "evidence_dossier", "readiness": "blocked"}
+        {
+          "id": "relationships_family_saga",
+          "source_lane": "reddit_first_person",
+          "readiness": "pilot"
+        },
+        {
+          "id": "work_money_justice_saga",
+          "source_lane": "reddit_first_person",
+          "readiness": "pilot"
+        },
+        {
+          "id": "confession_thread",
+          "source_lane": "reddit_first_person",
+          "readiness": "blocked"
+        },
+        {
+          "id": "profession_human_experience_thread",
+          "source_lane": "reddit_first_person",
+          "readiness": "blocked"
+        },
+        {
+          "id": "dark_unexplained_series",
+          "source_lane": "reddit_fiction",
+          "readiness": "pilot"
+        }
       ],
-      "forbidden_bets": ["generic AITA", "gaming-server drama", "politics", "unverified fact explainer", "fiction presented as real"],
-      "evidence_policy": "Label r/nosleep as fiction and all other personal accounts as unverified claims; factual cases require independent evidence.",
+      "forbidden_bets": [
+        "random high-metric Reddit filler",
+        "incomplete story",
+        "weak or missing payoff",
+        "screenshot or link dependent source",
+        "politics",
+        "factual claim based only on Reddit",
+        "fiction presented as real"
+      ],
+      "evidence_policy": "Preserve Reddit provenance and meaning. Label r/nosleep as fiction and other personal accounts as unverified; never present a Reddit-only claim as independently confirmed fact.",
       "render_contract": "Reddit story card: one concrete rule or anomaly, escalating first-person incident, and payoff; never a factual dossier on one card.",
       "producer_brief": {
-        "must_feel_like": "specific, tense, modern, easy to retell, and clearly labeled as fiction or an unverified account",
-        "winning_bets": "delivery, apartment, workplace, travel, or online encounters with one memorable rule and an escalating reveal",
-        "weak_topic_traps": "generic creepypasta, gore, politics, dry trivia, gaming, and low-stakes moral filler"
+        "must_feel_like": "specific, emotionally legible, easy to package in one sentence, complete, and worth discussing after the ending",
+        "winning_bets": "relationship and family conflict, work and justice, confessions, unusual professions, human absurdity, and strange or dark incidents with a clear payoff",
+        "weak_topic_traps": "generic prompts, one-sided low-stakes complaints, incomplete updates, missing screenshots, raw links, dry trivia, politics, and stories whose appeal disappears in Russian"
       },
-      "cadence_plan": {"mode": "longform_first_unlisted_pilot", "pilot_long_videos": 6, "target_duration_minutes": [12, 30], "shorts": "trailer_after_long_only"},
+      "cadence_plan": {
+        "mode": "six_video_saga_thread_pilot_local_only",
+        "pilot_long_videos": 6,
+        "target_duration_minutes": [
+          15,
+          30
+        ],
+        "shorts": "trailer_after_long_only"
+      },
       "primary_format": "long",
       "shorts_role": "trailer_after_long_only",
       "subreddits": [
-        "nosleep", "AmItheAsshole", "AITAH", "relationship_advice",
-        "todayilearned", "LetsNotMeet", "Glitch_in_the_Matrix",
-        "creepyencounters", "mildlyinteresting", "InternetIsBeautiful"
+        "AmItheAsshole",
+        "AITAH",
+        "relationship_advice",
+        "BestofRedditorUpdates",
+        "offmychest",
+        "confession",
+        "tifu",
+        "prorevenge",
+        "MaliciousCompliance",
+        "AskReddit",
+        "talesfromyourserver",
+        "nosleep",
+        "LetsNotMeet",
+        "creepyencounters",
+        "Glitch_in_the_Matrix"
       ],
       "topic_mix": [
-        {"family": "dark_curiosity", "weight": 1.0}
+        {
+          "family": "dark_curiosity",
+          "weight": 1.0
+        }
       ],
-      "topic_mix_status": "forced_family_validation_only",
+      "topic_mix_status": "superseded_pending_rebuild",
       "topic_exclusions": [
         "minecraft",
         "game server",
@@ -49,15 +102,109 @@
         "gaming",
         "game world"
       ],
-      "format": ["shorts", "long"],
+      "format": [
+        "shorts",
+        "long"
+      ],
       "videos_per_day": 0,
-      "long_duration_min": 8,
-      "long_duration_max": 18,
+      "long_duration_min": 15,
+      "long_duration_max": 30,
       "tts_voice": "elevenlabs_rQOBu7YxCDxGiFdTm28w",
       "comment_tts_voice": "elevenlabs_ymDCYd8puC7gYjxIamPt",
       "tts_provider": "ai33",
       "translate_prompt": "Переведи на русский язык, сохранив разговорный стиль и эмоции оригинала. Адаптируй сленг Reddit под молодёжную речь.",
-      "priority": "high"
+      "priority": "high",
+      "content_pillars": [
+        {
+          "id": "relationships_family",
+          "label": "Отношения и семейные конфликты"
+        },
+        {
+          "id": "work_money_justice",
+          "label": "Работа, деньги, месть и справедливость"
+        },
+        {
+          "id": "confessions_awkward_taboo",
+          "label": "Признания, неловкое и табу"
+        },
+        {
+          "id": "professions_human_experience",
+          "label": "Профессии и необычный человеческий опыт"
+        },
+        {
+          "id": "strange_dark_unexplained",
+          "label": "Странное, тёмное и необъяснимое"
+        }
+      ],
+      "episode_formats": {
+        "SAGA": {
+          "target_duration_minutes": [
+            18,
+            30
+          ],
+          "source_status": "manual_source_review_available"
+        },
+        "THREAD": {
+          "target_duration_minutes": [
+            15,
+            25
+          ],
+          "response_count": [
+            8,
+            15
+          ],
+          "source_status": "local_collector_implemented_live_unverified"
+        }
+      },
+      "pilot_matrix": [
+        {
+          "id": "pilot_01",
+          "format": "SAGA",
+          "pillar": "relationships_family"
+        },
+        {
+          "id": "pilot_02",
+          "format": "SAGA",
+          "pillar": "work_money_justice"
+        },
+        {
+          "id": "pilot_03",
+          "format": "SAGA",
+          "pillar": "strange_dark_unexplained"
+        },
+        {
+          "id": "pilot_04",
+          "format": "THREAD",
+          "pillar": "confessions_awkward_taboo"
+        },
+        {
+          "id": "pilot_05",
+          "format": "THREAD",
+          "pillar": "professions_human_experience"
+        },
+        {
+          "id": "pilot_06",
+          "format": "THREAD",
+          "pillar": "strange_dark_unexplained"
+        }
+      ],
+      "source_family_plan": [
+        {
+          "format": "SAGA",
+          "scraper_family": "human_drama",
+          "status": "manual_forced_family_review"
+        },
+        {
+          "format": "SAGA",
+          "scraper_family": "dark_curiosity",
+          "status": "manual_forced_family_review"
+        },
+        {
+          "format": "THREAD",
+          "scraper_family": "human_experience_thread",
+          "status": "local_collector_implemented_live_unverified"
+        }
+      ]
     },
     {
       "id": "acc2",
