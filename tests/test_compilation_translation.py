@@ -4,7 +4,7 @@ from pathlib import Path
 
 from compilation_translation import (
     DEFAULT_MAX_OUTPUT_TOKENS, IncompleteTranslation, TranslationConfig, TranslationError,
-    canonicalize_source_for_translation, translate_and_review_story,
+    _final_adjudicate, canonicalize_source_for_translation, translate_and_review_story,
 )
 
 
@@ -349,6 +349,117 @@ class CompilationTranslationTests(unittest.TestCase):
         self.assertEqual(result["translation_audit"]["revisions"], 4)
         self.assertIn("тихий стук", result["body"])
         self.assertEqual(saved["revisions_completed"], 4)
+
+    def test_saga_final_adjudication_classifies_every_pending_flag_once(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        pending = {
+            "verdict": "REVISE",
+            "issues": [
+                {
+                    "kind": "tone",
+                    "source_quote": "I heard a knock.",
+                    "translation_quote": "Я услышал стук.",
+                    "replacement": "Я услышал резкий стук.",
+                },
+                {
+                    "kind": "style",
+                    "source_quote": "I hid in the hall.",
+                    "translation_quote": "Я спрятался в коридоре.",
+                    "replacement": "Я укрылся в коридоре.",
+                },
+            ],
+            "ending_preserved": True,
+        }
+        adjudication = {
+            "verdict": "PASS",
+            "applied_issues": [{
+                "issue_index": 1,
+                "source_quote": "I heard a knock.",
+                "translation_quote": "Я услышал стук.",
+                "replacement": "Я услышал тихий стук.",
+                "explanation": "Preserves the source intensity.",
+            }],
+            "discarded_issues": [{
+                "issue_index": 2,
+                "reason": "The current Russian is already natural and faithful.",
+            }],
+            "ending_preserved": True,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "review.json"
+            import hashlib
+            import json
+            checkpoint.write_text(json.dumps({
+                "schema_version": 2,
+                "source_sha256": hashlib.sha256(STORY["body"].encode()).hexdigest(),
+                "revisions_completed": 4,
+                "review_history": [
+                    {"verdict": "REVISE", "issues": [], "ending_preserved": True},
+                    {"verdict": "REVISE", "issues": [], "ending_preserved": True},
+                    {"verdict": "REVISE", "issues": [], "ending_preserved": True},
+                    {"verdict": "REVISE", "issues": [], "ending_preserved": True},
+                    pending,
+                ],
+                "current_translation": translation,
+            }, ensure_ascii=False), encoding="utf-8")
+            provider = QueueProvider([adjudication])
+            result = translate_and_review_story(
+                STORY,
+                provider=provider,
+                config=TranslationConfig(
+                    max_story_revisions=4,
+                    allow_final_adjudication=True,
+                ),
+                review_checkpoint_path=checkpoint,
+            )
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(result["translation_audit"]["revisions"], 4)
+        self.assertEqual(result["translation_audit"]["review"]["verdict"], "PASS")
+        self.assertEqual(
+            result["translation_audit"]["review"]["resolution"],
+            "FINAL_PATCH_ADJUDICATION",
+        )
+        self.assertIn("тихий стук", result["body"])
+        self.assertIn("Я спрятался в коридоре", result["body"])
+        self.assertEqual(saved["final_adjudication"]["verdict"], "PASS")
+        self.assertEqual(saved["review_history"][-1]["verdict"], "PASS")
+
+    def test_final_adjudication_fails_when_a_pending_flag_is_unclassified(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        pending = {
+            "verdict": "REVISE",
+            "issues": [
+                {"source_quote": "I heard a knock."},
+                {"source_quote": "I hid in the hall."},
+            ],
+            "ending_preserved": True,
+        }
+        provider = QueueProvider([{
+            "verdict": "PASS",
+            "applied_issues": [],
+            "discarded_issues": [{"issue_index": 1, "reason": "style only"}],
+            "ending_preserved": True,
+        }])
+        with self.assertRaisesRegex(TranslationError, "classify every issue exactly once"):
+            _final_adjudicate(
+                provider,
+                STORY["title"],
+                STORY["body"],
+                translation,
+                pending,
+                TranslationConfig(),
+            )
 
 
 if __name__ == "__main__":
