@@ -47,6 +47,7 @@ class TranslationConfig:
     max_token_characters: int = DEFAULT_MAX_TOKEN_CHARACTERS
     chunk_chars: int = 7_000
     max_story_revisions: int = 2
+    allow_final_adjudication: bool = False
 
     def __post_init__(self) -> None:
         if self.max_output_tokens < 1024:
@@ -104,11 +105,39 @@ SOURCE TITLE:\n{title}\nSOURCE BODY:\n{body}"""
 def _review_prompt(source_title: str, source_body: str, translated: dict[str, Any]) -> str:
     return f"""Independently compare the complete source and Russian translation. Do not rewrite it.
 Fail on omitted/added events, altered uncertainty, broken chronology, changed names/numbers,
-unnatural Russian that changes meaning, or a missing/changed ending. Return strict JSON:
+unnatural Russian that materially changes meaning, or a missing/changed ending.
+Return PASS when the remaining difference is only a defensible wording/style preference.
+For REVISE, report every material issue you can find in this one complete pass; do not drip-feed
+minor alternatives across repeated reviews. Return strict JSON:
 {{"verdict":"PASS|REVISE","issues":[{{"kind":"...","source_quote":"exact source quote","translation_quote":"exact current Russian quote","replacement":"exact Russian replacement","explanation":"..."}}],"ending_preserved":true}}
 For every REVISE issue, translation_quote must occur verbatim in the current translation and replacement
 must be the complete local replacement for only that quote. Do not request or perform a full rewrite.
 SOURCE TITLE: {source_title}\nSOURCE BODY:\n{source_body}\nTRANSLATION:\n{json.dumps(translated, ensure_ascii=False)}"""
+
+
+def _final_adjudication_prompt(
+    source_title: str,
+    source_body: str,
+    translated: dict[str, Any],
+    pending_review: dict[str, Any],
+) -> str:
+    indexed_issues = [
+        {"issue_index": index, **issue}
+        for index, issue in enumerate(pending_review.get("issues") or [], 1)
+    ]
+    return f"""Act as the final independent adjudicator for a source-preserving Russian translation.
+The translation already received multiple complete reviews. Resolve ONLY the indexed pending flags below.
+For every index, either apply one exact local correction when the flag proves a material meaning, chronology,
+name, number, uncertainty, or ending defect, or discard it when it is merely a defensible style preference
+or the suggested replacement is worse Russian. Do not discover new issues and do not rewrite passages.
+Return strict JSON:
+{{"verdict":"PASS|BLOCK","applied_issues":[{{"issue_index":1,"source_quote":"exact source quote","translation_quote":"exact current Russian quote","replacement":"exact natural Russian replacement","explanation":"..."}}],"discarded_issues":[{{"issue_index":2,"reason":"why this is non-material or worse"}}],"ending_preserved":true}}
+Every pending issue_index must appear exactly once across applied_issues and discarded_issues.
+PASS attests that after applied_issues are made, all pending material defects are resolved and the ending remains preserved.
+BLOCK is required if an exact safe local resolution cannot be produced.
+SOURCE TITLE: {source_title}\nSOURCE BODY:\n{source_body}
+CURRENT TRANSLATION:\n{json.dumps(translated, ensure_ascii=False)}
+PENDING FLAGS:\n{json.dumps(indexed_issues, ensure_ascii=False)}"""
 
 
 def _apply_review_patches(source_title: str, source_body: str, translated: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
@@ -146,6 +175,71 @@ def _call(provider: Provider, prompt: str, config: TranslationConfig, *, tempera
     if not isinstance(result, dict):
         raise IncompleteTranslation("provider returned non-object JSON")
     return result
+
+
+def _final_adjudicate(
+    provider: Provider,
+    source_title: str,
+    source_body: str,
+    translated: dict[str, Any],
+    pending_review: dict[str, Any],
+    config: TranslationConfig,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    pending_issues = pending_review.get("issues")
+    if not isinstance(pending_issues, list) or not pending_issues:
+        raise TranslationError("final adjudication requires pending structured issues")
+    adjudication = _call(
+        provider,
+        _final_adjudication_prompt(source_title, source_body, translated, pending_review),
+        config,
+        temperature=0.0,
+    )
+    if adjudication.get("verdict") != "PASS" or adjudication.get("ending_preserved") is not True:
+        raise TranslationError("final translation adjudication did not PASS")
+    applied = adjudication.get("applied_issues")
+    discarded = adjudication.get("discarded_issues")
+    if not isinstance(applied, list) or not isinstance(discarded, list):
+        raise TranslationError("final adjudication must classify every pending issue")
+    classified: list[int] = []
+    patch_issues: list[dict[str, Any]] = []
+    for item in applied:
+        if not isinstance(item, dict) or type(item.get("issue_index")) is not int:
+            raise TranslationError("final adjudication applied issue lacks issue_index")
+        issue_index = item["issue_index"]
+        if not 1 <= issue_index <= len(pending_issues):
+            raise TranslationError("final adjudication issue_index is out of range")
+        if str(item.get("source_quote") or "") != str(pending_issues[issue_index - 1].get("source_quote") or ""):
+            raise TranslationError("final adjudication changed the pending source quote")
+        classified.append(issue_index)
+        patch_issues.append({key: value for key, value in item.items() if key != "issue_index"})
+    for item in discarded:
+        if (not isinstance(item, dict) or type(item.get("issue_index")) is not int
+                or not str(item.get("reason") or "").strip()):
+            raise TranslationError("final adjudication discarded issue lacks index or reason")
+        issue_index = item["issue_index"]
+        if not 1 <= issue_index <= len(pending_issues):
+            raise TranslationError("final adjudication issue_index is out of range")
+        classified.append(issue_index)
+    if sorted(classified) != list(range(1, len(pending_issues) + 1)):
+        raise TranslationError("final adjudication did not classify every issue exactly once")
+    patched = translated
+    if patch_issues:
+        patched = _apply_review_patches(
+            source_title,
+            source_body,
+            translated,
+            {"verdict": "REVISE", "issues": patch_issues, "ending_preserved": True},
+        )
+    _validate_translation(source_body, patched, config)
+    final_review = {
+        "verdict": "PASS",
+        "issues": [],
+        "ending_preserved": True,
+        "resolution": "FINAL_PATCH_ADJUDICATION",
+        "applied_issues": applied,
+        "discarded_issues": discarded,
+    }
+    return patched, final_review, adjudication
 
 
 def _looks_like_truncated_json_error(exc: Exception) -> bool:
@@ -362,18 +456,33 @@ def translate_and_review_story(
             review = pending
         elif pending.get("verdict") == "REVISE" and len(review_history) == revisions + 1:
             if revisions >= config.max_story_revisions:
-                raise TranslationError("translation remains REVISE after maximum story revisions")
-            revisions += 1
-            translated = _apply_review_patches(title, body, translated, pending)
-            _validate_translation(body, translated, config)
-            if review_checkpoint_path:
-                _atomic_json(review_checkpoint_path, {
-                    "schema_version": 2,
-                    "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
-                    "revisions_completed": revisions,
-                    "review_history": review_history,
-                    "current_translation": translated,
-                })
+                if not config.allow_final_adjudication:
+                    raise TranslationError("translation remains REVISE after maximum story revisions")
+                translated, review, adjudication = _final_adjudicate(
+                    review_provider, title, body, translated, pending, config,
+                )
+                review_history.append(review)
+                if review_checkpoint_path:
+                    _atomic_json(review_checkpoint_path, {
+                        "schema_version": 2,
+                        "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                        "revisions_completed": revisions,
+                        "review_history": review_history,
+                        "current_translation": translated,
+                        "final_adjudication": adjudication,
+                    })
+            else:
+                revisions += 1
+                translated = _apply_review_patches(title, body, translated, pending)
+                _validate_translation(body, translated, config)
+                if review_checkpoint_path:
+                    _atomic_json(review_checkpoint_path, {
+                        "schema_version": 2,
+                        "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                        "revisions_completed": revisions,
+                        "review_history": review_history,
+                        "current_translation": translated,
+                    })
         elif len(review_history) > revisions:
             raise TranslationError("saved translation review checkpoint is inconsistent")
     while True:
@@ -394,7 +503,22 @@ def translate_and_review_story(
         if review.get("verdict") != "REVISE":
             raise TranslationError("reviewer returned invalid or unsafe verdict")
         if revisions >= config.max_story_revisions:
-            raise TranslationError("translation remains REVISE after maximum story revisions")
+            if not config.allow_final_adjudication:
+                raise TranslationError("translation remains REVISE after maximum story revisions")
+            translated, review, adjudication = _final_adjudicate(
+                review_provider, title, body, translated, review, config,
+            )
+            review_history.append(review)
+            if review_checkpoint_path:
+                _atomic_json(review_checkpoint_path, {
+                    "schema_version": 2,
+                    "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                    "revisions_completed": revisions,
+                    "review_history": review_history,
+                    "current_translation": translated,
+                    "final_adjudication": adjudication,
+                })
+            break
         revisions += 1
         translated = _apply_review_patches(title, body, translated, review)
         _validate_translation(body, translated, config)
