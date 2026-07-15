@@ -224,7 +224,7 @@ class Acc1SpendLockTests(unittest.TestCase):
 
     def test_lease_binds_source_caps_models_and_never_publication(self):
         lease = valid_lease()
-        self.assertEqual(lease["schema_version"], "acc1_paid_spend_lease_v3")
+        self.assertEqual(lease["schema_version"], "acc1_paid_spend_lease_v4")
         self.assertEqual(lease["retention_days"], LEASE_RETENTION_DAYS)
         self.assertEqual(lease["provider_contract"], PROVIDER_CONTRACT)
         self.assertEqual(lease["requested_caps"]["gemini_call_cap"], 128)
@@ -238,7 +238,7 @@ class Acc1SpendLockTests(unittest.TestCase):
             "automatic_retries": 0,
             "service_tier": "flex",
             "prompt_cache_key": "acc1-translation-json-v1",
-            "request_timeout_seconds": 300,
+            "request_timeout_seconds": 900,
         })
         self.assertEqual(lease["confirmations"], {
             "ai33_spend": True,

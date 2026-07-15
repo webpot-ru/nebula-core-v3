@@ -70,7 +70,7 @@ class OpenAIClientTests(unittest.TestCase):
             "service_tier": "flex",
             "prompt_cache_key": "acc1-translation-json-v1",
         })
-        self.assertEqual(kwargs["timeout"], 300)
+        self.assertEqual(kwargs["timeout"], 900)
         self.assertEqual(result.payload, {"translated": True})
         self.assertEqual(result.response_id, "chatcmpl-test")
         self.assertEqual(result.usage.input_tokens, 120)
@@ -79,6 +79,17 @@ class OpenAIClientTests(unittest.TestCase):
         self.assertEqual(result.usage.total_tokens, 200)
         self.assertEqual(result.usage.reasoning_tokens, 12)
         self.assertEqual(result.service_tier, "flex")
+
+    def test_result_requires_explicit_service_tier_evidence(self):
+        usage = openai_client.OpenAIUsage(
+            input_tokens=1,
+            cached_input_tokens=0,
+            output_tokens=1,
+            total_tokens=2,
+            reasoning_tokens=0,
+        )
+        with self.assertRaises(TypeError):
+            openai_client.OpenAIJSONResult(payload={"ok": True}, usage=usage)
 
     def test_flex_tier_and_cached_input_are_proven_by_response(self):
         payload = valid_response()

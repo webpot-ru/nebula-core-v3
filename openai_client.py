@@ -14,11 +14,12 @@ import requests
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_MODEL = "gpt-5.4-2026-03-05"
 DEFAULT_MAX_COMPLETION_TOKENS = 16_384
-# Flex has the same price schedule as Batch, but stays synchronous.  Five
-# minutes is deliberately bounded: a slow or unavailable Flex request blocks
-# the episode for human adjudication instead of silently falling back to the
-# more expensive standard tier or holding the whole render indefinitely.
-DEFAULT_TIMEOUT_SECONDS = 300
+# Flex has the same price schedule as Batch, but stays synchronous.  OpenAI's
+# Flex guidance uses a fifteen-minute request timeout because this tier can be
+# slower than standard processing.  The bound is still finite: an unavailable
+# request blocks the episode for human adjudication instead of silently falling
+# back to a different tier or holding the whole render indefinitely.
+DEFAULT_TIMEOUT_SECONDS = 900
 REQUIRED_SERVICE_TIER = "flex"
 PROMPT_CACHE_KEY = "acc1-translation-json-v1"
 
@@ -40,8 +41,8 @@ class OpenAIUsage:
 class OpenAIJSONResult:
     payload: dict[str, Any]
     usage: OpenAIUsage
+    service_tier: str
     response_id: str | None = None
-    service_tier: str = REQUIRED_SERVICE_TIER
 
 
 def _nonnegative_int(value: Any, label: str) -> int:

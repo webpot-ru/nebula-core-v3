@@ -59,6 +59,7 @@ from compilation_translation import (
 )
 from compilation_tts_runner import build_tts_chunks, run_compilation_tts
 from openai_client import (
+    DEFAULT_TIMEOUT_SECONDS as OPENAI_REQUEST_TIMEOUT_SECONDS,
     OPENAI_MODEL,
     PROMPT_CACHE_KEY,
     REQUIRED_SERVICE_TIER,
@@ -916,6 +917,12 @@ class CallBudget:
                 attempt["status"] = "BLOCKED_TOKEN_CAP_EXCEEDED"
                 self._write_journal()
                 raise EpisodeFactoryError("OpenAI actual usage exceeded the approved token cap")
+            if raw_response.service_tier != REQUIRED_SERVICE_TIER:
+                attempt["status"] = "BLOCKED_SERVICE_TIER_MISMATCH"
+                self._write_journal()
+                raise EpisodeFactoryError(
+                    "OpenAI response did not prove the required Flex service tier"
+                )
         elif self.token_cap is not None:
             attempt["status"] = "BLOCKED_MISSING_USAGE"
             self._write_journal()
@@ -1305,7 +1312,7 @@ def _factory_provider_contract() -> dict[str, Any]:
             "automatic_retries": 0,
             "service_tier": REQUIRED_SERVICE_TIER,
             "prompt_cache_key": PROMPT_CACHE_KEY,
-            "request_timeout_seconds": 300,
+            "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
         "image": {
             "provider": "vectorengine",
@@ -1702,7 +1709,7 @@ def run_produce_stage(
             "max_output_tokens": 16_384,
             "service_tier": REQUIRED_SERVICE_TIER,
             "prompt_cache_key": PROMPT_CACHE_KEY,
-            "request_timeout_seconds": 300,
+            "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
         "image": {"provider": "vectorengine", "model": DEFAULT_IMAGE_MODEL, "size": "1536x864"},
         "tts": {
