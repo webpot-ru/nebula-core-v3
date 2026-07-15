@@ -176,6 +176,70 @@ class EpisodeFactoryTests(unittest.TestCase):
             self.assertFalse((workdir / "source-stage.json").exists())
         self.assertEqual(captured["max_time_windows_per_topic"], 3)
 
+    def test_thread_source_expands_bounded_prompt_pool_and_persists_failure_diagnostics(self):
+        thread_plan = build_daily_plan(
+            ROOT / "channels.json",
+            production_date="2026-07-15",
+            pilot_override="pilot_04",
+        )
+        captured = {}
+
+        def fake_collect(*_args, **kwargs):
+            captured.update(kwargs)
+            return [({}, {})]
+
+        candidates = [
+            {"candidate_id": "thread-one", "sources": []},
+            {"candidate_id": "thread-two", "sources": []},
+        ]
+        queue = {"version": 1, "entries": [{"post_id": "prompt-one"}]}
+        review = {"version": 1, "status": "review_ready", "candidate_count": 2}
+        fake_reddit = mock.Mock()
+        fake_reddit._core._requestor.request_count = 17
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch("scraper.AI_QUALITY_ENABLED", False),
+            mock.patch("scraper.AI_QUALITY_FAIL_OPEN", False),
+            mock.patch.object(
+                factory,
+                "collect_thread_source_candidates",
+                side_effect=fake_collect,
+            ),
+            mock.patch.object(
+                factory,
+                "_thread_candidates",
+                return_value=(candidates, queue, review),
+            ),
+        ):
+            workdir = Path(temp)
+            with self.assertRaisesRegex(factory.EpisodeFactoryError, "found 2"):
+                factory.run_source_stage(
+                    daily_plan=thread_plan,
+                    workdir=workdir,
+                    channels_path=ROOT / "channels.json",
+                    confirm_reddit_read=True,
+                    reddit_request_cap=24,
+                    reddit_factory=lambda **_kwargs: fake_reddit,
+                )
+            diagnostics = json.loads(
+                (workdir / "source-diagnostics.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(captured["candidate_limit"], 20)
+        self.assertEqual(captured["response_scan_limit"], 60)
+        self.assertEqual(diagnostics["candidate_count"], 2)
+        self.assertEqual(diagnostics["reddit_http_requests_observed"], 17)
+        self.assertEqual(
+            diagnostics["status"], "BLOCKED_INSUFFICIENT_SOURCE_FINALISTS"
+        )
+        self.assertTrue(
+            factory._verify_self_hash(
+                diagnostics, "source_diagnostics_sha256"
+            )
+        )
+        self.assertFalse(diagnostics["publication_authorized"])
+
     def test_call_budget_refuses_before_extra_provider_call(self):
         calls = []
 

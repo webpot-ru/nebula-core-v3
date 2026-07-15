@@ -93,6 +93,7 @@ FACTORY_VERSION = 1
 MIN_SOURCE_REVIEW_CANDIDATES = 3
 MAX_SOURCE_REVIEW_CANDIDATES = 5
 MIN_PASSING_FINALISTS = 3
+THREAD_PROMPT_CANDIDATE_LIMIT = 20
 NARRATOR_VOICE_ID = "elevenlabs_JBFqnCBsd6RMkjVDRZzb"
 COMMENT_VOICE_ID = "elevenlabs_MOgsVr0EwwxqQs5cNDhu"
 TTS_MODEL_ID = "eleven_v3"
@@ -714,7 +715,7 @@ def run_source_stage(
             reddit,
             subreddit_name=source_plan["subreddits"][0],
             time_filter="year",
-            candidate_limit=10,
+            candidate_limit=THREAD_PROMPT_CANDIDATE_LIMIT,
             response_scan_limit=60,
             max_responses=15,
             truth_mode="unverified_personal_account",
@@ -726,6 +727,32 @@ def run_source_stage(
         candidates, queue, review = _thread_candidates(results, daily_plan)
 
     if not MIN_SOURCE_REVIEW_CANDIDATES <= len(candidates) <= MAX_SOURCE_REVIEW_CANDIDATES:
+        source_diagnostics: dict[str, Any] = {
+            "version": 1,
+            "status": "BLOCKED_INSUFFICIENT_SOURCE_FINALISTS",
+            "channel_id": "acc1",
+            "episode_key": daily_plan["episode_key"],
+            "pilot_id": daily_plan["pilot_id"],
+            "format": format_id,
+            "pillar": daily_plan["pillar"],
+            "daily_plan_sha256": canonical_hash(daily_plan),
+            "required_candidate_range": [
+                MIN_SOURCE_REVIEW_CANDIDATES,
+                MAX_SOURCE_REVIEW_CANDIDATES,
+            ],
+            "candidate_count": len(candidates),
+            "candidate_ids": [str(item.get("candidate_id") or "") for item in candidates],
+            "reddit_http_request_cap": cap,
+            "reddit_http_requests_observed": _reddit_request_count(reddit),
+            "queue": queue,
+            "review": review,
+            "production_authorized": False,
+            "publication_authorized": False,
+        }
+        source_diagnostics["source_diagnostics_sha256"] = _self_hash(
+            source_diagnostics, "source_diagnostics_sha256",
+        )
+        _atomic_json(workdir / "source-diagnostics.json", source_diagnostics)
         raise EpisodeFactoryError(
             f"topic playoff requires {MIN_SOURCE_REVIEW_CANDIDATES}-"
             f"{MAX_SOURCE_REVIEW_CANDIDATES} complete candidates before paid review; "
