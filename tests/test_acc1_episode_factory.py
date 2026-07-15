@@ -240,6 +240,17 @@ class EpisodeFactoryTests(unittest.TestCase):
         )
         self.assertFalse(diagnostics["publication_authorized"])
 
+    def test_reddit_request_count_supports_current_praw_session_shape(self):
+        current = mock.Mock()
+        current._core.requestor.request_count = 23
+        self.assertEqual(factory._reddit_request_count(current), 23)
+
+        legacy_requestor = mock.Mock()
+        legacy_requestor.request_count = 17
+        legacy_core = type("LegacyCore", (), {"_requestor": legacy_requestor})()
+        legacy = type("LegacyReddit", (), {"_core": legacy_core})()
+        self.assertEqual(factory._reddit_request_count(legacy), 17)
+
     def test_call_budget_refuses_before_extra_provider_call(self):
         calls = []
 

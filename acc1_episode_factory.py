@@ -642,9 +642,20 @@ def _thread_candidates(
 
 
 def _reddit_request_count(reddit: Any) -> int | None:
-    requestor = getattr(getattr(reddit, "_core", None), "_requestor", None)
+    core = getattr(reddit, "_core", None)
+    # PRAW 8 exposes the requestor through Session.requestor.  Keep the legacy
+    # private fallback for older fixtures/releases without making a network call.
+    requestor = getattr(core, "requestor", None)
     value = getattr(requestor, "request_count", None)
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    legacy_requestor = getattr(core, "_requestor", None)
+    legacy_value = getattr(legacy_requestor, "request_count", None)
+    return (
+        legacy_value
+        if isinstance(legacy_value, int) and not isinstance(legacy_value, bool)
+        else None
+    )
 
 
 def run_source_stage(
