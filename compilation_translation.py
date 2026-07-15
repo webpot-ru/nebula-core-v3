@@ -51,8 +51,8 @@ class TranslationConfig:
     def __post_init__(self) -> None:
         if self.max_output_tokens < 1024:
             raise ValueError("max_output_tokens must be at least 1024")
-        if self.max_story_revisions not in (0, 1, 2):
-            raise ValueError("max_story_revisions must be between 0 and 2")
+        if self.max_story_revisions not in (0, 1, 2, 3):
+            raise ValueError("max_story_revisions must be between 0 and 3")
         if not 1.0 <= self.max_character_ratio <= 3.0:
             raise ValueError("max_character_ratio must be between 1.0 and 3.0")
         if self.max_character_floor < 128:
@@ -355,7 +355,30 @@ def translate_and_review_story(
     review_provider = reviewer or provider
     revisions = int(saved_review.get("revisions_completed") or 0) if saved_review else 0
     review_history: list[dict[str, Any]] = list(saved_review.get("review_history") or []) if saved_review else []
+    review: dict[str, Any] | None = None
+    if saved_review and review_history:
+        pending = review_history[-1]
+        if pending.get("verdict") == "PASS" and pending.get("ending_preserved") is True:
+            review = pending
+        elif pending.get("verdict") == "REVISE" and len(review_history) == revisions + 1:
+            if revisions >= config.max_story_revisions:
+                raise TranslationError("translation remains REVISE after maximum story revisions")
+            revisions += 1
+            translated = _apply_review_patches(title, body, translated, pending)
+            _validate_translation(body, translated, config)
+            if review_checkpoint_path:
+                _atomic_json(review_checkpoint_path, {
+                    "schema_version": 2,
+                    "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                    "revisions_completed": revisions,
+                    "review_history": review_history,
+                    "current_translation": translated,
+                })
+        elif len(review_history) > revisions:
+            raise TranslationError("saved translation review checkpoint is inconsistent")
     while True:
+        if review is not None:
+            break
         review = _call(review_provider, _review_prompt(title, body, translated), config, temperature=0.0)
         review_history.append(review)
         if review_checkpoint_path:
@@ -383,6 +406,7 @@ def translate_and_review_story(
                 "review_history": review_history,
                 "current_translation": translated,
             })
+        review = None
 
     return {
         **story,
