@@ -141,6 +141,18 @@ class Acc1ResumeLockTests(unittest.TestCase):
             chained["parent_resume_lease_sha256"],
             canonical_hash(first),
         )
+        third = build_resume_lease(
+            parent_lease=lease, topic_input=topic, producer_review=producer,
+            critic_review=critic, openai_journal=journal, parent_run_id=303,
+            run_id=404, run_attempt=1, head_sha=HEAD_SHA,
+            repository=REPOSITORY, openai_call_cap=64,
+            openai_token_cap=1_000_000, image_call_cap=16, ai33_call_cap=32,
+            parent_resume_lease=chained,
+        )
+        validate_resume_lease(
+            third, repository=REPOSITORY, run_id=404, parent_run_id=303,
+        )
+        self.assertEqual(third["parent_spend_lease_sha256"], canonical_hash(lease))
 
 if __name__ == "__main__":
     unittest.main()

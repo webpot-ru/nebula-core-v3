@@ -119,7 +119,9 @@ def build_resume_lease(
             repository=repository,
             run_id=parent_run_id,
         )
-        if parent_lease.get("run_id") != parent_resume_lease.get("parent_run_id"):
+        if canonical_hash(parent_lease) != parent_resume_lease.get(
+            "parent_spend_lease_sha256"
+        ):
             raise ResumeLockError("parent spend lease does not match resume ancestry")
     attempts = openai_journal.get("attempts")
     if (
