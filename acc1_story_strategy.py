@@ -452,6 +452,11 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
             "story_count": list(configured_story_count),
             "aggregate_source_word_count": list(format_contract["aggregate_source_word_count"]),
             "words_per_minute": SAGA_WORDS_PER_MINUTE,
+            # Long BUNDLE components are evergreen. Live evidence showed the
+            # day window supplied no eligible component while the month pool
+            # supplied nearly all usable sources; keep the same three-window
+            # request envelope but replace day with year.
+            "time_windows": ["week", "month", "year"],
         })
     else:
         search_query = _text(pilot.get("search_query"))

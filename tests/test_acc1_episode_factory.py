@@ -239,6 +239,66 @@ class EpisodeFactoryTests(unittest.TestCase):
         )
         self.assertFalse(diagnostics["publication_authorized"])
 
+    def test_bundle_selector_failure_persists_exact_source_diagnostics(self):
+        bundle_plan = build_daily_plan(
+            ROOT / "channels.json",
+            production_date="2026-07-16",
+            pilot_override="pilot_02",
+        )
+        queue = {
+            "version": 1,
+            "entries": [{"post_id": "one", "source_body": "complete body"}],
+        }
+        review = {
+            "version": 1,
+            "status": "review_ready",
+            "candidate_reviews": [],
+        }
+        fake_reddit = mock.Mock()
+        fake_reddit._core._requestor.request_count = 13
+
+        def fake_fetch(**kwargs):
+            Path(kwargs["producer_queue_output"]).write_text(
+                json.dumps(queue), encoding="utf-8",
+            )
+            return {"post_id": "one"}
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch("scraper.AI_QUALITY_ENABLED", False),
+            mock.patch("scraper.AI_QUALITY_FAIL_OPEN", False),
+            mock.patch.object(factory, "fetch_best_story", side_effect=fake_fetch),
+            mock.patch.object(factory, "build_review", return_value=review),
+            mock.patch.object(
+                factory,
+                "_bundle_candidates",
+                side_effect=factory.EpisodeFactoryError(
+                    "valid_subsets=1 eligible_candidates=5 rejected_candidates=14"
+                ),
+            ),
+        ):
+            workdir = Path(temp)
+            with self.assertRaisesRegex(factory.EpisodeFactoryError, "valid_subsets=1"):
+                factory.run_source_stage(
+                    daily_plan=bundle_plan,
+                    workdir=workdir,
+                    channels_path=ROOT / "channels.json",
+                    confirm_reddit_read=True,
+                    reddit_request_cap=24,
+                    reddit_factory=lambda **_kwargs: fake_reddit,
+                )
+            diagnostics = json.loads(
+                (workdir / "source-diagnostics.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(diagnostics["status"], "BLOCKED_BUNDLE_FINALISTS")
+        self.assertIn("valid_subsets=1", diagnostics["failure"])
+        self.assertEqual(diagnostics["reddit_http_requests_observed"], 13)
+        self.assertTrue(
+            factory._verify_self_hash(diagnostics, "source_diagnostics_sha256")
+        )
+        self.assertFalse(diagnostics["publication_authorized"])
+
     def test_reddit_request_count_supports_current_praw_session_shape(self):
         current = mock.Mock()
         current._core.requestor.request_count = 23
