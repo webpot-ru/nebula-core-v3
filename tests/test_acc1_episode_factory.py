@@ -495,6 +495,53 @@ class EpisodeFactoryTests(unittest.TestCase):
             prompt,
         )
 
+    def test_quote_only_repair_changes_evidence_without_changing_creative_claim(self):
+        body = "The basement door opened and there was no human shadow behind it."
+        candidate = {
+            "candidate_id": "candidate-1",
+            "sources": [{"source_id": "source-1", "body": body}],
+            "cold_open": {
+                "text": "В подвале у него не оказалось тени",
+                "source_id": "source-1",
+                "source_quote": "there was no shadow",
+            },
+            "reviews": [
+                {"verdict": "PASS", "veto_flags": []},
+                {"verdict": "PASS", "veto_flags": []},
+            ],
+        }
+        preliminary = {
+            "candidate_reviews": [{
+                "candidate_id": "candidate-1",
+                "failures": [
+                    "candidates[0].cold_open.source_quote must be an exact quote from source_id"
+                ],
+            }],
+        }
+
+        class FakeOpenAI:
+            def __init__(self):
+                self.calls = []
+
+            def __call__(self, **kwargs):
+                self.calls.append(kwargs)
+                return {"repairs": [{
+                    "path": "cold_open.source_quote",
+                    "source_id": "source-1",
+                    "source_quote": body,
+                }]}
+
+        provider = FakeOpenAI()
+        repaired, reports = factory._repair_quote_only_candidates(
+            [candidate], preliminary, provider,
+        )
+
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(repaired[0]["cold_open"]["source_quote"], body)
+        self.assertEqual(repaired[0]["cold_open"]["text"], candidate["cold_open"]["text"])
+        self.assertEqual(candidate["cold_open"]["source_quote"], "there was no shadow")
+        self.assertEqual(reports[0]["status"], "EVIDENCE_ONLY_REPAIR_APPLIED")
+
     def test_translate_script_builds_truthful_deterministic_intro(self):
         sources = []
         for index in range(2):
@@ -1294,17 +1341,17 @@ class EpisodeFactoryTests(unittest.TestCase):
             }
             for candidate_index in range(5)
         ]
-        self.assertEqual(factory._required_openai_calls(candidates), 107)
+        self.assertEqual(factory._required_openai_calls(candidates), 112)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First short paragraph.\n\nSecond one.\n\nThird one."
-        self.assertEqual(factory._required_openai_calls(candidates), 107)
+        self.assertEqual(factory._required_openai_calls(candidates), 112)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First" + (" " * 20_000) + "short response."
-        self.assertEqual(factory._required_openai_calls(candidates), 107)
+        self.assertEqual(factory._required_openai_calls(candidates), 112)
 
     def test_self_hash_detects_release_manifest_tamper(self):
         manifest = {"status": "READY_FOR_HUMAN_REVIEW", "publication_authorized": False}
