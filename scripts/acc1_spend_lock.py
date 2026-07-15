@@ -22,7 +22,7 @@ from typing import Any, Sequence
 from urllib.parse import urlsplit
 
 
-LEASE_SCHEMA_VERSION = "acc1_paid_spend_lease_v3"
+LEASE_SCHEMA_VERSION = "acc1_paid_spend_lease_v4"
 WORKFLOW_PATH = ".github/workflows/acc1_daily_episode.yml"
 LEASE_FILENAME = "spend-lease.json"
 LEASE_RETENTION_DAYS = 90
@@ -39,6 +39,9 @@ PROVIDER_CONTRACT: dict[str, Any] = {
         "reasoning_effort": "none",
         "max_output_tokens": 16_384,
         "automatic_retries": 0,
+        "service_tier": "flex",
+        "prompt_cache_key": "acc1-translation-json-v1",
+        "request_timeout_seconds": 900,
     },
     "gemini": {
         "provider": "vectorengine",

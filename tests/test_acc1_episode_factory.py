@@ -9,6 +9,7 @@ from unittest import mock
 
 import acc1_episode_factory as factory
 from acc1_daily_planner import build_daily_plan
+from openai_client import OpenAIJSONResult, OpenAIUsage
 from scripts.acc1_spend_lock import build_lease, self_hash
 
 
@@ -390,6 +391,49 @@ class EpisodeFactoryTests(unittest.TestCase):
                     journal_path=journal,
                 )
             self.assertEqual(len(calls), 1)
+
+    def test_openai_budget_rejects_unproven_service_tier_and_accounts_usage(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "openai.json"
+            budget = factory.CallBudget(
+                lambda **_kwargs: OpenAIJSONResult(
+                    payload={"translated": True},
+                    usage=OpenAIUsage(
+                        input_tokens=2,
+                        cached_input_tokens=1,
+                        output_tokens=1,
+                        total_tokens=3,
+                        reasoning_tokens=0,
+                    ),
+                    service_tier="default",
+                ),
+                cap=1,
+                label="openai_translation",
+                journal_path=journal,
+                token_cap=1_000,
+            )
+            with self.assertRaisesRegex(
+                factory.EpisodeFactoryError,
+                "required Flex service tier",
+            ):
+                budget(
+                    prompt="one translation",
+                    model=factory.OPENAI_MODEL,
+                    max_output_tokens=1,
+                )
+            stored = json.loads(journal.read_text(encoding="utf-8"))
+            self.assertEqual(
+                stored["attempts"][0]["status"],
+                "BLOCKED_SERVICE_TIER_MISMATCH",
+            )
+            self.assertEqual(stored["attempts"][0]["service_tier"], "default")
+            self.assertEqual(stored["usage_totals"], {
+                "input_tokens": 2,
+                "cached_input_tokens": 1,
+                "output_tokens": 1,
+                "total_tokens": 3,
+                "reasoning_tokens": 0,
+            })
 
     def test_ai33_inline_audio_response_is_journaled_without_serializing_bytes(self):
         with tempfile.TemporaryDirectory() as temp:

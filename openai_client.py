@@ -14,7 +14,14 @@ import requests
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_MODEL = "gpt-5.4-2026-03-05"
 DEFAULT_MAX_COMPLETION_TOKENS = 16_384
-DEFAULT_TIMEOUT_SECONDS = 120
+# Flex has the same price schedule as Batch, but stays synchronous.  OpenAI's
+# Flex guidance uses a fifteen-minute request timeout because this tier can be
+# slower than standard processing.  The bound is still finite: an unavailable
+# request blocks the episode for human adjudication instead of silently falling
+# back to a different tier or holding the whole render indefinitely.
+DEFAULT_TIMEOUT_SECONDS = 900
+REQUIRED_SERVICE_TIER = "flex"
+PROMPT_CACHE_KEY = "acc1-translation-json-v1"
 
 
 class OpenAIClientError(RuntimeError):
@@ -24,6 +31,7 @@ class OpenAIClientError(RuntimeError):
 @dataclass(frozen=True)
 class OpenAIUsage:
     input_tokens: int
+    cached_input_tokens: int
     output_tokens: int
     total_tokens: int
     reasoning_tokens: int
@@ -33,6 +41,7 @@ class OpenAIUsage:
 class OpenAIJSONResult:
     payload: dict[str, Any]
     usage: OpenAIUsage
+    service_tier: str
     response_id: str | None = None
 
 
@@ -67,8 +76,24 @@ def _parse_usage(value: Any) -> OpenAIUsage:
         raise OpenAIClientError(
             "OpenAI usage reasoning_tokens exceeds output_tokens"
         )
+    input_details = value.get("prompt_tokens_details")
+    if input_details is None:
+        cached_input_tokens = 0
+    elif isinstance(input_details, dict):
+        cached_input_tokens = _nonnegative_int(
+            input_details.get("cached_tokens", 0), "prompt_tokens_details.cached_tokens",
+        )
+    else:
+        raise OpenAIClientError(
+            "OpenAI usage prompt_tokens_details must be an object"
+        )
+    if cached_input_tokens > input_tokens:
+        raise OpenAIClientError(
+            "OpenAI usage cached input tokens exceed input tokens"
+        )
     return OpenAIUsage(
         input_tokens=input_tokens,
+        cached_input_tokens=cached_input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
         reasoning_tokens=reasoning_tokens,
@@ -162,6 +187,11 @@ def call_openai_json(
         "max_completion_tokens": _completion_limit(
             max_completion_tokens, max_output_tokens,
         ),
+        "service_tier": REQUIRED_SERVICE_TIER,
+        # Prompt caching is automatic when the repeated prefix is long enough.
+        # The key improves routing, but never makes a cache hit a correctness
+        # dependency; actual cached tokens are recorded below.
+        "prompt_cache_key": PROMPT_CACHE_KEY,
     }
     try:
         response = requests.post(
@@ -205,8 +235,14 @@ def call_openai_json(
     response_id = data.get("id")
     if response_id is not None and not isinstance(response_id, str):
         raise OpenAIClientError("OpenAI response id must be a string when present")
+    service_tier = data.get("service_tier")
+    if service_tier != REQUIRED_SERVICE_TIER:
+        raise OpenAIClientError(
+            "OpenAI did not confirm the required Flex service tier"
+        )
     return OpenAIJSONResult(
         payload=payload,
         usage=usage,
         response_id=response_id or None,
+        service_tier=service_tier,
     )
