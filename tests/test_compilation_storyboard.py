@@ -283,7 +283,8 @@ class CompilationStoryboardTests(unittest.TestCase):
         page_word_counts = {}
         for slide in story_slides:
             page_word_counts[slide["page_index"]] = len(slide["display_text"].split())
-        self.assertGreater(max(page_word_counts.values()), 42)
+        self.assertGreaterEqual(max(page_word_counts.values()), 40)
+        self.assertLessEqual(max(page_word_counts.values()), 48)
         scene_ids = list(dict.fromkeys(slide["visual_scene_id"] for slide in story_slides))
         self.assertEqual(len(scene_ids), 5)
         self.assertEqual(len({slide["visual"]["sha256"] for slide in story_slides}), 4)
