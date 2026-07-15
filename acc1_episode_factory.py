@@ -37,7 +37,13 @@ from acc1_episode_images import generate_episode_images
 from acc1_episode_manifest import build_episode_manifest, canonical_hash
 from acc1_episode_packaging import generate_packaging, validate_packaging
 from acc1_thread_source import collect_thread_source_candidates
-from acc1_topic_playoff import run_playoff, validate_base_candidate
+from acc1_topic_playoff import (
+    HARD_VETOES,
+    SCORE_MAXIMA,
+    SCORE_MINIMA,
+    run_playoff,
+    validate_base_candidate,
+)
 from compilation_qa import run_qa
 from compilation_renderer import (
     CompilationRenderError,
@@ -1035,8 +1041,13 @@ def _candidate_prompt(candidate: dict[str, Any], daily_plan: dict[str, Any], rol
         "body": item["body"],
         "truth_mode": item["truth_mode"],
         "source_url": item["source_url"],
+        "payoff_complete": item.get("payoff_complete") is True,
+        "depends_on_screenshot_or_link": item.get("depends_on_screenshot_or_link") is not False,
         "reddit_discovery_signals": item.get("source_discovery_signals"),
     } for item in candidate["sources"]]
+    maxima = json.dumps(SCORE_MAXIMA, ensure_ascii=False, sort_keys=True)
+    minima = json.dumps(SCORE_MINIMA, ensure_ascii=False, sort_keys=True)
+    veto_names = json.dumps(sorted(HARD_VETOES), ensure_ascii=False)
     common = f"""
 You are the {role} in a strict Russian YouTube long-form topic playoff.
 Assess this one complete Reddit candidate for the exact acc1 viewer promise.
@@ -1046,10 +1057,21 @@ Non-negotiable rules:
 - Fiction must remain fiction; personal accounts remain independently unverified.
 - Do not invent facts, chronology, outcomes, hooks, people, or visual events.
 - Any evidence field must be a short exact substring copied from a supplied source body.
+- Every evidence quote must contain at least 24 characters, four words, and three unique words.
 - The direction is fixed: format={daily_plan['format']}, pillar={daily_plan['pillar']}.
-- Score honestly. PASS requires total >=90 and category floors; use hard vetoes for wrong pillar,
-  incomplete payoff, screenshot/link dependency, fictional-as-real framing, viewer-promise mismatch,
-  unsafe/private-personal-data material, or advertiser-hostile treatment.
+- Scorecard values are WEIGHTED POINTS, never percentages or 0-100 ratings.
+  Exact maxima: {maxima}
+  S-tier minima: {minima}
+  The ten values sum to at most 100; PASS requires total >=90 and every category minimum.
+  Never return a category value above its exact maximum.
+- Allowed canonical veto names: {veto_names}. Use an empty list when no veto is proven.
+- A canonical Reddit source_url is provenance, not screenshot/link dependency. Only declare
+  screenshot_or_link_dependent when the supplied body itself cannot be understood or completed
+  without external linked/screenshot/media content. Respect the supplied deterministic
+  depends_on_screenshot_or_link=false unless an exact source quote proves otherwise.
+- Use hard vetoes for wrong pillar, incomplete payoff, actual screenshot/link dependency,
+  fictional-as-real framing, viewer-promise mismatch, unsafe/private-personal-data material,
+  or advertiser-hostile treatment.
 
 Viewer promise: {daily_plan.get('viewer_promise')}
 Candidate: {json.dumps({'candidate_id': candidate['candidate_id'], 'sources': sources}, ensure_ascii=False)}

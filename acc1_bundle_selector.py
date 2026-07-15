@@ -97,6 +97,8 @@ def _normalize_candidate(
     review_status = _text(candidate.get("review_status"))
     body = _source_body(candidate)
     payoff_evidence = _text(candidate.get("payoff_evidence"))
+    shortlist_score = candidate.get("shortlist_score", 0)
+    pillar_fit_score = candidate.get("pillar_fit_score", 0)
 
     required_text = {
         "post_id": post_id,
@@ -140,6 +142,16 @@ def _normalize_candidate(
         reasons.append("source_word_count_mismatch")
     if word_count <= 0:
         reasons.append("empty_source_word_count")
+    if (
+        isinstance(shortlist_score, bool)
+        or not isinstance(shortlist_score, (int, float))
+    ):
+        reasons.append("invalid_shortlist_score")
+    if (
+        isinstance(pillar_fit_score, bool)
+        or not isinstance(pillar_fit_score, (int, float))
+    ):
+        reasons.append("invalid_pillar_fit_score")
 
     candidate_ref = post_id or content_hash(candidate)[:16]
     if reasons:
@@ -163,6 +175,8 @@ def _normalize_candidate(
         "payoff_complete": True,
         "payoff_evidence": payoff_evidence,
         "depends_on_screenshot_or_link": False,
+        "shortlist_score": float(shortlist_score),
+        "pillar_fit_score": float(pillar_fit_score),
     }
     return normalized, None
 
@@ -202,7 +216,21 @@ def _candidate_subsets(
             if not minimum_words <= total_words <= maximum_words:
                 continue
             source_ids = tuple(story["post_id"] for story in stories)
-            ranking_key = (abs(total_words - target_words), count, source_ids)
+            shortlist_scores = [story["shortlist_score"] for story in stories]
+            pillar_fit_scores = [story["pillar_fit_score"] for story in stories]
+            # A compilation is only as strong as its weakest segment. Rank
+            # quality before runtime proximity so a length-perfect but weak
+            # bundle cannot displace a stronger source set inside the same
+            # already-valid duration envelope.
+            ranking_key = (
+                -min(shortlist_scores),
+                -sum(shortlist_scores),
+                -min(pillar_fit_scores),
+                -sum(pillar_fit_scores),
+                abs(total_words - target_words),
+                count,
+                source_ids,
+            )
             choices.append((ranking_key, stories, total_words))
     choices.sort(key=lambda item: item[0])
     return choices
@@ -385,7 +413,7 @@ def select_bundle(
         "estimated_source_minutes_at_130_wpm": round(total_words / 130, 2),
         "stories": selected_stories,
         "selection_contract": {
-            "algorithm": "canonical_subset_nearest_runtime_midpoint_v1",
+            "algorithm": "canonical_quality_first_subset_v2",
             "story_count": list(story_count),
             "aggregate_source_word_count": list(aggregate_word_count),
             "candidate_count": len(candidates),
@@ -462,6 +490,12 @@ def select_bundle_finalists(
             "story_count": len(stories),
             "aggregate_source_word_count": total_words,
             "estimated_source_minutes_at_130_wpm": round(total_words / 130, 2),
+            "minimum_component_shortlist_score": min(
+                story["shortlist_score"] for story in stories
+            ),
+            "aggregate_component_shortlist_score": sum(
+                story["shortlist_score"] for story in stories
+            ),
             "source_post_ids": source_post_ids,
             "source_set_sha256": content_hash(source_post_ids),
             "stories": stories,
@@ -489,7 +523,7 @@ def select_bundle_finalists(
         "finalist_count": len(finalists),
         "finalists": finalists,
         "selection_contract": {
-            "algorithm": "canonical_ranked_materially_distinct_subsets_v1",
+            "algorithm": "canonical_quality_first_materially_distinct_subsets_v2",
             "material_difference": "each_pair_adds_and_removes_at_least_one_complete_source",
             "story_count": list(story_count),
             "aggregate_source_word_count": list(aggregate_word_count),
