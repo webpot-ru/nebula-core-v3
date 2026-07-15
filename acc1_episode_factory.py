@@ -408,7 +408,7 @@ def _translation_fallback_piece_ceiling(body: str, chunk_chars: int = 7_000) -> 
 
 
 def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
-    """Budget finalist reviews, packaging, and the accepted translation path."""
+    """Budget reviews, one evidence correction per finalist, and winner production."""
     translation_calls = max(
         (
             sum(
@@ -423,7 +423,7 @@ def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
         ),
         default=0,
     )
-    creative_calls = len(candidates) * 2 + 1
+    creative_calls = len(candidates) * 3 + 1
     return translation_calls + creative_calls
 
 
@@ -1216,6 +1216,163 @@ def _enrich_candidates(
     return enriched, producer_reports, critic_reports
 
 
+EVIDENCE_FAILURE_RE = re.compile(
+    r"^(?:candidates\[[0-9]+\]\.)?((?:pillar_evidence|cold_open|payoff_evidence)\.source_quote|"
+    r"story_beats\[[0-9]+\]\.source_quote|"
+    r"originality_plan\.(?:editorial_frame|visual_direction|sound_direction)\.source_quote|"
+    r"packaging_options\[[0-9]+\]\.evidence\.source_quote) "
+)
+
+
+def _evidence_target(candidate: dict[str, Any], path: str) -> tuple[dict[str, Any], str]:
+    simple = re.fullmatch(r"(pillar_evidence|cold_open|payoff_evidence)\.source_quote", path)
+    if simple:
+        return candidate[simple.group(1)], "source_quote"
+    beat = re.fullmatch(r"story_beats\[([0-9]+)\]\.source_quote", path)
+    if beat:
+        return candidate["story_beats"][int(beat.group(1))], "source_quote"
+    direction = re.fullmatch(
+        r"originality_plan\.(editorial_frame|visual_direction|sound_direction)\.source_quote",
+        path,
+    )
+    if direction:
+        return candidate["originality_plan"][direction.group(1)], "source_quote"
+    packaging = re.fullmatch(
+        r"packaging_options\[([0-9]+)\]\.evidence\.source_quote", path,
+    )
+    if packaging:
+        return candidate["packaging_options"][int(packaging.group(1))], "source_backing"
+    raise EpisodeFactoryError(f"unsupported evidence repair path: {path}")
+
+
+def _evidence_repair_prompt(candidate: dict[str, Any], paths: list[str]) -> str:
+    targets = []
+    for path in paths:
+        holder, quote_field = _evidence_target(candidate, path)
+        targets.append({
+            "path": path,
+            "source_id": str(holder.get("source_id") or ""),
+            "current_quote": str(holder.get(quote_field) or ""),
+        })
+    sources = [
+        {"source_id": item["source_id"], "body": item["body"]}
+        for item in candidate["sources"]
+    ]
+    return f"""
+You are correcting source evidence only. Do not rewrite or score any creative claim.
+For every target, copy a meaningful verbatim substring from the named source body.
+Preserve the exact source characters, punctuation, apostrophes, and whitespace.
+Each quote must be at least 24 characters, at least four words, and at least three unique words.
+Return every requested path exactly once and no other path. Keep each target's source_id unchanged.
+
+Sources: {json.dumps(sources, ensure_ascii=False)}
+Targets: {json.dumps(targets, ensure_ascii=False)}
+
+Return strict JSON:
+{{"repairs":[{{"path":"exact requested path","source_id":"unchanged source_id","source_quote":"exact source substring"}}]}}
+"""
+
+
+def _repair_quote_only_candidates(
+    candidates: list[dict[str, Any]],
+    preliminary_playoff: dict[str, Any],
+    openai: CallBudget,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    repaired = copy.deepcopy(candidates)
+    reports: list[dict[str, Any]] = []
+    reviews_by_id = {
+        str(item.get("candidate_id") or ""): item
+        for item in preliminary_playoff.get("candidate_reviews") or []
+        if isinstance(item, dict)
+    }
+    for candidate in repaired:
+        candidate_id = str(candidate.get("candidate_id") or "")
+        review = reviews_by_id.get(candidate_id) or {}
+        failures = [str(item) for item in review.get("failures") or []]
+        matches = [EVIDENCE_FAILURE_RE.match(item) for item in failures]
+        paths = sorted({match.group(1) for match in matches if match})
+        candidate_reviews = candidate.get("reviews") or []
+        independent_passes = (
+            len(candidate_reviews) == 2
+            and all(
+                isinstance(item, dict)
+                and item.get("verdict") == "PASS"
+                and not (item.get("veto_flags") or [])
+                for item in candidate_reviews
+            )
+        )
+        if not failures or len(paths) != len(failures) or not independent_passes:
+            reports.append({
+                "candidate_id": candidate_id,
+                "status": "NOT_ELIGIBLE_FOR_EVIDENCE_ONLY_REPAIR",
+                "failure_count": len(failures),
+            })
+            continue
+        response = openai(
+            prompt=_evidence_repair_prompt(candidate, paths),
+            model=OPENAI_MODEL,
+            temperature=0.0,
+            max_output_tokens=4096,
+        )
+        repairs = response.get("repairs") if isinstance(response, dict) else None
+        if not isinstance(repairs, list) or len(repairs) != len(paths):
+            reports.append({
+                "candidate_id": candidate_id,
+                "status": "BLOCKED_INVALID_EVIDENCE_REPAIR",
+                "requested_paths": paths,
+            })
+            continue
+        by_path = {
+            str(item.get("path") or ""): item
+            for item in repairs
+            if isinstance(item, dict)
+        }
+        if set(by_path) != set(paths):
+            reports.append({
+                "candidate_id": candidate_id,
+                "status": "BLOCKED_INVALID_EVIDENCE_REPAIR",
+                "requested_paths": paths,
+            })
+            continue
+        valid = True
+        for path in paths:
+            holder, quote_field = _evidence_target(candidate, path)
+            item = by_path[path]
+            source_id = str(item.get("source_id") or "")
+            quote = str(item.get("source_quote") or "")
+            source = next(
+                (value for value in candidate["sources"] if value["source_id"] == source_id),
+                None,
+            )
+            words = [match.group(0).casefold() for match in SOURCE_WORD_RE.finditer(quote)]
+            if (
+                source_id != str(holder.get("source_id") or "")
+                or source is None
+                or quote not in source["body"]
+                or len(quote) < 24
+                or len(words) < 4
+                or len(set(words)) < 3
+            ):
+                valid = False
+                break
+        if not valid:
+            reports.append({
+                "candidate_id": candidate_id,
+                "status": "BLOCKED_INVALID_EVIDENCE_REPAIR",
+                "requested_paths": paths,
+            })
+            continue
+        for path in paths:
+            holder, quote_field = _evidence_target(candidate, path)
+            holder[quote_field] = str(by_path[path]["source_quote"])
+        reports.append({
+            "candidate_id": candidate_id,
+            "status": "EVIDENCE_ONLY_REPAIR_APPLIED",
+            "repaired_paths": paths,
+        })
+    return repaired, reports
+
+
 def _validate_estimated_runtime(
     script: dict[str, Any], daily_plan: dict[str, Any],
 ) -> dict[str, Any]:
@@ -1769,6 +1926,25 @@ def run_produce_stage(
     _atomic_json(workdir / "critic-review.json", {
         "version": 1, "results": critic_reports,
         "daily_plan_sha256": canonical_hash(daily_plan), "publication_authorized": False,
+    })
+    preliminary_playoff_input = {
+        "daily_plan": daily_plan,
+        "daily_plan_sha256": canonical_hash(daily_plan),
+        "candidates": enriched,
+    }
+    preliminary_playoff = run_playoff(preliminary_playoff_input)
+    _atomic_json(workdir / "topic-playoff-pre-repair.json", preliminary_playoff)
+    if preliminary_playoff.get("status") != "READY_FOR_SCRIPTING":
+        enriched, repair_reports = _repair_quote_only_candidates(
+            enriched, preliminary_playoff, openai,
+        )
+    else:
+        repair_reports = []
+    _atomic_json(workdir / "evidence-repair.json", {
+        "version": 1,
+        "results": repair_reports,
+        "preliminary_playoff_sha256": preliminary_playoff.get("playoff_sha256"),
+        "publication_authorized": False,
     })
     playoff_input = {
         "daily_plan": daily_plan,
