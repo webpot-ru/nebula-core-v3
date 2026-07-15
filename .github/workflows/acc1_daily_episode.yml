@@ -30,13 +30,8 @@ on:
         required: true
         default: false
         type: boolean
-      confirm_gemini_spend:
-        description: Explicitly allow bounded Gemini calls after source success
-        required: true
-        default: false
-        type: boolean
       confirm_openai_spend:
-        description: Explicitly allow bounded OpenAI translation calls after source success
+        description: Explicitly allow bounded OpenAI creative, translation, and packaging calls
         required: true
         default: false
         type: boolean
@@ -56,20 +51,14 @@ on:
         default: "24"
         type: choice
         options: ["8", "16", "24"]
-      gemini_call_cap:
-        description: Hard cap for Gemini calls in this episode run
-        required: true
-        default: "128"
-        type: choice
-        options: ["32", "48", "64", "96", "128"]
       openai_call_cap:
-        description: Hard cap for OpenAI translation calls in this episode run
+        description: Hard cap for all OpenAI calls in this episode run
         required: true
         default: "96"
         type: choice
-        options: ["16", "24", "32", "48", "64", "96"]
+        options: ["16", "24", "32", "48", "64", "96", "128"]
       openai_token_cap:
-        description: Hard cap for OpenAI translation tokens in this episode run
+        description: Hard cap for all OpenAI input and output tokens in this episode run
         required: true
         default: "500000"
         type: choice
@@ -256,27 +245,22 @@ jobs:
             --source-review "$WORKDIR/source-review.json"
       - name: Require all paid-provider confirmations after source success
         env:
-          CONFIRM_GEMINI_SPEND: ${{ inputs.confirm_gemini_spend }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
           CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
         run: |
           set -euo pipefail
-          test "$CONFIRM_GEMINI_SPEND" = "true"
           test "$CONFIRM_OPENAI_SPEND" = "true"
           test "$CONFIRM_IMAGE_SPEND" = "true"
           test "$CONFIRM_AI33_SPEND" = "true"
       - name: Run source-dependent paid preflight before lease
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
-          GEMINI_PROVIDER: vectorengine
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
-          CONFIRM_GEMINI_SPEND: ${{ inputs.confirm_gemini_spend }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
           CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
-          GEMINI_CALL_CAP: ${{ inputs.gemini_call_cap }}
           OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
           OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
           IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
@@ -287,8 +271,6 @@ jobs:
             --plan "$DAILY_PLAN_PATH" \
             --workdir "$WORKDIR" \
             --stage paid-preflight \
-            --confirm-gemini-spend "$CONFIRM_GEMINI_SPEND" \
-            --gemini-call-cap "$GEMINI_CALL_CAP" \
             --confirm-openai-spend "$CONFIRM_OPENAI_SPEND" \
             --openai-call-cap "$OPENAI_CALL_CAP" \
             --openai-token-cap "$OPENAI_TOKEN_CAP" \
@@ -299,12 +281,10 @@ jobs:
       - name: Create exact source-bound paid spend lease
         env:
           CONFIRM_REDDIT_READ: ${{ inputs.confirm_reddit_read }}
-          CONFIRM_GEMINI_SPEND: ${{ inputs.confirm_gemini_spend }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
           CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
           REDDIT_REQUEST_CAP: ${{ inputs.reddit_request_cap }}
-          GEMINI_CALL_CAP: ${{ inputs.gemini_call_cap }}
           OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
           OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
           IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
@@ -324,13 +304,11 @@ jobs:
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --head-sha "$GITHUB_SHA" \
             --reddit-request-cap "$REDDIT_REQUEST_CAP" \
-            --gemini-call-cap "$GEMINI_CALL_CAP" \
             --openai-call-cap "$OPENAI_CALL_CAP" \
             --openai-token-cap "$OPENAI_TOKEN_CAP" \
             --image-call-cap "$IMAGE_CALL_CAP" \
             --ai33-call-cap "$AI33_CALL_CAP" \
             --confirm-reddit-read "$CONFIRM_REDDIT_READ" \
-            --confirm-gemini-spend "$CONFIRM_GEMINI_SPEND" \
             --confirm-openai-spend "$CONFIRM_OPENAI_SPEND" \
             --confirm-image-spend "$CONFIRM_IMAGE_SPEND" \
             --confirm-ai33-spend "$CONFIRM_AI33_SPEND"
@@ -344,15 +322,12 @@ jobs:
       - name: Produce review-ready episode artifact
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
-          GEMINI_PROVIDER: vectorengine
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
-          CONFIRM_GEMINI_SPEND: ${{ inputs.confirm_gemini_spend }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
           CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
           REDDIT_REQUEST_CAP: ${{ inputs.reddit_request_cap }}
-          GEMINI_CALL_CAP: ${{ inputs.gemini_call_cap }}
           OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
           OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
           IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
@@ -365,8 +340,6 @@ jobs:
             --stage produce
             --reddit-request-cap "$REDDIT_REQUEST_CAP"
             --spend-lease "$WORKDIR/spend-lease.json"
-            --confirm-gemini-spend "$CONFIRM_GEMINI_SPEND"
-            --gemini-call-cap "$GEMINI_CALL_CAP"
             --confirm-openai-spend "$CONFIRM_OPENAI_SPEND"
             --openai-call-cap "$OPENAI_CALL_CAP"
             --openai-token-cap "$OPENAI_TOKEN_CAP"
@@ -477,8 +450,7 @@ jobs:
               "runtime_estimate_report": root / "runtime-estimate-report.json",
               "media_qa": root / "media-qa.json",
               "creative_review": root / "creative-review.json",
-              "gemini_attempts": root / "provider-attempts" / "gemini.json",
-              "openai_translation_attempts": root / "provider-attempts" / "openai-translation.json",
+              "openai_attempts": root / "provider-attempts" / "openai.json",
               "image_attempts": root / "provider-attempts" / "image.json",
               "ai33_attempts": root / "provider-attempts" / "ai33.json",
           }

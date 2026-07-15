@@ -79,7 +79,6 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
     def test_every_external_provider_has_exact_confirmation_and_cap(self):
         for provider in (
             "reddit_read",
-            "gemini_spend",
             "openai_spend",
             "image_spend",
             "ai33_spend",
@@ -95,7 +94,6 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
 
         for cap in (
             "reddit_request_cap",
-            "gemini_call_cap",
             "openai_call_cap",
             "openai_token_cap",
             "image_call_cap",
@@ -109,16 +107,16 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         )
         self.assertIn(
             '      openai_call_cap:\n'
-            '        description: Hard cap for OpenAI translation calls in this episode run\n'
+            '        description: Hard cap for all OpenAI calls in this episode run\n'
             '        required: true\n'
             '        default: "96"\n'
             '        type: choice\n'
-            '        options: ["16", "24", "32", "48", "64", "96"]\n',
+            '        options: ["16", "24", "32", "48", "64", "96", "128"]\n',
             self.workflow,
         )
         self.assertIn(
             '      openai_token_cap:\n'
-            '        description: Hard cap for OpenAI translation tokens in this episode run\n'
+            '        description: Hard cap for all OpenAI input and output tokens in this episode run\n'
             '        required: true\n'
             '        default: "500000"\n'
             '        type: choice\n'
@@ -154,7 +152,7 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             self.assertIn(secret_binding, section.split("- name:", 1)[0])
 
         self.assertIn(
-            '"openai_translation_attempts": root / "provider-attempts" / "openai-translation.json"',
+            '"openai_attempts": root / "provider-attempts" / "openai.json"',
             workflow,
         )
 
