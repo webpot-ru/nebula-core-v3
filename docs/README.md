@@ -73,7 +73,7 @@ Operational split:
 
 | Channel | Owned viewer promise | Production lane | Status |
 |---|---|---|---|
-| `acc1` Russian | compelling Reddit stories, confessions, and discussions in Russian | BUNDLE (2-5 complete stories), SAGA (one complete story), or THREAD (8-15 responses); horror is one series | daily factory active on GitHub `main`; GPT-5.4 Flex transport is live-verified, while no review-ready artifact exists yet because editorial/source gates correctly blocked the canaries |
+| `acc1` Russian | compelling Reddit stories, confessions, and discussions in Russian | BUNDLE (2-5 complete stories), SAGA (one complete story), or THREAD (8-15 responses); horror is one series | daily factory active on GitHub `main`; BUNDLE/THREAD source routes and GPT-5.4 Flex transport are live-verified, while no complete review-ready artifact exists yet |
 | `acc2` English | high-concept internet case file: what happened, why people cared, what changed | evidence dossier | evidence lane required |
 | `acc3` German | precise explanation of digital systems, scams, privacy, and tech consequences | evidence dossier | evidence lane required |
 | `acc4` LATAM Spanish | intimate moral conflict with two sides and a verdict-changing turn | Reddit story card | Reddit pilot candidate |
