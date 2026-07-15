@@ -733,6 +733,51 @@ class EpisodeFactoryTests(unittest.TestCase):
                 )
             self.assertEqual(len(calls), 1)
 
+    def test_call_budget_continues_only_a_reconciled_completed_journal(self):
+        usage = {
+            "input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 2,
+            "total_tokens": 12, "reasoning_tokens": 0,
+        }
+        journal_payload = {
+            "version": 1, "provider": "openai", "cap": 64,
+            "token_cap": 1_000_000, "usage_totals": dict(usage),
+            "attempts": [{"index": 1, "status": "COMPLETE", "usage": dict(usage)}],
+            "publication_authorized": False,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "openai.json"
+            journal.write_text(json.dumps(journal_payload), encoding="utf-8")
+            responses = []
+
+            def provider(**_kwargs):
+                responses.append(True)
+                return OpenAIJSONResult(
+                    payload={"ok": True},
+                    usage=OpenAIUsage(
+                        input_tokens=2, cached_input_tokens=0, output_tokens=1,
+                        total_tokens=3, reasoning_tokens=0,
+                    ),
+                    service_tier=factory.REQUIRED_SERVICE_TIER,
+                )
+
+            budget = factory.CallBudget(
+                provider, cap=64, token_cap=1_000_000, label="openai",
+                journal_path=journal, allow_completed_resume=True,
+            )
+            budget(prompt="continue", model=factory.OPENAI_MODEL, max_output_tokens=1)
+            self.assertEqual([item["index"] for item in budget.calls], [1, 2])
+            self.assertEqual(budget.journal["usage_totals"]["total_tokens"], 15)
+            self.assertEqual(len(responses), 1)
+
+            broken = copy.deepcopy(journal_payload)
+            broken["attempts"][0]["status"] = "IN_FLIGHT"
+            journal.write_text(json.dumps(broken), encoding="utf-8")
+            with self.assertRaisesRegex(factory.EpisodeFactoryError, "unresolved or invalid"):
+                factory.CallBudget(
+                    provider, cap=64, token_cap=1_000_000, label="openai",
+                    journal_path=journal, allow_completed_resume=True,
+                )
+
     def test_openai_budget_rejects_unproven_service_tier_and_accounts_usage(self):
         with tempfile.TemporaryDirectory() as temp:
             journal = Path(temp) / "openai.json"

@@ -4,7 +4,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import acc1_episode_factory as factory
 from scripts.acc1_resume_lock import (
     FILENAME,
     ResumeLockError,
@@ -116,52 +115,6 @@ class Acc1ResumeLockTests(unittest.TestCase):
             (artifact / FILENAME).write_text(json.dumps(resume), encoding="utf-8")
             with self.assertRaisesRegex(ResumeLockError, "already has resume lease"):
                 scan_existing(root, parent_run_id=101, repository=REPOSITORY)
-
-    def test_call_budget_continues_only_a_reconciled_completed_journal(self):
-        _, _, _, _, journal_payload = parent_evidence()
-        with tempfile.TemporaryDirectory() as temp:
-            journal = Path(temp) / "openai.json"
-            journal.write_text(json.dumps(journal_payload), encoding="utf-8")
-            responses = []
-
-            def provider(**_kwargs):
-                responses.append(True)
-                from openai_client import OpenAIJSONResult, OpenAIUsage
-                return OpenAIJSONResult(
-                    payload={"ok": True},
-                    usage=OpenAIUsage(
-                        input_tokens=2, cached_input_tokens=0, output_tokens=1,
-                        total_tokens=3, reasoning_tokens=0,
-                    ),
-                    service_tier=factory.REQUIRED_SERVICE_TIER,
-                )
-
-            budget = factory.CallBudget(
-                provider,
-                cap=64,
-                token_cap=1_000_000,
-                label="openai",
-                journal_path=journal,
-                allow_completed_resume=True,
-            )
-            budget(prompt="continue", model=factory.OPENAI_MODEL, max_output_tokens=1)
-            self.assertEqual([item["index"] for item in budget.calls], [1, 2])
-            self.assertEqual(budget.journal["usage_totals"]["total_tokens"], 15)
-            self.assertEqual(len(responses), 1)
-
-            broken = copy.deepcopy(journal_payload)
-            broken["attempts"][0]["status"] = "IN_FLIGHT"
-            journal.write_text(json.dumps(broken), encoding="utf-8")
-            with self.assertRaisesRegex(factory.EpisodeFactoryError, "unresolved or invalid"):
-                factory.CallBudget(
-                    provider,
-                    cap=64,
-                    token_cap=1_000_000,
-                    label="openai",
-                    journal_path=journal,
-                    allow_completed_resume=True,
-                )
-
 
 if __name__ == "__main__":
     unittest.main()
