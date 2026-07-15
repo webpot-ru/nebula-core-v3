@@ -258,6 +258,30 @@ def _wrap_pixels(draw: ImageDraw.ImageDraw, text: str, font: Any, max_width: int
     return lines
 
 
+def _fit_reddit_title(
+    draw: ImageDraw.ImageDraw,
+    title: str,
+    font: Any,
+    max_width: int,
+    *,
+    max_lines: int = 3,
+) -> tuple[str, list[str], bool]:
+    """Fit a visual title while preserving the full title in episode data."""
+    normalized = " ".join(str(title or "История с Reddit").split()) or "История с Reddit"
+    lines = _wrap_pixels(draw, normalized, font, max_width) or ["История с Reddit"]
+    if len(lines) <= max_lines:
+        return normalized, lines, False
+    words = normalized.split()
+    for kept in range(len(words) - 1, 1, -1):
+        head_count = max(1, round(kept * 0.58))
+        tail_count = max(1, kept - head_count)
+        candidate = " ".join(words[:head_count] + ["…"] + words[-tail_count:])
+        candidate_lines = _wrap_pixels(draw, candidate, font, max_width)
+        if candidate_lines and len(candidate_lines) <= max_lines:
+            return candidate, candidate_lines, True
+    raise CompilationRenderError("reddit page title cannot fit even as an extractive display title")
+
+
 def _reddit_page_text_layout(
     draw: ImageDraw.ImageDraw, slide: dict[str, Any],
 ) -> dict[str, Any]:
@@ -281,12 +305,14 @@ def _reddit_page_text_layout(
 
     title_font = _font(52, True)
     title_lines: list[str] = []
+    display_title = ""
+    title_truncated = False
     title_start = cursor
     if slide.get("show_title"):
         title = " ".join(str(slide.get("title") or "История с Reddit").split())
-        title_lines = _wrap_pixels(draw, title, title_font, right - left) or ["История с Reddit"]
-        if len(title_lines) > 3:
-            raise CompilationRenderError("reddit page title does not fit in three lines")
+        display_title, title_lines, title_truncated = _fit_reddit_title(
+            draw, title, title_font, right - left,
+        )
         cursor += 66 * len(title_lines) + 18
     else:
         cursor += 20
@@ -307,6 +333,8 @@ def _reddit_page_text_layout(
     return {
         "title_font": title_font,
         "title_lines": title_lines,
+        "display_title": display_title,
+        "title_truncated": title_truncated,
         "title_start": title_start,
         "body_font": body_font,
         "body_lines": body_lines,
@@ -330,10 +358,14 @@ def validate_compilation_text_layout(compilation: dict[str, Any]) -> dict[str, A
     draw = ImageDraw.Draw(probe)
     page_keys: set[tuple[str, int]] = set()
     max_body_lines = 0
+    title_truncated_state_count = 0
+    measured_states: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for state in states:
         layout = _reddit_page_text_layout(draw, state)
         max_body_lines = max(max_body_lines, len(layout["body_lines"]))
+        title_truncated_state_count += int(layout["title_truncated"])
         page_keys.add((str(state.get("segment_id") or ""), int(state.get("page_index") or 0)))
+        measured_states.append((state, layout))
     state_payload = [{
         "slide_id": state["slide_id"],
         "segment_id": state["segment_id"],
@@ -342,9 +374,11 @@ def validate_compilation_text_layout(compilation: dict[str, Any]) -> dict[str, A
         "show_title": state["show_title"],
         "show_actions": state["show_actions"],
         "title": state["title"],
+        "display_title": layout["display_title"],
+        "title_truncated": layout["title_truncated"],
         "display_text": state["display_text"],
         "narration_text": state["narration_text"],
-    } for state in states]
+    } for state, layout in measured_states]
     encoded = json.dumps(
         state_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
     ).encode("utf-8")
@@ -359,6 +393,7 @@ def validate_compilation_text_layout(compilation: dict[str, Any]) -> dict[str, A
         "state_count": len(states),
         "page_count": len(page_keys),
         "maximum_body_lines_observed": max_body_lines,
+        "title_truncated_state_count": title_truncated_state_count,
         "page_states_sha256": hashlib.sha256(encoded).hexdigest(),
         "publication_authorized": False,
     }
