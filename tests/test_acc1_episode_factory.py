@@ -162,6 +162,19 @@ class EpisodeFactoryTests(unittest.TestCase):
             ),
         ):
             workdir = Path(temp)
+            exclusions = {
+                "version": 1,
+                "status": "VALIDATED_RESERVED_SOURCE_EXCLUSIONS",
+                "inspected_leases": 1,
+                "source_ids": ["old-source"],
+                "story_signatures": ["old-signature"],
+                "publication_authorized": False,
+            }
+            exclusions["reserved_source_exclusions_sha256"] = factory._self_hash(
+                exclusions, "reserved_source_exclusions_sha256",
+            )
+            exclusions_path = workdir / "reserved-source-exclusions.json"
+            factory._atomic_json(exclusions_path, exclusions)
             with self.assertRaisesRegex(factory.EpisodeFactoryError, "sources"):
                 factory.run_source_stage(
                     daily_plan=dark_plan,
@@ -169,11 +182,14 @@ class EpisodeFactoryTests(unittest.TestCase):
                     channels_path=ROOT / "channels.json",
                     confirm_reddit_read=True,
                     reddit_request_cap=24,
+                    reserved_source_exclusions_path=exclusions_path,
                     reddit_factory=lambda **_kwargs: fake_reddit,
                 )
             self.assertFalse((workdir / "candidate-pool.json").exists())
             self.assertFalse((workdir / "source-stage.json").exists())
         self.assertEqual(captured["max_time_windows_per_topic"], 3)
+        self.assertEqual(captured["excluded_source_ids"], {"old-source"})
+        self.assertEqual(captured["excluded_story_signatures"], {"old-signature"})
 
     def test_thread_source_expands_bounded_prompt_pool_and_persists_failure_diagnostics(self):
         thread_plan = build_daily_plan(

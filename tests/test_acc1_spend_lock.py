@@ -330,15 +330,25 @@ class Acc1SpendLockTests(unittest.TestCase):
             root = Path(temp)
             store_artifact(root, valid_lease(), run_id=101)
             plan = source_contract("acc1/2026-07-15/pilot_04")[0]
+            exclusions_path = root / "reserved-source-exclusions.json"
             report = scan_leases(
                 plan=plan,
                 leases_root=root,
                 repository=REPOSITORY,
                 workflow_path=WORKFLOW,
                 current_run_id=202,
+                reserved_source_exclusions_output=exclusions_path,
             )
+            exclusions = json.loads(exclusions_path.read_text(encoding="utf-8"))
         self.assertEqual(report["status"], "SPEND_LOCK_CLEAR")
         self.assertEqual(report["inspected_leases"], 1)
+        self.assertEqual(report["prior_reserved_source_count"], 5)
+        self.assertEqual(len(exclusions["source_ids"]), 5)
+        self.assertEqual(len(exclusions["story_signatures"]), 5)
+        self.assertEqual(
+            exclusions["reserved_source_exclusions_sha256"],
+            report["reserved_source_exclusions_sha256"],
+        )
         self.assertFalse(report["source_reservation_checked"])
         self.assertFalse(report["publication_authorized"])
 

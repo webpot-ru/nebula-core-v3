@@ -209,7 +209,8 @@ jobs:
             --leases-root "$LEASE_SCAN_ROOT" \
             --repository "$GITHUB_REPOSITORY" \
             --workflow-path ".github/workflows/acc1_daily_episode.yml" \
-            --current-run-id "$GITHUB_RUN_ID"
+            --current-run-id "$GITHUB_RUN_ID" \
+            --reserved-source-exclusions-output "$WORKDIR/reserved-source-exclusions.json"
       - name: Build source evidence before any paid stage
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
@@ -226,6 +227,7 @@ jobs:
             --stage source
             --confirm-reddit-read "$CONFIRM_REDDIT_READ"
             --reddit-request-cap "$REDDIT_REQUEST_CAP"
+            --reserved-source-exclusions "$WORKDIR/reserved-source-exclusions.json"
           )
           python scripts/run_acc1_episode_factory.py "${FACTORY_ARGS[@]}"
       - name: Refuse cross-date reserved-source overlap before paid stages

@@ -668,6 +668,7 @@ def run_source_stage(
     channels_path: Path,
     confirm_reddit_read: str | bool,
     reddit_request_cap: int,
+    reserved_source_exclusions_path: Path | None = None,
     reddit_factory: Callable[..., Any] = get_reddit,
 ) -> dict[str, Any]:
     """Perform the only network-facing source read and write immutable evidence."""
@@ -688,6 +689,24 @@ def run_source_stage(
         )
     cap = _positive_cap(reddit_request_cap, "reddit_request_cap", maximum=100)
     channel = _channel_config(channels_path)
+    excluded_source_ids: set[str] = set()
+    excluded_story_signatures: set[str] = set()
+    if reserved_source_exclusions_path is not None:
+        exclusions = _read_object(Path(reserved_source_exclusions_path))
+        claimed = str(exclusions.get("reserved_source_exclusions_sha256") or "")
+        if (
+            exclusions.get("status") != "VALIDATED_RESERVED_SOURCE_EXCLUSIONS"
+            or exclusions.get("publication_authorized") is not False
+            or not _verify_self_hash(exclusions, "reserved_source_exclusions_sha256")
+            or not claimed
+        ):
+            raise EpisodeFactoryError("reserved source exclusions manifest is invalid")
+        source_ids = exclusions.get("source_ids")
+        signatures = exclusions.get("story_signatures")
+        if not isinstance(source_ids, list) or not isinstance(signatures, list):
+            raise EpisodeFactoryError("reserved source exclusions lists are invalid")
+        excluded_source_ids = {str(item).strip().casefold() for item in source_ids}
+        excluded_story_signatures = {str(item).strip().casefold() for item in signatures}
     reddit = reddit_factory(request_cap=cap)
     format_id = str(daily_plan["format"])
     finalists_manifest: dict[str, Any] | None = None
@@ -711,6 +730,8 @@ def run_source_stage(
             producer_queue_output=str(queue_path.resolve()),
             pilot_id=daily_plan["pilot_id"],
             max_time_windows_per_topic=3,
+            excluded_source_ids=excluded_source_ids,
+            excluded_story_signatures=excluded_story_signatures,
             reddit_client=reddit,
         )
         if not story or not queue_path.is_file():
@@ -760,7 +781,11 @@ def run_source_stage(
             search_query=source_plan["search_query"],
             finalist_limit=MAX_SOURCE_REVIEW_CANDIDATES,
             require_episode_runtime=True,
-            excluded_prompt_ids=set(history_posts(load_history()).keys()),
+            # Prompt IDs are Reddit source IDs too. Response-level overlap is
+            # still enforced by the post-source reservation scan.
+            excluded_prompt_ids=(
+                set(history_posts(load_history()).keys()) | excluded_source_ids
+            ),
         )
         candidates, queue, review = _thread_candidates(results, daily_plan)
 
@@ -2179,6 +2204,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--confirm-reddit-read", default="false")
     parser.add_argument("--reddit-request-cap", type=int, default=24)
+    parser.add_argument("--reserved-source-exclusions")
     parser.add_argument("--confirm-openai-spend", default="false")
     parser.add_argument("--openai-call-cap", type=int, default=96)
     parser.add_argument("--openai-token-cap", type=int, default=500_000)
@@ -2200,6 +2226,11 @@ def main(argv: list[str] | None = None) -> int:
             channels_path=channels,
             confirm_reddit_read=args.confirm_reddit_read,
             reddit_request_cap=args.reddit_request_cap,
+            reserved_source_exclusions_path=(
+                Path(args.reserved_source_exclusions)
+                if args.reserved_source_exclusions
+                else None
+            ),
         )
     elif args.stage == "paid-preflight":
         result = run_paid_preflight(
