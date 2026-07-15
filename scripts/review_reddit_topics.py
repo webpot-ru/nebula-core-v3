@@ -263,11 +263,22 @@ def _payoff_evidence(title: str, body: str) -> dict[str, Any]:
         return {"complete": False, "reason": "possible_open_ending", "evidence": ""}
     closure = CLOSURE_RE.search(ending)
     terminal = bool(re.search(r"[.!?][\"')\]]*$", ending))
-    if not closure or not terminal:
+    if not terminal:
         return {
             "complete": False,
             "reason": "payoff_not_structurally_proven",
             "evidence": closure.group(0) if closure else "",
+        }
+    if not closure:
+        # Horror fiction commonly closes on a final image, action, or reveal
+        # without connective words such as "finally" or "in the end". The
+        # deterministic gate can prove that the supplied source has a terminal
+        # ending and no explicit series/open-ending marker; semantic payoff is
+        # still scored independently by the paid producer and critic.
+        return {
+            "complete": True,
+            "reason": "terminal_ending_without_open_marker",
+            "evidence": ending[-600:].strip(),
         }
     evidence_start = max(0, closure.start() - 180)
     evidence_end = min(len(ending), closure.end() + 420)

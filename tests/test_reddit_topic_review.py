@@ -268,6 +268,27 @@ class RedditTopicReviewTests(unittest.TestCase):
         self.assertIn("wrong_source_family", blockers)
         self.assertIn("possible_open_ending", blockers)
 
+    def test_saga_terminal_horror_ending_does_not_require_connective_marker(self):
+        entry = self.entry(
+            "terminal-horror",
+            "One strange rule kept the night shift alive",
+            self.saga_body(
+                "Every night the impossible shadow waited behind the locked door.",
+                "The locked door opened behind me. The shadow smiled.",
+            ),
+            subreddit="r/nosleep",
+        )
+        entry["topic_family"] = "dark_curiosity"
+
+        review = review_reddit_topics.build_review(
+            self.saga_queue("strange_dark_unexplained", "dark_curiosity", [entry]), 3,
+        )
+
+        self.assertEqual(review["status"], "review_ready", review)
+        topic = review["top_topics"][0]
+        self.assertTrue(topic["payoff_complete"])
+        self.assertIn("The shadow smiled.", topic["payoff_evidence"])
+
     def test_saga_intent_without_source_plan_cannot_fall_back_to_legacy_review(self):
         entry = self.entry(
             "missing-plan",
