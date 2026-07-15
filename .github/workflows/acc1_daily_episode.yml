@@ -25,6 +25,11 @@ on:
           - pilot_04
           - pilot_05
           - pilot_06
+      resume_source_run_id:
+        description: Exact prior paid-review run to resume; blank starts a fresh source run
+        required: false
+        default: ""
+        type: string
       confirm_reddit_read:
         description: Explicitly allow the bounded read-only Reddit source stage
         required: true
@@ -99,8 +104,9 @@ jobs:
           tests.test_acc1_daily_planner
           tests.test_acc1_daily_workflow
           tests.test_acc1_spend_lock
+          tests.test_acc1_resume_lock
       - name: Build one Europe/Moscow daily plan
-        id: daily-plan
+        if: inputs.resume_source_run_id == ''
         env:
           DAILY_PLAN_PATH: build/acc1-daily/daily-plan.json
           PRODUCTION_DATE: ${{ inputs.production_date }}
@@ -116,6 +122,34 @@ jobs:
             PLAN_ARGS+=(--pilot-id "$PILOT_ID")
           fi
           python acc1_daily_planner.py "${PLAN_ARGS[@]}" > build/acc1-daily/planner-stdout.json
+      - name: Validate resume source run id
+        if: inputs.resume_source_run_id != ''
+        env:
+          RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RESUME_SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+      - name: Download immutable parent episode artifact
+        if: inputs.resume_source_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-daily-episode-${{ inputs.resume_source_run_id }}
+          path: build/acc1-resume-parent
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.resume_source_run_id }}
+      - name: Restore parent daily plan without mutation
+        if: inputs.resume_source_run_id != ''
+        run: |
+          set -euo pipefail
+          test -f build/acc1-resume-parent/daily-plan.json
+          mkdir -p build/acc1-daily
+          cp build/acc1-resume-parent/daily-plan.json build/acc1-daily/daily-plan.json
+      - name: Export immutable daily plan identity
+        id: daily-plan
+        env:
+          DAILY_PLAN_PATH: build/acc1-daily/daily-plan.json
+        run: |
+          set -euo pipefail
           python - "$DAILY_PLAN_PATH" >> "$GITHUB_OUTPUT" <<'PY'
           import json
           import sys
@@ -173,6 +207,14 @@ jobs:
         with:
           name: acc1-daily-plan-${{ github.run_id }}
           path: build/acc1-daily-episode
+      - name: Restore the exact parent paid-review artifact
+        if: inputs.resume_source_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-daily-episode-${{ inputs.resume_source_run_id }}
+          path: build/acc1-daily-episode
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.resume_source_run_id }}
       - name: Run no-spend production preflight
         run: |
           set -euo pipefail
@@ -181,6 +223,7 @@ jobs:
             --workdir "$WORKDIR" \
             --stage preflight
       - name: Refuse an existing cross-dispatch paid spend lease
+        if: inputs.resume_source_run_id == ''
         env:
           GH_TOKEN: ${{ github.token }}
           LEASE_SCAN_ROOT: ${{ runner.temp }}/acc1-paid-lease-scan
@@ -212,6 +255,7 @@ jobs:
             --current-run-id "$GITHUB_RUN_ID" \
             --reserved-source-exclusions-output "$WORKDIR/reserved-source-exclusions.json"
       - name: Build source evidence before any paid stage
+        if: inputs.resume_source_run_id == ''
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
@@ -231,6 +275,7 @@ jobs:
           )
           python scripts/run_acc1_episode_factory.py "${FACTORY_ARGS[@]}"
       - name: Refuse cross-date reserved-source overlap before paid stages
+        if: inputs.resume_source_run_id == ''
         env:
           LEASE_SCAN_ROOT: ${{ runner.temp }}/acc1-paid-lease-scan
         run: |
@@ -281,6 +326,7 @@ jobs:
             --confirm-ai33-spend "$CONFIRM_AI33_SPEND" \
             --ai33-call-cap "$AI33_CALL_CAP"
       - name: Create exact source-bound paid spend lease
+        if: inputs.resume_source_run_id == ''
         env:
           CONFIRM_REDDIT_READ: ${{ inputs.confirm_reddit_read }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
@@ -315,10 +361,66 @@ jobs:
             --confirm-image-spend "$CONFIRM_IMAGE_SPEND" \
             --confirm-ai33-spend "$CONFIRM_AI33_SPEND"
       - name: Persist paid spend lease before the first paid request
+        if: inputs.resume_source_run_id == ''
         uses: actions/upload-artifact@v4
         with:
           name: acc1-paid-lease-${{ github.run_id }}
           path: build/acc1-daily-episode/spend-lease.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Create one hash-bound paid resume lock
+        if: inputs.resume_source_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
+          OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
+          OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
+          IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
+          AI33_CALL_CAP: ${{ inputs.ai33_call_cap }}
+        run: |
+          set -euo pipefail
+          RESUME_SCAN_ROOT="$RUNNER_TEMP/acc1-resume-lease-scan"
+          mkdir -p "$RESUME_SCAN_ROOT"
+          LEASE_INDEX="$RUNNER_TEMP/acc1-resume-lease-index.tsv"
+          gh api --paginate \
+            "/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false and (.name | startswith("acc1-resume-lease-"))) | [.id, .name, (.workflow_run.id // "")] | @tsv' \
+            > "$LEASE_INDEX"
+          while IFS=$'\t' read -r artifact_id artifact_name owner_run_id; do
+            [[ -n "$artifact_id" ]] || continue
+            [[ "$artifact_id" =~ ^[1-9][0-9]*$ ]]
+            [[ "$owner_run_id" =~ ^[1-9][0-9]*$ ]]
+            test "$artifact_name" = "acc1-resume-lease-$owner_run_id"
+            artifact_dir="$RESUME_SCAN_ROOT/$owner_run_id-$artifact_id"
+            mkdir -p "$artifact_dir"
+            gh run download "$owner_run_id" \
+              --repo "$GITHUB_REPOSITORY" \
+              --name "$artifact_name" \
+              --dir "$artifact_dir"
+          done < "$LEASE_INDEX"
+          python scripts/acc1_resume_lock.py create \
+            --existing-root "$RESUME_SCAN_ROOT" \
+            --parent-lease "$WORKDIR/spend-lease.json" \
+            --topic-input "$WORKDIR/topic-playoff-input.json" \
+            --producer-review "$WORKDIR/producer-review.json" \
+            --critic-review "$WORKDIR/critic-review.json" \
+            --openai-journal "$WORKDIR/provider-attempts/openai.json" \
+            --parent-run-id "$RESUME_SOURCE_RUN_ID" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --head-sha "$GITHUB_SHA" \
+            --repository "$GITHUB_REPOSITORY" \
+            --openai-call-cap "$OPENAI_CALL_CAP" \
+            --openai-token-cap "$OPENAI_TOKEN_CAP" \
+            --image-call-cap "$IMAGE_CALL_CAP" \
+            --ai33-call-cap "$AI33_CALL_CAP" \
+            --output "$WORKDIR/resume-spend-lease.json"
+      - name: Persist paid resume lock before the first continuation request
+        if: inputs.resume_source_run_id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-resume-lease-${{ github.run_id }}
+          path: build/acc1-daily-episode/resume-spend-lease.json
           if-no-files-found: error
           retention-days: 90
       - name: Produce review-ready episode artifact
@@ -334,6 +436,7 @@ jobs:
           OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
           IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
           AI33_CALL_CAP: ${{ inputs.ai33_call_cap }}
+          RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
         run: |
           set -euo pipefail
           FACTORY_ARGS=(
@@ -341,7 +444,6 @@ jobs:
             --workdir "$WORKDIR"
             --stage produce
             --reddit-request-cap "$REDDIT_REQUEST_CAP"
-            --spend-lease "$WORKDIR/spend-lease.json"
             --confirm-openai-spend "$CONFIRM_OPENAI_SPEND"
             --openai-call-cap "$OPENAI_CALL_CAP"
             --openai-token-cap "$OPENAI_TOKEN_CAP"
@@ -350,6 +452,14 @@ jobs:
             --confirm-ai33-spend "$CONFIRM_AI33_SPEND"
             --ai33-call-cap "$AI33_CALL_CAP"
           )
+          if [[ -n "$RESUME_SOURCE_RUN_ID" ]]; then
+            FACTORY_ARGS+=(
+              --resume-reviewed-run-id "$RESUME_SOURCE_RUN_ID"
+              --resume-lease "$WORKDIR/resume-spend-lease.json"
+            )
+          else
+            FACTORY_ARGS+=(--spend-lease "$WORKDIR/spend-lease.json")
+          fi
           # Give AI33 one shared deadline four hours from produce start. The
           # outer five-hour ceiling leaves one hour for render/QA, while the
           # six-hour job ceiling retains setup/source/artifact headroom.
