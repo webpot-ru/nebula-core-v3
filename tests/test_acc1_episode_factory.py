@@ -426,6 +426,33 @@ class EpisodeFactoryTests(unittest.TestCase):
                 budget(prompt="bounded request")
                 self.assertEqual(calls[0]["retries"], 0)
 
+    def test_candidate_prompts_define_weighted_score_ranges_and_link_dependency(self):
+        candidate = {
+            "candidate_id": "candidate-1",
+            "sources": [{
+                "source_id": "source-1",
+                "role": "story",
+                "title": "Complete story",
+                "body": "A complete self-contained story with a clear ending.",
+                "truth_mode": "unverified_personal_account",
+                "source_url": "https://www.reddit.com/r/test/comments/source-1/story/",
+                "payoff_complete": True,
+                "depends_on_screenshot_or_link": False,
+                "source_discovery_signals": {},
+            }],
+        }
+        producer_prompt = factory._candidate_prompt(candidate, self.plan, "producer")
+        self.assertIn("WEIGHTED POINTS, never percentages", producer_prompt)
+        self.assertIn('"hook_specificity": 15', producer_prompt)
+        self.assertIn('"renderability": 5', producer_prompt)
+        self.assertIn("canonical Reddit source_url is provenance", producer_prompt)
+        self.assertIn('"depends_on_screenshot_or_link": false', producer_prompt)
+
+        candidate["producer_proposal"] = {"review": {"verdict": "PASS"}}
+        critic_prompt = factory._candidate_prompt(candidate, self.plan, "critic")
+        self.assertIn("WEIGHTED POINTS, never percentages", critic_prompt)
+        self.assertIn("screenshot_or_link_dependent", critic_prompt)
+
     def test_translate_script_builds_truthful_deterministic_intro(self):
         sources = []
         for index in range(2):

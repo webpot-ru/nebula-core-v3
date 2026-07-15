@@ -17,6 +17,8 @@ def source_candidate(
     *,
     pillar: str = "relationships_family",
     truth_mode: str = "unverified_personal_account",
+    shortlist_score: int = 0,
+    pillar_fit_score: int = 0,
 ) -> dict:
     payoff = f"ended{index}"
     body = " ".join(([f"word{index}"] * (word_count - 1)) + [payoff])
@@ -39,6 +41,8 @@ def source_candidate(
         "payoff_evidence": payoff,
         "depends_on_screenshot_or_link": False,
         "blocking_reasons": [],
+        "shortlist_score": shortlist_score,
+        "pillar_fit_score": pillar_fit_score,
     }
 
 
@@ -66,6 +70,55 @@ class Acc1BundleSelectorTests(unittest.TestCase):
         forward = acc1_bundle_selector.select_bundle(candidates, source_plan=self.pilot_01)
         reverse = acc1_bundle_selector.select_bundle(list(reversed(candidates)), source_plan=self.pilot_01)
         self.assertEqual(forward, reverse)
+
+    def test_quality_scores_outrank_runtime_midpoint_within_valid_envelope(self):
+        candidates = [
+            source_candidate(1, 1200, shortlist_score=100, pillar_fit_score=20),
+            source_candidate(2, 1200, shortlist_score=99, pillar_fit_score=19),
+            source_candidate(3, 1550, shortlist_score=20, pillar_fit_score=5),
+            source_candidate(4, 1550, shortlist_score=19, pillar_fit_score=5),
+        ]
+        manifest = acc1_bundle_selector.select_bundle(
+            candidates,
+            source_plan=self.pilot_01,
+        )
+        self.assertEqual(
+            [item["post_id"] for item in manifest["stories"]],
+            ["p1", "p2"],
+        )
+        self.assertEqual(
+            manifest["selection_contract"]["algorithm"],
+            "canonical_quality_first_subset_v2",
+        )
+
+    def test_finalists_record_quality_first_contract_and_scores(self):
+        candidates = [
+            source_candidate(
+                index,
+                800,
+                pillar="work_money_justice",
+                shortlist_score=100 - index,
+                pillar_fit_score=20 - index,
+            )
+            for index in range(1, 6)
+        ]
+        manifest = acc1_bundle_selector.select_bundle_finalists(
+            candidates,
+            source_plan=self.pilot_02,
+        )
+        self.assertEqual(
+            manifest["selection_contract"]["algorithm"],
+            "canonical_quality_first_materially_distinct_subsets_v2",
+        )
+        for finalist in manifest["finalists"]:
+            self.assertEqual(
+                finalist["minimum_component_shortlist_score"],
+                min(item["shortlist_score"] for item in finalist["stories"]),
+            )
+            self.assertEqual(
+                finalist["aggregate_component_shortlist_score"],
+                sum(item["shortlist_score"] for item in finalist["stories"]),
+            )
 
     def test_pilot_01_builds_three_materially_distinct_reviewed_finalists(self):
         candidates = [source_candidate(index, 1200) for index in range(1, 5)]
