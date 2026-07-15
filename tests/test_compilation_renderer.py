@@ -211,13 +211,16 @@ class CompilationRendererTests(unittest.TestCase):
                 with self.assertRaisesRegex(CompilationRenderError, "word wider"):
                     _wrap_pixels(draw, text, _font(48), 948)
 
-    def test_pre_spend_layout_rejects_translated_title_over_three_lines(self):
+    def test_pre_spend_layout_uses_extractive_title_without_shrinking_font(self):
         compilation = self._complete_compilation()
-        compilation["stories"][0]["title_ru"] = " ".join(
-            ["неожиданное"] * 80
+        compilation["stories"][0]["title_ru"] = (
+            "Мой начальник дал мне одно правило как диспетчеру 911: если звонят "
+            "из старого дома на границе округа, не отвечай. Прошлой ночью я ответил."
         )
-        with self.assertRaisesRegex(CompilationRenderError, "three lines"):
-            validate_compilation_text_layout(compilation)
+        report = validate_compilation_text_layout(compilation)
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["title_font_px"], 52)
+        self.assertGreater(report["title_truncated_state_count"], 0)
 
     def test_pre_spend_layout_checks_cumulative_pages_and_final_actions(self):
         compilation = self._complete_compilation()
