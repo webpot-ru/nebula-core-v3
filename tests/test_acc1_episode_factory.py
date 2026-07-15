@@ -1095,6 +1095,68 @@ class EpisodeFactoryTests(unittest.TestCase):
         manifest["publication_authorized"] = True
         self.assertFalse(factory._verify_self_hash(manifest, "release_candidate_manifest_sha256"))
 
+    def test_blocked_playoff_persists_paid_review_diagnostics(self):
+        """A paid editorial rejection must retain its exact model evidence."""
+        with tempfile.TemporaryDirectory() as temp:
+            workdir = Path(temp)
+            candidate = {"candidate_id": "candidate-1", "sources": [{"source_id": "s1"}]}
+            paid_preflight = {
+                "caps": {
+                    "openai_call_cap": 96,
+                    "openai_token_cap": 500_000,
+                    "image_call_cap": 8,
+                    "ai33_call_cap": 32,
+                },
+            }
+            producer_reports = [{"candidate_id": "candidate-1", "status": "COMPLETE"}]
+            critic_reports = [{"candidate_id": "candidate-1", "status": "COMPLETE"}]
+            blocked = {
+                "status": "BLOCKED",
+                "failures": ["at least 3 finalists must independently PASS"],
+                "publication_authorized": False,
+            }
+            with (
+                mock.patch.object(
+                    factory,
+                    "_paid_preflight_contract",
+                    return_value=({}, {}, {"candidates": [candidate]}, {}, paid_preflight),
+                ),
+                mock.patch.object(factory, "_validate_spend_lease_contract"),
+                mock.patch.object(factory, "_channel_config", return_value={"id": "acc1"}),
+                mock.patch.object(
+                    factory,
+                    "_enrich_candidates",
+                    return_value=([candidate], producer_reports, critic_reports),
+                ),
+                mock.patch.object(factory, "run_playoff", return_value=blocked),
+            ):
+                with self.assertRaisesRegex(factory.EpisodeFactoryError, "independently PASS"):
+                    factory.run_produce_stage(
+                        daily_plan=self.plan,
+                        workdir=workdir,
+                        channels_path=ROOT / "channels.json",
+                        confirm_openai_spend=True,
+                        openai_call_cap=96,
+                        openai_token_cap=500_000,
+                        confirm_image_spend=True,
+                        image_call_cap=8,
+                        confirm_ai33_spend=True,
+                        ai33_call_cap=32,
+                        spend_lease_path=workdir / "spend-lease.json",
+                    )
+            self.assertEqual(
+                json.loads((workdir / "producer-review.json").read_text())["results"],
+                producer_reports,
+            )
+            self.assertEqual(
+                json.loads((workdir / "critic-review.json").read_text())["results"],
+                critic_reports,
+            )
+            self.assertEqual(
+                json.loads((workdir / "topic-playoff.json").read_text()), blocked,
+            )
+            self.assertTrue((workdir / "topic-playoff-input.json").is_file())
+
     def test_produce_stage_passes_complete_tts_state_into_storyboard(self):
         """Exercise the orchestration seam without network or paid providers."""
         with tempfile.TemporaryDirectory() as temp:

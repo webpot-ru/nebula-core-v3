@@ -1654,12 +1654,22 @@ def run_produce_stage(
     enriched, producer_reports, critic_reports = _enrich_candidates(
         candidates, daily_plan, openai,
     )
+    _atomic_json(workdir / "producer-review.json", {
+        "version": 1, "results": producer_reports,
+        "daily_plan_sha256": canonical_hash(daily_plan), "publication_authorized": False,
+    })
+    _atomic_json(workdir / "critic-review.json", {
+        "version": 1, "results": critic_reports,
+        "daily_plan_sha256": canonical_hash(daily_plan), "publication_authorized": False,
+    })
     playoff_input = {
         "daily_plan": daily_plan,
         "daily_plan_sha256": canonical_hash(daily_plan),
         "candidates": enriched,
     }
+    _atomic_json(workdir / "topic-playoff-input.json", playoff_input)
     playoff = run_playoff(playoff_input)
+    _atomic_json(workdir / "topic-playoff.json", playoff)
     if playoff.get("status") != "READY_FOR_SCRIPTING":
         raise EpisodeFactoryError("S-tier topic playoff blocked: " + "; ".join(playoff.get("failures") or []))
     if not _verify_self_hash(playoff, "playoff_sha256"):
@@ -1732,16 +1742,6 @@ def run_produce_stage(
         } for item in winner["sources"]],
     )
 
-    _atomic_json(workdir / "producer-review.json", {
-        "version": 1, "results": producer_reports,
-        "daily_plan_sha256": canonical_hash(daily_plan), "publication_authorized": False,
-    })
-    _atomic_json(workdir / "critic-review.json", {
-        "version": 1, "results": critic_reports,
-        "daily_plan_sha256": canonical_hash(daily_plan), "publication_authorized": False,
-    })
-    _atomic_json(workdir / "topic-playoff-input.json", playoff_input)
-    _atomic_json(workdir / "topic-playoff.json", playoff)
     _atomic_json(workdir / "episode-greenlight.json", greenlight)
     _atomic_json(workdir / "episode-plan.json", episode_plan)
 
