@@ -8,6 +8,7 @@ from scripts.acc1_resume_lock import (
     FILENAME,
     ResumeLockError,
     build_resume_lease,
+    canonical_hash,
     scan_existing,
     validate_resume_lease,
 )
@@ -115,6 +116,31 @@ class Acc1ResumeLockTests(unittest.TestCase):
             (artifact / FILENAME).write_text(json.dumps(resume), encoding="utf-8")
             with self.assertRaisesRegex(ResumeLockError, "already has resume lease"):
                 scan_existing(root, parent_run_id=101, repository=REPOSITORY)
+
+    def test_chained_resume_binds_the_immediate_parent_resume(self):
+        lease, topic, producer, critic, journal = parent_evidence()
+        first = build_resume_lease(
+            parent_lease=lease, topic_input=topic, producer_review=producer,
+            critic_review=critic, openai_journal=journal, parent_run_id=101,
+            run_id=202, run_attempt=1, head_sha=HEAD_SHA,
+            repository=REPOSITORY, openai_call_cap=64,
+            openai_token_cap=1_000_000, image_call_cap=16, ai33_call_cap=32,
+        )
+        chained = build_resume_lease(
+            parent_lease=lease, topic_input=topic, producer_review=producer,
+            critic_review=critic, openai_journal=journal, parent_run_id=202,
+            run_id=303, run_attempt=1, head_sha=HEAD_SHA,
+            repository=REPOSITORY, openai_call_cap=64,
+            openai_token_cap=1_000_000, image_call_cap=16, ai33_call_cap=32,
+            parent_resume_lease=first,
+        )
+        validate_resume_lease(
+            chained, repository=REPOSITORY, run_id=303, parent_run_id=202,
+        )
+        self.assertEqual(
+            chained["parent_resume_lease_sha256"],
+            canonical_hash(first),
+        )
 
 if __name__ == "__main__":
     unittest.main()

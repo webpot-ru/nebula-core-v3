@@ -1961,6 +1961,20 @@ def _validate_resume_contract(
         "parent_critic_review_sha256": workdir / "critic-review.json",
         "parent_openai_journal_sha256": workdir / "provider-attempts" / "openai.json",
     }
+    parent_resume_hash = resume_lease.get("parent_resume_lease_sha256")
+    if parent_resume_hash is not None:
+        parent_resume_path = workdir / "parent-resume-spend-lease.json"
+        parent_resume = _read_object(parent_resume_path)
+        try:
+            validate_resume_lease(
+                parent_resume,
+                repository=repository,
+                run_id=parent_run_id,
+            )
+        except ResumeLockError as exc:
+            raise EpisodeFactoryError(f"parent paid resume lease blocked: {exc}") from exc
+        if resume_canonical_hash(parent_resume) != parent_resume_hash:
+            raise EpisodeFactoryError("paid resume parent resume-lease hash mismatch")
     payloads = {field: _read_object(path) for field, path in paths.items()}
     for field, payload in payloads.items():
         if resume_canonical_hash(payload) != resume_lease.get(field):

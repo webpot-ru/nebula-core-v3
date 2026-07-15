@@ -32,7 +32,7 @@ DISCLOSURES = {
         "Это личный рассказ пользователя Reddit, не подтверждённый независимо."
     ),
 }
-SECRET_KEY_FRAGMENTS = (
+SECRET_KEY_NAMES = (
     "api_key",
     "apikey",
     "secret",
@@ -130,7 +130,10 @@ def _contains_secret_key(value: Any, path: str = "provider_settings") -> str | N
     if isinstance(value, dict):
         for key, child in value.items():
             normalized = str(key).casefold().replace("-", "_")
-            if any(fragment in normalized for fragment in SECRET_KEY_FRAGMENTS):
+            secret_name = normalized in SECRET_KEY_NAMES or any(
+                normalized.endswith(f"_{name}") for name in SECRET_KEY_NAMES
+            )
+            if secret_name:
                 return f"{path}.{key}"
             found = _contains_secret_key(child, f"{path}.{key}")
             if found:

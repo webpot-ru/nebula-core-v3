@@ -103,14 +103,24 @@ def build_resume_lease(
     run_attempt: int, head_sha: str, repository: str,
     openai_call_cap: int, openai_token_cap: int, image_call_cap: int,
     ai33_call_cap: int,
+    parent_resume_lease: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     validate_lease(
         parent_lease, expected_repository=repository,
         expected_workflow_path=WORKFLOW_PATH,
     )
     parent_run_id = _positive(parent_run_id, "parent_run_id")
-    if parent_lease.get("run_id") != parent_run_id:
-        raise ResumeLockError("parent lease run id mismatch")
+    if parent_resume_lease is None:
+        if parent_lease.get("run_id") != parent_run_id:
+            raise ResumeLockError("parent lease run id mismatch")
+    else:
+        validate_resume_lease(
+            parent_resume_lease,
+            repository=repository,
+            run_id=parent_run_id,
+        )
+        if parent_lease.get("run_id") != parent_resume_lease.get("parent_run_id"):
+            raise ResumeLockError("parent spend lease does not match resume ancestry")
     attempts = openai_journal.get("attempts")
     if (
         openai_journal.get("provider") != "openai"
@@ -168,6 +178,9 @@ def build_resume_lease(
         "parent_producer_review_sha256": canonical_hash(producer_review),
         "parent_critic_review_sha256": canonical_hash(critic_review),
         "parent_openai_journal_sha256": canonical_hash(openai_journal),
+        "parent_resume_lease_sha256": (
+            canonical_hash(parent_resume_lease) if parent_resume_lease is not None else None
+        ),
         "parent_completed_openai_attempts": len(attempts),
         "run_id": _positive(run_id, "run_id"),
         "run_attempt": _positive(run_attempt, "run_attempt"),
@@ -205,6 +218,9 @@ def validate_resume_lease(
     ):
         if not SHA256_RE.fullmatch(str(lease.get(field) or "")):
             raise ResumeLockError(f"resume lease {field} is invalid")
+    parent_resume_hash = lease.get("parent_resume_lease_sha256")
+    if parent_resume_hash is not None and not SHA256_RE.fullmatch(str(parent_resume_hash)):
+        raise ResumeLockError("resume lease parent_resume_lease_sha256 is invalid")
     if run_id is not None and lease.get("run_id") != _positive(run_id, "run_id"):
         raise ResumeLockError("resume lease current run mismatch")
     if run_attempt is not None and lease.get("run_attempt") != _positive(run_attempt, "run_attempt"):
@@ -237,6 +253,7 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--producer-review", required=True)
     create.add_argument("--critic-review", required=True)
     create.add_argument("--openai-journal", required=True)
+    create.add_argument("--parent-resume-lease")
     create.add_argument("--parent-run-id", required=True, type=int)
     create.add_argument("--run-id", required=True, type=int)
     create.add_argument("--run-attempt", required=True, type=int)
@@ -267,6 +284,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         repository=args.repository, openai_call_cap=args.openai_call_cap,
         openai_token_cap=args.openai_token_cap, image_call_cap=args.image_call_cap,
         ai33_call_cap=args.ai33_call_cap,
+        parent_resume_lease=(
+            read_object(Path(args.parent_resume_lease), "parent resume lease")
+            if args.parent_resume_lease else None
+        ),
     )
     atomic_json(Path(args.output), lease)
     print(json.dumps({
