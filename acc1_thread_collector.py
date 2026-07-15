@@ -37,8 +37,7 @@ MAX_NATURAL_RESPONSE_WORDS = 650
 MAX_SOURCE_CHARACTERS_PER_WORD = 12
 MAX_SOURCE_TOKEN_CHARACTERS = 80
 MAX_PROMPT_CHARACTERS = 2_000
-MIN_EDITORIAL_ROLES = 3
-MAX_EDITORIAL_ROLE_SHARE = 0.40
+MIN_EDITORIAL_FUNCTIONS = 3
 NEAR_DUPLICATE_JACCARD = 0.90
 TRUTH_MODES = {"fiction", "unverified_personal_account"}
 REDDIT_HOSTS = {"reddit.com", "www.reddit.com", "old.reddit.com", "new.reddit.com"}
@@ -125,6 +124,70 @@ EDITORIAL_ROLE_PATTERNS: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...] = (
         ),
     ),
 )
+
+EDITORIAL_FUNCTION_PATTERNS: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...] = (
+    (
+        "escalation",
+        tuple(
+            re.compile(pattern, re.IGNORECASE)
+            for pattern in (
+                r"\bbut\s+then\b", r"\bthen\b", r"\bsuddenly\b", r"\beventually\b",
+                r"\bthings?\s+got\s+worse\b", r"\bthe\s+next\s+(?:thing|day|night)\b",
+                r"\buntil\b", r"\bafter\s+that\b",
+            )
+        ),
+    ),
+    (
+        "twist_or_payoff",
+        tuple(
+            re.compile(pattern, re.IGNORECASE)
+            for pattern in (
+                r"\bit\s+turned\s+out\b", r"\bturns\s+out\b", r"\bi\s+(?:realized|discovered)\b",
+                r"\bi\s+found\s+out\b", r"\bin\s+the\s+end\b", r"\beventually\b",
+                r"\bthe\s+(?:truth|reason|outcome|result)\b", r"\bnever\s+again\b",
+            )
+        ),
+    ),
+    (
+        "stakes_or_conflict",
+        tuple(
+            re.compile(pattern, re.IGNORECASE)
+            for pattern in (
+                r"\b(?:fired|divorc(?:e|ed)|broke\s+up|breakup|debt|threatened|caught|exposed)\b",
+                r"\b(?:police|hospital|court|lawsuit|ambulance|emergency|danger|terrified)\b",
+                r"\b(?:argument|fight|conflict|lied|cheated|stole|missing|lost)\b",
+            )
+        ),
+    ),
+    (
+        "reflection",
+        tuple(pattern for role, patterns in EDITORIAL_ROLE_PATTERNS if role == "reflection_empathy" for pattern in patterns),
+    ),
+    (
+        "counterpoint",
+        tuple(pattern for role, patterns in EDITORIAL_ROLE_PATTERNS if role == "counterpoint" for pattern in patterns),
+    ),
+    (
+        "practical_context",
+        tuple(pattern for role, patterns in EDITORIAL_ROLE_PATTERNS if role == "practical_context" for pattern in patterns),
+    ),
+    (
+        "humor_or_relief",
+        tuple(pattern for role, patterns in EDITORIAL_ROLE_PATTERNS if role == "concise_humor" for pattern in patterns),
+    ),
+)
+
+INTEREST_EMOTION_RE = re.compile(
+    r"\b(?:afraid|angry|ashamed|embarrassed|heartbroken|relieved|shocked|terrified|"
+    r"couldn['’]t\s+believe|felt|cried|crying|laughed|laughing)\b",
+    re.IGNORECASE,
+)
+INTEREST_SPECIFICITY_RE = re.compile(
+    r"(?:\b\d{1,4}\b|[\"“”][^\"“”]{3,100}[\"“”]|\b(?:manager|teacher|doctor|nurse|"
+    r"coworker|neighbor|customer|client|boss|husband|wife|boyfriend|girlfriend|parent|child)\b)",
+    re.IGNORECASE,
+)
+SELECTION_TARGET_WORDS = (MIN_EPISODE_RESPONSE_WORDS + MAX_EPISODE_RESPONSE_WORDS) // 2
 
 
 class ThreadCollectorError(ValueError):
@@ -257,7 +320,13 @@ def _safety_evidence(response: dict[str, Any], body: str) -> dict[str, Any]:
     return source_safety_evidence(response, body)
 
 
-def _editorial_role(body: str, word_count: int) -> tuple[str | None, list[str]]:
+def _primary_content_type(body: str, word_count: int) -> tuple[str, list[str]]:
+    """Classify what the response is, independently from its episode functions."""
+    first_person_count = len(FIRST_PERSON_RE.findall(body))
+    narrative_marker_count = len(NARRATIVE_RE.findall(body))
+    if first_person_count >= 2 and narrative_marker_count >= 1:
+        return "personal_account", ["first_person_narrative"]
+
     for role, patterns in EDITORIAL_ROLE_PATTERNS:
         matches = sorted({pattern.pattern for pattern in patterns if pattern.search(body)})
         if matches and (role != "concise_humor" or word_count <= 260):
@@ -270,12 +339,69 @@ def _editorial_role(body: str, word_count: int) -> tuple[str | None, list[str]]:
     )
     if question_match:
         return "clarifying_question", ["direct_question"]
+    return "substantive_response", ["relevant_self_contained_response"]
 
-    first_person_count = len(FIRST_PERSON_RE.findall(body))
-    narrative_marker_count = len(NARRATIVE_RE.findall(body))
-    if first_person_count >= 2 and narrative_marker_count >= 1:
-        return "personal_account", ["first_person_narrative"]
-    return None, []
+
+def _editorial_functions(body: str, content_type: str) -> tuple[list[str], dict[str, list[str]]]:
+    functions: list[str] = []
+    evidence: dict[str, list[str]] = {}
+    if content_type == "personal_account":
+        functions.append("personal_story")
+        evidence["personal_story"] = ["first_person_narrative"]
+
+    for function, patterns in EDITORIAL_FUNCTION_PATTERNS:
+        matches = sorted({pattern.pattern for pattern in patterns if pattern.search(body)})
+        if matches:
+            functions.append(function)
+            evidence[function] = matches
+
+    if content_type == "clarifying_question" and "counterpoint" not in functions:
+        functions.append("counterpoint")
+        evidence["counterpoint"] = ["direct_question"]
+    if not functions:
+        functions.append("context")
+        evidence["context"] = ["substantive_relevant_response"]
+    return functions, evidence
+
+
+def _viewer_interest_evidence(
+    body: str,
+    word_count: int,
+    functions: list[str],
+) -> dict[str, Any]:
+    """Return a deterministic discovery score; it is not a truth or quality claim."""
+    first_words = " ".join(body.split()[:70])
+    specificity_matches = INTEREST_SPECIFICITY_RE.findall(body)
+    emotion_matches = INTEREST_EMOTION_RE.findall(body)
+    function_set = set(functions)
+    sentence_count = len(re.findall(r"[.!?](?:\s|$)", body))
+    paragraph_count = len([part for part in re.split(r"\n\s*\n", body) if part.strip()])
+
+    components = {
+        "opening_hook": min(
+            15,
+            5
+            + (5 if INTEREST_EMOTION_RE.search(first_words) else 0)
+            + (5 if any(name in function_set for name in ("stakes_or_conflict", "twist_or_payoff")) else 0),
+        ),
+        "specificity": min(20, len(specificity_matches) * 4),
+        "stakes_or_conflict": 15 if "stakes_or_conflict" in function_set else 0,
+        "escalation": 15 if "escalation" in function_set else 0,
+        "twist_or_payoff": 20 if "twist_or_payoff" in function_set else 0,
+        "emotion_or_discussion": min(10, len(emotion_matches) * 2),
+        "narration_fit": 5 if 120 <= word_count <= 520 and sentence_count >= 3 else 3,
+    }
+    score = min(100, sum(components.values()))
+    return {
+        "score": score,
+        "scale": [0, 100],
+        "components": components,
+        "specificity_signal_count": len(specificity_matches),
+        "emotion_signal_count": len(emotion_matches),
+        "paragraph_count": paragraph_count,
+        "method": "deterministic_source_text_signals_v1",
+        "reddit_score_is_truth_evidence": False,
+    }
 
 
 def _editorial_evidence(
@@ -301,17 +427,25 @@ def _editorial_evidence(
     }
     relevance = _prompt_relevance(body, prompt)
     safety = _safety_evidence(response, body)
-    role, role_matches = _editorial_role(body, word_count)
+    content_type, content_type_matches = _primary_content_type(body, word_count)
+    functions, function_matches = _editorial_functions(body, content_type)
+    viewer_interest = _viewer_interest_evidence(body, word_count, functions)
     return {
         "natural_length": natural_length,
         "narration_envelope": narration_envelope,
         "prompt_relevance": relevance,
         "safety": safety,
-        "editorial_role": {
-            "passed": role is not None,
-            "role": role,
-            "matched_signals": role_matches,
+        "content_type": {
+            "passed": bool(content_type),
+            "type": content_type,
+            "matched_signals": content_type_matches,
         },
+        "editorial_functions": {
+            "passed": bool(functions),
+            "functions": functions,
+            "matched_signals": function_matches,
+        },
+        "viewer_interest": viewer_interest,
     }
 
 
@@ -513,8 +647,10 @@ def _response_rejection(
             reasons.add("prompt_irrelevant_response")
         if not editorial_evidence["safety"]["passed"]:
             reasons.add("unsafe_response")
-        if not editorial_evidence["editorial_role"]["passed"]:
-            reasons.add("missing_editorial_role")
+        if not editorial_evidence["content_type"]["passed"]:
+            reasons.add("missing_content_type")
+        if not editorial_evidence["editorial_functions"]["passed"]:
+            reasons.add("missing_editorial_function")
 
     response_ref = response_id or _content_hash(response)[:16]
     if reasons:
@@ -550,7 +686,9 @@ def _response_rejection(
     }
     if editorial_evidence is not None:
         candidate["_editorial_evidence"] = editorial_evidence
-        candidate["_editorial_role"] = editorial_evidence["editorial_role"]["role"]
+        candidate["_content_type"] = editorial_evidence["content_type"]["type"]
+        candidate["_editorial_functions"] = editorial_evidence["editorial_functions"]["functions"]
+        candidate["_viewer_interest_score"] = editorial_evidence["viewer_interest"]["score"]
     return candidate, None
 
 
@@ -636,7 +774,11 @@ def _public_response(response: dict[str, Any], rank: int) -> dict[str, Any]:
         "character_count": response["character_count"],
     }
     if "_editorial_evidence" in response:
-        public["editorial_role"] = response["_editorial_role"]
+        public["content_type"] = response["_content_type"]
+        public["editorial_functions"] = response["_editorial_functions"]
+        # Compatibility field for older readers; it now describes content, not episode function.
+        public["editorial_role"] = response["_content_type"]
+        public["viewer_interest_score"] = response["_viewer_interest_score"]
         public["editorial_evidence"] = response["_editorial_evidence"]
     return public
 
@@ -655,60 +797,149 @@ def _sorted_rejections(rejections: list[dict[str, Any]]) -> list[dict[str, Any]]
 def _select_production_responses(
     eligible: list[dict[str, Any]],
     max_responses: int,
-) -> tuple[list[dict[str, Any]], list[str], list[str], int]:
-    """Select score-ranked responses without overriding runtime or role blockers."""
-    maximum_target = min(max_responses, len(eligible))
-    last_runtime_skips: list[str] = []
-    last_role_skips: list[str] = []
-    for target_count in range(maximum_target, MIN_RESPONSES - 1, -1):
-        role_cap = max(1, int(target_count * MAX_EDITORIAL_ROLE_SHARE))
-        selected: list[dict[str, Any]] = []
-        role_counts: Counter[str] = Counter()
-        running_words = 0
-        runtime_skips: list[str] = []
-        role_skips: list[str] = []
+) -> tuple[list[dict[str, Any]], list[str], list[str], None]:
+    """Optimize the whole source set for interest, runtime, and episode functions.
 
-        for response in eligible:
-            if len(selected) >= target_count:
-                break
-            role = str(response.get("_editorial_role") or "")
-            if not role:
-                role_skips.append(str(response["id"]))
-                continue
-            if role_counts[role] >= role_cap:
-                role_skips.append(str(response["id"]))
-                continue
-            candidate_words = int(response["word_count"])
-            if running_words + candidate_words > MAX_EPISODE_RESPONSE_WORDS:
-                runtime_skips.append(str(response["id"]))
-                continue
-            selected.append(response)
-            role_counts[role] += 1
-            running_words += candidate_words
+    Reddit score is used only as a deterministic tiebreaker after source-text
+    interest.  Exact dynamic programming avoids the former greedy false-negative
+    where short high-score responses prevented a feasible long-form set.
+    """
+    function_names = sorted(
+        {
+            str(function)
+            for response in eligible
+            for function in response.get("_editorial_functions") or []
+        }
+    )
+    function_bits = {name: 1 << index for index, name in enumerate(function_names)}
 
-        last_runtime_skips = runtime_skips
-        last_role_skips = role_skips
-        if len(selected) != target_count:
-            continue
-        if running_words < MIN_EPISODE_RESPONSE_WORDS:
-            continue
-        if len(role_counts) < MIN_EDITORIAL_ROLES:
-            continue
-        if max(role_counts.values(), default=0) / len(selected) > MAX_EDITORIAL_ROLE_SHARE:
-            continue
-        return selected, runtime_skips, role_skips, role_cap
+    # states[count][(word_sum, function_mask)] =
+    # (interest_sum, reddit_tiebreak_sum, selected_candidate_indices)
+    states: list[dict[tuple[int, int], tuple[int, int, tuple[int, ...]]]] = [
+        {} for _ in range(min(max_responses, len(eligible)) + 1)
+    ]
+    states[0][(0, 0)] = (0, 0, ())
 
-    role_supply = Counter(
-        str(response.get("_editorial_role") or "missing") for response in eligible
+    for index, response in enumerate(eligible):
+        response_words = int(response["word_count"])
+        interest_score = int(response.get("_viewer_interest_score") or 0)
+        reddit_tiebreak = len(eligible) - index
+        response_mask = 0
+        for function in response.get("_editorial_functions") or []:
+            response_mask |= function_bits[str(function)]
+
+        upper_count = min(index + 1, len(states) - 1)
+        for count in range(upper_count, 0, -1):
+            for (words, mask), previous in list(states[count - 1].items()):
+                next_words = words + response_words
+                if next_words > MAX_EPISODE_RESPONSE_WORDS:
+                    continue
+                next_mask = mask | response_mask
+                candidate_state = (
+                    previous[0] + interest_score,
+                    previous[1] + reddit_tiebreak,
+                    previous[2] + (index,),
+                )
+                key = (next_words, next_mask)
+                current = states[count].get(key)
+                if current is None or (
+                    candidate_state[0],
+                    candidate_state[1],
+                    tuple(-value for value in candidate_state[2]),
+                ) > (
+                    current[0],
+                    current[1],
+                    tuple(-value for value in current[2]),
+                ):
+                    states[count][key] = candidate_state
+
+    finalists: list[tuple[tuple[float, int, int, int, int, tuple[int, ...]], tuple[int, ...]]] = []
+    for count in range(MIN_RESPONSES, len(states)):
+        for (words, mask), state in states[count].items():
+            distinct_functions = mask.bit_count()
+            if words < MIN_EPISODE_RESPONSE_WORDS:
+                continue
+            if distinct_functions < MIN_EDITORIAL_FUNCTIONS:
+                continue
+            average_interest = state[0] / count
+            objective = (
+                average_interest,
+                distinct_functions,
+                -abs(words - SELECTION_TARGET_WORDS),
+                state[0],
+                state[1],
+                tuple(-value for value in state[2]),
+            )
+            finalists.append((objective, state[2]))
+
+    if finalists:
+        _, selected_indices = max(finalists, key=lambda item: item[0])
+        selected = [eligible[index] for index in selected_indices]
+        selected = _order_episode_arc(selected)
+        selected_ids = {str(response["id"]) for response in selected}
+        unselected_ids = [
+            str(response["id"]) for response in eligible if str(response["id"]) not in selected_ids
+        ]
+        return selected, unselected_ids, [], None
+
+    function_supply = Counter(
+        str(function)
+        for response in eligible
+        for function in response.get("_editorial_functions") or ["missing"]
     )
     raise ThreadCollectorError(
         "THREAD production editorial/runtime selection cannot satisfy all hard gates: "
         f"responses={MIN_RESPONSES}-{max_responses}, "
         f"words={MIN_EPISODE_RESPONSE_WORDS}-{MAX_EPISODE_RESPONSE_WORDS}, "
-        f"editorial_roles>={MIN_EDITORIAL_ROLES}, max_role_share={MAX_EDITORIAL_ROLE_SHARE:.2f}, "
-        f"role_supply={dict(sorted(role_supply.items()))}, "
-        f"runtime_skipped={last_runtime_skips}, role_skipped={last_role_skips}"
+        f"editorial_functions>={MIN_EDITORIAL_FUNCTIONS}, "
+        f"function_supply={dict(sorted(function_supply.items()))}"
     )
+
+
+def _order_episode_arc(selected: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order a selected set as hook -> rising intensity -> reflective/payoff ending."""
+    if len(selected) < 2:
+        return selected
+
+    def components(response: dict[str, Any]) -> dict[str, int]:
+        evidence = response.get("_editorial_evidence") or {}
+        interest = evidence.get("viewer_interest") or {}
+        values = interest.get("components") or {}
+        return {str(key): int(value) for key, value in values.items()}
+
+    opener = min(
+        selected,
+        key=lambda response: (
+            -components(response).get("opening_hook", 0),
+            -int(response.get("_viewer_interest_score") or 0),
+            int(response["word_count"]),
+            str(response["id"]),
+        ),
+    )
+    remaining = [response for response in selected if response is not opener]
+    finale = min(
+        remaining,
+        key=lambda response: (
+            -(
+                components(response).get("twist_or_payoff", 0)
+                + components(response).get("emotion_or_discussion", 0)
+                + (10 if "reflection" in (response.get("_editorial_functions") or []) else 0)
+            ),
+            -int(response.get("_viewer_interest_score") or 0),
+            str(response["id"]),
+        ),
+    )
+    middle = [response for response in remaining if response is not finale]
+    middle.sort(
+        key=lambda response: (
+            components(response).get("stakes_or_conflict", 0)
+            + components(response).get("escalation", 0),
+            int(response.get("_viewer_interest_score") or 0),
+            int(response["score"]),
+            str(response["id"]),
+        )
+    )
+    return [opener, *middle, finale]
 
 
 def collect_thread(
@@ -788,20 +1019,21 @@ def collect_thread(
     if require_episode_runtime and not episode_runtime_fit:
         raise ThreadCollectorError("internal runtime selector produced an invalid THREAD envelope")
     scores = [response["score"] for response in selected]
-    editorial_role_counts = Counter(
-        str(response.get("_editorial_role")) for response in selected
-        if response.get("_editorial_role")
+    content_type_counts = Counter(
+        str(response.get("_content_type")) for response in selected
+        if response.get("_content_type")
     )
-    maximum_editorial_role_share = (
-        max(editorial_role_counts.values(), default=0) / len(selected)
-        if selected else 0.0
+    editorial_function_counts = Counter(
+        str(function)
+        for response in selected
+        for function in response.get("_editorial_functions") or []
     )
     rejection_counts = Counter(
         reason for item in rejections for reason in item.get("reason_codes") or []
     )
 
     manifest: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "READY",
         "channel_id": "acc1",
         "format": "THREAD",
@@ -824,15 +1056,21 @@ def collect_thread(
             "eligible_distinct_count": len(eligible),
             "unselected_eligible_count": max(0, len(eligible) - len(selected)),
             "ordering": (
-                "score_desc_then_response_id_asc_with_hard_editorial_runtime_constraints"
+                "optimized_source_interest_set_then_hook_rising_payoff_episode_arc"
                 if require_episode_runtime else "score_desc_then_response_id_asc"
             ),
             "runtime_selection": (
-                "score_ranked_hard_editorial_runtime_v2"
+                "exact_interest_runtime_function_optimizer_v3"
                 if require_episode_runtime else "not_applied"
             ),
-            "runtime_skipped_response_ids": runtime_skipped_ids,
+            "optimizer_unselected_response_ids": runtime_skipped_ids,
+            "runtime_skipped_response_ids": [],
             "editorial_role_skipped_response_ids": editorial_role_skipped_ids,
+            "reddit_score_usage": "tiebreak_only_after_source_text_interest",
+            "episode_arc": (
+                "hook_then_rising_intensity_then_reflective_or_payoff_finale"
+                if require_episode_runtime else "not_applied"
+            ),
         },
         "editorial_gate_evidence": {
             "applied": require_episode_runtime,
@@ -843,19 +1081,30 @@ def collect_thread(
             ],
             "prompt_relevance_required": require_episode_runtime,
             "safety_required": require_episode_runtime,
-            "minimum_distinct_roles": MIN_EDITORIAL_ROLES,
-            "distinct_roles": len(editorial_role_counts),
-            "role_counts": dict(sorted(editorial_role_counts.items())),
-            "maximum_role_share_allowed": MAX_EDITORIAL_ROLE_SHARE,
-            "maximum_selected_role_share": round(maximum_editorial_role_share, 6),
-            "role_cap_count_for_selected_size": editorial_role_cap_count,
+            "content_type_is_separate_from_episode_function": True,
+            "minimum_distinct_functions": MIN_EDITORIAL_FUNCTIONS,
+            "distinct_functions": len(editorial_function_counts),
+            "function_counts": dict(sorted(editorial_function_counts.items())),
+            "content_type_counts": dict(sorted(content_type_counts.items())),
+            "personal_account_share_cap": None,
+            "legacy_role_cap_count": editorial_role_cap_count,
             "passed": (
                 not require_episode_runtime
-                or (
-                    len(editorial_role_counts) >= MIN_EDITORIAL_ROLES
-                    and maximum_editorial_role_share <= MAX_EDITORIAL_ROLE_SHARE
-                )
+                or len(editorial_function_counts) >= MIN_EDITORIAL_FUNCTIONS
             ),
+        },
+        "viewer_interest_evidence": {
+            "method": "deterministic_source_text_signals_v1",
+            "selected_scores": [
+                int(response.get("_viewer_interest_score") or 0) for response in selected
+            ],
+            "selected_score_average": round(
+                sum(int(response.get("_viewer_interest_score") or 0) for response in selected)
+                / len(selected),
+                2,
+            ),
+            "reddit_score_is_discovery_signal_only": True,
+            "reddit_content_claimed_as_fact": False,
         },
         "diversity_evidence": {
             "responses_are_diverse": (
