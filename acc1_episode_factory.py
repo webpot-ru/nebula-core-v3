@@ -417,7 +417,7 @@ def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
     translation_calls = max(
         (
             sum(
-                5
+                (7 if str(candidate.get("format") or "").upper() == "SAGA" else 6)
                 + _translation_fallback_piece_ceiling(
                     str(source.get("body") or "")
                 )
@@ -1534,7 +1534,7 @@ def _translate_script(
             config=TranslationConfig(
                 model=OPENAI_MODEL,
                 max_output_tokens=16_384,
-                max_story_revisions=2,
+                max_story_revisions=(3 if daily_plan["format"] == "SAGA" else 2),
             ),
             chunk_checkpoint_path=checkpoint_dir / f"source-{index:02d}-translation.json",
             review_checkpoint_path=checkpoint_dir / f"source-{index:02d}-review.json",

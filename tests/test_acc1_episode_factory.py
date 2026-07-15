@@ -860,7 +860,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                     workdir=Path(temp),
                     channels_path=ROOT / "channels.json",
                     confirm_openai_spend=False,
-                    openai_call_cap=96,
+                    openai_call_cap=128,
                     openai_token_cap=500_000,
                     confirm_image_spend=True,
                     image_call_cap=1,
@@ -1111,7 +1111,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                         workdir=workdir,
                         channels_path=ROOT / "channels.json",
                         confirm_openai_spend=True,
-                        openai_call_cap=96,
+                        openai_call_cap=128,
                         openai_token_cap=500_000,
                         confirm_image_spend=True,
                         image_call_cap=16,
@@ -1296,7 +1296,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                         workdir=workdir,
                         channels_path=ROOT / "channels.json",
                         confirm_openai_spend=True,
-                        openai_call_cap=96,
+                        openai_call_cap=128,
                         openai_token_cap=500_000,
                         confirm_image_spend=True,
                         image_call_cap=16,
@@ -1386,17 +1386,17 @@ class EpisodeFactoryTests(unittest.TestCase):
             }
             for candidate_index in range(5)
         ]
-        self.assertEqual(factory._required_openai_calls(candidates), 112)
+        self.assertEqual(factory._required_openai_calls(candidates), 128)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First short paragraph.\n\nSecond one.\n\nThird one."
-        self.assertEqual(factory._required_openai_calls(candidates), 112)
+        self.assertEqual(factory._required_openai_calls(candidates), 128)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First" + (" " * 20_000) + "short response."
-        self.assertEqual(factory._required_openai_calls(candidates), 112)
+        self.assertEqual(factory._required_openai_calls(candidates), 128)
 
     def test_self_hash_detects_release_manifest_tamper(self):
         manifest = {"status": "READY_FOR_HUMAN_REVIEW", "publication_authorized": False}
