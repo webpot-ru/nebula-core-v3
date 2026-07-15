@@ -24,6 +24,9 @@ WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 TRUTH_MODES = {"fiction", "unverified_personal_account"}
 FORMATS = {"SAGA", "BUNDLE", "THREAD"}
 MIN_FINALISTS = 3
+MIN_PASSING_FINALISTS = 3
+EXCEPTIONAL_WINNER_MIN_CANDIDATES = 5
+EXCEPTIONAL_WINNER_MIN_SCORE = 95
 PASS_SCORE = 90
 MIN_EVIDENCE_CHARACTERS = 24
 MIN_EVIDENCE_WORDS = 4
@@ -717,10 +720,20 @@ def run_playoff(payload: dict[str, Any]) -> dict[str, Any]:
     if len(candidate_ids) != len(set(candidate_ids)):
         failures.append("candidate_id values must be unique")
     passing = [item for item in reviews if item["status"] == "PASS"]
-    if len(passing) < MIN_FINALISTS:
-        failures.append(f"at least {MIN_FINALISTS} finalists must independently PASS")
     passing.sort(key=lambda item: (-item["score"], str(item["candidate_id"])))
     winner = passing[0] if passing else None
+    exceptional_winner = bool(
+        len(candidates) >= EXCEPTIONAL_WINNER_MIN_CANDIDATES
+        and winner
+        and winner["score"] >= EXCEPTIONAL_WINNER_MIN_SCORE
+        and not winner["failures"]
+    )
+    if len(passing) < MIN_PASSING_FINALISTS and not exceptional_winner:
+        failures.append(
+            f"at least {MIN_PASSING_FINALISTS} finalists must independently PASS, or one "
+            f"clean winner must score at least {EXCEPTIONAL_WINNER_MIN_SCORE} after "
+            f"{EXCEPTIONAL_WINNER_MIN_CANDIDATES} candidates are reviewed"
+        )
 
     result: dict[str, Any] = {
         "version": 1,
@@ -731,11 +744,21 @@ def run_playoff(payload: dict[str, Any]) -> dict[str, Any]:
         "daily_plan_sha256": actual_plan_sha,
         "playoff_input_sha256": canonical_hash(payload),
         "minimum_finalists": MIN_FINALISTS,
+        "minimum_passing_finalists": MIN_PASSING_FINALISTS,
+        "exceptional_winner_policy": {
+            "minimum_reviewed_candidates": EXCEPTIONAL_WINNER_MIN_CANDIDATES,
+            "minimum_score": EXCEPTIONAL_WINNER_MIN_SCORE,
+            "requires_zero_winner_failures": True,
+            "used": exceptional_winner and len(passing) < MIN_PASSING_FINALISTS,
+        },
         "minimum_review_score": PASS_SCORE,
         "candidate_reviews": reviews,
         "winner": winner,
         "failures": failures,
-        "selection_rule": "all_hard_gates_then_review_average_desc_then_candidate_id_asc",
+        "selection_rule": (
+            "three_independent_passes_or_exceptional_clean_winner_after_five_reviews_"
+            "then_review_average_desc_then_candidate_id_asc"
+        ),
     }
     unhashed = dict(result)
     result["playoff_sha256"] = canonical_hash(unhashed)

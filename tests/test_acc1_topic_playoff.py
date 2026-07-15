@@ -204,12 +204,39 @@ class TopicPlayoffTests(unittest.TestCase):
             )
         )
 
-    def test_fewer_than_three_passing_finalists_blocks(self):
+    def test_fewer_than_three_passing_finalists_blocks_without_exceptional_pool(self):
         value = payload()
         value["candidates"][0]["reviews"][0]["scorecard"]["source_truth"] = 0
         result = run_playoff(value)
         self.assertEqual(result["status"], "BLOCKED")
-        self.assertIn("at least 3 finalists must independently PASS", result["failures"])
+        self.assertTrue(
+            any("at least 3 finalists" in failure for failure in result["failures"])
+        )
+
+    def test_exceptional_clean_winner_after_five_reviews_is_sufficient(self):
+        value = payload()
+        value["candidates"].extend([candidate("ddd"), candidate("eee", 1)])
+        for review in value["candidates"][-1]["reviews"]:
+            review["scorecard"]["stakes_clarity"] = 10
+        for item in value["candidates"][:4]:
+            item["reviews"][0]["scorecard"]["source_truth"] = 0
+        result = run_playoff(value)
+        self.assertEqual(result["status"], "READY_FOR_SCRIPTING")
+        self.assertEqual(result["minimum_finalists"], 3)
+        self.assertEqual(result["minimum_passing_finalists"], 3)
+        self.assertEqual(result["winner"]["candidate_id"], "eee")
+        self.assertGreaterEqual(result["winner"]["score"], 95)
+        self.assertTrue(result["exceptional_winner_policy"]["used"])
+
+    def test_zero_independently_passing_finalists_blocks(self):
+        value = payload()
+        for item in value["candidates"]:
+            item["reviews"][0]["scorecard"]["source_truth"] = 0
+        result = run_playoff(value)
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertTrue(
+            any("at least 3 finalists" in failure for failure in result["failures"])
+        )
 
     def test_five_candidate_reserve_survives_two_honest_review_blocks(self):
         value = payload()
