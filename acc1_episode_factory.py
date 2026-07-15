@@ -82,6 +82,11 @@ from scripts.acc1_spend_lock import (
     SpendLockError,
     validate_lease_for_production,
 )
+from scripts.acc1_resume_lock import (
+    ResumeLockError,
+    canonical_hash as resume_canonical_hash,
+    validate_resume_lease,
+)
 from scripts.review_reddit_topics import build_review
 from thumbnail_generator import FONT_CANDIDATES, overlay_thumbnail_text, write_thumbnail_report
 from vectorengine_client import (
@@ -915,6 +920,7 @@ class CallBudget:
         label: str,
         journal_path: Path | None = None,
         token_cap: int | None = None,
+        allow_completed_resume: bool = False,
     ):
         self.provider = provider
         self.cap = _positive_cap(cap, f"{label}_call_cap", maximum=256)
@@ -950,10 +956,50 @@ class CallBudget:
                 or not isinstance(previous.get("attempts"), list)
             ):
                 raise EpisodeFactoryError(f"{label} provider attempt journal is incompatible")
-            if previous["attempts"]:
+            if previous["attempts"] and not allow_completed_resume:
                 raise EpisodeFactoryError(
                     f"{label} provider attempt journal is non-empty; inspect it before a new dispatch"
                 )
+            if previous["attempts"]:
+                attempts = previous["attempts"]
+                if any(
+                    not isinstance(item, dict)
+                    or item.get("status") != "COMPLETE"
+                    or item.get("index") != index
+                    for index, item in enumerate(attempts, start=1)
+                ):
+                    raise EpisodeFactoryError(
+                        f"{label} completed resume journal contains an unresolved or invalid attempt"
+                    )
+                if self.token_cap is not None:
+                    totals = previous.get("usage_totals")
+                    usage_keys = {
+                        "input_tokens", "cached_input_tokens", "output_tokens",
+                        "total_tokens", "reasoning_tokens",
+                    }
+                    if not isinstance(totals, dict) or set(totals) != usage_keys:
+                        raise EpisodeFactoryError(
+                            f"{label} completed resume journal has invalid usage totals"
+                        )
+                    recomputed = {key: 0 for key in usage_keys}
+                    for item in attempts:
+                        usage = item.get("usage")
+                        if not isinstance(usage, dict) or set(usage) != usage_keys:
+                            raise EpisodeFactoryError(
+                                f"{label} completed resume journal has incomplete usage evidence"
+                            )
+                        for key in usage_keys:
+                            value = usage[key]
+                            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                                raise EpisodeFactoryError(
+                                    f"{label} completed resume journal has invalid token usage"
+                                )
+                            recomputed[key] += value
+                    if recomputed != totals or totals["total_tokens"] > self.token_cap:
+                        raise EpisodeFactoryError(
+                            f"{label} completed resume journal usage totals do not reconcile"
+                        )
+                self.journal = previous
         self.calls: list[dict[str, Any]] = self.journal["attempts"]
         self._write_journal()
 
@@ -1847,6 +1893,99 @@ def _validate_spend_lease_contract(
     return lease
 
 
+def _validate_resume_contract(
+    *,
+    resume_lease_path: Path | None,
+    parent_run_id: int,
+    daily_plan: dict[str, Any],
+    workdir: Path,
+    queue: dict[str, Any],
+    source_review: dict[str, Any],
+    pool: dict[str, Any],
+    source_stage: dict[str, Any],
+    openai_call_cap: int,
+    openai_token_cap: int,
+    image_call_cap: int,
+    ai33_call_cap: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    expected_path = (workdir / "resume-spend-lease.json").resolve()
+    if resume_lease_path is None or Path(resume_lease_path).resolve() != expected_path:
+        raise EpisodeFactoryError("resume produce requires the exact workdir resume-spend-lease.json")
+    resume_lease = _read_object(expected_path)
+    repository, run_id, run_attempt, head_sha = _github_lease_identity(resume_lease)
+    try:
+        validate_resume_lease(
+            resume_lease,
+            repository=repository,
+            run_id=run_id,
+            run_attempt=run_attempt,
+            head_sha=head_sha,
+            parent_run_id=parent_run_id,
+        )
+    except ResumeLockError as exc:
+        raise EpisodeFactoryError(f"paid resume lease blocked: {exc}") from exc
+    requested_caps = {
+        "openai_call_cap": openai_call_cap,
+        "openai_token_cap": openai_token_cap,
+        "image_call_cap": image_call_cap,
+        "ai33_call_cap": ai33_call_cap,
+    }
+    if resume_lease.get("caps") != requested_caps:
+        raise EpisodeFactoryError("paid resume lease caps do not match this dispatch")
+
+    parent_lease = _read_object(workdir / "spend-lease.json")
+    try:
+        validate_lease_for_production(
+            parent_lease,
+            plan=daily_plan,
+            source_stage=source_stage,
+            candidate_pool=pool,
+            source_queue=queue,
+            source_review=source_review,
+            repository=repository,
+            workflow_path=SPEND_LOCK_WORKFLOW_PATH,
+            requested_caps=parent_lease.get("requested_caps") or {},
+            confirmations=parent_lease.get("confirmations") or {},
+            provider_contract=parent_lease.get("provider_contract") or {},
+            run_id=parent_lease.get("run_id"),
+            run_attempt=parent_lease.get("run_attempt"),
+            head_sha=parent_lease.get("head_sha"),
+        )
+    except SpendLockError as exc:
+        raise EpisodeFactoryError(f"parent paid spend lease blocked: {exc}") from exc
+
+    paths = {
+        "parent_spend_lease_sha256": workdir / "spend-lease.json",
+        "parent_topic_input_sha256": workdir / "topic-playoff-input.json",
+        "parent_producer_review_sha256": workdir / "producer-review.json",
+        "parent_critic_review_sha256": workdir / "critic-review.json",
+        "parent_openai_journal_sha256": workdir / "provider-attempts" / "openai.json",
+    }
+    payloads = {field: _read_object(path) for field, path in paths.items()}
+    for field, payload in payloads.items():
+        if resume_canonical_hash(payload) != resume_lease.get(field):
+            raise EpisodeFactoryError(f"paid resume parent evidence hash mismatch: {field}")
+    journal_attempts = payloads["parent_openai_journal_sha256"].get("attempts") or []
+    if len(journal_attempts) != resume_lease.get("parent_completed_openai_attempts"):
+        raise EpisodeFactoryError("paid resume parent OpenAI attempt count mismatch")
+
+    playoff_input = payloads["parent_topic_input_sha256"]
+    if playoff_input.get("daily_plan_sha256") != canonical_hash(daily_plan):
+        raise EpisodeFactoryError("paid resume topic input is not bound to the restored plan")
+    enriched = playoff_input.get("candidates")
+    if not isinstance(enriched, list) or not enriched:
+        raise EpisodeFactoryError("paid resume topic input has no reviewed candidates")
+    pool_ids = [str(item.get("candidate_id") or "") for item in pool.get("candidates") or []]
+    enriched_ids = [str(item.get("candidate_id") or "") for item in enriched]
+    if pool_ids != enriched_ids:
+        raise EpisodeFactoryError("paid resume reviewed candidates do not match the restored source pool")
+    producer_reports = payloads["parent_producer_review_sha256"].get("results")
+    critic_reports = payloads["parent_critic_review_sha256"].get("results")
+    if not isinstance(producer_reports, list) or not isinstance(critic_reports, list):
+        raise EpisodeFactoryError("paid resume review evidence is malformed")
+    return copy.deepcopy(enriched), copy.deepcopy(producer_reports), copy.deepcopy(critic_reports)
+
+
 def run_produce_stage(
     *,
     daily_plan: dict[str, Any],
@@ -1861,6 +2000,8 @@ def run_produce_stage(
     ai33_call_cap: int,
     reddit_request_cap: int = 24,
     spend_lease_path: Path | None = None,
+    resume_review_run_id: int | None = None,
+    resume_lease_path: Path | None = None,
     openai_provider: Callable[..., OpenAIJSONResult] = call_openai_json,
     image_provider: Callable[..., Path] = call_image_generation,
 ) -> dict[str, Any]:
@@ -1883,20 +2024,37 @@ def run_produce_stage(
     openai_tokens = int(paid_preflight["caps"]["openai_token_cap"])
     image_cap = int(paid_preflight["caps"]["image_call_cap"])
     ai33_cap = int(paid_preflight["caps"]["ai33_call_cap"])
-    _validate_spend_lease_contract(
-        spend_lease_path,
-        daily_plan=daily_plan,
-        workdir=workdir,
-        queue=queue,
-        source_review=source_review,
-        pool=pool,
-        source_stage=source_stage,
-        reddit_request_cap=reddit_request_cap,
-        openai_call_cap=openai_cap,
-        openai_token_cap=openai_tokens,
-        image_call_cap=image_cap,
-        ai33_call_cap=ai33_cap,
-    )
+    is_resume = resume_review_run_id is not None
+    if is_resume:
+        enriched, producer_reports, critic_reports = _validate_resume_contract(
+            resume_lease_path=resume_lease_path,
+            parent_run_id=int(resume_review_run_id),
+            daily_plan=daily_plan,
+            workdir=workdir,
+            queue=queue,
+            source_review=source_review,
+            pool=pool,
+            source_stage=source_stage,
+            openai_call_cap=openai_cap,
+            openai_token_cap=openai_tokens,
+            image_call_cap=image_cap,
+            ai33_call_cap=ai33_cap,
+        )
+    else:
+        _validate_spend_lease_contract(
+            spend_lease_path,
+            daily_plan=daily_plan,
+            workdir=workdir,
+            queue=queue,
+            source_review=source_review,
+            pool=pool,
+            source_stage=source_stage,
+            reddit_request_cap=reddit_request_cap,
+            openai_call_cap=openai_cap,
+            openai_token_cap=openai_tokens,
+            image_call_cap=image_cap,
+            ai33_call_cap=ai33_cap,
+        )
     api_key = str(os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY") or "")
     channel = _channel_config(channels_path)
     provider_journal_dir = workdir / "provider-attempts"
@@ -1908,6 +2066,7 @@ def run_produce_stage(
         token_cap=openai_tokens,
         label="openai",
         journal_path=provider_journal_dir / "openai.json",
+        allow_completed_resume=is_resume,
     )
     images = CallBudget(
         image_provider,
@@ -1916,9 +2075,10 @@ def run_produce_stage(
         journal_path=provider_journal_dir / "image.json",
     )
 
-    enriched, producer_reports, critic_reports = _enrich_candidates(
-        candidates, daily_plan, openai,
-    )
+    if not is_resume:
+        enriched, producer_reports, critic_reports = _enrich_candidates(
+            candidates, daily_plan, openai,
+        )
     _atomic_json(workdir / "producer-review.json", {
         "version": 1, "results": producer_reports,
         "daily_plan_sha256": canonical_hash(daily_plan), "publication_authorized": False,
@@ -2389,6 +2549,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--confirm-ai33-spend", default="false")
     parser.add_argument("--ai33-call-cap", type=int, default=24)
     parser.add_argument("--spend-lease")
+    parser.add_argument("--resume-reviewed-run-id", type=int)
+    parser.add_argument("--resume-lease")
     args = parser.parse_args(argv)
     plan = _read_object(Path(args.plan))
     workdir = Path(args.workdir)
@@ -2435,6 +2597,8 @@ def main(argv: list[str] | None = None) -> int:
             ai33_call_cap=args.ai33_call_cap,
             reddit_request_cap=args.reddit_request_cap,
             spend_lease_path=Path(args.spend_lease) if args.spend_lease else None,
+            resume_review_run_id=args.resume_reviewed_run_id,
+            resume_lease_path=Path(args.resume_lease) if args.resume_lease else None,
         )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0

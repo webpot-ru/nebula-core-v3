@@ -56,7 +56,7 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             self.workflow.splitlines().count(
                 "          path: build/acc1-daily-episode"
             ),
-            2,
+            3,
         )
         self.assertIn(
             "path: build/acc1-daily-episode/spend-lease.json",
@@ -75,6 +75,18 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         self.assertIn("cross-date TOCTOU window", workflow)
         self.assertIn("cancel-in-progress: false", workflow)
         self.assertIn("timeout-minutes: 360", workflow)
+
+    def test_paid_resume_is_parent_bound_single_use_and_skips_new_source(self):
+        workflow = self.workflow
+        self.assertIn("resume_source_run_id:", workflow)
+        self.assertIn("run-id: ${{ inputs.resume_source_run_id }}", workflow)
+        self.assertIn("if: inputs.resume_source_run_id == ''", workflow)
+        self.assertIn("Create one hash-bound paid resume lock", workflow)
+        self.assertIn("acc1-resume-lease-${{ github.run_id }}", workflow)
+        self.assertIn("scripts/acc1_resume_lock.py create", workflow)
+        self.assertIn('--resume-reviewed-run-id "$RESUME_SOURCE_RUN_ID"', workflow)
+        self.assertIn('--resume-lease "$WORKDIR/resume-spend-lease.json"', workflow)
+        self.assertNotIn("uploader.py", workflow)
 
     def test_every_external_provider_has_exact_confirmation_and_cap(self):
         for provider in (
