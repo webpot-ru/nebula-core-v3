@@ -188,6 +188,29 @@ class Acc1EpisodeManifestTests(unittest.TestCase):
                 provider_settings=providers,
             )
 
+    def test_provider_settings_allow_non_secret_token_accounting_names(self):
+        queue, review, greenlight, config, daily_plan, providers = exact_artifacts()
+        providers["creative"] = {
+            "model": "gpt-5.4-2026-03-05",
+            "max_output_tokens": 16_384,
+            "input_tokens": 123,
+        }
+        manifest = acc1_episode_manifest.build_episode_manifest(
+            episode_key="acc1/2026-07-14/pilot_03",
+            episode_date="2026-07-14",
+            pilot_id="pilot_03",
+            format_id="SAGA",
+            pillar="strange_dark_unexplained",
+            source_queue=queue,
+            topic_review=review,
+            greenlight=greenlight,
+            config=config,
+            daily_plan=daily_plan,
+            git_sha="1234567890abcdef1234567890abcdef12345678",
+            provider_settings=providers,
+        )
+        self.assertEqual(manifest["status"], "LOCKED")
+
     def test_bind_episode_plan_does_not_mutate_payload(self):
         manifest, *_ = valid_manifest()
         payload = {"status": "PASS"}

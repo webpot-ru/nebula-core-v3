@@ -398,6 +398,14 @@ jobs:
               --name "$artifact_name" \
               --dir "$artifact_dir"
           done < "$LEASE_INDEX"
+          PARENT_RESUME_ARGS=()
+          if [[ -f "$WORKDIR/resume-spend-lease.json" ]]; then
+            cp "$WORKDIR/resume-spend-lease.json" \
+              "$WORKDIR/parent-resume-spend-lease.json"
+            PARENT_RESUME_ARGS+=(
+              --parent-resume-lease "$WORKDIR/parent-resume-spend-lease.json"
+            )
+          fi
           python scripts/acc1_resume_lock.py create \
             --existing-root "$RESUME_SCAN_ROOT" \
             --parent-lease "$WORKDIR/spend-lease.json" \
@@ -414,6 +422,7 @@ jobs:
             --openai-token-cap "$OPENAI_TOKEN_CAP" \
             --image-call-cap "$IMAGE_CALL_CAP" \
             --ai33-call-cap "$AI33_CALL_CAP" \
+            "${PARENT_RESUME_ARGS[@]}" \
             --output "$WORKDIR/resume-spend-lease.json"
       - name: Persist paid resume lock before the first continuation request
         if: inputs.resume_source_run_id != ''
