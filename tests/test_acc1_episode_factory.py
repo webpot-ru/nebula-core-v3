@@ -299,6 +299,97 @@ class EpisodeFactoryTests(unittest.TestCase):
         )
         self.assertFalse(diagnostics["publication_authorized"])
 
+    def test_story_source_preserves_false_link_dependency_and_fails_closed_when_missing(self):
+        body = "A complete self-contained story with a clear ending."
+        entry = {
+            "post_id": "self-contained",
+            "title": "Self-contained story",
+            "url": "https://www.reddit.com/r/test/comments/self-contained/story/",
+            "source_body": body,
+            "source_body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+            "source_media": [],
+        }
+        reviewed = {
+            "truth_mode": "unverified_personal_account",
+            "complete": True,
+            "payoff_complete": True,
+            "depends_on_screenshot_or_link": False,
+        }
+
+        source = factory._story_source(entry, reviewed, self.plan)
+        self.assertFalse(source["depends_on_screenshot_or_link"])
+
+        unknown = factory._story_source(
+            entry,
+            {key: value for key, value in reviewed.items()
+             if key != "depends_on_screenshot_or_link"},
+            self.plan,
+        )
+        self.assertTrue(unknown["depends_on_screenshot_or_link"])
+
+    def test_base_source_contract_failure_persists_exact_diagnostics(self):
+        bundle_plan = build_daily_plan(
+            ROOT / "channels.json",
+            production_date="2026-07-16",
+            pilot_override="pilot_02",
+        )
+        queue = {"version": 1, "entries": [{"post_id": "one"}]}
+        review = {"version": 1, "status": "review_ready"}
+        candidates = [{
+            "candidate_id": f"candidate-{index}",
+            "sources": [{
+                "source_id": f"source-{index}",
+                "body": "complete narrative source",
+                "depends_on_screenshot_or_link": True,
+            }],
+        } for index in range(3)]
+        fake_reddit = mock.Mock()
+        fake_reddit._core._requestor.request_count = 9
+
+        def fake_fetch(**kwargs):
+            Path(kwargs["producer_queue_output"]).write_text(
+                json.dumps(queue), encoding="utf-8",
+            )
+            return {"post_id": "one"}
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch("scraper.AI_QUALITY_ENABLED", False),
+            mock.patch("scraper.AI_QUALITY_FAIL_OPEN", False),
+            mock.patch.object(factory, "fetch_best_story", side_effect=fake_fetch),
+            mock.patch.object(factory, "build_review", return_value=review),
+            mock.patch.object(
+                factory, "_bundle_candidates", return_value=(candidates, {}),
+            ),
+            mock.patch.object(
+                factory,
+                "_validate_base_candidate_pool",
+                side_effect=factory.EpisodeFactoryError("link-dependent fixture"),
+            ),
+        ):
+            workdir = Path(temp)
+            with self.assertRaisesRegex(factory.EpisodeFactoryError, "link-dependent fixture"):
+                factory.run_source_stage(
+                    daily_plan=bundle_plan,
+                    workdir=workdir,
+                    channels_path=ROOT / "channels.json",
+                    confirm_reddit_read=True,
+                    reddit_request_cap=24,
+                    reddit_factory=lambda **_kwargs: fake_reddit,
+                )
+            diagnostics = json.loads(
+                (workdir / "source-diagnostics.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(diagnostics["status"], "BLOCKED_BASE_SOURCE_CONTRACT")
+        self.assertEqual(diagnostics["failure"], "link-dependent fixture")
+        self.assertEqual(diagnostics["candidate_count"], 3)
+        self.assertEqual(diagnostics["reddit_http_requests_observed"], 9)
+        self.assertTrue(
+            factory._verify_self_hash(diagnostics, "source_diagnostics_sha256")
+        )
+        self.assertFalse(diagnostics["publication_authorized"])
+
     def test_reddit_request_count_supports_current_praw_session_shape(self):
         current = mock.Mock()
         current._core.requestor.request_count = 23

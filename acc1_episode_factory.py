@@ -312,7 +312,9 @@ def _story_source(
             "SAGA_SOURCE_ELIGIBLE_FOR_GREENLIGHT", "BUNDLE_COMPONENT_ELIGIBLE",
         }) is True,
         "payoff_complete": reviewed.get("payoff_complete") is True,
-        "depends_on_screenshot_or_link": reviewed.get("depends_on_screenshot_or_link") is False,
+        # Preserve the review contract: False means the text is self-contained.
+        # Missing/unknown values remain fail-closed by becoming True here.
+        "depends_on_screenshot_or_link": reviewed.get("depends_on_screenshot_or_link") is not False,
         "fictional_as_real": False,
         "score": entry.get("upvotes"),
         "num_comments": entry.get("comments"),
@@ -788,7 +790,34 @@ def run_source_stage(
             f"{MAX_SOURCE_REVIEW_CANDIDATES} complete candidates before paid review; "
             f"found {len(candidates)}"
         )
-    _validate_base_candidate_pool(candidates, daily_plan)
+    try:
+        _validate_base_candidate_pool(candidates, daily_plan)
+    except EpisodeFactoryError as exc:
+        source_diagnostics = {
+            "version": 1,
+            "status": "BLOCKED_BASE_SOURCE_CONTRACT",
+            "channel_id": "acc1",
+            "episode_key": daily_plan["episode_key"],
+            "pilot_id": daily_plan["pilot_id"],
+            "format": format_id,
+            "pillar": daily_plan["pillar"],
+            "daily_plan_sha256": canonical_hash(daily_plan),
+            "failure": str(exc),
+            "candidate_count": len(candidates),
+            "candidate_ids": [str(item.get("candidate_id") or "") for item in candidates],
+            "reddit_http_request_cap": cap,
+            "reddit_http_requests_observed": _reddit_request_count(reddit),
+            "queue": queue,
+            "review": review,
+            "candidates": candidates,
+            "production_authorized": False,
+            "publication_authorized": False,
+        }
+        source_diagnostics["source_diagnostics_sha256"] = _self_hash(
+            source_diagnostics, "source_diagnostics_sha256",
+        )
+        _atomic_json(workdir / "source-diagnostics.json", source_diagnostics)
+        raise
     daily_plan_sha = canonical_hash(daily_plan)
     candidate_pool: dict[str, Any] = {
         "version": 1,
