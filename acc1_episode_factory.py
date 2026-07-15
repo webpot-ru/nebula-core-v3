@@ -501,7 +501,8 @@ def _bundle_candidates(queue: dict[str, Any], review: dict[str, Any], plan: dict
             last_error = exc
     if finalists_manifest is None:
         raise EpisodeFactoryError(
-            "BUNDLE source pool cannot supply three materially distinct complete candidates"
+            "BUNDLE source pool cannot supply three materially distinct complete candidates: "
+            f"{last_error}"
         ) from last_error
     if not verify_finalists_manifest(finalists_manifest):
         raise EpisodeFactoryError("BUNDLE finalists manifest failed its own hash contract")
@@ -713,7 +714,31 @@ def run_source_stage(
         if format_id == "SAGA":
             candidates = _saga_candidates(queue, review, daily_plan)
         else:
-            candidates, finalists_manifest = _bundle_candidates(queue, review, daily_plan)
+            try:
+                candidates, finalists_manifest = _bundle_candidates(queue, review, daily_plan)
+            except EpisodeFactoryError as exc:
+                source_diagnostics = {
+                    "version": 1,
+                    "status": "BLOCKED_BUNDLE_FINALISTS",
+                    "channel_id": "acc1",
+                    "episode_key": daily_plan["episode_key"],
+                    "pilot_id": daily_plan["pilot_id"],
+                    "format": format_id,
+                    "pillar": daily_plan["pillar"],
+                    "daily_plan_sha256": canonical_hash(daily_plan),
+                    "failure": str(exc),
+                    "reddit_http_request_cap": cap,
+                    "reddit_http_requests_observed": _reddit_request_count(reddit),
+                    "queue": queue,
+                    "review": review,
+                    "production_authorized": False,
+                    "publication_authorized": False,
+                }
+                source_diagnostics["source_diagnostics_sha256"] = _self_hash(
+                    source_diagnostics, "source_diagnostics_sha256",
+                )
+                _atomic_json(workdir / "source-diagnostics.json", source_diagnostics)
+                raise
     else:
         source_plan = daily_plan["source_plan"]
         results = collect_thread_source_candidates(

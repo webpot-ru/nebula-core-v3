@@ -1546,6 +1546,7 @@ def build_topic_sources(
     channel_config: dict | None = None,
     topic_family: str | None = None,
     planned_subreddits: list[str] | None = None,
+    planned_time_windows: list[str] | None = None,
     max_time_windows_per_topic: int | None = None,
 ) -> list[dict]:
     if max_time_windows_per_topic is not None:
@@ -1559,6 +1560,15 @@ def build_topic_sources(
             )
     if topic_family and topic_family not in TOPIC_FAMILY_PRESETS:
         raise TopicSourcePlanError(f"unknown topic family: {topic_family}")
+    if planned_time_windows is not None:
+        if (
+            not planned_time_windows
+            or len(set(planned_time_windows)) != len(planned_time_windows)
+            or any(window not in VALID_TIME_FILTERS for window in planned_time_windows)
+        ):
+            raise TopicSourcePlanError(
+                "planned_time_windows must contain unique valid Reddit time filters"
+            )
     if planned_subreddits is not None:
         if not topic_family:
             raise TopicSourcePlanError("planned_subreddits require an explicit topic family")
@@ -1589,7 +1599,11 @@ def build_topic_sources(
             mix = [{"family": topic_family, "weight": 1.0}]
 
     if not mix:
-        windows = ["week"] if time_filter == "auto" else [time_filter]
+        windows = (
+            list(planned_time_windows)
+            if time_filter == "auto" and planned_time_windows is not None
+            else ["week"] if time_filter == "auto" else [time_filter]
+        )
         return [{
             "family": topic_family or "legacy",
             "label": (channel_config or {}).get("niche_label", "Legacy subreddit scan"),
@@ -1610,6 +1624,8 @@ def build_topic_sources(
         windows = item.get("time_windows") or preset.get("time_windows", ["week"])
         if time_filter != "auto":
             windows = [time_filter]
+        elif planned_time_windows is not None:
+            windows = list(planned_time_windows)
         max_subreddits = int(item.get("max_subreddits", DEFAULT_MAX_SUBREDDITS_PER_TOPIC))
         max_windows = (
             max_time_windows_per_topic
@@ -1714,6 +1730,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
         channel_config=channel_config,
         topic_family=topic_family,
         planned_subreddits=(source_plan or {}).get("subreddits"),
+        planned_time_windows=(source_plan or {}).get("time_windows"),
         max_time_windows_per_topic=max_time_windows_per_topic,
     )
 

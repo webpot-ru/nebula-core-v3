@@ -27,14 +27,29 @@ class Acc1SourceRoutingTests(unittest.TestCase):
         self.assertEqual(plan["format_intent"], "bundle")
         self.assertEqual(plan["story_count"], [3, 5])
         self.assertEqual(plan["aggregate_source_word_count"], [2340, 3900])
+        self.assertEqual(plan["time_windows"], ["week", "month", "year"])
         sources = scraper.build_topic_sources(
             self.channel["subreddits"],
             "auto",
             self.channel,
             family,
             planned_subreddits=plan["subreddits"],
+            planned_time_windows=plan["time_windows"],
+            max_time_windows_per_topic=3,
         )
         self.assertEqual(sources[0]["subreddits"][:2], ["MaliciousCompliance", "prorevenge"])
+        self.assertEqual(sources[0]["time_windows"], ["week", "month", "year"])
+
+    def test_invalid_planned_windows_fail_closed(self):
+        with self.assertRaisesRegex(scraper.TopicSourcePlanError, "planned_time_windows"):
+            scraper.build_topic_sources(
+                self.channel["subreddits"],
+                "auto",
+                self.channel,
+                "human_drama",
+                planned_subreddits=["tifu"],
+                planned_time_windows=["week", "week"],
+            )
 
     def test_conflicting_explicit_family_fails(self):
         with self.assertRaises(scraper.TopicSourcePlanError):
