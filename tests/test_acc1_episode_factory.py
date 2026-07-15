@@ -109,7 +109,6 @@ class EpisodeFactoryTests(unittest.TestCase):
             stored = json.loads((Path(temp) / "factory-preflight.json").read_text())
         self.assertEqual(report["status"], "PREFLIGHT_PASS")
         self.assertEqual(stored["would_call_reddit"], False)
-        self.assertEqual(stored["would_call_gemini"], False)
         self.assertEqual(stored["would_upload_youtube"], False)
         self.assertFalse(stored["publication_authorized"])
 
@@ -267,7 +266,7 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertEqual(len(budget.calls), 2)
 
     def test_paid_provider_budgets_disable_hidden_retries(self):
-        for label in ("gemini", "image", "openai_translation"):
+        for label in ("openai", "image"):
             with self.subTest(label=label):
                 calls = []
                 budget = factory.CallBudget(
@@ -335,7 +334,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 daily_plan=self.plan,
                 episode_plan=episode_plan,
                 playoff=playoff,
-                openai_translation=mock.Mock(),
+                openai=mock.Mock(),
                 checkpoint_dir=Path(temp),
             )
         parts = {item["kind"]: item["text"] for item in script["intro_contract"]["parts"]}
@@ -368,7 +367,7 @@ class EpisodeFactoryTests(unittest.TestCase):
         def provider(**_kwargs):
             return responses.pop(0)
 
-        budget = factory.CallBudget(provider, cap=9, label="gemini")
+        budget = factory.CallBudget(provider, cap=9, label="openai")
         enriched, producer_reports, critic_reports = factory._enrich_candidates(
             candidates, self.plan, budget,
         )
@@ -390,7 +389,7 @@ class EpisodeFactoryTests(unittest.TestCase):
         ]
         responses = [{}, {"review": {}}, {}, {"review": {}}, {}]
         budget = factory.CallBudget(
-            lambda **_kwargs: responses.pop(0), cap=5, label="gemini",
+            lambda **_kwargs: responses.pop(0), cap=5, label="openai",
         )
         enriched, _producer_reports, _critic_reports = factory._enrich_candidates(
             candidates, self.plan, budget,
@@ -438,7 +437,7 @@ class EpisodeFactoryTests(unittest.TestCase):
 
     def test_ambiguous_provider_attempt_is_journaled_and_not_resubmitted(self):
         with tempfile.TemporaryDirectory() as temp:
-            journal = Path(temp) / "gemini.json"
+            journal = Path(temp) / "openai.json"
             calls = []
 
             def ambiguous_provider(**kwargs):
@@ -448,7 +447,7 @@ class EpisodeFactoryTests(unittest.TestCase):
             budget = factory.CallBudget(
                 ambiguous_provider,
                 cap=2,
-                label="gemini",
+                label="openai",
                 journal_path=journal,
             )
             with self.assertRaises(RuntimeError):
@@ -462,7 +461,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 factory.CallBudget(
                     ambiguous_provider,
                     cap=2,
-                    label="gemini",
+                    label="openai",
                     journal_path=journal,
                 )
             self.assertEqual(len(calls), 1)
@@ -483,7 +482,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                     service_tier="default",
                 ),
                 cap=1,
-                label="openai_translation",
+                label="openai",
                 journal_path=journal,
                 token_cap=1_000,
             )
@@ -543,14 +542,12 @@ class EpisodeFactoryTests(unittest.TestCase):
                     confirm_reddit_read=False,
                     reddit_request_cap=1,
                 )
-            with self.assertRaisesRegex(factory.EpisodeFactoryError, "confirm_gemini_spend"):
+            with self.assertRaisesRegex(factory.EpisodeFactoryError, "confirm_openai_spend"):
                 factory.run_produce_stage(
                     daily_plan=self.plan,
                     workdir=Path(temp),
                     channels_path=ROOT / "channels.json",
-                    confirm_gemini_spend=False,
-                    gemini_call_cap=1,
-                    confirm_openai_spend=True,
+                    confirm_openai_spend=False,
                     openai_call_cap=96,
                     openai_token_cap=500_000,
                     confirm_image_spend=True,
@@ -562,12 +559,10 @@ class EpisodeFactoryTests(unittest.TestCase):
     def test_paid_preflight_blocks_missing_provider_secrets_before_lease(self):
         queue, review, pool, stage = self._lease_source_contract()
         cap_contract = {
-            "gemini_call_cap": 128,
             "openai_call_cap": 96,
             "openai_token_cap": 500_000,
             "image_call_cap": 16,
             "ai33_call_cap": 96,
-            "required_gemini_calls": 1,
             "required_openai_calls": 1,
             "required_image_calls": 1,
             "required_ai33_calls": 1,
@@ -579,7 +574,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                     "OPENAI_API_KEY": "test-only",
                     "AI33_API_KEY": "test-only",
                 },
-                "Gemini/image credentials",
+                "image credentials",
             ),
             (
                 {
@@ -621,8 +616,6 @@ class EpisodeFactoryTests(unittest.TestCase):
                             daily_plan=self.plan,
                             workdir=workdir,
                             channels_path=ROOT / "channels.json",
-                            confirm_gemini_spend=True,
-                            gemini_call_cap=128,
                             confirm_openai_spend=True,
                             openai_call_cap=96,
                             openai_token_cap=500_000,
@@ -663,15 +656,13 @@ class EpisodeFactoryTests(unittest.TestCase):
                 ),
                 mock.patch.dict("os.environ", {}, clear=True),
             ):
-                with self.assertRaisesRegex(factory.EpisodeFactoryError, "Gemini cap"):
+                with self.assertRaisesRegex(factory.EpisodeFactoryError, "OpenAI cap"):
                     factory.run_paid_preflight(
                         daily_plan=self.plan,
                         workdir=workdir,
                         channels_path=ROOT / "channels.json",
-                        confirm_gemini_spend=True,
-                        gemini_call_cap=1,
                         confirm_openai_spend=True,
-                        openai_call_cap=96,
+                        openai_call_cap=1,
                         openai_token_cap=500_000,
                         confirm_image_spend=True,
                         image_call_cap=16,
@@ -684,12 +675,10 @@ class EpisodeFactoryTests(unittest.TestCase):
     def test_paid_preflight_passes_without_provider_calls_or_lease_creation(self):
         queue, review, pool, stage = self._lease_source_contract()
         cap_contract = {
-            "gemini_call_cap": 128,
             "openai_call_cap": 96,
             "openai_token_cap": 500_000,
             "image_call_cap": 16,
             "ai33_call_cap": 96,
-            "required_gemini_calls": 10,
             "required_openai_calls": 96,
             "required_image_calls": 6,
             "required_ai33_calls": 8,
@@ -722,8 +711,6 @@ class EpisodeFactoryTests(unittest.TestCase):
                     daily_plan=self.plan,
                     workdir=workdir,
                     channels_path=ROOT / "channels.json",
-                    confirm_gemini_spend=True,
-                    gemini_call_cap=128,
                     confirm_openai_spend=True,
                     openai_call_cap=96,
                     openai_token_cap=500_000,
@@ -733,7 +720,6 @@ class EpisodeFactoryTests(unittest.TestCase):
                     ai33_call_cap=96,
                 )
             self.assertEqual(report["status"], "PAID_PREFLIGHT_PASS")
-            self.assertFalse(report["would_call_gemini"])
             self.assertFalse(report["would_call_openai"])
             self.assertFalse(report["would_call_image_provider"])
             self.assertFalse(report["would_call_ai33"])
@@ -770,7 +756,6 @@ class EpisodeFactoryTests(unittest.TestCase):
             head_sha="a" * 40,
             requested_caps={
                 "reddit_request_cap": 24,
-                "gemini_call_cap": 128,
                 "openai_call_cap": 96,
                 "openai_token_cap": 500_000,
                 "image_call_cap": 16,
@@ -778,18 +763,16 @@ class EpisodeFactoryTests(unittest.TestCase):
             },
             confirmations={
                 "reddit_read": True,
-                "gemini_spend": True,
                 "openai_spend": True,
                 "image_spend": True,
                 "ai33_spend": True,
             },
             created_at="2026-07-14T12:00:00Z",
         )
-        lease["requested_caps"]["gemini_call_cap"] = 127
+        lease["requested_caps"]["openai_call_cap"] = 95
         lease["lease_sha256"] = self_hash(lease, "lease_sha256")
         paid_preflight = {
             "caps": {
-                "gemini_call_cap": 128,
                 "openai_call_cap": 96,
                 "openai_token_cap": 500_000,
                 "image_call_cap": 16,
@@ -815,8 +798,6 @@ class EpisodeFactoryTests(unittest.TestCase):
                         daily_plan=self.plan,
                         workdir=workdir,
                         channels_path=ROOT / "channels.json",
-                        confirm_gemini_spend=True,
-                        gemini_call_cap=128,
                         confirm_openai_spend=True,
                         openai_call_cap=96,
                         openai_token_cap=500_000,
@@ -826,7 +807,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                         ai33_call_cap=96,
                         reddit_request_cap=24,
                         spend_lease_path=workdir / "spend-lease.json",
-                        gemini_provider=lambda **kwargs: paid_calls.append(("gemini", kwargs)),
+                        openai_provider=lambda **kwargs: paid_calls.append(("openai", kwargs)),
                         image_provider=lambda **kwargs: paid_calls.append(("image", kwargs)),
                     )
         self.assertEqual(paid_calls, [])
@@ -995,7 +976,6 @@ class EpisodeFactoryTests(unittest.TestCase):
                     return_value=({}, {}, {"candidates": candidates}, {}),
                 ),
                 mock.patch.object(factory, "_channel_config", return_value={"id": "acc1"}),
-                mock.patch.object(factory, "gemini_source_label", return_value="vectorengine-gemini"),
                 mock.patch.dict("os.environ", {"AI33_API_KEY": "test-only"}, clear=False),
             ):
                 with self.assertRaisesRegex(factory.EpisodeFactoryError, "AI33 cap"):
@@ -1003,8 +983,6 @@ class EpisodeFactoryTests(unittest.TestCase):
                         daily_plan=thread_plan,
                         workdir=workdir,
                         channels_path=ROOT / "channels.json",
-                        confirm_gemini_spend=True,
-                        gemini_call_cap=128,
                         confirm_openai_spend=True,
                         openai_call_cap=96,
                         openai_token_cap=500_000,
@@ -1012,7 +990,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                         image_call_cap=16,
                         confirm_ai33_spend=True,
                         ai33_call_cap=32,
-                        gemini_provider=lambda **kwargs: gemini_calls.append(kwargs),
+                        openai_provider=lambda **kwargs: gemini_calls.append(kwargs),
                         image_provider=lambda **_kwargs: Path("unused"),
                     )
         self.assertEqual(gemini_calls, [])
@@ -1063,7 +1041,6 @@ class EpisodeFactoryTests(unittest.TestCase):
                         return_value=({}, {}, {"candidates": candidates}, {}),
                     ),
                     mock.patch.object(factory, "_channel_config", return_value={"id": "acc1"}),
-                    mock.patch.object(factory, "gemini_source_label", return_value="vectorengine-gemini"),
                     mock.patch.dict("os.environ", {"AI33_API_KEY": "test-only"}, clear=False),
                 ):
                     with self.assertRaisesRegex(
@@ -1074,8 +1051,6 @@ class EpisodeFactoryTests(unittest.TestCase):
                             daily_plan=self.plan,
                             workdir=Path(temp),
                             channels_path=ROOT / "channels.json",
-                            confirm_gemini_spend=True,
-                            gemini_call_cap=128,
                             confirm_openai_spend=True,
                             openai_call_cap=96,
                             openai_token_cap=500_000,
@@ -1083,7 +1058,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                             image_call_cap=16,
                             confirm_ai33_spend=True,
                             ai33_call_cap=96,
-                            gemini_provider=lambda **kwargs: gemini_calls.append(kwargs),
+                            openai_provider=lambda **kwargs: gemini_calls.append(kwargs),
                             image_provider=lambda **_kwargs: Path("unused"),
                         )
                 self.assertEqual(gemini_calls, [])
@@ -1099,20 +1074,17 @@ class EpisodeFactoryTests(unittest.TestCase):
             }
             for candidate_index in range(5)
         ]
-        self.assertEqual(factory._required_gemini_calls(candidates), 11)
-        self.assertEqual(factory._required_openai_calls(candidates), 96)
+        self.assertEqual(factory._required_openai_calls(candidates), 107)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First short paragraph.\n\nSecond one.\n\nThird one."
-        self.assertEqual(factory._required_gemini_calls(candidates), 11)
-        self.assertEqual(factory._required_openai_calls(candidates), 96)
+        self.assertEqual(factory._required_openai_calls(candidates), 107)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First" + (" " * 20_000) + "short response."
-        self.assertEqual(factory._required_gemini_calls(candidates), 11)
-        self.assertEqual(factory._required_openai_calls(candidates), 96)
+        self.assertEqual(factory._required_openai_calls(candidates), 107)
 
     def test_self_hash_detects_release_manifest_tamper(self):
         manifest = {"status": "READY_FOR_HUMAN_REVIEW", "publication_authorized": False}
@@ -1364,8 +1336,6 @@ class EpisodeFactoryTests(unittest.TestCase):
                     daily_plan=self.plan,
                     workdir=workdir,
                     channels_path=ROOT / "channels.json",
-                    confirm_gemini_spend=True,
-                    gemini_call_cap=128,
                     confirm_openai_spend=True,
                     openai_call_cap=96,
                     openai_token_cap=500_000,
@@ -1374,7 +1344,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                     confirm_ai33_spend=True,
                     ai33_call_cap=96,
                     spend_lease_path=workdir / "spend-lease.json",
-                    gemini_provider=lambda **kwargs: {},
+                    openai_provider=lambda **kwargs: {},
                     image_provider=image_provider,
                 )
 
@@ -1387,7 +1357,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 (workdir / "release-candidate-manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual(len(release["artifact_sha256"]), 6)
-            self.assertEqual(len(release["evidence_sha256"]), 25)
+            self.assertEqual(len(release["evidence_sha256"]), 24)
             self.assertIn("spend_lease", release["evidence_sha256"])
             self.assertIn("paid_preflight", release["evidence_sha256"])
             self.assertIn("runtime_estimate_report", release["evidence_sha256"])

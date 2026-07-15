@@ -22,7 +22,7 @@ from typing import Any, Sequence
 from urllib.parse import urlsplit
 
 
-LEASE_SCHEMA_VERSION = "acc1_paid_spend_lease_v4"
+LEASE_SCHEMA_VERSION = "acc1_paid_spend_lease_v5"
 WORKFLOW_PATH = ".github/workflows/acc1_daily_episode.yml"
 LEASE_FILENAME = "spend-lease.json"
 LEASE_RETENTION_DAYS = 90
@@ -33,7 +33,7 @@ REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 ARTIFACT_DIRECTORY_RE = re.compile(r"^(?P<run_id>[1-9][0-9]*)-(?P<artifact_id>[1-9][0-9]*)$")
 
 PROVIDER_CONTRACT: dict[str, Any] = {
-    "openai_translation": {
+    "openai": {
         "provider": "openai",
         "model": "gpt-5.4-2026-03-05",
         "reasoning_effort": "none",
@@ -42,12 +42,6 @@ PROVIDER_CONTRACT: dict[str, Any] = {
         "service_tier": "flex",
         "prompt_cache_key": "acc1-translation-json-v1",
         "request_timeout_seconds": 900,
-    },
-    "gemini": {
-        "provider": "vectorengine",
-        "model": "gemini-3.5-flash",
-        "max_output_tokens": 16_384,
-        "automatic_retries": 0,
     },
     "image": {
         "provider": "vectorengine",
@@ -69,14 +63,12 @@ CAP_KEYS = {
     "reddit_request_cap",
     "openai_call_cap",
     "openai_token_cap",
-    "gemini_call_cap",
     "image_call_cap",
     "ai33_call_cap",
 }
 CONFIRMATION_KEYS = {
     "reddit_read",
     "openai_spend",
-    "gemini_spend",
     "image_spend",
     "ai33_spend",
 }
@@ -451,9 +443,6 @@ def build_lease(
         "openai_token_cap": _positive_int(
             requested_caps["openai_token_cap"], "openai_token_cap", 1_000_000,
         ),
-        "gemini_call_cap": _positive_int(
-            requested_caps["gemini_call_cap"], "gemini_call_cap", 256,
-        ),
         "image_call_cap": _positive_int(
             requested_caps["image_call_cap"], "image_call_cap", 256,
         ),
@@ -557,7 +546,7 @@ def validate_lease(
     _positive_int(caps["reddit_request_cap"], "lease reddit_request_cap", 100)
     _positive_int(caps["openai_call_cap"], "lease openai_call_cap", 256)
     _positive_int(caps["openai_token_cap"], "lease openai_token_cap", 1_000_000)
-    for field in ("gemini_call_cap", "image_call_cap", "ai33_call_cap"):
+    for field in ("image_call_cap", "ai33_call_cap"):
         _positive_int(caps[field], f"lease {field}", 256)
     confirmations = lease.get("confirmations")
     if not isinstance(confirmations, dict) or set(confirmations) != CONFIRMATION_KEYS:
@@ -610,9 +599,6 @@ def validate_lease_for_production(
         ),
         "openai_token_cap": _positive_int(
             requested_caps["openai_token_cap"], "openai_token_cap", 1_000_000,
-        ),
-        "gemini_call_cap": _positive_int(
-            requested_caps["gemini_call_cap"], "gemini_call_cap", 256,
         ),
         "image_call_cap": _positive_int(
             requested_caps["image_call_cap"], "image_call_cap", 256,
@@ -786,12 +772,10 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--reddit-request-cap", required=True, type=int)
     create.add_argument("--openai-call-cap", required=True, type=int)
     create.add_argument("--openai-token-cap", required=True, type=int)
-    create.add_argument("--gemini-call-cap", required=True, type=int)
     create.add_argument("--image-call-cap", required=True, type=int)
     create.add_argument("--ai33-call-cap", required=True, type=int)
     create.add_argument("--confirm-reddit-read", required=True)
     create.add_argument("--confirm-openai-spend", required=True)
-    create.add_argument("--confirm-gemini-spend", required=True)
     create.add_argument("--confirm-image-spend", required=True)
     create.add_argument("--confirm-ai33-spend", required=True)
     create.add_argument("--created-at")
@@ -844,14 +828,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "reddit_request_cap": args.reddit_request_cap,
                 "openai_call_cap": args.openai_call_cap,
                 "openai_token_cap": args.openai_token_cap,
-                "gemini_call_cap": args.gemini_call_cap,
                 "image_call_cap": args.image_call_cap,
                 "ai33_call_cap": args.ai33_call_cap,
             },
             confirmations={
                 "reddit_read": args.confirm_reddit_read,
                 "openai_spend": args.confirm_openai_spend,
-                "gemini_spend": args.confirm_gemini_spend,
                 "image_spend": args.confirm_image_spend,
                 "ai33_spend": args.confirm_ai33_spend,
             },
