@@ -644,6 +644,7 @@ def scan_leases(
     candidate_pool: dict[str, Any] | None = None,
     source_queue: dict[str, Any] | None = None,
     source_review: dict[str, Any] | None = None,
+    reserved_source_exclusions_output: Path | None = None,
 ) -> dict[str, Any]:
     """Block on invalid leases, exact episodes, or reserved-source overlap."""
     _validate_plan(plan)
@@ -679,6 +680,7 @@ def scan_leases(
         raise SpendLockError("spend lease scan root contains an unreadable/unknown artifact")
 
     inspected = 0
+    prior_reserved_sources: dict[str, dict[str, str]] = {}
     for artifact_dir in sorted(root.iterdir(), key=lambda item: item.name):
         directory_match = ARTIFACT_DIRECTORY_RE.fullmatch(artifact_dir.name)
         if directory_match is None:
@@ -700,6 +702,8 @@ def scan_leases(
         if owner_run_id == current_run_id:
             raise SpendLockError("current run already owns a paid spend lease; rerun is forbidden")
         inspected += 1
+        for item in lease["reserved_sources"]:
+            prior_reserved_sources[item["source_reservation_sha256"]] = dict(item)
         if lease.get("episode_key") == plan.get("episode_key"):
             raise SpendLockError(
                 "episode is already protected by paid spend lease from GitHub run "
@@ -718,12 +722,31 @@ def scan_leases(
                     "candidate source pool overlaps paid source reservation from GitHub run "
                     f"{owner_run_id} via {overlap_fields}; automatic re-spend is forbidden"
                 )
+    exclusions = {
+        "version": 1,
+        "status": "VALIDATED_RESERVED_SOURCE_EXCLUSIONS",
+        "inspected_leases": inspected,
+        "source_ids": sorted({item["source_id"] for item in prior_reserved_sources.values()}),
+        "story_signatures": sorted({
+            item["story_signature"] for item in prior_reserved_sources.values()
+        }),
+        "publication_authorized": False,
+    }
+    exclusions["reserved_source_exclusions_sha256"] = self_hash(
+        exclusions, "reserved_source_exclusions_sha256",
+    )
+    if reserved_source_exclusions_output is not None:
+        _atomic_json(Path(reserved_source_exclusions_output), exclusions)
     return {
         "status": "SPEND_LOCK_CLEAR",
         "episode_key": plan["episode_key"],
         "inspected_leases": inspected,
         "source_reservation_checked": current_reserved_sources is not None,
         "current_reserved_source_count": len(current_reserved_sources or []),
+        "prior_reserved_source_count": len(prior_reserved_sources),
+        "reserved_source_exclusions_sha256": exclusions[
+            "reserved_source_exclusions_sha256"
+        ],
         "publication_authorized": False,
     }
 
@@ -756,6 +779,7 @@ def _parser() -> argparse.ArgumentParser:
     scan.add_argument("--candidate-pool")
     scan.add_argument("--source-queue")
     scan.add_argument("--source-review")
+    scan.add_argument("--reserved-source-exclusions-output")
 
     create = subparsers.add_parser("create", help="create a source-bound paid spend lease")
     create.add_argument("--plan", required=True)
@@ -811,6 +835,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             candidate_pool=source_payloads.get("candidate_pool"),
             source_queue=source_payloads.get("source_queue"),
             source_review=source_payloads.get("source_review"),
+            reserved_source_exclusions_output=(
+                Path(args.reserved_source_exclusions_output)
+                if args.reserved_source_exclusions_output
+                else None
+            ),
         )
     else:
         result = build_lease(

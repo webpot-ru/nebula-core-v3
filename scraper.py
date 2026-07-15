@@ -1668,6 +1668,8 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                      producer_queue_output: str | None = "producer_queue.json",
                      pilot_id: str | None = None,
                      max_time_windows_per_topic: int | None = None,
+                     excluded_source_ids: set[str] | None = None,
+                     excluded_story_signatures: set[str] | None = None,
                      reddit_client=None):
     """
     Search topic-family sources for the most viral post, then run a bounded AI
@@ -1722,6 +1724,14 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
     seen_post_ids = set()
     seen_signatures = set()
     seen_keyword_signatures = []
+    excluded_source_ids = {
+        str(item).strip().casefold() for item in (excluded_source_ids or set()) if str(item).strip()
+    }
+    excluded_story_signatures = {
+        str(item).strip().casefold()
+        for item in (excluded_story_signatures or set())
+        if str(item).strip()
+    }
     recent_records = recent_channel_records(history, channel_id)
     topic_exclusions = channel_topic_exclusions(channel_config)
     sources = build_topic_sources(
@@ -1761,6 +1771,8 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                 try:
                     subreddit = reddit.subreddit(sub_name)
                     for post in subreddit.top(time_filter=window, limit=candidate_limit):
+                        if str(post.id).strip().casefold() in excluded_source_ids:
+                            continue
                         if post.stickied:
                             continue
                         body = post.selftext or ""
@@ -1784,6 +1796,8 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
 
                         keyword_signature = topic_keyword_signature(post.title, body)
                         signature = story_signature(post.title, body)
+                        if signature.strip().casefold() in excluded_story_signatures:
+                            continue
                         duplicate_reason = history_duplicate_reason(
                             history,
                             post.id,
