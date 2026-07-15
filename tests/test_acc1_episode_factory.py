@@ -453,6 +453,32 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertIn("WEIGHTED POINTS, never percentages", critic_prompt)
         self.assertIn("screenshot_or_link_dependent", critic_prompt)
 
+    def test_candidate_prompts_keep_labeled_nosleep_fiction_inside_viewer_promise(self):
+        candidate = {
+            "candidate_id": "fiction-1",
+            "sources": [{
+                "source_id": "source-1",
+                "role": "story",
+                "title": "A complete horror story",
+                "body": "A complete self-contained fictional story with a clear ending.",
+                "truth_mode": "fiction",
+                "source_url": "https://www.reddit.com/r/nosleep/comments/source-1/story/",
+                "payoff_complete": True,
+                "depends_on_screenshot_or_link": False,
+                "source_discovery_signals": {},
+            }],
+        }
+
+        prompt = factory._candidate_prompt(candidate, self.plan, "producer")
+
+        self.assertIn("truth_mode=fiction IS inside the acc1 viewer promise", prompt)
+        self.assertIn("Без выдуманных продолжений", prompt)
+        self.assertIn("Это художественная история с Reddit.", prompt)
+        self.assertIn(
+            "Do not use fictional_as_real or viewer_promise_mismatch merely because a source is fiction",
+            prompt,
+        )
+
     def test_translate_script_builds_truthful_deterministic_intro(self):
         sources = []
         for index in range(2):

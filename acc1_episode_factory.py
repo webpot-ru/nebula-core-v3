@@ -1055,6 +1055,13 @@ Assess this one complete Reddit candidate for the exact acc1 viewer promise.
 Non-negotiable rules:
 - Reddit votes/comments are discovery signals, never independent proof of truth or demand.
 - Fiction must remain fiction; personal accounts remain independently unverified.
+- A supplied r/nosleep source with truth_mode=fiction IS inside the acc1 viewer promise.
+  "Без выдуманных продолжений" means preserve the supplied plot and ending; it does not
+  exclude clearly labeled fiction. The downstream episode contract automatically requires
+  the exact audible and metadata disclosure "Это художественная история с Reddit."
+  Do not use fictional_as_real or viewer_promise_mismatch merely because a source is fiction.
+  Use fictional_as_real only when the proposed framing explicitly presents fiction as a
+  verified/real event or suppresses/contradicts that required disclosure.
 - Do not invent facts, chronology, outcomes, hooks, people, or visual events.
 - Any evidence field must be a short exact substring copied from a supplied source body.
 - Every evidence quote must contain at least 24 characters, four words, and three unique words.
