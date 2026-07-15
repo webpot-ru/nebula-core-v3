@@ -161,6 +161,45 @@ class CompilationTranslationTests(unittest.TestCase):
         self.assertTrue(result["translation_audit"]["chunk_fallback"])
         self.assertEqual(len(resumed.calls), 3)
 
+    def test_chunk_checkpoint_repairs_only_non_russian_title_and_reuses_bodies(self):
+        story = {"title": "The Door", "body": "First part.\n\nSecond part."}
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "chunks.json"
+            import hashlib
+            import json
+            source_hash = hashlib.sha256(json.dumps({
+                "title": story["title"], "body": story["body"], "chunk_chars": 1000,
+            }, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+            chunk_hash = hashlib.sha256(story["body"].encode()).hexdigest()
+            checkpoint.write_text(json.dumps({
+                "schema_version": 1,
+                "source_hash": source_hash,
+                "glossary": {
+                    "translated_title": "The Door - translation analysis",
+                    "glossary": {},
+                    "continuity": "first person",
+                },
+                "chunks": [{
+                    "index": 0,
+                    "source_sha256": chunk_hash,
+                    "body": "Первая часть. Вторая часть.",
+                }],
+            }, ensure_ascii=False), encoding="utf-8")
+            provider = QueueProvider([
+                {"translated_title": "Дверь"},
+                {"verdict": "PASS", "issues": [], "ending_preserved": True},
+            ])
+            result = translate_and_review_story(
+                story,
+                provider=provider,
+                config=TranslationConfig(chunk_chars=1000, min_length_ratio=0.1),
+                chunk_checkpoint_path=checkpoint,
+            )
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+        self.assertEqual(result["title"], "Дверь")
+        self.assertEqual(saved["glossary"]["translated_title"], "Дверь")
+        self.assertEqual(len(provider.calls), 2)
+
     def test_auth_error_does_not_trigger_paid_fallback(self):
         provider = QueueProvider([RuntimeError("Google Gemini HTTP 401: invalid key")])
         with self.assertRaisesRegex(RuntimeError, "401"):

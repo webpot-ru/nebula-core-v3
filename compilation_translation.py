@@ -251,7 +251,8 @@ def _chunk_translate(
             raise TranslationError("chunk translation checkpoint does not match source")
     glossary = state.get("glossary")
     if not isinstance(glossary, dict):
-        glossary = _call(provider, f"Extract a continuity glossary from the complete story and translate its title. Return JSON "
+        glossary = _call(provider, f"Extract a continuity glossary from the complete story and translate its title into natural Russian Cyrillic. "
+            f"translated_title MUST contain only the translated Russian title, not analysis or alternatives. Return JSON "
             f'{{"translated_title":"...","glossary":{{}},"continuity":"..."}}. TITLE: {title}\nSTORY:\n{body}', config)
         state["glossary"] = glossary
         if checkpoint_path:
@@ -259,6 +260,33 @@ def _chunk_translate(
     translated_title = str(glossary.get("translated_title") or "").strip()
     if not translated_title:
         raise IncompleteTranslation("chunk fallback glossary is missing translated_title")
+    if not is_russian_text(
+        translated_title,
+        minimum_cyrillic_words=1,
+        minimum_cyrillic_letter_ratio=0.50,
+    ):
+        repaired_title = _call(
+            provider,
+            "Translate only this exact story title into concise natural Russian Cyrillic. "
+            "Do not explain, transliterate, list alternatives, or add analysis. "
+            f'Return JSON {{"translated_title":"..."}}. TITLE: {title}',
+            config,
+            temperature=0.0,
+        )
+        translated_title = str(repaired_title.get("translated_title") or "").strip()
+        if not is_russian_text(
+            translated_title,
+            minimum_cyrillic_words=1,
+            minimum_cyrillic_letter_ratio=0.50,
+        ):
+            raise IncompleteTranslation(
+                "chunk fallback title repair is not demonstrably Russian"
+            )
+        glossary = dict(glossary)
+        glossary["translated_title"] = translated_title
+        state["glossary"] = glossary
+        if checkpoint_path:
+            _atomic_json(checkpoint_path, state)
     translated: list[str] = []
     for index, chunk in enumerate(chunks):
         chunk_hash = hashlib.sha256(chunk.encode()).hexdigest()
