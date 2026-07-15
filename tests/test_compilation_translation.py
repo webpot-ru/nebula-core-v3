@@ -302,6 +302,54 @@ class CompilationTranslationTests(unittest.TestCase):
         self.assertIn("тихий стук", result["body"])
         self.assertEqual(saved["revisions_completed"], 3)
 
+    def test_saga_resume_can_apply_a_fourth_paid_pending_review(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        pending = {
+            "verdict": "REVISE",
+            "issues": [{
+                "kind": "tone",
+                "source_quote": "I heard a knock.",
+                "translation_quote": "Я услышал стук.",
+                "replacement": "Я услышал тихий стук.",
+            }],
+            "ending_preserved": True,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "review.json"
+            import hashlib
+            import json
+            checkpoint.write_text(json.dumps({
+                "schema_version": 2,
+                "source_sha256": hashlib.sha256(STORY["body"].encode()).hexdigest(),
+                "revisions_completed": 3,
+                "review_history": [
+                    {"verdict": "REVISE", "issues": [], "ending_preserved": True},
+                    {"verdict": "REVISE", "issues": [], "ending_preserved": True},
+                    {"verdict": "REVISE", "issues": [], "ending_preserved": True},
+                    pending,
+                ],
+                "current_translation": translation,
+            }, ensure_ascii=False), encoding="utf-8")
+            provider = QueueProvider([
+                {"verdict": "PASS", "issues": [], "ending_preserved": True},
+            ])
+            result = translate_and_review_story(
+                STORY,
+                provider=provider,
+                config=TranslationConfig(max_story_revisions=4),
+                review_checkpoint_path=checkpoint,
+            )
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(result["translation_audit"]["revisions"], 4)
+        self.assertIn("тихий стук", result["body"])
+        self.assertEqual(saved["revisions_completed"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()

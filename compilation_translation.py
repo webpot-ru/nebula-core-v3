@@ -51,8 +51,8 @@ class TranslationConfig:
     def __post_init__(self) -> None:
         if self.max_output_tokens < 1024:
             raise ValueError("max_output_tokens must be at least 1024")
-        if self.max_story_revisions not in (0, 1, 2, 3):
-            raise ValueError("max_story_revisions must be between 0 and 3")
+        if self.max_story_revisions not in (0, 1, 2, 3, 4):
+            raise ValueError("max_story_revisions must be between 0 and 4")
         if not 1.0 <= self.max_character_ratio <= 3.0:
             raise ValueError("max_character_ratio must be between 1.0 and 3.0")
         if self.max_character_floor < 128:
