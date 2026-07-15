@@ -19,7 +19,10 @@ RISKY_NUMBER_PATTERNS = (
     ("decimal", re.compile(r"(?<!\w)\d+[.,]\d+(?!\w)")),
     ("currency", re.compile(r"(?:[$€£₽]\s?\d|\d\s?(?:руб(?:\.|лей)?|доллар(?:ов|а)?|евро))", re.I)),
     ("date", re.compile(r"(?<!\w)\d{1,2}[./-]\d{1,2}[./-]\d{2,4}(?!\w)")),
-    ("contextual_year", re.compile(r"(?<!\w)(?:19|20)\d{2}\s+(?:году|год|г\.)", re.I)),
+    (
+        "contextual_year",
+        re.compile(r"(?<!\w)(?:19|20)\d{2}\s+(?:году|год(?![а-яё])|г\.)", re.I),
+    ),
 )
 
 

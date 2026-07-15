@@ -21,6 +21,15 @@ class CompilationNarrationTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(narration_preflight(text)["status"], "BLOCKED")
 
+    def test_genitive_year_does_not_match_shorter_year_pattern(self):
+        result = narration_preflight(
+            "Дарственная от 1968 года. Был поздний осенний день 1975 года."
+        )
+        self.assertNotIn(
+            "contextual_year",
+            {item["kind"] for item in result["issues"]},
+        )
+
     def test_clock_time_has_deterministic_russian_spoken_form(self):
         result = narration_preflight("Нужно вымыть пол ровно в 3:15, а вернуться в 4:00.")
         self.assertEqual(result["status"], "PASS")
