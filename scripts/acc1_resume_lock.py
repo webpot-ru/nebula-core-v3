@@ -106,6 +106,8 @@ def build_resume_lease(
     ai33_call_cap: int,
     parent_resume_lease: dict[str, Any] | None = None,
     image_checkpoint: dict[str, Any] | None = None,
+    ai33_journal: dict[str, Any] | None = None,
+    tts_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     validate_lease(
         parent_lease, expected_repository=repository,
@@ -192,6 +194,46 @@ def build_resume_lease(
         )
     ):
         raise ResumeLockError("parent image journal is not completely resumable")
+    ai33_call_cap = _positive(ai33_call_cap, "ai33_call_cap")
+    ai33_attempts: list[dict[str, Any]] = []
+    if (ai33_journal is None) != (tts_state is None):
+        raise ResumeLockError("parent AI33 journal and TTS state must be supplied together")
+    if ai33_journal is not None:
+        candidate_attempts = ai33_journal.get("attempts")
+        if (
+            ai33_journal.get("provider") != "ai33"
+            or ai33_journal.get("cap") != ai33_call_cap
+            or not isinstance(candidate_attempts, list)
+            or not candidate_attempts
+            or any(
+                not isinstance(item, dict)
+                or item.get("index") != index
+                or item.get("status") != "COMPLETE"
+                or not SHA256_RE.fullmatch(str(item.get("request_sha256") or ""))
+                or not SHA256_RE.fullmatch(str(item.get("response_sha256") or ""))
+                or not str(item.get("task_id") or "").strip()
+                for index, item in enumerate(candidate_attempts, start=1)
+            )
+        ):
+            raise ResumeLockError("parent AI33 journal is not completely resumable")
+        chunks = tts_state.get("chunks") if isinstance(tts_state, dict) else None
+        if (
+            tts_state.get("version") != 3
+            or tts_state.get("status") not in {"IN_PROGRESS", "COMPLETE"}
+            or tts_state.get("publication_authorized") is not False
+            or not isinstance(chunks, list)
+            or not chunks
+        ):
+            raise ResumeLockError("parent TTS state is not resumable")
+        journal_task_ids = {str(item["task_id"]) for item in candidate_attempts}
+        state_task_ids = {
+            str(item.get("task_id"))
+            for item in chunks
+            if isinstance(item, dict) and item.get("task_id")
+        }
+        if journal_task_ids != state_task_ids:
+            raise ResumeLockError("parent AI33 journal task IDs do not match TTS state")
+        ai33_attempts = candidate_attempts
     if topic_input.get("daily_plan_sha256") != parent_lease["source_bindings"]["daily_plan_sha256"]:
         raise ResumeLockError("topic input is not bound to the parent daily plan")
     for label, review in (("producer", producer_review), ("critic", critic_review)):
@@ -227,6 +269,15 @@ def build_resume_lease(
         "parent_completed_openai_attempts": len(attempts),
         "parent_completed_image_attempts": len(image_attempts),
         "parent_ambiguous_image_attempt_index": ambiguous_image_attempt,
+        "parent_ai33_journal_sha256": (
+            canonical_hash(ai33_journal) if ai33_journal is not None else None
+        ),
+        "parent_tts_state_sha256": (
+            canonical_hash(tts_state) if tts_state is not None else None
+        ),
+        "parent_completed_ai33_attempts": (
+            len(ai33_attempts) if ai33_journal is not None else None
+        ),
         "run_id": _positive(run_id, "run_id"),
         "run_attempt": _positive(run_attempt, "run_attempt"),
         "head_sha": normalized_head,
@@ -234,7 +285,7 @@ def build_resume_lease(
             "openai_call_cap": openai_call_cap,
             "openai_token_cap": openai_token_cap,
             "image_call_cap": image_call_cap,
-            "ai33_call_cap": _positive(ai33_call_cap, "ai33_call_cap"),
+            "ai33_call_cap": ai33_call_cap,
         },
         "publication_authorized": False,
     }
@@ -285,6 +336,16 @@ def validate_resume_lease(
         str(image_checkpoint_hash)
     ):
         raise ResumeLockError("resume lease parent_image_checkpoint_sha256 is invalid")
+    ai33_hash = lease.get("parent_ai33_journal_sha256")
+    tts_hash = lease.get("parent_tts_state_sha256")
+    ai33_count = lease.get("parent_completed_ai33_attempts")
+    if len({ai33_hash is None, tts_hash is None, ai33_count is None}) != 1:
+        raise ResumeLockError("resume lease AI33/TTS binding is incomplete")
+    if ai33_hash is not None:
+        if not SHA256_RE.fullmatch(str(ai33_hash)) or not SHA256_RE.fullmatch(str(tts_hash)):
+            raise ResumeLockError("resume lease AI33/TTS hash is invalid")
+        if isinstance(ai33_count, bool) or not isinstance(ai33_count, int) or ai33_count < 1:
+            raise ResumeLockError("resume lease AI33 attempt count is invalid")
     parent_resume_hash = lease.get("parent_resume_lease_sha256")
     if parent_resume_hash is not None and not SHA256_RE.fullmatch(str(parent_resume_hash)):
         raise ResumeLockError("resume lease parent_resume_lease_sha256 is invalid")
@@ -322,6 +383,8 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--openai-journal", required=True)
     create.add_argument("--image-journal", required=True)
     create.add_argument("--image-checkpoint")
+    create.add_argument("--ai33-journal")
+    create.add_argument("--tts-state")
     create.add_argument("--parent-resume-lease")
     create.add_argument("--parent-run-id", required=True, type=int)
     create.add_argument("--run-id", required=True, type=int)
@@ -352,6 +415,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         image_checkpoint=(
             read_object(Path(args.image_checkpoint), "image checkpoint")
             if args.image_checkpoint else None
+        ),
+        ai33_journal=(
+            read_object(Path(args.ai33_journal), "AI33 journal")
+            if args.ai33_journal else None
+        ),
+        tts_state=(
+            read_object(Path(args.tts_state), "TTS state")
+            if args.tts_state else None
         ),
         parent_run_id=args.parent_run_id, run_id=args.run_id,
         run_attempt=args.run_attempt, head_sha=args.head_sha,

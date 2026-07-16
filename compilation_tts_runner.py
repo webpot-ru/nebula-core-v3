@@ -45,7 +45,8 @@ class CompilationTtsError(RuntimeError):
 def _retryable_poll_error(exc: Exception) -> bool:
     message = str(exc).casefold().replace(" ", "")
     return isinstance(exc, Ai33Error) and any(marker in message for marker in (
-        "retryable\":true", "failed(500)", "failed(502)", "failed(503)",
+        "retryable\":true", "failed(429)", "temporarilybusy",
+        "failed(500)", "failed(502)", "failed(503)",
         "failed(504)", "timedout", "timeout",
     ))
 

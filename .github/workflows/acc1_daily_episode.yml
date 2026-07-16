@@ -412,6 +412,15 @@ jobs:
               --image-checkpoint "$WORKDIR/scene-image-checkpoint.json"
             )
           fi
+          AI33_RESUME_ARGS=()
+          if [[ -f "$WORKDIR/provider-attempts/ai33.json" || -f "$WORKDIR/tts/compilation_tts_state.json" ]]; then
+            test -f "$WORKDIR/provider-attempts/ai33.json"
+            test -f "$WORKDIR/tts/compilation_tts_state.json"
+            AI33_RESUME_ARGS+=(
+              --ai33-journal "$WORKDIR/provider-attempts/ai33.json"
+              --tts-state "$WORKDIR/tts/compilation_tts_state.json"
+            )
+          fi
           python scripts/acc1_resume_lock.py create \
             --existing-root "$RESUME_SCAN_ROOT" \
             --parent-lease "$WORKDIR/spend-lease.json" \
@@ -421,6 +430,7 @@ jobs:
             --openai-journal "$WORKDIR/provider-attempts/openai.json" \
             --image-journal "$WORKDIR/provider-attempts/image.json" \
             "${IMAGE_CHECKPOINT_ARGS[@]}" \
+            "${AI33_RESUME_ARGS[@]}" \
             --parent-run-id "$RESUME_SOURCE_RUN_ID" \
             --run-id "$GITHUB_RUN_ID" \
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
