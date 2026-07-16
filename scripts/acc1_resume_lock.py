@@ -99,11 +99,13 @@ def scan_existing(root: Path, *, parent_run_id: int, repository: str) -> int:
 def build_resume_lease(
     *, parent_lease: dict[str, Any], topic_input: dict[str, Any],
     producer_review: dict[str, Any], critic_review: dict[str, Any],
-    openai_journal: dict[str, Any], parent_run_id: int, run_id: int,
+    openai_journal: dict[str, Any], image_journal: dict[str, Any],
+    parent_run_id: int, run_id: int,
     run_attempt: int, head_sha: str, repository: str,
     openai_call_cap: int, openai_token_cap: int, image_call_cap: int,
     ai33_call_cap: int,
     parent_resume_lease: dict[str, Any] | None = None,
+    image_checkpoint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     validate_lease(
         parent_lease, expected_repository=repository,
@@ -155,6 +157,22 @@ def build_resume_lease(
             recomputed[key] += value
     if recomputed != totals or totals["total_tokens"] > openai_token_cap:
         raise ResumeLockError("parent OpenAI journal usage does not reconcile")
+    image_call_cap = _positive(image_call_cap, "image_call_cap")
+    image_attempts = image_journal.get("attempts")
+    if (
+        image_journal.get("provider") != "image"
+        or image_journal.get("cap") != image_call_cap
+        or not isinstance(image_attempts, list)
+        or any(
+            not isinstance(item, dict)
+            or item.get("index") != index
+            or item.get("status") != "COMPLETE"
+            or not SHA256_RE.fullmatch(str(item.get("request_sha256") or ""))
+            or not SHA256_RE.fullmatch(str(item.get("output_sha256") or ""))
+            for index, item in enumerate(image_attempts, start=1)
+        )
+    ):
+        raise ResumeLockError("parent image journal is not completely resumable")
     if topic_input.get("daily_plan_sha256") != parent_lease["source_bindings"]["daily_plan_sha256"]:
         raise ResumeLockError("topic input is not bound to the parent daily plan")
     for label, review in (("producer", producer_review), ("critic", critic_review)):
@@ -180,17 +198,22 @@ def build_resume_lease(
         "parent_producer_review_sha256": canonical_hash(producer_review),
         "parent_critic_review_sha256": canonical_hash(critic_review),
         "parent_openai_journal_sha256": canonical_hash(openai_journal),
+        "parent_image_journal_sha256": canonical_hash(image_journal),
+        "parent_image_checkpoint_sha256": (
+            canonical_hash(image_checkpoint) if image_checkpoint is not None else None
+        ),
         "parent_resume_lease_sha256": (
             canonical_hash(parent_resume_lease) if parent_resume_lease is not None else None
         ),
         "parent_completed_openai_attempts": len(attempts),
+        "parent_completed_image_attempts": len(image_attempts),
         "run_id": _positive(run_id, "run_id"),
         "run_attempt": _positive(run_attempt, "run_attempt"),
         "head_sha": normalized_head,
         "caps": {
             "openai_call_cap": openai_call_cap,
             "openai_token_cap": openai_token_cap,
-            "image_call_cap": _positive(image_call_cap, "image_call_cap"),
+            "image_call_cap": image_call_cap,
             "ai33_call_cap": _positive(ai33_call_cap, "ai33_call_cap"),
         },
         "publication_authorized": False,
@@ -220,6 +243,20 @@ def validate_resume_lease(
     ):
         if not SHA256_RE.fullmatch(str(lease.get(field) or "")):
             raise ResumeLockError(f"resume lease {field} is invalid")
+    image_hash = lease.get("parent_image_journal_sha256")
+    image_count = lease.get("parent_completed_image_attempts")
+    if (image_hash is None) != (image_count is None):
+        raise ResumeLockError("resume lease image journal binding is incomplete")
+    if image_hash is not None:
+        if not SHA256_RE.fullmatch(str(image_hash)):
+            raise ResumeLockError("resume lease parent_image_journal_sha256 is invalid")
+        if isinstance(image_count, bool) or not isinstance(image_count, int) or image_count < 0:
+            raise ResumeLockError("resume lease completed image attempt count is invalid")
+    image_checkpoint_hash = lease.get("parent_image_checkpoint_sha256")
+    if image_checkpoint_hash is not None and not SHA256_RE.fullmatch(
+        str(image_checkpoint_hash)
+    ):
+        raise ResumeLockError("resume lease parent_image_checkpoint_sha256 is invalid")
     parent_resume_hash = lease.get("parent_resume_lease_sha256")
     if parent_resume_hash is not None and not SHA256_RE.fullmatch(str(parent_resume_hash)):
         raise ResumeLockError("resume lease parent_resume_lease_sha256 is invalid")
@@ -255,6 +292,8 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--producer-review", required=True)
     create.add_argument("--critic-review", required=True)
     create.add_argument("--openai-journal", required=True)
+    create.add_argument("--image-journal", required=True)
+    create.add_argument("--image-checkpoint")
     create.add_argument("--parent-resume-lease")
     create.add_argument("--parent-run-id", required=True, type=int)
     create.add_argument("--run-id", required=True, type=int)
@@ -281,6 +320,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         producer_review=read_object(Path(args.producer_review), "producer review"),
         critic_review=read_object(Path(args.critic_review), "critic review"),
         openai_journal=read_object(Path(args.openai_journal), "OpenAI journal"),
+        image_journal=read_object(Path(args.image_journal), "image journal"),
+        image_checkpoint=(
+            read_object(Path(args.image_checkpoint), "image checkpoint")
+            if args.image_checkpoint else None
+        ),
         parent_run_id=args.parent_run_id, run_id=args.run_id,
         run_attempt=args.run_attempt, head_sha=args.head_sha,
         repository=args.repository, openai_call_cap=args.openai_call_cap,

@@ -1655,6 +1655,16 @@ class EpisodeFactoryTests(unittest.TestCase):
             def fake_images(script_arg, output_dir, **kwargs):
                 self.assertEqual(Path(output_dir), workdir / "scene-images")
                 self.assertEqual(Path(kwargs["artifact_root"]), workdir)
+                self.assertEqual(
+                    Path(kwargs["checkpoint_path"]),
+                    workdir / "scene-image-checkpoint.json",
+                )
+                factory._atomic_json(Path(kwargs["checkpoint_path"]), {
+                    "version": 1,
+                    "episode_plan_sha256": episode_plan["episode_plan_sha256"],
+                    "entries": [],
+                    "publication_authorized": False,
+                })
                 return script_arg, []
 
             def fake_runtime_estimate(script_arg, plan_arg):
@@ -1731,7 +1741,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 (workdir / "release-candidate-manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual(len(release["artifact_sha256"]), 6)
-            self.assertEqual(len(release["evidence_sha256"]), 24)
+            self.assertEqual(len(release["evidence_sha256"]), 25)
             self.assertIn("spend_lease", release["evidence_sha256"])
             self.assertIn("paid_preflight", release["evidence_sha256"])
             self.assertIn("runtime_estimate_report", release["evidence_sha256"])

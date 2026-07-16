@@ -1962,6 +1962,12 @@ def _validate_resume_contract(
         "parent_critic_review_sha256": workdir / "critic-review.json",
         "parent_openai_journal_sha256": workdir / "provider-attempts" / "openai.json",
     }
+    if resume_lease.get("parent_image_journal_sha256") is not None:
+        paths["parent_image_journal_sha256"] = (
+            workdir / "provider-attempts" / "image.json"
+        )
+    if resume_lease.get("parent_image_checkpoint_sha256") is not None:
+        paths["parent_image_checkpoint_sha256"] = workdir / "scene-image-checkpoint.json"
     parent_resume_hash = resume_lease.get("parent_resume_lease_sha256")
     if parent_resume_hash is not None:
         parent_resume_path = workdir / "parent-resume-spend-lease.json"
@@ -1983,6 +1989,10 @@ def _validate_resume_contract(
     journal_attempts = payloads["parent_openai_journal_sha256"].get("attempts") or []
     if len(journal_attempts) != resume_lease.get("parent_completed_openai_attempts"):
         raise EpisodeFactoryError("paid resume parent OpenAI attempt count mismatch")
+    if "parent_image_journal_sha256" in payloads:
+        image_attempts = payloads["parent_image_journal_sha256"].get("attempts") or []
+        if len(image_attempts) != resume_lease.get("parent_completed_image_attempts"):
+            raise EpisodeFactoryError("paid resume parent image attempt count mismatch")
 
     playoff_input = payloads["parent_topic_input_sha256"]
     if playoff_input.get("daily_plan_sha256") != canonical_hash(daily_plan):
@@ -2088,6 +2098,7 @@ def run_produce_stage(
         cap=image_cap,
         label="image",
         journal_path=provider_journal_dir / "image.json",
+        allow_completed_resume=is_resume,
     )
 
     if not is_resume:
@@ -2270,6 +2281,8 @@ def run_produce_stage(
         generator=images,
         model=DEFAULT_IMAGE_MODEL,
         artifact_root=workdir,
+        provider_attempts=images.calls,
+        checkpoint_path=workdir / "scene-image-checkpoint.json",
     )
     _atomic_json(workdir / "episode-script.json", script)
     _atomic_json(workdir / "youtube-metadata.json", packaging)
@@ -2405,6 +2418,7 @@ def run_produce_stage(
         "text_layout_report": workdir / "text-layout-report.json",
         "runtime_estimate_report": workdir / "runtime-estimate-report.json",
         "scene_images_manifest": workdir / "scene-images-manifest.json",
+        "scene_image_checkpoint": workdir / "scene-image-checkpoint.json",
         "thumbnail_manifest": workdir / "thumbnail-manifest.json",
         "tts_state": workdir / "tts" / "compilation_tts_state.json",
         "render_report": workdir / "render-report.json",
