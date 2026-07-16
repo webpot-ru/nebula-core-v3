@@ -1697,6 +1697,10 @@ class EpisodeFactoryTests(unittest.TestCase):
             def fake_storyboard(*args, **kwargs):
                 order.append("storyboard")
                 self.assertIs(kwargs.get("tts_state"), tts_state)
+                self.assertEqual(
+                    kwargs.get("background_video"),
+                    Path("assets") / factory.BACKGROUND_ASSET.name,
+                )
                 return {"version": 2, "slides": [], "creative_manifest": {}}
 
             def fake_render(storyboard, artifact_root, output, **kwargs):
