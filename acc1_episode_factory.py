@@ -403,7 +403,7 @@ def _required_image_calls(format_id: str, source_count: int) -> int:
         scene_count = 3
     else:
         raise EpisodeFactoryError(f"unsupported episode format for image budget: {format_id}")
-    return scene_count + 1  # one additional provider call for the thumbnail base
+    return scene_count
 
 
 def _translation_fallback_piece_ceiling(body: str, chunk_chars: int = 7_000) -> int:
@@ -428,7 +428,9 @@ def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
         ),
         default=0,
     )
-    creative_calls = len(candidates) * 3 + 1
+    # Three source-validation passes per finalist. Packaging is selected
+    # deterministically from the already locked winner options.
+    creative_calls = len(candidates) * 3
     return translation_calls + creative_calls
 
 
@@ -964,8 +966,20 @@ class CallBudget:
                 attempts = previous["attempts"]
                 if any(
                     not isinstance(item, dict)
-                    or item.get("status") != "COMPLETE"
                     or item.get("index") != index
+                    or (
+                        item.get("status") != "COMPLETE"
+                        and not (
+                            label == "image"
+                            and item.get("status") == "AMBIGUOUS_ERROR"
+                            and index == len(attempts)
+                            and item.get("output_sha256") is None
+                            and re.fullmatch(
+                                r"[0-9a-f]{64}",
+                                str(item.get("request_sha256") or ""),
+                            )
+                        )
+                    )
                     for index, item in enumerate(attempts, start=1)
                 ):
                     raise EpisodeFactoryError(
@@ -1695,7 +1709,7 @@ def _paid_candidate_cap_contract(
         )
     if image_cap < image_floor:
         raise EpisodeFactoryError(
-            f"source finalists require at least {image_floor} image calls including thumbnail"
+            f"source finalists require at least {image_floor} scene-image calls"
         )
     if ai33_cap < tts_ceiling:
         raise EpisodeFactoryError(
@@ -2157,7 +2171,7 @@ def run_produce_stage(
     )
     if images.cap < required_image_calls:
         raise EpisodeFactoryError(
-            f"episode requires {required_image_calls} image calls including thumbnail "
+            f"episode requires {required_image_calls} scene-image calls "
             f"but image_call_cap is {images.cap}"
         )
 
@@ -2251,7 +2265,7 @@ def run_produce_stage(
     packaging = generate_packaging(
         script,
         packaging_playoff,
-        provider=openai,
+        provider=None,
         model=OPENAI_MODEL,
     )
     packaging["daily_plan_sha256"] = episode_plan["daily_plan_sha256"]
@@ -2273,11 +2287,10 @@ def run_produce_stage(
             f"AI33 requires {len(planned_chunks)} task submissions but cap is {ai33_cap}"
         )
 
-    # Keep one image-generation call reserved for the thumbnail base.
     script, scene_assets = generate_episode_images(
         script,
         workdir / "scene-images",
-        max_images=images.cap - 1,
+        max_images=images.cap,
         generator=images,
         model=DEFAULT_IMAGE_MODEL,
         artifact_root=workdir,
@@ -2295,13 +2308,13 @@ def run_produce_stage(
         "publication_authorized": False,
     })
 
+    if not scene_assets:
+        raise EpisodeFactoryError("thumbnail requires at least one verified scene image")
+    thumbnail_source = workdir / str(scene_assets[0]["local_path"])
+    if not thumbnail_source.is_file():
+        raise EpisodeFactoryError("thumbnail scene source is missing")
     thumbnail_base = workdir / "thumbnail-base.png"
-    images(
-        prompt=str(packaging["thumbnail_prompt"]),
-        output_path=thumbnail_base,
-        model=DEFAULT_IMAGE_MODEL,
-        size="1536x864",
-    )
+    shutil.copyfile(thumbnail_source, thumbnail_base)
     thumbnail_path = overlay_thumbnail_text(
         thumbnail_base,
         workdir / "youtube-thumbnail.png",
@@ -2310,9 +2323,11 @@ def run_produce_stage(
     thumbnail_report = write_thumbnail_report(
         workdir / "thumbnail-manifest.json",
         thumbnail_path,
-        mode="provider-base-plus-local-overlay",
-        provider_called=True,
+        mode="scene-derivative-plus-local-overlay",
+        provider_called=False,
     )
+    thumbnail_report["source_scene_path"] = thumbnail_source.relative_to(workdir).as_posix()
+    thumbnail_report["source_scene_sha256"] = _sha256_file(thumbnail_source)
     thumbnail_report["episode_plan_sha256"] = episode_plan["episode_plan_sha256"]
     thumbnail_report["daily_plan_sha256"] = episode_plan["daily_plan_sha256"]
     thumbnail_report["publication_authorized"] = False

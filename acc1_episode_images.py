@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageEnhance, ImageOps, UnidentifiedImageError
 
 from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
 
@@ -110,6 +110,21 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     os.replace(temporary, path)
+
+
+def _continuity_fallback(source: Path, output: Path, expected_size: tuple[int, int]) -> None:
+    """Create a deterministic local variation without repeating a paid request."""
+    temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+    with Image.open(source) as image:
+        frame = ImageOps.fit(
+            image.convert("RGB"), expected_size,
+            method=Image.Resampling.LANCZOS,
+            bleed=0.012,
+            centering=(0.46, 0.5),
+        )
+        frame = ImageEnhance.Brightness(frame).enhance(0.96)
+        frame.save(temporary, format="PNG")
+    os.replace(temporary, output)
 
 
 def _sentences(value: str) -> list[str]:
@@ -236,9 +251,15 @@ def generate_episode_images(
         })
         entry = checkpoint["entries"][plan_index] if plan_index < len(checkpoint["entries"]) else None
         attempt = attempts[plan_index] if plan_index < len(attempts) else None
+        ambiguous = bool(
+            attempt is not None
+            and attempt.get("status") == "AMBIGUOUS_ERROR"
+            and plan_index == len(attempts) - 1
+            and attempt.get("output_sha256") is None
+        )
         if attempt is not None and (
             attempt.get("index") != plan_index + 1
-            or attempt.get("status") != "COMPLETE"
+            or (attempt.get("status") != "COMPLETE" and not ambiguous)
             or attempt.get("request_sha256") != request_sha256
         ):
             raise EpisodeImageError("image journal attempt does not match the scene plan")
@@ -247,7 +268,28 @@ def generate_episode_images(
             expected_raw_path = output.with_name(
                 f"{output.stem}.provider{output.suffix}"
             ).resolve().relative_to(root).as_posix()
-            if (
+            is_fallback = entry.get("local_fallback") is True
+            if is_fallback:
+                if (
+                    not ambiguous
+                    or entry.get("index") != plan_index + 1
+                    or entry.get("request_sha256") != request_sha256
+                    or entry.get("provider_path") is not None
+                    or entry.get("provider_output_sha256") is not None
+                    or entry.get("output_path") != expected_output_path
+                    or plan_index < 1
+                ):
+                    raise EpisodeImageError("image fallback checkpoint is invalid")
+                previous = checkpoint["entries"][plan_index - 1]
+                source = root / str(entry.get("fallback_source_path") or "")
+                if (
+                    entry.get("fallback_source_path") != previous.get("output_path")
+                    or entry.get("fallback_source_sha256") != previous.get("output_sha256")
+                    or not source.is_file()
+                    or _sha256(source) != entry.get("fallback_source_sha256")
+                ):
+                    raise EpisodeImageError("image fallback source hash mismatch")
+            elif (
                 attempt is None
                 or entry.get("index") != plan_index + 1
                 or entry.get("request_sha256") != request_sha256
@@ -257,10 +299,11 @@ def generate_episode_images(
             ):
                 raise EpisodeImageError("image checkpoint is not bound to the provider attempt")
             result = root / str(entry.get("output_path") or "")
-            provider_file = root / str(entry.get("provider_path") or "")
-            if (
-                not result.is_file()
-                or _sha256(result) != entry.get("output_sha256")
+            provider_file = root / str(entry.get("provider_path") or "") if not is_fallback else None
+            if not result.is_file() or _sha256(result) != entry.get("output_sha256"):
+                raise EpisodeImageError("image checkpoint file hash mismatch")
+            if not is_fallback and (
+                provider_file is None
                 or not provider_file.is_file()
                 or _sha256(provider_file) != attempt.get("output_sha256")
             ):
@@ -268,7 +311,39 @@ def generate_episode_images(
             provider_size = tuple(entry.get("provider_size") or ())
             normalized = bool(entry.get("normalized"))
         else:
-            if attempt is None:
+            if ambiguous:
+                if plan_index < 1 or len(checkpoint["entries"]) != plan_index:
+                    raise EpisodeImageError("ambiguous image requires the prior verified scene")
+                previous = checkpoint["entries"][plan_index - 1]
+                fallback_source = root / str(previous.get("output_path") or "")
+                if (
+                    not fallback_source.is_file()
+                    or _sha256(fallback_source) != previous.get("output_sha256")
+                ):
+                    raise EpisodeImageError("ambiguous image fallback source is invalid")
+                _continuity_fallback(fallback_source, output, expected_size)
+                result = output
+                provider_size = expected_size
+                normalized = False
+                digest = _sha256(output)
+                entry = {
+                    "index": plan_index + 1,
+                    "request_sha256": request_sha256,
+                    "provider_path": None,
+                    "provider_output_sha256": None,
+                    "provider_size": list(expected_size),
+                    "output_path": output.resolve().relative_to(root).as_posix(),
+                    "output_sha256": digest,
+                    "normalized": False,
+                    "local_fallback": True,
+                    "fallback_reason": "ambiguous_provider_attempt_not_retried",
+                    "fallback_source_path": previous["output_path"],
+                    "fallback_source_sha256": previous["output_sha256"],
+                }
+                checkpoint["entries"].append(entry)
+                if checkpoint_file is not None:
+                    _atomic_json(checkpoint_file, checkpoint)
+            elif attempt is None:
                 result = Path(generator(
                     prompt=item["prompt"], output_path=output, model=model, size=size,
                 ))
@@ -291,7 +366,7 @@ def generate_episode_images(
                 result = output
         if not result.is_file() or result.stat().st_size <= 0:
             raise EpisodeImageError(f"image provider produced no file for {item['source_id']}")
-        if attempt.get("output_sha256") is None:
+        if not ambiguous and attempt.get("output_sha256") is None:
             attempt["output_sha256"] = _sha256(result)
         resolved = result.resolve()
         if resolved == root or root not in resolved.parents:
@@ -324,7 +399,7 @@ def generate_episode_images(
             digest = _sha256(resolved)
         asset = {
             "media_id": f"generated-{item['source_id']}-scene-{item['scene_index']:02d}",
-            "kind": "generated_image",
+            "kind": "local_continuity_fallback" if entry.get("local_fallback") else "generated_image",
             "local_path": resolved.relative_to(root).as_posix(),
             "sha256": digest,
             "download_status": "verified",
@@ -332,6 +407,8 @@ def generate_episode_images(
             "size": size,
             "provider_size": list(provider_size),
             "normalized_from_provider_size": normalized,
+            "local_fallback": bool(entry.get("local_fallback")),
+            "fallback_reason": entry.get("fallback_reason"),
             "prompt": item["prompt"],
             "caption": "",
             "scene_index": item["scene_index"],
