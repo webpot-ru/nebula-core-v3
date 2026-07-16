@@ -453,6 +453,36 @@ class CompilationTtsRunnerTests(unittest.TestCase):
         self.assertEqual(len(posts), len(state["chunks"]))
         self.assertEqual(sleeps, [5])
 
+    def test_retryable_poll_429_retries_same_saved_task_without_resubmit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            posts = []
+            polls = []
+            sleeps = []
+            def post(**kwargs):
+                posts.append(kwargs["file_name"])
+                return {"task_id": f"task-{len(posts)}", "model_id": "eleven_v3"}
+            def poll(**kwargs):
+                polls.append(kwargs["task_id"])
+                if len(polls) == 1:
+                    raise Ai33Error(
+                        'AI33 task polling failed (429): '
+                        '{"success":false,"message":"Task polling temporarily busy"}'
+                    )
+                kwargs["output_path"].write_bytes(b"audio")
+                return {"success": True, "model_id": "eleven_v3"}
+            def concat(paths, output):
+                output.write_bytes(b"final")
+            state = run_compilation_tts(
+                sample_compilation(), output_dir=root, api_key="secret",
+                voice_id="voice", post_task=post, poll_task=poll, concat=concat,
+                sleeper=sleeps.append, probe_duration=fake_probe_duration,
+                poll_concurrency=1,
+            )
+        self.assertEqual(polls[:2], ["task-1", "task-1"])
+        self.assertEqual(len(posts), len(state["chunks"]))
+        self.assertEqual(sleeps, [5])
+
     def test_ambiguous_or_changed_state_never_submits(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

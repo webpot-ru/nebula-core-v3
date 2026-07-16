@@ -85,6 +85,8 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         self.assertIn("acc1-resume-lease-${{ github.run_id }}", workflow)
         self.assertIn("scripts/acc1_resume_lock.py create", workflow)
         self.assertIn("parent-resume-spend-lease.json", workflow)
+        self.assertIn('--ai33-journal "$WORKDIR/provider-attempts/ai33.json"', workflow)
+        self.assertIn('--tts-state "$WORKDIR/tts/compilation_tts_state.json"', workflow)
         self.assertIn('--resume-reviewed-run-id "$RESUME_SOURCE_RUN_ID"', workflow)
         self.assertIn('--resume-lease "$WORKDIR/resume-spend-lease.json"', workflow)
         self.assertNotIn("uploader.py", workflow)

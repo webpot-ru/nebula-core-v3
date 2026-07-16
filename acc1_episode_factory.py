@@ -1986,6 +1986,12 @@ def _validate_resume_contract(
         )
     if resume_lease.get("parent_image_checkpoint_sha256") is not None:
         paths["parent_image_checkpoint_sha256"] = workdir / "scene-image-checkpoint.json"
+    if resume_lease.get("parent_ai33_journal_sha256") is not None:
+        paths["parent_ai33_journal_sha256"] = (
+            workdir / "provider-attempts" / "ai33.json"
+        )
+    if resume_lease.get("parent_tts_state_sha256") is not None:
+        paths["parent_tts_state_sha256"] = workdir / "tts" / "compilation_tts_state.json"
     parent_resume_hash = resume_lease.get("parent_resume_lease_sha256")
     if parent_resume_hash is not None:
         parent_resume_path = workdir / "parent-resume-spend-lease.json"
@@ -2011,6 +2017,10 @@ def _validate_resume_contract(
         image_attempts = payloads["parent_image_journal_sha256"].get("attempts") or []
         if len(image_attempts) != resume_lease.get("parent_completed_image_attempts"):
             raise EpisodeFactoryError("paid resume parent image attempt count mismatch")
+    if "parent_ai33_journal_sha256" in payloads:
+        ai33_attempts = payloads["parent_ai33_journal_sha256"].get("attempts") or []
+        if len(ai33_attempts) != resume_lease.get("parent_completed_ai33_attempts"):
+            raise EpisodeFactoryError("paid resume parent AI33 attempt count mismatch")
 
     playoff_input = payloads["parent_topic_input_sha256"]
     if playoff_input.get("daily_plan_sha256") != canonical_hash(daily_plan):
@@ -2385,6 +2395,7 @@ def run_produce_stage(
         cap=ai33_cap,
         label="ai33",
         journal_path=provider_journal_dir / "ai33.json",
+        allow_completed_resume=is_resume,
     )
     tts_state = run_compilation_tts(
         script,

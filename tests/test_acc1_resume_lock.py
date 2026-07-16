@@ -210,5 +210,52 @@ class Acc1ResumeLockTests(unittest.TestCase):
                 image_call_cap=16, ai33_call_cap=32,
             )
 
+    def test_resume_lease_binds_completed_ai33_posts_and_in_progress_tts(self):
+        lease, topic, producer, critic, journal, image_journal = parent_evidence()
+        task_id = "task-one"
+        ai33_journal = {
+            "version": 1, "provider": "ai33", "cap": 32,
+            "attempts": [{
+                "index": 1, "status": "COMPLETE", "task_id": task_id,
+                "request_sha256": "6" * 64, "response_sha256": "7" * 64,
+            }],
+            "publication_authorized": False,
+        }
+        tts_state = {
+            "version": 3, "status": "IN_PROGRESS",
+            "chunks": [{
+                "chunk_id": "story__001", "status": "SUBMITTED", "task_id": task_id,
+            }],
+            "publication_authorized": False,
+        }
+        resume = build_resume_lease(
+            parent_lease=lease, topic_input=topic, producer_review=producer,
+            critic_review=critic, openai_journal=journal,
+            image_journal=image_journal, ai33_journal=ai33_journal,
+            tts_state=tts_state, parent_run_id=101, run_id=202,
+            run_attempt=1, head_sha=HEAD_SHA, repository=REPOSITORY,
+            openai_call_cap=64, openai_token_cap=1_000_000,
+            image_call_cap=16, ai33_call_cap=32,
+        )
+        self.assertEqual(resume["parent_completed_ai33_attempts"], 1)
+        self.assertEqual(
+            resume["parent_ai33_journal_sha256"], canonical_hash(ai33_journal),
+        )
+        self.assertEqual(resume["parent_tts_state_sha256"], canonical_hash(tts_state))
+        validate_resume_lease(resume, repository=REPOSITORY)
+
+        broken_state = copy.deepcopy(tts_state)
+        broken_state["chunks"][0]["task_id"] = "different-task"
+        with self.assertRaisesRegex(ResumeLockError, "task IDs"):
+            build_resume_lease(
+                parent_lease=lease, topic_input=topic, producer_review=producer,
+                critic_review=critic, openai_journal=journal,
+                image_journal=image_journal, ai33_journal=ai33_journal,
+                tts_state=broken_state, parent_run_id=101, run_id=202,
+                run_attempt=1, head_sha=HEAD_SHA, repository=REPOSITORY,
+                openai_call_cap=64, openai_token_cap=1_000_000,
+                image_call_cap=16, ai33_call_cap=32,
+            )
+
 if __name__ == "__main__":
     unittest.main()
