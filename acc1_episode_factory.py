@@ -2420,7 +2420,7 @@ def run_produce_stage(
     storyboard = build_storyboard(
         script,
         workdir,
-        background_video=background_path,
+        background_video=background_path.relative_to(workdir),
         tts_state=tts_state,
     )
     storyboard_path = workdir / "storyboard.json"
