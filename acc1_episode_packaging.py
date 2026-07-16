@@ -98,12 +98,30 @@ def build_prompt(script: dict[str, Any], playoff: dict[str, Any]) -> str:
         }
         for item in sources
     ]
-    packaging_rule = (
-        "- winner_packaging_options is an immutable lock: return those exact three objects "
-        "unchanged, in the same order; do not rewrite, improve, translate, or add fields."
-        if locked_options is not None
-        else "- Return exactly three materially different title/thumbnail/first-screen angles."
-    )
+    if locked_options is not None:
+        return f"""
+Select the strongest honest YouTube packaging option for one Russian long-form Reddit episode.
+
+Rules:
+- The three supplied options are an immutable lock and already source-validated.
+- Choose exactly one option for click-through potential, first-screen clarity, retention promise, and honesty.
+- Do not rewrite, translate, expand, or return the options.
+- selected_option_index must be 0, 1, or 2.
+- Return strict JSON only.
+
+Episode: {json.dumps({
+    'format': script.get('episode_format'),
+    'pillar': script.get('pillar'),
+    'title_ru': script.get('title_ru'),
+    'truth_disclosure_ru': script.get('truth_disclosure_ru'),
+    'winning_topic': winner,
+    'winner_packaging_options': locked_options,
+}, ensure_ascii=False)}
+
+JSON shape:
+{{"selected_option_index": 0}}
+""".strip()
+    packaging_rule = "- Return exactly three materially different title/thumbnail/first-screen angles."
     return f"""
 Create high-retention but strictly honest Russian YouTube packaging for one long-form Reddit episode.
 
@@ -317,6 +335,28 @@ def generate_packaging(
     )
     if not isinstance(payload, dict):
         raise EpisodePackagingError("packaging provider returned a non-object")
+    locked_options = _winner_packaging_options(playoff)
+    if locked_options is not None:
+        selected = payload.get("selected_option_index")
+        if isinstance(selected, bool) or not isinstance(selected, int) or selected not in range(3):
+            raise EpisodePackagingError("selected_option_index must be 0, 1, or 2")
+        selected_option = locked_options[selected]
+        source_id = _text(selected_option.get("source_id"))
+        source_backing = _text(selected_option.get("source_backing"))
+        sources = _sources(script)
+        payload = {
+            "packaging_options": locked_options,
+            "selected_option_index": selected,
+            "youtube_description": build_youtube_description(
+                _text(script.get("truth_disclosure_ru")),
+                [_text(item.get("source_url") or item.get("url")) for item in sources],
+            ),
+            "thumbnail_prompt": build_thumbnail_prompt(source_backing),
+            "thumbnail_source_id": source_id,
+            "thumbnail_source_backing": source_backing,
+            "language": "ru",
+            "risk_flags": [],
+        }
     failures = validate_packaging(payload, script, playoff)
     if failures:
         raise EpisodePackagingError("; ".join(failures))

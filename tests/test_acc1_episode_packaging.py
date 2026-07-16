@@ -93,12 +93,56 @@ class EpisodePackagingTests(unittest.TestCase):
 
     def test_locked_winner_options_are_returned_exactly(self):
         playoff = locked_playoff()
-        payload = valid_payload()
-        result = generate_packaging(script(), playoff, provider=lambda **_kwargs: payload)
+        result = generate_packaging(
+            script(),
+            playoff,
+            provider=lambda **_kwargs: {"selected_option_index": 1},
+        )
         self.assertEqual(result["packaging_options"], playoff["winner_packaging_options"])
+        self.assertEqual(result["selected_option_index"], 1)
+        self.assertEqual(
+            result["thumbnail_source_backing"],
+            playoff["winner_packaging_options"][1]["source_backing"],
+        )
+        self.assertEqual(
+            result["thumbnail_prompt"],
+            build_thumbnail_prompt(playoff["winner_packaging_options"][1]["source_backing"]),
+        )
+        self.assertEqual(result["risk_flags"], [])
         prompt = build_prompt(script(), playoff)
         self.assertIn("immutable lock", prompt)
         self.assertIn('"youtube_title": "Заголовок 0"', prompt)
+        self.assertIn('{"selected_option_index": 0}', prompt)
+        self.assertNotIn('"youtube_description": ""', prompt)
+
+    def test_locked_winner_options_ignore_provider_authored_deterministic_fields(self):
+        playoff = locked_playoff()
+        result = generate_packaging(
+            script(),
+            playoff,
+            provider=lambda **_kwargs: {
+                "selected_option_index": 2,
+                "youtube_description": "invented",
+                "thumbnail_prompt": "invented",
+                "risk_flags": ["invented"],
+            },
+        )
+        self.assertEqual(
+            result["youtube_description"],
+            build_youtube_description(
+                script()["truth_disclosure_ru"],
+                ["https://www.reddit.com/r/test/comments/abc/topic/"],
+            ),
+        )
+        self.assertEqual(result["risk_flags"], [])
+
+    def test_locked_winner_selection_must_be_valid(self):
+        with self.assertRaisesRegex(EpisodePackagingError, "selected_option_index"):
+            generate_packaging(
+                script(),
+                locked_playoff(),
+                provider=lambda **_kwargs: {"selected_option_index": 3},
+            )
 
     def test_locked_winner_options_reject_any_provider_rewrite(self):
         playoff = locked_playoff()
