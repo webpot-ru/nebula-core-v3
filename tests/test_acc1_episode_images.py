@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import hashlib
 import json
+import copy
 from pathlib import Path
 
 from PIL import Image
@@ -146,6 +147,25 @@ class EpisodeImageTests(unittest.TestCase):
             )
             self.assertEqual(len(resumed_assets), 3)
             self.assertEqual(len(resumed["stories"][0]["generated_media"]), 3)
+
+            rebound_script = copy.deepcopy(script)
+            rebound_script["episode_plan_sha256"] = "b" * 64
+            _rebound, rebound_assets = generate_episode_images(
+                rebound_script, root / "scene-images", artifact_root=root,
+                max_images=3,
+                generator=lambda **_kwargs: self.fail("rebound image was regenerated"),
+                provider_attempts=attempts, checkpoint_path=checkpoint,
+            )
+            rebound_checkpoint = json.loads(checkpoint.read_text(encoding="utf-8"))
+            self.assertEqual(len(rebound_assets), 3)
+            self.assertEqual(rebound_checkpoint["episode_plan_sha256"], "b" * 64)
+            self.assertEqual(
+                rebound_checkpoint["rebound_from_episode_plan_sha256"], "a" * 64,
+            )
+            self.assertEqual(
+                rebound_checkpoint["rebound_reason"],
+                "exact_scene_request_hashes_revalidated",
+            )
 
     def test_factory_scene_paths_are_relative_to_artifact_root(self):
         script = {

@@ -702,6 +702,39 @@ class EpisodeFactoryTests(unittest.TestCase):
                 self._runtime_script(100), self.plan,
             )
 
+    def test_resume_reuses_validated_episode_plan_across_git_commits(self):
+        restored = {
+            "episode_plan_sha256": "a" * 64,
+            "git_sha": "1" * 40,
+            "provider_settings": {"image": {"model": "gpt-image-2"}},
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "episode-plan.json"
+            path.write_text(json.dumps(restored), encoding="utf-8")
+            with (
+                mock.patch.object(
+                    factory, "validate_episode_manifest",
+                    return_value={"status": "PASS", "failures": []},
+                ) as validate,
+                mock.patch.object(
+                    factory, "build_episode_manifest",
+                    side_effect=AssertionError("resume rebuilt immutable episode plan"),
+                ),
+            ):
+                resolved = factory._resolve_episode_plan(
+                    is_resume=True,
+                    path=path,
+                    daily_plan=self.plan,
+                    queue={},
+                    playoff={},
+                    greenlight={},
+                    channel={},
+                    provider_settings=restored["provider_settings"],
+                    winner={"sources": []},
+                )
+        self.assertEqual(resolved, restored)
+        validate.assert_called_once()
+
     def test_ambiguous_provider_attempt_is_journaled_and_not_resubmitted(self):
         with tempfile.TemporaryDirectory() as temp:
             journal = Path(temp) / "openai.json"
