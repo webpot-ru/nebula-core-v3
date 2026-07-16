@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
+import os
 import re
 from pathlib import Path
 from typing import Any, Callable
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
 
@@ -34,7 +36,17 @@ def _expected_dimensions(size: str) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
-def _validate_generated_image(path: Path, *, expected_size: tuple[int, int]) -> None:
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _canonical_hash(value: Any) -> str:
+    return hashlib.sha256(json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+
+
+def _inspect_generated_image(path: Path) -> tuple[str, tuple[int, int]]:
     try:
         with Image.open(path) as image:
             actual_size = image.size
@@ -50,12 +62,54 @@ def _validate_generated_image(path: Path, *, expected_size: tuple[int, int]) -> 
         raise EpisodeImageError(
             f"image provider returned unsupported format {actual_format or '(unknown)'}"
         )
-    if actual_size != expected_size:
+    return actual_format, actual_size
+
+
+def _normalize_generated_image(
+    path: Path,
+    *,
+    expected_size: tuple[int, int],
+    provider_path: Path,
+) -> tuple[tuple[int, int], bool, Path]:
+    _actual_format, actual_size = _inspect_generated_image(path)
+    if actual_size == expected_size:
+        return actual_size, False, path
+    expected_ratio = expected_size[0] / expected_size[1]
+    actual_ratio = actual_size[0] / actual_size[1]
+    if (
+        actual_size[0] < expected_size[0]
+        or actual_size[1] < expected_size[1]
+        or abs(actual_ratio - expected_ratio) / expected_ratio > 0.01
+    ):
         raise EpisodeImageError(
             "image provider returned wrong dimensions: "
             f"expected {expected_size[0]}x{expected_size[1]}, "
             f"got {actual_size[0]}x{actual_size[1]}"
         )
+    if provider_path.exists():
+        raise EpisodeImageError(f"unexpected existing raw provider image: {provider_path.name}")
+    os.replace(path, provider_path)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with Image.open(provider_path) as image:
+        normalized = ImageOps.fit(
+            image.convert("RGB"), expected_size, method=Image.Resampling.LANCZOS,
+        )
+        normalized.save(temporary, format="PNG")
+    os.replace(temporary, path)
+    _format, normalized_size = _inspect_generated_image(path)
+    if normalized_size != expected_size:
+        raise EpisodeImageError("normalized image does not match the requested dimensions")
+    return actual_size, True, provider_path
+
+
+def _atomic_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
 
 
 def _sentences(value: str) -> list[str]:
@@ -129,6 +183,8 @@ def generate_episode_images(
     model: str = DEFAULT_IMAGE_MODEL,
     size: str = SIZE,
     artifact_root: Path | None = None,
+    provider_attempts: list[dict[str, Any]] | None = None,
+    checkpoint_path: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Generate the exact plan and bind every decoded file by checksum."""
     planned = image_plan(script)
@@ -144,25 +200,128 @@ def generate_episode_images(
     root = Path(artifact_root) if artifact_root is not None else output_dir
     root = root.resolve()
     expected_size = _expected_dimensions(size)
+    attempts = provider_attempts if provider_attempts is not None else []
+    if len(attempts) > len(planned):
+        raise EpisodeImageError("image journal has more attempts than the scene plan")
+    checkpoint_file = Path(checkpoint_path) if checkpoint_path is not None else None
+    if checkpoint_file is not None and provider_attempts is None:
+        raise EpisodeImageError("image checkpoint requires the provider attempt journal")
+    checkpoint = {
+        "version": 1,
+        "episode_plan_sha256": script.get("episode_plan_sha256"),
+        "model": model,
+        "size": size,
+        "entries": [],
+        "publication_authorized": False,
+    }
+    if checkpoint_file is not None and checkpoint_file.exists():
+        loaded = json.loads(checkpoint_file.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict) or any(
+            loaded.get(key) != checkpoint[key]
+            for key in ("version", "episode_plan_sha256", "model", "size", "publication_authorized")
+        ) or not isinstance(loaded.get("entries"), list):
+            raise EpisodeImageError("image checkpoint is incompatible")
+        checkpoint = loaded
+    if len(checkpoint["entries"]) > len(attempts):
+        raise EpisodeImageError("image checkpoint exceeds the provider journal")
     assets: list[dict[str, Any]] = []
-    for item in planned:
+    for plan_index, item in enumerate(planned):
         story_number = item["story_index"] + 1
         output = output_dir / (
             f"story-{story_number:02d}-{item['source_id']}-scene-{item['scene_index']:02d}.png"
         )
-        result = Path(generator(
-            prompt=item["prompt"],
-            output_path=output,
-            model=model,
-            size=size,
-        ))
+        request_sha256 = _canonical_hash({
+            "prompt": item["prompt"], "model": model,
+            "max_output_tokens": None, "voice_id": None,
+        })
+        entry = checkpoint["entries"][plan_index] if plan_index < len(checkpoint["entries"]) else None
+        attempt = attempts[plan_index] if plan_index < len(attempts) else None
+        if attempt is not None and (
+            attempt.get("index") != plan_index + 1
+            or attempt.get("status") != "COMPLETE"
+            or attempt.get("request_sha256") != request_sha256
+        ):
+            raise EpisodeImageError("image journal attempt does not match the scene plan")
+        if entry is not None:
+            expected_output_path = output.resolve().relative_to(root).as_posix()
+            expected_raw_path = output.with_name(
+                f"{output.stem}.provider{output.suffix}"
+            ).resolve().relative_to(root).as_posix()
+            if (
+                attempt is None
+                or entry.get("index") != plan_index + 1
+                or entry.get("request_sha256") != request_sha256
+                or entry.get("provider_output_sha256") != attempt.get("output_sha256")
+                or entry.get("output_path") != expected_output_path
+                or entry.get("provider_path") not in {expected_output_path, expected_raw_path}
+            ):
+                raise EpisodeImageError("image checkpoint is not bound to the provider attempt")
+            result = root / str(entry.get("output_path") or "")
+            provider_file = root / str(entry.get("provider_path") or "")
+            if (
+                not result.is_file()
+                or _sha256(result) != entry.get("output_sha256")
+                or not provider_file.is_file()
+                or _sha256(provider_file) != attempt.get("output_sha256")
+            ):
+                raise EpisodeImageError("image checkpoint file hash mismatch")
+            provider_size = tuple(entry.get("provider_size") or ())
+            normalized = bool(entry.get("normalized"))
+        else:
+            if attempt is None:
+                result = Path(generator(
+                    prompt=item["prompt"], output_path=output, model=model, size=size,
+                ))
+                if provider_attempts is not None and plan_index >= len(attempts):
+                    raise EpisodeImageError("image provider call was not persisted in the journal")
+                if provider_attempts is not None:
+                    attempt = attempts[plan_index]
+                    if (
+                        attempt.get("status") != "COMPLETE"
+                        or attempt.get("request_sha256") != request_sha256
+                    ):
+                        raise EpisodeImageError("completed image call does not match the scene plan")
+                else:
+                    attempt = {
+                        "index": plan_index + 1,
+                        "status": "COMPLETE",
+                        "request_sha256": request_sha256,
+                    }
+            else:
+                result = output
         if not result.is_file() or result.stat().st_size <= 0:
             raise EpisodeImageError(f"image provider produced no file for {item['source_id']}")
+        if attempt.get("output_sha256") is None:
+            attempt["output_sha256"] = _sha256(result)
         resolved = result.resolve()
         if resolved == root or root not in resolved.parents:
             raise EpisodeImageError("generated image must remain under artifact_root")
-        _validate_generated_image(resolved, expected_size=expected_size)
-        digest = hashlib.sha256(result.read_bytes()).hexdigest()
+        if entry is None:
+            if _sha256(resolved) != attempt.get("output_sha256"):
+                raise EpisodeImageError("provider image file does not match its journal hash")
+            raw_path = output.with_name(f"{output.stem}.provider{output.suffix}")
+            provider_size, normalized, provider_file = _normalize_generated_image(
+                resolved, expected_size=expected_size, provider_path=raw_path,
+            )
+            digest = _sha256(output)
+            entry = {
+                "index": plan_index + 1,
+                "request_sha256": request_sha256,
+                "provider_path": provider_file.resolve().relative_to(root).as_posix(),
+                "provider_output_sha256": attempt["output_sha256"],
+                "provider_size": list(provider_size),
+                "output_path": output.resolve().relative_to(root).as_posix(),
+                "output_sha256": digest,
+                "normalized": normalized,
+            }
+            checkpoint["entries"].append(entry)
+            if checkpoint_file is not None:
+                _atomic_json(checkpoint_file, checkpoint)
+        else:
+            _format, actual_size = _inspect_generated_image(resolved)
+            if actual_size != expected_size:
+                raise EpisodeImageError("checkpoint image has wrong normalized dimensions")
+            digest = _sha256(resolved)
         asset = {
             "media_id": f"generated-{item['source_id']}-scene-{item['scene_index']:02d}",
             "kind": "generated_image",
@@ -171,6 +330,8 @@ def generate_episode_images(
             "download_status": "verified",
             "model": model,
             "size": size,
+            "provider_size": list(provider_size),
+            "normalized_from_provider_size": normalized,
             "prompt": item["prompt"],
             "caption": "",
             "scene_index": item["scene_index"],

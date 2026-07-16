@@ -1,10 +1,16 @@
 import tempfile
 import unittest
+import hashlib
 from pathlib import Path
 
 from PIL import Image
 
-from acc1_episode_images import EpisodeImageError, generate_episode_images, image_plan
+from acc1_episode_images import (
+    EpisodeImageError,
+    _canonical_hash,
+    generate_episode_images,
+    image_plan,
+)
 
 
 def story(source_id: str, words: int = 80):
@@ -97,6 +103,48 @@ class EpisodeImageTests(unittest.TestCase):
                     max_images=5,
                     generator=wrong_size_generator,
                 )
+
+    def test_large_near_ratio_provider_images_are_normalized_and_resumed(self):
+        script = {
+            "episode_format": "THREAD",
+            "episode_plan_sha256": "a" * 64,
+            "stories": [story("prompt"), story("response")],
+        }
+        attempts = []
+
+        def provider(*, prompt, output_path, model, **_kwargs):
+            Image.new("RGB", (1672, 941), "#314159").save(output_path)
+            attempts.append({
+                "index": len(attempts) + 1,
+                "status": "COMPLETE",
+                "request_sha256": _canonical_hash({
+                    "prompt": prompt, "model": model,
+                    "max_output_tokens": None, "voice_id": None,
+                }),
+                "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+            })
+            return output_path
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint = root / "scene-image-checkpoint.json"
+            _updated, assets = generate_episode_images(
+                script, root / "scene-images", artifact_root=root, max_images=3,
+                generator=provider, provider_attempts=attempts,
+                checkpoint_path=checkpoint,
+            )
+            self.assertEqual(len(attempts), 3)
+            self.assertTrue(all(item["normalized_from_provider_size"] for item in assets))
+            for item in assets:
+                with Image.open(root / item["local_path"]) as image:
+                    self.assertEqual(image.size, (1536, 864))
+            resumed, resumed_assets = generate_episode_images(
+                script, root / "scene-images", artifact_root=root, max_images=3,
+                generator=lambda **_kwargs: self.fail("resumed image was regenerated"),
+                provider_attempts=attempts, checkpoint_path=checkpoint,
+            )
+            self.assertEqual(len(resumed_assets), 3)
+            self.assertEqual(len(resumed["stories"][0]["generated_media"]), 3)
 
     def test_factory_scene_paths_are_relative_to_artifact_root(self):
         script = {

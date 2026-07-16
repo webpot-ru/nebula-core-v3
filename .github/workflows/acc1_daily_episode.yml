@@ -406,6 +406,12 @@ jobs:
               --parent-resume-lease "$WORKDIR/parent-resume-spend-lease.json"
             )
           fi
+          IMAGE_CHECKPOINT_ARGS=()
+          if [[ -f "$WORKDIR/scene-image-checkpoint.json" ]]; then
+            IMAGE_CHECKPOINT_ARGS+=(
+              --image-checkpoint "$WORKDIR/scene-image-checkpoint.json"
+            )
+          fi
           python scripts/acc1_resume_lock.py create \
             --existing-root "$RESUME_SCAN_ROOT" \
             --parent-lease "$WORKDIR/spend-lease.json" \
@@ -413,6 +419,8 @@ jobs:
             --producer-review "$WORKDIR/producer-review.json" \
             --critic-review "$WORKDIR/critic-review.json" \
             --openai-journal "$WORKDIR/provider-attempts/openai.json" \
+            --image-journal "$WORKDIR/provider-attempts/image.json" \
+            "${IMAGE_CHECKPOINT_ARGS[@]}" \
             --parent-run-id "$RESUME_SOURCE_RUN_ID" \
             --run-id "$GITHUB_RUN_ID" \
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
@@ -564,6 +572,7 @@ jobs:
               "episode_greenlight": root / "episode-greenlight.json",
               "episode_plan": root / "episode-plan.json",
               "scene_images_manifest": root / "scene-images-manifest.json",
+              "scene_image_checkpoint": root / "scene-image-checkpoint.json",
               "thumbnail_manifest": root / "thumbnail-manifest.json",
               "tts_state": root / "tts" / "compilation_tts_state.json",
               "render_report": root / "render-report.json",

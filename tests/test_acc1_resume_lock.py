@@ -56,18 +56,27 @@ def parent_evidence(run_id=101):
         }],
         "publication_authorized": False,
     }
-    return lease, topic_input, producer, critic, journal
+    image_journal = {
+        "version": 1,
+        "provider": "image",
+        "cap": 16,
+        "attempts": [],
+        "publication_authorized": False,
+    }
+    return lease, topic_input, producer, critic, journal, image_journal
 
 
 class Acc1ResumeLockTests(unittest.TestCase):
     def test_resume_lease_binds_parent_evidence_and_current_caps(self):
-        lease, topic, producer, critic, journal = parent_evidence()
+        lease, topic, producer, critic, journal, image_journal = parent_evidence()
         resume = build_resume_lease(
             parent_lease=lease,
             topic_input=topic,
             producer_review=producer,
             critic_review=critic,
             openai_journal=journal,
+            image_journal=image_journal,
+            image_checkpoint={"version": 1, "entries": []},
             parent_run_id=101,
             run_id=202,
             run_attempt=1,
@@ -86,19 +95,25 @@ class Acc1ResumeLockTests(unittest.TestCase):
             head_sha=HEAD_SHA,
             parent_run_id=101,
         )
+        self.assertEqual(resume["parent_completed_image_attempts"], 0)
+        self.assertEqual(
+            resume["parent_image_checkpoint_sha256"],
+            canonical_hash({"version": 1, "entries": []}),
+        )
         tampered = copy.deepcopy(resume)
         tampered["caps"]["openai_call_cap"] = 63
         with self.assertRaisesRegex(ResumeLockError, "self hash"):
             validate_resume_lease(tampered, repository=REPOSITORY)
 
     def test_existing_resume_for_same_parent_blocks_second_resume(self):
-        lease, topic, producer, critic, journal = parent_evidence()
+        lease, topic, producer, critic, journal, image_journal = parent_evidence()
         resume = build_resume_lease(
             parent_lease=lease,
             topic_input=topic,
             producer_review=producer,
             critic_review=critic,
             openai_journal=journal,
+            image_journal=image_journal,
             parent_run_id=101,
             run_id=202,
             run_attempt=1,
@@ -118,17 +133,19 @@ class Acc1ResumeLockTests(unittest.TestCase):
                 scan_existing(root, parent_run_id=101, repository=REPOSITORY)
 
     def test_chained_resume_binds_the_immediate_parent_resume(self):
-        lease, topic, producer, critic, journal = parent_evidence()
+        lease, topic, producer, critic, journal, image_journal = parent_evidence()
         first = build_resume_lease(
             parent_lease=lease, topic_input=topic, producer_review=producer,
-            critic_review=critic, openai_journal=journal, parent_run_id=101,
+            critic_review=critic, openai_journal=journal, image_journal=image_journal,
+            parent_run_id=101,
             run_id=202, run_attempt=1, head_sha=HEAD_SHA,
             repository=REPOSITORY, openai_call_cap=64,
             openai_token_cap=1_000_000, image_call_cap=16, ai33_call_cap=32,
         )
         chained = build_resume_lease(
             parent_lease=lease, topic_input=topic, producer_review=producer,
-            critic_review=critic, openai_journal=journal, parent_run_id=202,
+            critic_review=critic, openai_journal=journal, image_journal=image_journal,
+            parent_run_id=202,
             run_id=303, run_attempt=1, head_sha=HEAD_SHA,
             repository=REPOSITORY, openai_call_cap=64,
             openai_token_cap=1_000_000, image_call_cap=16, ai33_call_cap=32,
@@ -143,7 +160,8 @@ class Acc1ResumeLockTests(unittest.TestCase):
         )
         third = build_resume_lease(
             parent_lease=lease, topic_input=topic, producer_review=producer,
-            critic_review=critic, openai_journal=journal, parent_run_id=303,
+            critic_review=critic, openai_journal=journal, image_journal=image_journal,
+            parent_run_id=303,
             run_id=404, run_attempt=1, head_sha=HEAD_SHA,
             repository=REPOSITORY, openai_call_cap=64,
             openai_token_cap=1_000_000, image_call_cap=16, ai33_call_cap=32,
