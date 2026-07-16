@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import hashlib
+import json
 from pathlib import Path
 
 from PIL import Image
@@ -171,6 +172,58 @@ class EpisodeImageTests(unittest.TestCase):
                 "scene-images/story-01-prompt-scene-01.png",
             )
             self.assertTrue((root / assets[0]["local_path"]).is_file())
+
+    def test_final_ambiguous_attempt_uses_local_fallback_without_retry(self):
+        script = {
+            "episode_format": "THREAD",
+            "episode_plan_sha256": "a" * 64,
+            "stories": [story("prompt"), story("response")],
+        }
+        attempts = []
+
+        def provider(*, prompt, output_path, model, **_kwargs):
+            Image.new("RGB", (1536, 864), "#314159").save(output_path)
+            attempts.append({
+                "index": len(attempts) + 1,
+                "status": "COMPLETE",
+                "request_sha256": _canonical_hash({
+                    "prompt": prompt, "model": model,
+                    "max_output_tokens": None, "voice_id": None,
+                }),
+                "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+            })
+            return output_path
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint = root / "scene-image-checkpoint.json"
+            generate_episode_images(
+                script, root / "scene-images", artifact_root=root, max_images=3,
+                generator=provider, provider_attempts=attempts,
+                checkpoint_path=checkpoint,
+            )
+            attempts[2] = {
+                "index": 3,
+                "status": "AMBIGUOUS_ERROR",
+                "request_sha256": attempts[2]["request_sha256"],
+                "error_type": "VectorEngineError",
+            }
+            checkpoint_payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+            checkpoint_payload["entries"] = checkpoint_payload["entries"][:2]
+            checkpoint.write_text(json.dumps(checkpoint_payload), encoding="utf-8")
+
+            updated, assets = generate_episode_images(
+                script, root / "scene-images", artifact_root=root, max_images=3,
+                generator=lambda **_kwargs: self.fail("ambiguous request was retried"),
+                provider_attempts=attempts, checkpoint_path=checkpoint,
+            )
+            self.assertEqual(len(attempts), 3)
+            self.assertEqual(assets[-1]["kind"], "local_continuity_fallback")
+            self.assertEqual(
+                assets[-1]["fallback_reason"],
+                "ambiguous_provider_attempt_not_retried",
+            )
+            self.assertEqual(len(updated["stories"][0]["generated_media"]), 3)
 
 
 if __name__ == "__main__":

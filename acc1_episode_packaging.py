@@ -324,18 +324,23 @@ def generate_packaging(
     script: dict[str, Any],
     playoff: dict[str, Any],
     *,
-    provider: Provider = call_gemini_json,
+    provider: Provider | None = call_gemini_json,
     model: str = DEFAULT_GEMINI_MODEL,
 ) -> dict[str, Any]:
-    payload = provider(
-        prompt=build_prompt(script, playoff),
-        model=model,
-        temperature=0.25,
-        max_output_tokens=4096,
-    )
+    locked_options = _winner_packaging_options(playoff)
+    if provider is None:
+        if locked_options is None:
+            raise EpisodePackagingError("deterministic packaging requires locked winner options")
+        payload = {"selected_option_index": 0}
+    else:
+        payload = provider(
+            prompt=build_prompt(script, playoff),
+            model=model,
+            temperature=0.25,
+            max_output_tokens=4096,
+        )
     if not isinstance(payload, dict):
         raise EpisodePackagingError("packaging provider returned a non-object")
-    locked_options = _winner_packaging_options(playoff)
     if locked_options is not None:
         selected = payload.get("selected_option_index")
         if isinstance(selected, bool) or not isinstance(selected, int) or selected not in range(3):

@@ -144,6 +144,14 @@ class EpisodePackagingTests(unittest.TestCase):
                 provider=lambda **_kwargs: {"selected_option_index": 3},
             )
 
+    def test_locked_winner_can_use_deterministic_primary_without_provider(self):
+        result = generate_packaging(script(), locked_playoff(), provider=None)
+        self.assertEqual(result["selected_option_index"], 0)
+        self.assertEqual(
+            result["packaging_options"][0]["youtube_title"],
+            "Заголовок 0",
+        )
+
     def test_locked_winner_options_reject_any_provider_rewrite(self):
         playoff = locked_playoff()
         payload = valid_payload()

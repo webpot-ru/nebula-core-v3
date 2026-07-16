@@ -96,6 +96,7 @@ class Acc1ResumeLockTests(unittest.TestCase):
             parent_run_id=101,
         )
         self.assertEqual(resume["parent_completed_image_attempts"], 0)
+        self.assertIsNone(resume["parent_ambiguous_image_attempt_index"])
         self.assertEqual(
             resume["parent_image_checkpoint_sha256"],
             canonical_hash({"version": 1, "entries": []}),
@@ -171,6 +172,43 @@ class Acc1ResumeLockTests(unittest.TestCase):
             third, repository=REPOSITORY, run_id=404, parent_run_id=303,
         )
         self.assertEqual(third["parent_spend_lease_sha256"], canonical_hash(lease))
+
+    def test_final_ambiguous_image_attempt_is_consumed_not_retried(self):
+        lease, topic, producer, critic, journal, image_journal = parent_evidence()
+        image_journal["attempts"] = [
+            {
+                "index": 1, "status": "COMPLETE",
+                "request_sha256": "1" * 64, "output_sha256": "2" * 64,
+            },
+            {
+                "index": 2, "status": "AMBIGUOUS_ERROR",
+                "request_sha256": "3" * 64, "error_type": "VectorEngineError",
+            },
+        ]
+        resume = build_resume_lease(
+            parent_lease=lease, topic_input=topic, producer_review=producer,
+            critic_review=critic, openai_journal=journal,
+            image_journal=image_journal, parent_run_id=101, run_id=202,
+            run_attempt=1, head_sha=HEAD_SHA, repository=REPOSITORY,
+            openai_call_cap=64, openai_token_cap=1_000_000,
+            image_call_cap=16, ai33_call_cap=32,
+        )
+        self.assertEqual(resume["parent_ambiguous_image_attempt_index"], 2)
+        validate_resume_lease(resume, repository=REPOSITORY)
+
+        image_journal["attempts"].append({
+            "index": 3, "status": "COMPLETE",
+            "request_sha256": "4" * 64, "output_sha256": "5" * 64,
+        })
+        with self.assertRaisesRegex(ResumeLockError, "not completely resumable"):
+            build_resume_lease(
+                parent_lease=lease, topic_input=topic, producer_review=producer,
+                critic_review=critic, openai_journal=journal,
+                image_journal=image_journal, parent_run_id=101, run_id=202,
+                run_attempt=1, head_sha=HEAD_SHA, repository=REPOSITORY,
+                openai_call_cap=64, openai_token_cap=1_000_000,
+                image_call_cap=16, ai33_call_cap=32,
+            )
 
 if __name__ == "__main__":
     unittest.main()

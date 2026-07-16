@@ -159,6 +159,14 @@ def build_resume_lease(
         raise ResumeLockError("parent OpenAI journal usage does not reconcile")
     image_call_cap = _positive(image_call_cap, "image_call_cap")
     image_attempts = image_journal.get("attempts")
+    ambiguous_image_attempt = None
+    if isinstance(image_attempts, list):
+        ambiguous_indices = [
+            index for index, item in enumerate(image_attempts, start=1)
+            if isinstance(item, dict) and item.get("status") == "AMBIGUOUS_ERROR"
+        ]
+        if len(ambiguous_indices) == 1:
+            ambiguous_image_attempt = ambiguous_indices[0]
     if (
         image_journal.get("provider") != "image"
         or image_journal.get("cap") != image_call_cap
@@ -166,9 +174,20 @@ def build_resume_lease(
         or any(
             not isinstance(item, dict)
             or item.get("index") != index
-            or item.get("status") != "COMPLETE"
+            or (
+                item.get("status") != "COMPLETE"
+                and not (
+                    item.get("status") == "AMBIGUOUS_ERROR"
+                    and index == len(image_attempts)
+                    and ambiguous_image_attempt == index
+                    and item.get("output_sha256") is None
+                )
+            )
             or not SHA256_RE.fullmatch(str(item.get("request_sha256") or ""))
-            or not SHA256_RE.fullmatch(str(item.get("output_sha256") or ""))
+            or (
+                item.get("status") == "COMPLETE"
+                and not SHA256_RE.fullmatch(str(item.get("output_sha256") or ""))
+            )
             for index, item in enumerate(image_attempts, start=1)
         )
     ):
@@ -207,6 +226,7 @@ def build_resume_lease(
         ),
         "parent_completed_openai_attempts": len(attempts),
         "parent_completed_image_attempts": len(image_attempts),
+        "parent_ambiguous_image_attempt_index": ambiguous_image_attempt,
         "run_id": _positive(run_id, "run_id"),
         "run_attempt": _positive(run_attempt, "run_attempt"),
         "head_sha": normalized_head,
@@ -245,6 +265,7 @@ def validate_resume_lease(
             raise ResumeLockError(f"resume lease {field} is invalid")
     image_hash = lease.get("parent_image_journal_sha256")
     image_count = lease.get("parent_completed_image_attempts")
+    ambiguous_image_index = lease.get("parent_ambiguous_image_attempt_index")
     if (image_hash is None) != (image_count is None):
         raise ResumeLockError("resume lease image journal binding is incomplete")
     if image_hash is not None:
@@ -252,6 +273,13 @@ def validate_resume_lease(
             raise ResumeLockError("resume lease parent_image_journal_sha256 is invalid")
         if isinstance(image_count, bool) or not isinstance(image_count, int) or image_count < 0:
             raise ResumeLockError("resume lease completed image attempt count is invalid")
+        if ambiguous_image_index is not None and (
+            isinstance(ambiguous_image_index, bool)
+            or not isinstance(ambiguous_image_index, int)
+            or ambiguous_image_index < 1
+            or ambiguous_image_index > image_count
+        ):
+            raise ResumeLockError("resume lease ambiguous image attempt index is invalid")
     image_checkpoint_hash = lease.get("parent_image_checkpoint_sha256")
     if image_checkpoint_hash is not None and not SHA256_RE.fullmatch(
         str(image_checkpoint_hash)

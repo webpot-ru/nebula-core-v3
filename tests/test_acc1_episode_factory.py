@@ -778,6 +778,33 @@ class EpisodeFactoryTests(unittest.TestCase):
                     journal_path=journal, allow_completed_resume=True,
                 )
 
+    def test_image_budget_accepts_only_final_consumed_ambiguous_attempt(self):
+        journal_payload = {
+            "version": 1, "provider": "image", "cap": 16,
+            "attempts": [
+                {
+                    "index": 1, "status": "COMPLETE",
+                    "request_sha256": "1" * 64, "output_sha256": "2" * 64,
+                },
+                {
+                    "index": 2, "status": "AMBIGUOUS_ERROR",
+                    "request_sha256": "3" * 64, "error_type": "VectorEngineError",
+                },
+            ],
+            "publication_authorized": False,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "image.json"
+            journal.write_text(json.dumps(journal_payload), encoding="utf-8")
+            budget = factory.CallBudget(
+                lambda **_kwargs: self.fail("ambiguous image was retried"),
+                cap=16, label="image", journal_path=journal,
+                allow_completed_resume=True,
+            )
+            self.assertEqual(len(budget.calls), 2)
+            with self.assertRaisesRegex(factory.EpisodeFactoryError, "unresolved paid attempt"):
+                budget(prompt="another image")
+
     def test_openai_budget_rejects_unproven_service_tier_and_accounts_usage(self):
         with tempfile.TemporaryDirectory() as temp:
             journal = Path(temp) / "openai.json"
@@ -1174,10 +1201,10 @@ class EpisodeFactoryTests(unittest.TestCase):
             "saga-post-4",
         ])
 
-    def test_image_budget_includes_every_scene_and_thumbnail(self):
-        self.assertEqual(factory._required_image_calls("SAGA", 1), 6)
-        self.assertEqual(factory._required_image_calls("BUNDLE", 5), 16)
-        self.assertEqual(factory._required_image_calls("THREAD", 16), 4)
+    def test_image_budget_includes_scenes_but_not_local_thumbnail(self):
+        self.assertEqual(factory._required_image_calls("SAGA", 1), 5)
+        self.assertEqual(factory._required_image_calls("BUNDLE", 5), 15)
+        self.assertEqual(factory._required_image_calls("THREAD", 16), 3)
 
     def test_minimum_tts_budget_is_known_before_paid_text_calls(self):
         self.assertEqual(factory._minimum_tts_calls("SAGA", 1), 3)
@@ -1386,17 +1413,17 @@ class EpisodeFactoryTests(unittest.TestCase):
             }
             for candidate_index in range(5)
         ]
-        self.assertEqual(factory._required_openai_calls(candidates), 128)
+        self.assertEqual(factory._required_openai_calls(candidates), 127)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First short paragraph.\n\nSecond one.\n\nThird one."
-        self.assertEqual(factory._required_openai_calls(candidates), 128)
+        self.assertEqual(factory._required_openai_calls(candidates), 127)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First" + (" " * 20_000) + "short response."
-        self.assertEqual(factory._required_openai_calls(candidates), 128)
+        self.assertEqual(factory._required_openai_calls(candidates), 127)
 
     def test_self_hash_detects_release_manifest_tamper(self):
         manifest = {"status": "READY_FOR_HUMAN_REVIEW", "publication_authorized": False}
@@ -1665,7 +1692,13 @@ class EpisodeFactoryTests(unittest.TestCase):
                     "entries": [],
                     "publication_authorized": False,
                 })
-                return script_arg, []
+                scene = workdir / "scene-images" / "scene-01.png"
+                scene.parent.mkdir(parents=True, exist_ok=True)
+                scene.write_bytes(b"scene-image")
+                return script_arg, [{
+                    "local_path": "scene-images/scene-01.png",
+                    "sha256": factory._sha256_file(scene),
+                }]
 
             def fake_runtime_estimate(script_arg, plan_arg):
                 self.assertIs(script_arg, script)
