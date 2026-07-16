@@ -34,7 +34,11 @@ from acc1_episode_contract import (
     validate_episode_script,
 )
 from acc1_episode_images import generate_episode_images
-from acc1_episode_manifest import build_episode_manifest, canonical_hash
+from acc1_episode_manifest import (
+    build_episode_manifest,
+    canonical_hash,
+    validate_episode_manifest,
+)
 from acc1_episode_packaging import generate_packaging, validate_packaging
 from acc1_thread_source import collect_thread_source_candidates
 from acc1_topic_playoff import (
@@ -2025,6 +2029,54 @@ def _validate_resume_contract(
     return copy.deepcopy(enriched), copy.deepcopy(producer_reports), copy.deepcopy(critic_reports)
 
 
+def _resolve_episode_plan(
+    *, is_resume: bool, path: Path, daily_plan: dict[str, Any],
+    queue: dict[str, Any], playoff: dict[str, Any], greenlight: dict[str, Any],
+    channel: dict[str, Any], provider_settings: dict[str, Any],
+    winner: dict[str, Any],
+) -> dict[str, Any]:
+    """Reuse an exact validated plan across commits instead of changing its identity."""
+    if is_resume and path.exists():
+        episode_plan = _read_object(path)
+        report = validate_episode_manifest(
+            episode_plan,
+            source_queue=queue,
+            topic_review=playoff,
+            greenlight=greenlight,
+            config=channel,
+            daily_plan=daily_plan,
+        )
+        if report.get("status") != "PASS":
+            raise EpisodeFactoryError(
+                "restored episode plan is incompatible: "
+                + "; ".join(report.get("failures") or [])
+            )
+        if episode_plan.get("provider_settings") != provider_settings:
+            raise EpisodeFactoryError(
+                "restored episode plan provider settings do not match the current contract"
+            )
+        return episode_plan
+    return build_episode_manifest(
+        episode_key=daily_plan["episode_key"],
+        episode_date=daily_plan["production_date"],
+        pilot_id=daily_plan["pilot_id"],
+        format_id=daily_plan["format"],
+        pillar=daily_plan["pillar"],
+        source_queue=queue,
+        topic_review=playoff,
+        greenlight=greenlight,
+        config=channel,
+        daily_plan=daily_plan,
+        git_sha=_git_sha(),
+        provider_settings=provider_settings,
+        sources=[{
+            "post_id": item["source_id"],
+            "body_sha256": item["body_sha256"],
+            "truth_mode": item["truth_mode"],
+        } for item in winner["sources"]],
+    )
+
+
 def run_produce_stage(
     *,
     daily_plan: dict[str, Any],
@@ -2206,28 +2258,21 @@ def run_produce_stage(
             "emotion_tags": False,
         },
     }
-    episode_plan = build_episode_manifest(
-        episode_key=daily_plan["episode_key"],
-        episode_date=daily_plan["production_date"],
-        pilot_id=daily_plan["pilot_id"],
-        format_id=daily_plan["format"],
-        pillar=daily_plan["pillar"],
-        source_queue=queue,
-        topic_review=playoff,
-        greenlight=greenlight,
-        config=channel,
+    episode_plan_path = workdir / "episode-plan.json"
+    episode_plan = _resolve_episode_plan(
+        is_resume=is_resume,
+        path=episode_plan_path,
         daily_plan=daily_plan,
-        git_sha=_git_sha(),
+        queue=queue,
+        playoff=playoff,
+        greenlight=greenlight,
+        channel=channel,
         provider_settings=provider_settings,
-        sources=[{
-            "post_id": item["source_id"],
-            "body_sha256": item["body_sha256"],
-            "truth_mode": item["truth_mode"],
-        } for item in winner["sources"]],
+        winner=winner,
     )
 
     _atomic_json(workdir / "episode-greenlight.json", greenlight)
-    _atomic_json(workdir / "episode-plan.json", episode_plan)
+    _atomic_json(episode_plan_path, episode_plan)
 
     script = _translate_script(
         winner,

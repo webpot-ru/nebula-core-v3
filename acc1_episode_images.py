@@ -233,10 +233,20 @@ def generate_episode_images(
         loaded = json.loads(checkpoint_file.read_text(encoding="utf-8"))
         if not isinstance(loaded, dict) or any(
             loaded.get(key) != checkpoint[key]
-            for key in ("version", "episode_plan_sha256", "model", "size", "publication_authorized")
+            for key in ("version", "model", "size", "publication_authorized")
         ) or not isinstance(loaded.get("entries"), list):
             raise EpisodeImageError("image checkpoint is incompatible")
+        checkpoint_rebound = loaded.get("episode_plan_sha256") != checkpoint["episode_plan_sha256"]
+        if checkpoint_rebound:
+            previous_plan_sha256 = str(loaded.get("episode_plan_sha256") or "")
+            if not re.fullmatch(r"[0-9a-f]{64}", previous_plan_sha256):
+                raise EpisodeImageError("image checkpoint has invalid prior episode plan hash")
+            loaded["episode_plan_sha256"] = checkpoint["episode_plan_sha256"]
+            loaded["rebound_from_episode_plan_sha256"] = previous_plan_sha256
+            loaded["rebound_reason"] = "exact_scene_request_hashes_revalidated"
         checkpoint = loaded
+    else:
+        checkpoint_rebound = False
     if len(checkpoint["entries"]) > len(attempts):
         raise EpisodeImageError("image checkpoint exceeds the provider journal")
     assets: list[dict[str, Any]] = []
@@ -418,4 +428,6 @@ def generate_episode_images(
         }
         updated["stories"][item["story_index"]].setdefault("generated_media", []).append(asset)
         assets.append(asset)
+    if checkpoint_rebound and checkpoint_file is not None:
+        _atomic_json(checkpoint_file, checkpoint)
     return updated, assets
