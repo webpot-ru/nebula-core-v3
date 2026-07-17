@@ -1638,17 +1638,17 @@ class EpisodeFactoryTests(unittest.TestCase):
             }
             for candidate_index in range(5)
         ]
-        self.assertEqual(factory._required_openai_calls(candidates), 127)
+        self.assertEqual(factory._required_openai_calls(candidates), 143)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First short paragraph.\n\nSecond one.\n\nThird one."
-        self.assertEqual(factory._required_openai_calls(candidates), 127)
+        self.assertEqual(factory._required_openai_calls(candidates), 143)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First" + (" " * 20_000) + "short response."
-        self.assertEqual(factory._required_openai_calls(candidates), 127)
+        self.assertEqual(factory._required_openai_calls(candidates), 143)
 
     def test_self_hash_detects_release_manifest_tamper(self):
         manifest = {"status": "READY_FOR_HUMAN_REVIEW", "publication_authorized": False}

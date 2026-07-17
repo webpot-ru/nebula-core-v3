@@ -435,11 +435,11 @@ def _translation_fallback_piece_ceiling(body: str, chunk_chars: int = 7_000) -> 
 
 
 def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
-    """Budget reviews, one evidence correction per finalist, and winner production."""
+    """Budget reviews, bounded evidence correction, and winner production."""
     translation_calls = max(
         (
             sum(
-                (9 if str(candidate.get("format") or "").upper() == "SAGA" else 6)
+                (10 if str(candidate.get("format") or "").upper() == "SAGA" else 7)
                 + _translation_fallback_piece_ceiling(
                     str(source.get("body") or "")
                 )

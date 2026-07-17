@@ -142,7 +142,7 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             '        required: true\n'
             '        default: "96"\n'
             '        type: choice\n'
-            '        options: ["16", "24", "32", "48", "64", "96", "128"]\n',
+            '        options: ["16", "24", "32", "48", "64", "96", "128", "160"]\n',
             self.workflow,
         )
         self.assertIn(

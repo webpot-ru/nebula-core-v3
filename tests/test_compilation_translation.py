@@ -1,5 +1,7 @@
 import unittest
 import tempfile
+import hashlib
+import json
 from pathlib import Path
 
 from compilation_translation import (
@@ -301,6 +303,186 @@ class CompilationTranslationTests(unittest.TestCase):
         self.assertEqual(result["translation_audit"]["revisions"], 3)
         self.assertIn("тихий стук", result["body"])
         self.assertEqual(saved["revisions_completed"], 3)
+
+    def test_invalid_source_quote_gets_one_evidence_only_repair(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        translator = QueueProvider([translation])
+        reviewer = QueueProvider([
+            {
+                "verdict": "REVISE",
+                "issues": [{
+                    "kind": "place",
+                    "source_quote": "I hid inside the hallway.",
+                    "translation_quote": "Я спрятался в коридоре.",
+                    "replacement": "Я затаился в коридоре.",
+                    "explanation": "Use a closer verb.",
+                }],
+                "ending_preserved": True,
+            },
+            {
+                "repairs": [{
+                    "issue_index": 1,
+                    "source_quote": "I hid in the hall.\n\nAt dawn, the door was open.",
+                }],
+            },
+            {"verdict": "PASS", "issues": [], "ending_preserved": True},
+        ])
+        result = translate_and_review_story(
+            STORY, provider=translator, reviewer=reviewer,
+        )
+        self.assertEqual(len(translator.calls), 1)
+        self.assertEqual(len(reviewer.calls), 3)
+        self.assertIn("Repair ONLY the source_quote evidence", reviewer.calls[1]["prompt"])
+        self.assertIn("Я затаился в коридоре", result["body"])
+        self.assertTrue(result["translation_audit"]["source_quote_repair_completed"])
+
+    def test_partial_source_quote_repair_fails_closed_and_keeps_paid_review(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        translator = QueueProvider([translation])
+        reviewer = QueueProvider([
+            {
+                "verdict": "REVISE",
+                "issues": [
+                    {
+                        "kind": "tone",
+                        "source_quote": "I heard something at the door.",
+                        "translation_quote": "Я услышал стук.",
+                        "replacement": "Я услышал громкий стук.",
+                    },
+                    {
+                        "kind": "place",
+                        "source_quote": "I hid inside the hallway.",
+                        "translation_quote": "Я спрятался в коридоре.",
+                        "replacement": "Я затаился в коридоре.",
+                    },
+                ],
+                "ending_preserved": True,
+            },
+            {
+                "repairs": [{
+                    "issue_index": 2,
+                    "source_quote": "I hid in the hall.\n\nAt dawn, the door was open.",
+                }],
+            },
+        ])
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "review.json"
+            with self.assertRaisesRegex(TranslationError, "exact invalid issue set"):
+                translate_and_review_story(
+                    STORY,
+                    provider=translator,
+                    reviewer=reviewer,
+                    review_checkpoint_path=checkpoint,
+                )
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+        self.assertEqual(saved["revisions_completed"], 0)
+        self.assertEqual(saved["review_history"][0]["issues"][0]["source_quote"],
+                         "I heard something at the door.")
+        self.assertFalse(saved["source_quote_repair_completed"])
+
+    def test_source_quote_repair_allowance_cannot_be_used_twice(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        translator = QueueProvider([translation])
+        reviewer = QueueProvider([
+            {
+                "verdict": "REVISE",
+                "issues": [{
+                    "kind": "tone",
+                    "source_quote": "I heard something at the door.",
+                    "translation_quote": "Я услышал стук.",
+                    "replacement": "Я услышал громкий стук.",
+                }],
+                "ending_preserved": True,
+            },
+            {
+                "repairs": [{
+                    "issue_index": 1,
+                    "source_quote": "I heard a knock.\n\nI hid in the hall.",
+                }],
+            },
+            {
+                "verdict": "REVISE",
+                "issues": [{
+                    "kind": "place",
+                    "source_quote": "I hid inside the hallway.",
+                    "translation_quote": "Я спрятался в коридоре.",
+                    "replacement": "Я затаился в коридоре.",
+                }],
+                "ending_preserved": True,
+            },
+        ])
+        with self.assertRaisesRegex(TranslationError, "allowance is already consumed"):
+            translate_and_review_story(
+                STORY, provider=translator, reviewer=reviewer,
+            )
+        self.assertEqual(len(reviewer.calls), 3)
+
+    def test_resume_repairs_saved_invalid_quote_without_retranslating(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        pending = {
+            "verdict": "REVISE",
+            "issues": [{
+                "kind": "place",
+                "source_quote": "I hid inside the hallway.",
+                "translation_quote": "Я спрятался в коридоре.",
+                "replacement": "Я затаился в коридоре.",
+            }],
+            "ending_preserved": True,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "review.json"
+            checkpoint.write_text(json.dumps({
+                "schema_version": 2,
+                "source_sha256": hashlib.sha256(STORY["body"].encode()).hexdigest(),
+                "revisions_completed": 0,
+                "review_history": [pending],
+                "current_translation": translation,
+            }, ensure_ascii=False), encoding="utf-8")
+            provider = QueueProvider([
+                {
+                    "repairs": [{
+                        "issue_index": 1,
+                        "source_quote": "I hid in the hall.\n\nAt dawn, the door was open.",
+                    }],
+                },
+                {"verdict": "PASS", "issues": [], "ending_preserved": True},
+            ])
+            result = translate_and_review_story(
+                STORY,
+                provider=provider,
+                review_checkpoint_path=checkpoint,
+            )
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+        self.assertEqual(len(provider.calls), 2)
+        self.assertIn("Repair ONLY the source_quote evidence", provider.calls[0]["prompt"])
+        self.assertNotIn("Translate this complete Reddit story", provider.calls[0]["prompt"])
+        self.assertIn("Я затаился в коридоре", result["body"])
+        self.assertEqual(saved["revisions_completed"], 1)
+        self.assertTrue(saved["source_quote_repair_completed"])
+        self.assertEqual(
+            saved["review_history"][0]["issues"][0]["source_quote"],
+            "I hid in the hall.\n\nAt dawn, the door was open.",
+        )
 
     def test_saga_resume_can_apply_a_fourth_paid_pending_review(self):
         translation = {
