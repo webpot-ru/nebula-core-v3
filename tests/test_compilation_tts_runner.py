@@ -9,6 +9,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from acc1_narration_profiles import (
+    NARRATION_PROFILES,
+    STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+)
 from compilation_tts_runner import CompilationTtsError, build_tts_chunks, run_compilation_tts
 from compilation_storyboard import build_storyboard
 from translator_tts import Ai33Error
@@ -515,6 +519,121 @@ class CompilationTtsRunnerTests(unittest.TestCase):
 
             with self.assertRaisesRegex(CompilationTtsError, "unexpected model"):
                 run_compilation_tts(sample_compilation(), output_dir=root, api_key="secret", voice_id="voice", post_task=post, write_payload=write)
+
+    def test_profile_chunks_persist_effective_contract_and_semantic_boundaries(self):
+        compilation = sample_compilation(
+            "Первый смысловой абзац.\n\nВторой смысловой абзац.",
+        )
+        compilation["pillar"] = "strange_dark_unexplained"
+        compilation["narration_profile_id"] = STRANGE_DARK_UNEXPLAINED_PROFILE_ID
+        compilation["stories"][0]["story_beats"] = [
+            "Первый смысловой абзац.",
+            "Второй смысловой абзац.",
+        ]
+        chunks = build_tts_chunks(
+            compilation,
+            voice_id="voice",
+            narration_profile_id=STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+        )
+        self.assertEqual(
+            chunks,
+            build_tts_chunks(compilation, voice_id="voice"),
+        )
+        story_chunks = [
+            item for item in chunks
+            if item["logical_segment_id"] == "story_abc"
+        ]
+        profile = NARRATION_PROFILES[STRANGE_DARK_UNEXPLAINED_PROFILE_ID]
+        self.assertEqual(
+            [item["text"] for item in story_chunks],
+            ["Первый смысловой абзац.", "Второй смысловой абзац."],
+        )
+        self.assertTrue(all(item["is_last_in_beat"] for item in story_chunks))
+        self.assertFalse(story_chunks[0]["is_last_in_segment"])
+        self.assertTrue(story_chunks[1]["is_last_in_segment"])
+        self.assertTrue(all(
+            item["narration_profile_sha256"] == profile["profile_sha256"]
+            for item in chunks
+        ))
+        self.assertTrue(all(
+            item["effective_speed"] == profile["speed"]
+            and item["effective_voice_settings_json"] == profile["voice_settings_json"]
+            and item["effective_with_transcript"] is True
+            and item["effective_context_chaining"] is False
+            for item in chunks
+        ))
+        legacy = build_tts_chunks(
+            sample_compilation(), voice_id="voice",
+        )
+        self.assertTrue(all("narration_profile_id" not in item for item in legacy))
+
+    def test_profile_run_uses_effective_provider_values_and_writes_pause_map(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            compilation = sample_compilation()
+            compilation["pillar"] = "strange_dark_unexplained"
+            posted = []
+
+            def post(**kwargs):
+                posted.append(kwargs)
+                return {
+                    "success": True,
+                    "audio_bytes": b"x",
+                    "model_id": "eleven_v3",
+                }
+
+            def write(_payload, path, _api_key):
+                path.write_bytes(path.name.encode())
+                return True
+
+            def concat(_paths, output):
+                output.write_bytes(b"final")
+
+            state = run_compilation_tts(
+                compilation,
+                output_dir=root,
+                api_key="secret",
+                voice_id="voice",
+                narration_profile_id=STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+                post_task=post,
+                write_payload=write,
+                concat=concat,
+                probe_duration=fake_probe_duration,
+            )
+            pause_map = json.loads(
+                (root / "narration-pause-map.json").read_text(encoding="utf-8"),
+            )
+
+        profile = NARRATION_PROFILES[STRANGE_DARK_UNEXPLAINED_PROFILE_ID]
+        self.assertTrue(posted)
+        self.assertTrue(all(item["speed"] == profile["speed"] for item in posted))
+        self.assertTrue(all(
+            item["voice_settings_json"] == profile["voice_settings_json"]
+            for item in posted
+        ))
+        self.assertEqual(state["pause_map_sha256"], pause_map["pause_map_sha256"])
+        self.assertEqual(state["narration_profile_sha256"], profile["profile_sha256"])
+        self.assertRegex(state["narration_plan_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_profile_request_overrides_fail_closed(self):
+        compilation = sample_compilation()
+        compilation["pillar"] = "strange_dark_unexplained"
+        with self.assertRaisesRegex(CompilationTtsError, "speed override conflicts"):
+            build_tts_chunks(
+                compilation,
+                voice_id="voice",
+                narration_profile_id=STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+                speed=1.2,
+            )
+        with self.assertRaisesRegex(
+            CompilationTtsError, "voice_settings_json conflicts",
+        ):
+            build_tts_chunks(
+                compilation,
+                voice_id="voice",
+                narration_profile_id=STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+                voice_settings_json='{"stability":0.1}',
+            )
 
 
 if __name__ == "__main__":

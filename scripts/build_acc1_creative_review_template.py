@@ -6,7 +6,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from acc1_visual_contract import (
+    CINEMATIC_STORY_MODE,
+    DEFAULT_VISUAL_MODE,
+    VISUAL_MODES,
+    resolve_visual_mode,
+)
 
 
 CHECKS = (
@@ -22,6 +34,25 @@ CHECKS = (
     "fiction_disclosure_accepted",
 )
 
+CINEMATIC_CHECKS = (
+    "editorial_acceptance",
+    "voice_role_confirmed",
+    "first_30_seconds_accepted",
+    "source_truth_card_accepted",
+    "fullscreen_scene_semantics_accepted",
+    "motion_rhythm_accepted",
+    "caption_track_accepted",
+    "voice_mix_accepted",
+    "brand_anchor_accepted",
+    "thumbnail_truthful",
+    "fiction_disclosure_accepted",
+)
+
+
+def checks_for_mode(visual_mode: str) -> tuple[str, ...]:
+    mode = resolve_visual_mode(visual_mode)
+    return CINEMATIC_CHECKS if mode == CINEMATIC_STORY_MODE else CHECKS
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -31,19 +62,30 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_template(video: Path, thumbnail: Path) -> dict:
+def build_template(
+    video: Path,
+    thumbnail: Path,
+    *,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
+) -> dict:
     if not video.is_file() or not thumbnail.is_file():
         raise FileNotFoundError("video and thumbnail must exist")
+    mode = resolve_visual_mode(visual_mode)
+    checks = checks_for_mode(mode)
     return {
-        "version": 1,
+        "version": 3,
         "status": "BLOCKED",
+        "visual_mode": mode,
         "publication_authorized": False,
+        "decision_scope": "private_review_only",
+        "human_attested": False,
         "video_sha256": sha256_file(video),
         "thumbnail_sha256": sha256_file(thumbnail),
         "reviewer": None,
         "reviewed_at": None,
         "notes": "",
-        "checks": {field: False for field in CHECKS},
+        "observations": [],
+        "checks": {field: False for field in checks},
     }
 
 
@@ -51,9 +93,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--video", required=True)
     parser.add_argument("--thumbnail", required=True)
+    parser.add_argument(
+        "--visual-mode",
+        choices=tuple(sorted(VISUAL_MODES)),
+        default=DEFAULT_VISUAL_MODE,
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
-    payload = build_template(Path(args.video), Path(args.thumbnail))
+    payload = build_template(
+        Path(args.video),
+        Path(args.thumbnail),
+        visual_mode=args.visual_mode,
+    )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

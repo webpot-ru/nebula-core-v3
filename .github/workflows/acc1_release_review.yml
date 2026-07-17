@@ -1,0 +1,142 @@
+name: acc1 Release Review Gate
+run-name: acc1 release review source_run=${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful acc1 Daily Episode Factory run id
+        required: true
+        type: string
+      expected_manifest_sha256:
+        description: Exact release-candidate-manifest self hash
+        required: true
+        type: string
+      review_bundle_path:
+        description: Repo-relative directory containing creative-review.json and rights-manifest.json
+        required: true
+        type: string
+      confirm_release_review:
+        description: Confirm the completed human and rights evidence for private review only
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Require exact release-review authorization
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+          REVIEW_BUNDLE_PATH: ${{ inputs.review_bundle_path }}
+          CONFIRM_RELEASE_REVIEW: ${{ inputs.confirm_release_review }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM_RELEASE_REVIEW" = "true"
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$REVIEW_BUNDLE_PATH" =~ ^release-reviews/acc1/[A-Za-z0-9._/-]+$ ]]
+          [[ "$REVIEW_BUNDLE_PATH" != *".."* ]]
+          test -f "$REVIEW_BUNDLE_PATH/creative-review.json"
+          test -f "$REVIEW_BUNDLE_PATH/rights-manifest.json"
+      - name: Verify the source run and download its exact artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_SOURCE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/acc1-release-review
+          gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json workflowName,conclusion,event,headBranch,headSha \
+            > build/acc1-release-review/source-run.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path("build/acc1-release-review/source-run.json").read_text())
+          if payload.get("workflowName") != "acc1 Daily Episode Factory":
+              raise SystemExit("source run is not the acc1 Daily Episode Factory")
+          if payload.get("conclusion") != "success" or payload.get("event") != "workflow_dispatch":
+              raise SystemExit("source run is not a successful manual factory run")
+          if payload.get("headBranch") != os.environ["EXPECTED_SOURCE_BRANCH"]:
+              raise SystemExit("source factory run is not from the trusted default branch")
+          PY
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "acc1-daily-episode-$SOURCE_RUN_ID" \
+            --dir build/acc1-release-review/artifact
+      - name: Verify exact factory manifest input
+        env:
+          EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from acc1_episode_manifest import canonical_hash
+
+          path = Path("build/acc1-release-review/artifact/release-candidate-manifest.json")
+          manifest = json.loads(path.read_text(encoding="utf-8"))
+          embedded = manifest.get("release_candidate_manifest_sha256")
+          payload = dict(manifest)
+          payload.pop("release_candidate_manifest_sha256", None)
+          if embedded != canonical_hash(payload) or embedded != os.environ["EXPECTED_MANIFEST_SHA256"]:
+              raise SystemExit("factory manifest does not match the exact expected hash")
+          PY
+      - name: Join factory, human-review and rights evidence
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          REVIEW_BUNDLE_PATH: ${{ inputs.review_bundle_path }}
+        run: |
+          set -euo pipefail
+          cp "$REVIEW_BUNDLE_PATH/creative-review.json" build/acc1-release-review/creative-review.json
+          cp "$REVIEW_BUNDLE_PATH/rights-manifest.json" build/acc1-release-review/rights-manifest.json
+          python acc1_release_gate.py \
+            --factory-artifact-root build/acc1-release-review/artifact \
+            --factory-creative-review build/acc1-release-review/creative-review.json \
+            --rights-manifest build/acc1-release-review/rights-manifest.json \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --output build/acc1-release-review/release-gate.json
+      - name: Verify private-review ceiling
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from acc1_episode_manifest import canonical_hash
+
+          report = json.loads(Path("build/acc1-release-review/release-gate.json").read_text())
+          embedded = report.get("release_gate_sha256")
+          payload = dict(report)
+          payload.pop("release_gate_sha256", None)
+          if embedded != canonical_hash(payload):
+              raise SystemExit("release gate self hash does not match")
+          if report.get("status") != "READY_FOR_PRIVATE_REVIEW":
+              raise SystemExit("release gate is not ready for private review")
+          if report.get("publication_authorized") is not False:
+              raise SystemExit("release gate publication boundary drifted")
+          if report.get("upload_authorized") is not False:
+              raise SystemExit("release gate must not authorize an upload")
+          PY
+      - name: Preserve exact release-gate receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-release-gate-${{ github.run_id }}
+          path: |
+            build/acc1-release-review/source-run.json
+            build/acc1-release-review/release-gate.json
+            build/acc1-release-review/creative-review.json
+            build/acc1-release-review/rights-manifest.json
+          if-no-files-found: error
+          retention-days: 30

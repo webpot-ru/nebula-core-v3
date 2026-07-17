@@ -99,6 +99,122 @@ class Acc1EpisodeManifestTests(unittest.TestCase):
             manifest["daily_plan_sha256"], acc1_episode_manifest.canonical_hash(daily_plan)
         )
 
+    def test_builder_emits_v2_cinematic_contracts_without_downstream_hashes(self):
+        queue, review, greenlight, config, daily_plan, providers = exact_artifacts()
+        manifest = acc1_episode_manifest.build_episode_manifest(
+            episode_key="acc1/2026-07-14/pilot_03",
+            episode_date="2026-07-14",
+            pilot_id="pilot_03",
+            format_id="SAGA",
+            pillar="strange_dark_unexplained",
+            source_queue=queue,
+            topic_review=review,
+            greenlight=greenlight,
+            config=config,
+            daily_plan=daily_plan,
+            git_sha="1234567890abcdef1234567890abcdef12345678",
+            provider_settings=providers,
+            visual_mode="cinematic_story_v1",
+        )
+        self.assertEqual(manifest["version"], 2)
+        self.assertEqual(manifest["visual_mode"], "cinematic_story_v1")
+        self.assertEqual(
+            manifest["narration_profile_id"],
+            "acc1_strange_dark_unexplained_v1",
+        )
+        self.assertRegex(manifest["narration_profile_sha256"], r"^[0-9a-f]{64}$")
+        self.assertTrue(manifest["shot_plan_contract"]["required"])
+        self.assertTrue(manifest["caption_track_contract"]["required"])
+        self.assertTrue(manifest["audio_mix_contract"]["required"])
+        serialized = repr(manifest)
+        self.assertNotIn("shot_plan_sha256", serialized)
+        self.assertNotIn("caption_track_sha256", serialized)
+        self.assertNotIn("audio_mix_sha256", serialized)
+        report = acc1_episode_manifest.validate_episode_manifest(manifest)
+        self.assertEqual(report["status"], "PASS", report["failures"])
+
+    def test_historical_v1_remains_self_verifying_without_mutation(self):
+        manifest, *_ = valid_manifest()
+        legacy = copy.deepcopy(manifest)
+        for field in (
+            "visual_mode",
+            "narration_profile_id",
+            "narration_profile_sha256",
+            "shot_plan_contract",
+            "caption_track_contract",
+            "audio_mix_contract",
+        ):
+            legacy.pop(field)
+        legacy["version"] = 1
+        legacy["episode_plan_sha256"] = acc1_episode_manifest.canonical_hash({
+            key: value for key, value in legacy.items()
+            if key != "episode_plan_sha256"
+        })
+        expected_hash = legacy["episode_plan_sha256"]
+        snapshot = copy.deepcopy(legacy)
+        report = acc1_episode_manifest.validate_episode_manifest(legacy)
+        self.assertEqual(report["status"], "PASS", report["failures"])
+        self.assertEqual(report["episode_plan_sha256"], expected_hash)
+        self.assertEqual(legacy, snapshot)
+
+    def test_v2_contract_tampering_blocks_without_rewriting_manifest(self):
+        manifest, *_ = valid_manifest()
+        manifest["audio_mix_contract"]["required"] = False
+        manifest["episode_plan_sha256"] = acc1_episode_manifest.canonical_hash({
+            key: value for key, value in manifest.items()
+            if key != "episode_plan_sha256"
+        })
+        report = acc1_episode_manifest.validate_episode_manifest(manifest)
+        self.assertEqual(report["status"], "BLOCKED")
+        self.assertTrue(any("audio_mix_contract" in item for item in report["failures"]))
+
+    def test_v2_requires_explicit_mode_and_profile_even_with_valid_self_hash(self):
+        for missing_field in ("visual_mode", "narration_profile_id"):
+            with self.subTest(missing_field=missing_field):
+                manifest, *_ = valid_manifest()
+                manifest.pop(missing_field)
+                manifest["episode_plan_sha256"] = (
+                    acc1_episode_manifest.canonical_hash({
+                        key: value for key, value in manifest.items()
+                        if key != "episode_plan_sha256"
+                    })
+                )
+                report = acc1_episode_manifest.validate_episode_manifest(manifest)
+                self.assertEqual(report["status"], "BLOCKED")
+                self.assertTrue(
+                    any(missing_field in item for item in report["failures"]),
+                    report["failures"],
+                )
+
+    def test_builder_fails_closed_for_unknown_or_cross_pillar_contract_values(self):
+        queue, review, greenlight, config, daily_plan, providers = exact_artifacts()
+        common = {
+            "episode_key": "acc1/2026-07-14/pilot_03",
+            "episode_date": "2026-07-14",
+            "pilot_id": "pilot_03",
+            "format_id": "SAGA",
+            "pillar": "strange_dark_unexplained",
+            "source_queue": queue,
+            "topic_review": review,
+            "greenlight": greenlight,
+            "config": config,
+            "daily_plan": daily_plan,
+            "git_sha": "1234567890abcdef1234567890abcdef12345678",
+            "provider_settings": providers,
+        }
+        with self.assertRaises(acc1_episode_manifest.EpisodeManifestError):
+            acc1_episode_manifest.build_episode_manifest(
+                **common, visual_mode="unknown_visual_mode"
+            )
+        with self.assertRaises(acc1_episode_manifest.EpisodeManifestError):
+            acc1_episode_manifest.build_episode_manifest(
+                **common,
+                narration_profile_id="acc1_relationships_family_v1",
+            )
+        broken_pillar = dict(common, pillar="unknown_pillar")
+        with self.assertRaises(acc1_episode_manifest.EpisodeManifestError):
+            acc1_episode_manifest.build_episode_manifest(**broken_pillar)
+
     def test_manifest_content_tamper_breaks_self_hash(self):
         manifest, *_ = valid_manifest()
         manifest["pillar"] = "relationships_family"
@@ -169,24 +285,84 @@ class Acc1EpisodeManifestTests(unittest.TestCase):
         report = acc1_episode_manifest.validate_episode_manifest(manifest)
         self.assertTrue(any("one truth_mode" in item for item in report["failures"]))
 
-    def test_provider_settings_refuse_secret_fields(self):
+    def test_provider_settings_allow_benign_token_budget_fields(self):
         queue, review, greenlight, config, daily_plan, providers = exact_artifacts()
-        providers["tts"]["api_key"] = "must-not-enter-a-manifest"
-        with self.assertRaisesRegex(acc1_episode_manifest.EpisodeManifestError, "secrets"):
-            acc1_episode_manifest.build_episode_manifest(
-                episode_key="acc1/2026-07-14/pilot_03",
-                episode_date="2026-07-14",
-                pilot_id="pilot_03",
-                format_id="SAGA",
-                pillar="strange_dark_unexplained",
-                source_queue=queue,
-                topic_review=review,
-                greenlight=greenlight,
-                config=config,
-                daily_plan=daily_plan,
-                git_sha="1234567890abcdef1234567890abcdef12345678",
-                provider_settings=providers,
-            )
+        providers["translation"].update({
+            "max_output_tokens": 16_384,
+            "max_input_tokens": 32_768,
+        })
+        manifest = acc1_episode_manifest.build_episode_manifest(
+            episode_key="acc1/2026-07-14/pilot_03",
+            episode_date="2026-07-14",
+            pilot_id="pilot_03",
+            format_id="SAGA",
+            pillar="strange_dark_unexplained",
+            source_queue=queue,
+            topic_review=review,
+            greenlight=greenlight,
+            config=config,
+            daily_plan=daily_plan,
+            git_sha="1234567890abcdef1234567890abcdef12345678",
+            provider_settings=providers,
+        )
+        report = acc1_episode_manifest.validate_episode_manifest(manifest)
+        self.assertEqual(report["status"], "PASS", report["failures"])
+
+    def test_provider_settings_refuse_secret_fields_and_close_variants(self):
+        secret_keys = (
+            "api_key",
+            "apikey",
+            "accessToken",
+            "refresh-token",
+            "bearer_token",
+            "idToken",
+            "auth-token",
+            "Cookie",
+            "password",
+            "client_secret",
+            "clientSecrets",
+            "privateKey",
+            "privateKeys",
+            "credentials",
+            "access_tokens",
+            "apiKeys",
+        )
+        for secret_key in secret_keys:
+            with self.subTest(secret_key=secret_key):
+                queue, review, greenlight, config, daily_plan, providers = exact_artifacts()
+                providers["tts"][secret_key] = "must-not-enter-a-manifest"
+                with self.assertRaisesRegex(
+                    acc1_episode_manifest.EpisodeManifestError, "secrets"
+                ):
+                    acc1_episode_manifest.build_episode_manifest(
+                        episode_key="acc1/2026-07-14/pilot_03",
+                        episode_date="2026-07-14",
+                        pilot_id="pilot_03",
+                        format_id="SAGA",
+                        pillar="strange_dark_unexplained",
+                        source_queue=queue,
+                        topic_review=review,
+                        greenlight=greenlight,
+                        config=config,
+                        daily_plan=daily_plan,
+                        git_sha="1234567890abcdef1234567890abcdef12345678",
+                        provider_settings=providers,
+                    )
+
+    def test_validation_does_not_mutate_inputs(self):
+        manifest, queue, review, greenlight, config, daily_plan = valid_manifest()
+        inputs = (manifest, queue, review, greenlight, config, daily_plan)
+        snapshots = copy.deepcopy(inputs)
+        report = acc1_episode_manifest.validate_episode_manifest(
+            manifest,
+            source_queue=queue,
+            topic_review=review,
+            greenlight=greenlight,
+            config=config,
+            daily_plan=daily_plan,
+        )
+        self.assertEqual(report["status"], "PASS", report["failures"])
+        self.assertEqual(inputs, snapshots)
 
     def test_provider_settings_allow_non_secret_token_accounting_names(self):
         queue, review, greenlight, config, daily_plan, providers = exact_artifacts()

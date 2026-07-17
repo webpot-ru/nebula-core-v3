@@ -13,7 +13,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable
 
-from compilation_narration import build_compilation_segments
+from acc1_narration_profiles import (
+    NarrationProfileError,
+    canonicalize_voice_settings_json,
+)
+from compilation_narration import (
+    build_compilation_segments,
+    resolve_compilation_narration_profile,
+)
 from translator_tts import (
     Ai33Error,
     collect_transcript_words,
@@ -129,6 +136,47 @@ def _sha256_file(path: Path) -> str:
 def _canonical_hash(value: Any) -> str:
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return _sha256_bytes(encoded)
+
+
+def _canonical_text(value: object) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _split_semantic_text(text: str, max_chars: int) -> list[str]:
+    """Split one semantic unit without rewriting its sanitized narration."""
+
+    remaining = str(text or "").strip()
+    if not remaining:
+        return []
+    chunks: list[str] = []
+    while len(remaining) > max_chars:
+        window = remaining[:max_chars + 1]
+        sentence_cuts = [
+            match.start()
+            for match in re.finditer(r"(?<=[.!?…])\s+", window)
+            if 0 < match.start() <= max_chars
+        ]
+        cut = sentence_cuts[-1] if sentence_cuts else -1
+        if cut <= 0:
+            cut = max(
+                window.rfind(" ", 0, max_chars + 1),
+                window.rfind("\n", 0, max_chars + 1),
+                window.rfind("\t", 0, max_chars + 1),
+            )
+        if cut <= 0:
+            cut = max_chars
+        chunk = remaining[:cut].rstrip()
+        if not chunk:
+            raise CompilationTtsError("semantic chunking produced an empty chunk")
+        chunks.append(chunk)
+        remaining = remaining[cut:].lstrip()
+    if remaining:
+        chunks.append(remaining)
+    if _canonical_text(" ".join(chunks)) != _canonical_text(text):
+        raise CompilationTtsError(
+            "semantic chunks changed the sanitized narration text"
+        )
+    return chunks
 
 
 def _probe_duration(path: Path) -> float:
@@ -276,6 +324,7 @@ def build_tts_chunks(
     *,
     voice_id: str,
     comment_voice_id: str | None = None,
+    narration_profile_id: str | None = None,
     model_id: str = REQUIRED_MODEL_ID,
     max_chars: int = 4_500,
     speed: float = 1.0,
@@ -292,7 +341,47 @@ def build_tts_chunks(
         raise CompilationTtsError("voice_id is required")
 
     bindings = _plan_bindings(compilation)
-    logical_segments = build_compilation_segments(compilation)
+    try:
+        profile = resolve_compilation_narration_profile(
+            compilation, narration_profile_id,
+        )
+    except Exception as exc:
+        if isinstance(exc, CompilationTtsError):
+            raise
+        raise CompilationTtsError(str(exc)) from exc
+
+    effective_speed = speed
+    effective_voice_settings_json = voice_settings_json
+    effective_max_chars = max_chars
+    if profile is not None:
+        profile_speed = float(profile["speed"])
+        if speed != 1.0 and not math.isclose(
+            float(speed), profile_speed, rel_tol=0.0, abs_tol=1e-9,
+        ):
+            raise CompilationTtsError(
+                "speed override conflicts with the canonical narration profile"
+            )
+        if voice_settings_json is not None:
+            try:
+                supplied_settings = canonicalize_voice_settings_json(
+                    voice_settings_json,
+                )
+            except NarrationProfileError as exc:
+                raise CompilationTtsError(str(exc)) from exc
+            if supplied_settings != profile["voice_settings_json"]:
+                raise CompilationTtsError(
+                    "voice_settings_json conflicts with the canonical narration profile"
+                )
+        effective_speed = profile_speed
+        effective_voice_settings_json = profile["voice_settings_json"]
+        effective_max_chars = min(
+            max_chars, int(profile["semantic_chunk_policy"]["max_chars"]),
+        )
+
+    logical_segments = build_compilation_segments(
+        compilation,
+        profile["profile_id"] if profile is not None else None,
+    )
     needs_comment_voice = any(
         item.get("voice_role") == "comment" for item in logical_segments
     )
@@ -312,20 +401,51 @@ def build_tts_chunks(
         selected_voice_id = (
             resolved_comment_voice if voice_role == "comment" else str(voice_id).strip()
         )
-        parts = split_long_text_for_tts(logical["text"], max_chars)
-        for index, text in enumerate(parts, start=1):
+        if profile is None:
+            semantic_parts = [
+                {
+                    "semantic_beat_id": None,
+                    "semantic_beat_index": None,
+                    "boundary_source": None,
+                    "part_index": index,
+                    "text": text,
+                }
+                for index, text in enumerate(
+                    split_long_text_for_tts(logical["text"], max_chars),
+                    start=1,
+                )
+            ]
+        else:
+            semantic_parts = []
+            for unit in logical["semantic_units"]:
+                for part_index, text in enumerate(
+                    _split_semantic_text(unit["text"], effective_max_chars),
+                    start=1,
+                ):
+                    semantic_parts.append({
+                        "semantic_beat_id": unit["semantic_beat_id"],
+                        "semantic_beat_index": unit["semantic_beat_index"],
+                        "boundary_source": unit["boundary_source"],
+                        "semantic_unit_text_sha256": unit["text_sha256"],
+                        "part_index": part_index,
+                        "text": text,
+                    })
+
+        segment_chunks: list[dict[str, Any]] = []
+        for index, semantic_part in enumerate(semantic_parts, start=1):
+            text = semantic_part["text"]
             chunk_id = f"{logical['segment_id']}__{index:03d}"
             request_contract = {
                 "text": text,
                 "voice_id": selected_voice_id,
                 "voice_role": voice_role,
                 "model_id": model_id,
-                "speed": speed,
-                "voice_settings_json": voice_settings_json,
+                "speed": effective_speed,
+                "voice_settings_json": effective_voice_settings_json,
                 "with_transcript": with_transcript,
                 "context_chaining": context_chaining,
             }
-            chunks.append({
+            chunk = {
                 "chunk_id": chunk_id,
                 "logical_segment_id": logical["segment_id"],
                 "logical_segment_kind": logical["kind"],
@@ -338,20 +458,85 @@ def build_tts_chunks(
                 "model_id": model_id,
                 **bindings,
                 "status": "READY",
-            })
+            }
+            if profile is not None:
+                request_contract["narration_profile_sha256"] = profile[
+                    "profile_sha256"
+                ]
+                chunk["request_sha256"] = _canonical_hash(request_contract)
+                chunk.update({
+                    "narration_profile_id": profile["profile_id"],
+                    "narration_profile_sha256": profile["profile_sha256"],
+                    "narration_pillar_id": profile["pillar_id"],
+                    "effective_speed": effective_speed,
+                    "effective_voice_settings_json": effective_voice_settings_json,
+                    "effective_with_transcript": bool(with_transcript),
+                    "effective_context_chaining": bool(context_chaining),
+                    "effective_semantic_max_chars": effective_max_chars,
+                    "semantic_chunk_policy_sha256": _canonical_hash(
+                        profile["semantic_chunk_policy"],
+                    ),
+                    "logical_segment_text_sha256": logical["text_sha256"],
+                    "semantic_unit_text_sha256": semantic_part[
+                        "semantic_unit_text_sha256"
+                    ],
+                    "semantic_beat_id": semantic_part["semantic_beat_id"],
+                    "semantic_beat_index": semantic_part["semantic_beat_index"],
+                    "semantic_boundary_source": semantic_part["boundary_source"],
+                    "semantic_part_index": semantic_part["part_index"],
+                })
+            segment_chunks.append(chunk)
+
+        if profile is not None:
+            for index, chunk in enumerate(segment_chunks):
+                next_chunk = (
+                    segment_chunks[index + 1]
+                    if index + 1 < len(segment_chunks)
+                    else None
+                )
+                chunk["is_last_in_beat"] = (
+                    next_chunk is None
+                    or next_chunk.get("semantic_beat_id")
+                    != chunk.get("semantic_beat_id")
+                )
+                chunk["is_last_in_segment"] = next_chunk is None
+        chunks.extend(segment_chunks)
     return chunks
 
 
 def _new_state(chunks: list[dict[str, Any]], bindings: dict[str, str]) -> dict[str, Any]:
-    narration_plan_sha256 = _canonical_hash([
-        {
+    profile_id = str(
+        (chunks[0].get("narration_profile_id") if chunks else "") or "",
+    ).strip()
+    profile_sha256 = str(
+        (chunks[0].get("narration_profile_sha256") if chunks else "") or "",
+    ).strip()
+    chunk_identity: list[dict[str, Any]] = []
+    for item in chunks:
+        identity = {
             "chunk_id": item["chunk_id"],
             "request_sha256": item["request_sha256"],
             "voice_role": item["voice_role"],
         }
-        for item in chunks
-    ])
-    return {
+        if profile_id:
+            identity.update({
+                "semantic_beat_id": item["semantic_beat_id"],
+                "semantic_beat_index": item["semantic_beat_index"],
+                "semantic_boundary_source": item["semantic_boundary_source"],
+                "semantic_unit_text_sha256": item["semantic_unit_text_sha256"],
+                "semantic_part_index": item["semantic_part_index"],
+                "is_last_in_beat": item["is_last_in_beat"],
+                "is_last_in_segment": item["is_last_in_segment"],
+            })
+        chunk_identity.append(identity)
+    narration_plan_identity: Any = chunk_identity
+    if profile_id:
+        narration_plan_identity = {
+            "chunks": chunk_identity,
+            "narration_profile_sha256": profile_sha256,
+        }
+    narration_plan_sha256 = _canonical_hash(narration_plan_identity)
+    state = {
         "version": STATE_VERSION,
         "required_model_id": REQUIRED_MODEL_ID,
         **bindings,
@@ -361,6 +546,16 @@ def _new_state(chunks: list[dict[str, Any]], bindings: dict[str, str]) -> dict[s
         "status": "IN_PROGRESS",
         "publication_authorized": False,
     }
+    if profile_id:
+        state.update({
+            "narration_profile_id": profile_id,
+            "narration_profile_sha256": profile_sha256,
+            "narration_pillar_id": chunks[0]["narration_pillar_id"],
+            "semantic_chunk_policy_sha256": chunks[0][
+                "semantic_chunk_policy_sha256"
+            ],
+        })
+    return state
 
 
 def _load_or_create_state(
@@ -381,6 +576,20 @@ def _load_or_create_state(
             raise CompilationTtsError(f"TTS state {field} changed; refusing to submit")
     if state.get("publication_authorized") is not False:
         raise CompilationTtsError("TTS state cannot authorize publication")
+    for field in (
+        "narration_profile_id",
+        "narration_profile_sha256",
+        "narration_pillar_id",
+        "semantic_chunk_policy_sha256",
+    ):
+        if field in expected and state.get(field) != expected[field]:
+            raise CompilationTtsError(
+                f"TTS state {field} changed; refusing to submit"
+            )
+        if field not in expected and state.get(field):
+            raise CompilationTtsError(
+                "profile-aware TTS state cannot be reused without its profile"
+            )
     if state.get("plan_sha256") != expected["plan_sha256"]:
         raise CompilationTtsError("TTS request plan changed; refusing to reuse or resubmit")
     existing = state.get("chunks")
@@ -475,6 +684,7 @@ def run_compilation_tts(
     api_key: str,
     voice_id: str,
     comment_voice_id: str | None = None,
+    narration_profile_id: str | None = None,
     model_id: str = REQUIRED_MODEL_ID,
     max_chars: int = 4_500,
     speed: float = 1.0,
@@ -532,6 +742,7 @@ def run_compilation_tts(
         compilation,
         voice_id=voice_id,
         comment_voice_id=comment_voice_id,
+        narration_profile_id=narration_profile_id,
         model_id=model_id,
         max_chars=max_chars,
         speed=speed,
@@ -594,11 +805,17 @@ def run_compilation_tts(
             text=item["text"],
             voice_id=item["voice_id"],
             model_id=model_id,
-            voice_settings_json=voice_settings_json,
-            speed=speed,
+            voice_settings_json=item.get(
+                "effective_voice_settings_json", voice_settings_json,
+            ),
+            speed=item.get("effective_speed", speed),
             file_name=audio_path.name,
-            with_transcript=with_transcript,
-            context_chaining=context_chaining,
+            with_transcript=item.get(
+                "effective_with_transcript", with_transcript,
+            ),
+            context_chaining=item.get(
+                "effective_context_chaining", context_chaining,
+            ),
             receive_url=None,
             pronunciation_dictionary_id=None,
         )
@@ -719,6 +936,15 @@ def run_compilation_tts(
     state["timing_contract_sha256"] = _canonical_hash(_state_timing_contract(state))
     state["status"] = "COMPLETE"
     _atomic_json(state_path, state)
+    if state.get("narration_profile_id"):
+        from compilation_audio_mix import build_pause_map
+
+        pause_map_path = output_dir / "narration-pause-map.json"
+        pause_map = build_pause_map(state, output_path=pause_map_path)
+        state["pause_map_path"] = pause_map_path.resolve().relative_to(root).as_posix()
+        state["pause_map_sha256"] = pause_map["pause_map_sha256"]
+        state["pause_map_duration_sec"] = pause_map["timeline_duration_sec"]
+        _atomic_json(state_path, state)
     return state
 
 
@@ -728,6 +954,7 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--voice-id", required=True)
     parser.add_argument("--comment-voice-id")
+    parser.add_argument("--narration-profile-id")
     parser.add_argument("--model-id", default=REQUIRED_MODEL_ID)
     parser.add_argument("--max-chars", type=int, default=4500)
     parser.add_argument("--overall-timeout-seconds", type=int)
@@ -741,6 +968,7 @@ def main() -> int:
         compilation,
         voice_id=args.voice_id,
         comment_voice_id=args.comment_voice_id,
+        narration_profile_id=args.narration_profile_id,
         model_id=args.model_id,
         max_chars=args.max_chars,
     )
@@ -755,6 +983,7 @@ def main() -> int:
     state = run_compilation_tts(
         compilation, output_dir=Path(args.output_dir), api_key=api_key,
         voice_id=args.voice_id, comment_voice_id=args.comment_voice_id,
+        narration_profile_id=args.narration_profile_id,
         model_id=args.model_id, max_chars=args.max_chars,
         overall_timeout_seconds=args.overall_timeout_seconds,
         overall_deadline_epoch=args.overall_deadline_epoch,

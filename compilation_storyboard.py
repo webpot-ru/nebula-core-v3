@@ -22,7 +22,16 @@ import re
 from typing import Any
 
 from acc1_visual_contract import (
+    CINEMATIC_CAPTION_TRACK_VERSION,
+    CINEMATIC_SERVICE_SHOT_MAX_SECONDS,
+    CINEMATIC_SHOT_PLAN_VERSION,
+    CINEMATIC_STORY_MODE,
+    CINEMATIC_STORY_SHOT_MAX_SECONDS,
+    CINEMATIC_STORY_SHOT_MIN_SECONDS,
+    CINEMATIC_ZOOM_END_MAX,
+    CINEMATIC_ZOOM_END_MIN,
     CONTRACT_VERSION as VISUAL_CONTRACT_VERSION,
+    DEFAULT_VISUAL_MODE,
     MAX_VISUAL_SCENES,
     MIN_VISUAL_SCENES,
     MASCOT_SAFE_X,
@@ -33,7 +42,10 @@ from acc1_visual_contract import (
     TEXT_LEFT_X,
     TEXT_RIGHT_X,
     WORDS_PER_VISUAL_SCENE,
+    resolve_visual_mode,
 )
+from acc1_cinematic_shots import CinematicShotError, build_cinematic_contract
+from compilation_audio_mix import verify_self_hash as verify_audio_sidecar_hash
 from compilation_narration import (
     NarrationPreflightError,
     build_compilation_segments,
@@ -124,6 +136,24 @@ def _verified_local_images(story: dict[str, Any], artifact_root: Path) -> list[d
             "caption": str(asset.get("caption") or ""),
             "sha256": str(asset.get("sha256") or _sha256(path)),
         })
+    return images
+
+
+def _verified_cinematic_images(
+    story: dict[str, Any], artifact_root: Path,
+) -> list[dict[str, Any]]:
+    images = _verified_local_images(story, artifact_root)
+    for visual in images:
+        expected = str(visual.get("sha256") or "").strip().lower()
+        path = _path_under_root(
+            str(visual.get("local_path") or ""),
+            artifact_root,
+            label="cinematic image",
+        )
+        if not SHA256_RE.fullmatch(expected) or _sha256(path) != expected:
+            raise CompilationStoryboardError(
+                "cinematic image must carry its verified file checksum",
+            )
     return images
 
 
@@ -442,7 +472,11 @@ def _is_story_segment(segment_id: str) -> bool:
 
 
 def _bound_tts_state(
-    compilation: dict[str, Any], tts_state: dict[str, Any] | None,
+    compilation: dict[str, Any],
+    tts_state: dict[str, Any] | None,
+    *,
+    pause_map: dict[str, Any] | None = None,
+    audio_mix_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(tts_state, dict) or tts_state.get("status") != "COMPLETE":
         raise CompilationStoryboardError("complete TTS state is required for production storyboard")
@@ -453,11 +487,13 @@ def _bound_tts_state(
         if not SHA256_RE.fullmatch(expected) or actual != expected:
             raise CompilationStoryboardError(f"TTS state {field} does not match compilation")
         bindings[field] = expected
-    audio_sha256 = str(tts_state.get("final_audio_sha256") or "").strip().lower()
+    source_audio_sha256 = str(
+        tts_state.get("final_audio_sha256") or "",
+    ).strip().lower()
     narration_plan_sha256 = str(
         tts_state.get("narration_plan_sha256") or tts_state.get("plan_sha256") or ""
     ).strip().lower()
-    if not SHA256_RE.fullmatch(audio_sha256):
+    if not SHA256_RE.fullmatch(source_audio_sha256):
         raise CompilationStoryboardError("TTS state final_audio_sha256 is required")
     if not SHA256_RE.fullmatch(narration_plan_sha256):
         raise CompilationStoryboardError("TTS state narration_plan_sha256 is required")
@@ -467,15 +503,100 @@ def _bound_tts_state(
     if tts_state.get("timing_contract_version") != TIMING_CONTRACT_VERSION:
         raise CompilationStoryboardError("TTS state timing contract version is required")
     try:
-        final_duration = float(tts_state.get("final_audio_duration_sec") or 0)
+        source_final_duration = float(
+            tts_state.get("final_audio_duration_sec") or 0,
+        )
         raw_duration = float(tts_state.get("raw_chunk_duration_sec") or 0)
         timeline_scale = float(tts_state.get("timeline_scale") or 0)
     except (TypeError, ValueError) as exc:
         raise CompilationStoryboardError("TTS state duration contract is invalid") from exc
-    if final_duration <= 0 or raw_duration <= 0 or timeline_scale <= 0:
+    if source_final_duration <= 0 or raw_duration <= 0 or timeline_scale <= 0:
         raise CompilationStoryboardError("TTS state duration contract must be positive")
-    if abs(timeline_scale - final_duration / raw_duration) > 1e-8:
+    if abs(timeline_scale - source_final_duration / raw_duration) > 1e-8:
         raise CompilationStoryboardError("TTS state timeline scale does not match final audio")
+
+    mixed_timeline = pause_map is not None or audio_mix_report is not None
+    pause_entries: list[dict[str, Any]] = []
+    render_audio_sha256 = source_audio_sha256
+    render_duration = source_final_duration
+    if mixed_timeline:
+        if not isinstance(pause_map, dict) or not isinstance(audio_mix_report, dict):
+            raise CompilationStoryboardError(
+                "pause map and audio mix report are both required for a mixed timeline",
+            )
+        if not verify_audio_sidecar_hash(pause_map, "pause_map_sha256"):
+            raise CompilationStoryboardError("pause map checksum mismatch")
+        if not verify_audio_sidecar_hash(
+            audio_mix_report, "audio_mix_report_sha256",
+        ):
+            raise CompilationStoryboardError("audio mix report checksum mismatch")
+        if (
+            pause_map.get("status") != "PASS"
+            or audio_mix_report.get("status") != "PASS"
+            or pause_map.get("publication_authorized") is not False
+            or audio_mix_report.get("publication_authorized") is not False
+        ):
+            raise CompilationStoryboardError(
+                "mixed narration sidecars must be PASS and non-publishing",
+            )
+        for field in (
+            "episode_plan_sha256",
+            "daily_plan_sha256",
+            "narration_plan_sha256",
+            "timing_contract_sha256",
+            "narration_profile_sha256",
+        ):
+            expected = str(tts_state.get(field) or "").strip().lower()
+            if (
+                str(pause_map.get(field) or "").strip().lower() != expected
+                or str(audio_mix_report.get(field) or "").strip().lower()
+                != expected
+            ):
+                raise CompilationStoryboardError(
+                    f"mixed narration {field} binding does not match TTS state",
+                )
+        if (
+            audio_mix_report.get("pause_map_sha256")
+            != pause_map.get("pause_map_sha256")
+        ):
+            raise CompilationStoryboardError(
+                "audio mix report does not bind the exact pause map",
+            )
+        render_audio_sha256 = str(
+            audio_mix_report.get("output_sha256") or "",
+        ).strip().lower()
+        if not SHA256_RE.fullmatch(render_audio_sha256):
+            raise CompilationStoryboardError(
+                "audio mix report output_sha256 is required",
+            )
+        try:
+            render_duration = float(pause_map.get("timeline_duration_sec") or 0)
+            report_expected_duration = float(
+                audio_mix_report.get("expected_timeline_duration_sec") or 0,
+            )
+            report_output_duration = float(
+                audio_mix_report.get("output_duration_sec") or 0,
+            )
+            report_tolerance = float(
+                audio_mix_report.get("duration_tolerance_sec") or 0,
+            )
+        except (TypeError, ValueError) as exc:
+            raise CompilationStoryboardError(
+                "mixed narration duration contract is invalid",
+            ) from exc
+        if (
+            render_duration <= 0
+            or abs(report_expected_duration - render_duration) > 0.001
+            or report_output_duration <= 0
+            or abs(report_output_duration - render_duration)
+            > max(0.05, report_tolerance) + 0.001
+        ):
+            raise CompilationStoryboardError(
+                "audio mix duration does not bind the pause-map timeline",
+            )
+        pause_entries = pause_map.get("entries")
+        if not isinstance(pause_entries, list) or not pause_entries:
+            raise CompilationStoryboardError("pause map entries are required")
 
     chunks = tts_state.get("chunks")
     if not isinstance(chunks, list) or not chunks:
@@ -483,7 +604,7 @@ def _bound_tts_state(
     timing_contract = {
         "version": TIMING_CONTRACT_VERSION,
         "narration_plan_sha256": narration_plan_sha256,
-        "final_audio_sha256": audio_sha256,
+        "final_audio_sha256": source_audio_sha256,
         "final_audio_duration_sec": tts_state.get("final_audio_duration_sec"),
         "raw_chunk_duration_sec": tts_state.get("raw_chunk_duration_sec"),
         "timeline_scale": tts_state.get("timeline_scale"),
@@ -498,7 +619,12 @@ def _bound_tts_state(
     grouped: dict[str, dict[str, Any]] = {}
     observed_order: list[str] = []
     observed_raw_duration = 0.0
-    for chunk in chunks:
+    mixed_cursor = 0.0
+    if mixed_timeline and len(pause_entries) != len(chunks):
+        raise CompilationStoryboardError(
+            "pause map does not contain exactly one entry per TTS chunk",
+        )
+    for chunk_position, chunk in enumerate(chunks):
         if not isinstance(chunk, dict):
             raise CompilationStoryboardError("TTS state contains an invalid timed chunk")
         chunk_id = str(chunk.get("chunk_id") or "")
@@ -534,6 +660,7 @@ def _bound_tts_state(
         entry = grouped.setdefault(segment_id, {
             "text_parts": [], "words": [], "raw_duration_sec": 0.0,
             "timing_sources": set(), "next_chunk_index": 1,
+            "timeline_start_sec": None, "timeline_end_sec": None,
         })
         if not observed_order or observed_order[-1] != segment_id:
             if segment_id in observed_order:
@@ -543,6 +670,52 @@ def _bound_tts_state(
             raise CompilationStoryboardError("TTS timed chunk order is not contiguous")
         entry["next_chunk_index"] += 1
         raw_offset = float(entry["raw_duration_sec"])
+        word_offset = raw_offset * timeline_scale
+        if mixed_timeline:
+            pause_entry = pause_entries[chunk_position]
+            if not isinstance(pause_entry, dict):
+                raise CompilationStoryboardError("pause map contains an invalid entry")
+            try:
+                timeline_audio_start = float(
+                    pause_entry.get("timeline_audio_start_sec"),
+                )
+                timeline_audio_end = float(
+                    pause_entry.get("timeline_audio_end_sec"),
+                )
+                timeline_pause_start = float(
+                    pause_entry.get("timeline_pause_start_sec"),
+                )
+                timeline_pause_end = float(
+                    pause_entry.get("timeline_pause_end_sec"),
+                )
+                pause_after = float(pause_entry.get("pause_after_sec"))
+            except (TypeError, ValueError) as exc:
+                raise CompilationStoryboardError(
+                    "pause map timeline entry is invalid",
+                ) from exc
+            if (
+                str(pause_entry.get("chunk_id") or "") != chunk_id
+                or str(pause_entry.get("logical_segment_id") or "") != segment_id
+                or pause_entry.get("audio_sha256") != chunk_audio_sha256
+                or pause_entry.get("word_timings_sha256")
+                != chunk.get("word_timings_sha256")
+                or abs(float(pause_entry.get("audio_duration_sec") or 0) - chunk_duration)
+                > 0.001
+                or abs(timeline_audio_start - mixed_cursor) > 0.001
+                or abs(timeline_audio_end - (timeline_audio_start + chunk_duration))
+                > 0.001
+                or abs(timeline_pause_start - timeline_audio_end) > 0.001
+                or abs(timeline_pause_end - (timeline_pause_start + pause_after))
+                > 0.001
+            ):
+                raise CompilationStoryboardError(
+                    "pause map chunk/timeline binding does not match TTS state",
+                )
+            if entry["timeline_start_sec"] is None:
+                entry["timeline_start_sec"] = timeline_audio_start
+            entry["timeline_end_sec"] = timeline_pause_end
+            word_offset = timeline_audio_start - float(entry["timeline_start_sec"])
+            mixed_cursor = timeline_pause_end
         previous_start = 0.0
         for expected_word, word in zip(text.split(), words):
             try:
@@ -560,8 +733,8 @@ def _bound_tts_state(
                 raise CompilationStoryboardError("TTS word timing does not bind to exact chunk text/audio")
             entry["words"].append({
                 "word": expected_word,
-                "start": (raw_offset + start) * timeline_scale,
-                "end": (raw_offset + end) * timeline_scale,
+                "start": word_offset + start * (1.0 if mixed_timeline else timeline_scale),
+                "end": word_offset + end * (1.0 if mixed_timeline else timeline_scale),
                 "timing_source": timing_source,
             })
             previous_start = start
@@ -581,6 +754,8 @@ def _bound_tts_state(
 
     if observed_order != expected_order or abs(observed_raw_duration - raw_duration) > 0.001:
         raise CompilationStoryboardError("TTS timed chunks do not cover the full narration plan")
+    if mixed_timeline and abs(mixed_cursor - render_duration) > 0.001:
+        raise CompilationStoryboardError("pause map does not cover the mixed timeline")
     contract_sha256 = str(tts_state.get("timing_contract_sha256") or "").lower()
     if not SHA256_RE.fullmatch(contract_sha256) or contract_sha256 != _canonical_hash(timing_contract):
         raise CompilationStoryboardError("TTS timing contract checksum mismatch")
@@ -592,7 +767,11 @@ def _bound_tts_state(
         observed_text = _normalized_text(" ".join(entry["text_parts"]))
         if observed_text != expected_text:
             raise CompilationStoryboardError("TTS timed chunks changed narration text")
-        duration = float(entry["raw_duration_sec"]) * timeline_scale
+        duration = (
+            float(entry["timeline_end_sec"]) - float(entry["timeline_start_sec"])
+            if mixed_timeline
+            else float(entry["raw_duration_sec"]) * timeline_scale
+        )
         timing_sources = entry["timing_sources"]
         segment_timings[segment_id] = {
             "duration_sec": duration,
@@ -604,16 +783,30 @@ def _bound_tts_state(
                 else "mixed_ai33_and_actual_audio_duration_estimate"
             ),
         }
-    if abs(sum(item["duration_sec"] for item in segment_timings.values()) - final_duration) > 0.001:
+    if abs(sum(item["duration_sec"] for item in segment_timings.values()) - render_duration) > 0.001:
         raise CompilationStoryboardError("TTS segment timings do not cover final audio")
+    render_bindings: dict[str, Any] = {
+        **bindings,
+        "audio_sha256": render_audio_sha256,
+        "narration_plan_sha256": narration_plan_sha256,
+        "timing_contract_sha256": contract_sha256,
+        "final_audio_duration_sec": round(render_duration, 6),
+    }
+    if mixed_timeline:
+        render_bindings.update({
+            "pause_map_sha256": pause_map["pause_map_sha256"],
+            "audio_mix_report_sha256": audio_mix_report[
+                "audio_mix_report_sha256"
+            ],
+            "narration_profile_id": str(
+                audio_mix_report.get("narration_profile_id") or "",
+            ),
+            "narration_profile_sha256": str(
+                audio_mix_report.get("narration_profile_sha256") or "",
+            ),
+        })
     return {
-        "bindings": {
-            **bindings,
-            "audio_sha256": audio_sha256,
-            "narration_plan_sha256": narration_plan_sha256,
-            "timing_contract_sha256": contract_sha256,
-            "final_audio_duration_sec": round(final_duration, 6),
-        },
+        "bindings": render_bindings,
         "segment_timings": segment_timings,
     }
 
@@ -634,7 +827,10 @@ def _timing_windows(
         consumed += len(chunk.split())
         previous_end = float(words[consumed - 1]["end"])
         next_start = float(words[consumed]["start"])
-        boundary = max(boundaries[-1], (previous_end + next_start) / 2)
+        # Surface the next text state a fraction before its first spoken word.
+        # The actual AI33 alignment remains the timing source; the small lead
+        # absorbs video-frame quantization so narration cannot outrun text.
+        boundary = max(boundaries[-1], next_start - 0.08)
         boundaries.append(min(boundary, duration))
     boundaries.append(duration)
     windows = list(zip(boundaries, boundaries[1:]))
@@ -667,12 +863,12 @@ def _append_reddit_pages(
     page_states = reddit_page_text_states(text, exact_beats=exact_beats)
     if not page_states:
         return timeline_cursor
+    if not isinstance(segment_timing, dict):
+        raise CompilationStoryboardError(f"timing is required for narration segment {segment_id}")
     chunks = [
         (int(item["beat_index"]), str(item["narration_text"]))
         for item in page_states
     ]
-    if not isinstance(segment_timing, dict):
-        raise CompilationStoryboardError(f"timing is required for narration segment {segment_id}")
     timing_windows = _timing_windows(chunks, segment_timing)
     segment_start = timeline_cursor
     segment_slide_start = len(slides)
@@ -779,12 +975,14 @@ def _legacy_storyboard(compilation: dict[str, Any], artifact_root: Path) -> dict
     }
 
 
-def build_storyboard(
+def _build_reddit_storyboard(
     compilation: dict[str, Any],
     artifact_root: Path,
     *,
     background_video: str | Path | None = None,
     tts_state: dict[str, Any] | None = None,
+    pause_map: dict[str, Any] | None = None,
+    audio_mix_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build scene-level pages when a complete narration contract is available."""
     artifact_root = Path(artifact_root)
@@ -794,7 +992,12 @@ def build_storyboard(
             result["background_video"] = _verified_background_video(background_video, artifact_root)
         return result
 
-    timing_contract = _bound_tts_state(compilation, tts_state)
+    timing_contract = _bound_tts_state(
+        compilation,
+        tts_state,
+        pause_map=pause_map,
+        audio_mix_report=audio_mix_report,
+    )
     bindings = timing_contract["bindings"]
     segment_timings = timing_contract["segment_timings"]
     try:
@@ -819,6 +1022,21 @@ def build_storyboard(
         segment_timing=segment_timings.get("intro"),
     )
     stories = compilation.get("stories") or []
+    if stories:
+        first_story = stories[0]
+        first_snapshot = first_story.get("source_snapshot") or {}
+        first_title = str(
+            first_story.get("title_ru") or first_snapshot.get("title") or "История с Reddit"
+        )
+        for slide in slides:
+            if slide.get("segment_id") != "intro":
+                continue
+            slide.update({
+                "screen_mode": "story_title",
+                "screen_title": first_title,
+                "subreddit": str(first_snapshot.get("subreddit") or ""),
+                "source_author": str(first_snapshot.get("author") or ""),
+            })
     for index, story in enumerate(stories, start=1):
         snapshot = story.get("source_snapshot") or {}
         source_id = str(snapshot.get("source_id") or snapshot.get("post_id") or index)
@@ -848,6 +1066,10 @@ def build_storyboard(
             voice_role=story_segment["voice_role"],
             segment_timing=segment_timings.get(story_segment_id),
         )
+        if index == 1:
+            for slide in slides:
+                if slide.get("segment_id") == story_segment_id:
+                    slide["show_title"] = False
         if index < len(stories):
             transition_id = f"transition_{index:02d}"
             transition_segment = segment_by_id.get(transition_id)
@@ -888,6 +1110,7 @@ def build_storyboard(
         "version": 2,
         "format": "compilation_16x9",
         "resolution": [1920, 1080],
+        "visual_mode": DEFAULT_VISUAL_MODE,
         **bindings,
         "publication_authorized": False,
         "timeline_duration_sec": round(final_audio_duration, 3),
@@ -926,12 +1149,197 @@ def build_storyboard(
     return storyboard
 
 
+def _source_label(snapshot: dict[str, Any]) -> str:
+    subreddit = str(snapshot.get("subreddit") or "").strip()
+    author = str(snapshot.get("author") or "").strip()
+    if subreddit and not subreddit.startswith("r/"):
+        subreddit = f"r/{subreddit}"
+    if author and not author.startswith("u/"):
+        author = f"u/{author}"
+    return " • ".join(item for item in (subreddit, author) if item)
+
+
+def _build_cinematic_storyboard(
+    compilation: dict[str, Any],
+    artifact_root: Path,
+    *,
+    background_video: str | Path | None = None,
+    tts_state: dict[str, Any] | None = None,
+    pause_map: dict[str, Any] | None = None,
+    audio_mix_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if background_video:
+        raise CompilationStoryboardError(
+            "cinematic_story_v1 uses full-screen scene images and rejects background_video",
+        )
+    if not _complete_narration(compilation):
+        raise CompilationStoryboardError(
+            "cinematic_story_v1 requires complete intro, story, and outro narration",
+        )
+    timing_contract = _bound_tts_state(
+        compilation,
+        tts_state,
+        pause_map=pause_map,
+        audio_mix_report=audio_mix_report,
+    )
+    bindings = timing_contract["bindings"]
+    segment_timings = timing_contract["segment_timings"]
+    try:
+        narration_segments = build_compilation_segments(compilation)
+    except NarrationPreflightError as exc:
+        raise CompilationStoryboardError(str(exc)) from exc
+
+    story_visuals: dict[str, list[dict[str, Any]]] = {}
+    story_metadata: dict[str, dict[str, Any]] = {}
+    thread_shared_visuals: list[dict[str, Any]] = []
+    thread_mode = str(compilation.get("episode_format") or "").upper() == "THREAD"
+    for index, story in enumerate(compilation.get("stories") or [], start=1):
+        snapshot = story.get("source_snapshot") or {}
+        source_id = str(snapshot.get("source_id") or snapshot.get("post_id") or index)
+        segment_id = f"story_{source_id}"
+        visuals = _verified_cinematic_images(story, artifact_root)
+        if index == 1 and thread_mode:
+            thread_shared_visuals = visuals
+        elif not visuals and thread_mode:
+            visuals = thread_shared_visuals
+        story_visuals[segment_id] = visuals
+        story_metadata[segment_id] = {
+            "story_index": index,
+            "title": str(
+                story.get("title_ru")
+                or snapshot.get("title")
+                or f"История {index}"
+            ),
+            "source_label": _source_label(snapshot),
+            "truth_mode": str(snapshot.get("truth_mode") or ""),
+        }
+    final_audio_duration = float(bindings["final_audio_duration_sec"])
+    try:
+        contract = build_cinematic_contract(
+            narration_segments=narration_segments,
+            segment_timings=segment_timings,
+            story_visuals=story_visuals,
+            story_metadata=story_metadata,
+            final_audio_duration_sec=final_audio_duration,
+        )
+    except CinematicShotError as exc:
+        raise CompilationStoryboardError(str(exc)) from exc
+    slides = contract["shots"]
+    expected_text = narration_text(compilation)
+    covered_text = _normalized_text(
+        " ".join(str(slide.get("narration_text") or "") for slide in slides),
+    )
+    coverage = 1.0 if expected_text and covered_text == expected_text else 0.0
+    if coverage != 1.0:
+        raise CompilationStoryboardError(
+            "cinematic shots do not preserve the exact accepted narration",
+        )
+    timing_sources = sorted({str(slide.get("timing_source") or "") for slide in slides})
+    shot_plan = contract["shot_plan"]
+    caption_track = contract["caption_track"]
+    shot_plan_sha256 = str(shot_plan["shot_plan_sha256"])
+    caption_track_sha256 = str(caption_track["caption_track_sha256"])
+    return {
+        "version": 3,
+        "format": "compilation_16x9",
+        "resolution": [1920, 1080],
+        "visual_mode": CINEMATIC_STORY_MODE,
+        **bindings,
+        "publication_authorized": False,
+        "timeline_duration_sec": round(final_audio_duration, 3),
+        "slides": slides,
+        "shot_plan": shot_plan,
+        "shot_plan_sha256": shot_plan_sha256,
+        "caption_track": caption_track,
+        "caption_track_sha256": caption_track_sha256,
+        "creative_manifest": {
+            "version": 1,
+            "mode": CINEMATIC_STORY_MODE,
+            **bindings,
+            "publication_authorized": False,
+            "narration_sha256": narration_sha256(compilation),
+            "narration_characters": len(expected_text),
+            "text_timing_coverage": coverage,
+            "audio_timing_coverage": 1.0,
+            "timing_sources": timing_sources,
+            "shot_count": len(slides),
+            "story_shot_count": sum(
+                slide.get("presentation") == "story" for slide in slides
+            ),
+            "max_planned_seconds_per_slide": max(
+                (slide["duration_sec"] for slide in slides),
+                default=0,
+            ),
+            "background_video_required": False,
+            "thumbnail_required": True,
+            "shot_plan_sha256": shot_plan_sha256,
+            "caption_track_sha256": caption_track_sha256,
+            "visual_contract": {
+                "version": VISUAL_CONTRACT_VERSION,
+                "shot_plan_version": CINEMATIC_SHOT_PLAN_VERSION,
+                "caption_track_version": CINEMATIC_CAPTION_TRACK_VERSION,
+                "story_shot_min_seconds": CINEMATIC_STORY_SHOT_MIN_SECONDS,
+                "story_shot_max_seconds": CINEMATIC_STORY_SHOT_MAX_SECONDS,
+                "service_shot_max_seconds": CINEMATIC_SERVICE_SHOT_MAX_SECONDS,
+                "zoom_end_min": CINEMATIC_ZOOM_END_MIN,
+                "zoom_end_max": CINEMATIC_ZOOM_END_MAX,
+                "full_screen_images": True,
+            },
+        },
+    }
+
+
+def build_storyboard(
+    compilation: dict[str, Any],
+    artifact_root: Path,
+    *,
+    background_video: str | Path | None = None,
+    tts_state: dict[str, Any] | None = None,
+    visual_mode: str | None = None,
+    pause_map: dict[str, Any] | None = None,
+    audio_mix_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Dispatch to the explicit visual mode; the legacy baseline remains default."""
+
+    requested_mode = (
+        visual_mode
+        if visual_mode is not None
+        else compilation.get("visual_mode", DEFAULT_VISUAL_MODE)
+    )
+    try:
+        mode = resolve_visual_mode(requested_mode)
+    except ValueError as exc:
+        raise CompilationStoryboardError(str(exc)) from exc
+    if mode == CINEMATIC_STORY_MODE:
+        return _build_cinematic_storyboard(
+            compilation,
+            Path(artifact_root),
+            background_video=background_video,
+            tts_state=tts_state,
+            pause_map=pause_map,
+            audio_mix_report=audio_mix_report,
+        )
+    return _build_reddit_storyboard(
+        compilation,
+        Path(artifact_root),
+        background_video=background_video,
+        tts_state=tts_state,
+        pause_map=pause_map,
+        audio_mix_report=audio_mix_report,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compilation", required=True)
     parser.add_argument("--artifact-root", required=True)
     parser.add_argument("--background-video", help="Optional existing local video under artifact_root.")
     parser.add_argument("--tts-state", help="Required COMPLETE TTS state for a production storyboard.")
+    parser.add_argument(
+        "--visual-mode",
+        choices=("reddit_pages", CINEMATIC_STORY_MODE),
+        help="Explicit renderer contract; defaults to compilation.visual_mode or reddit_pages.",
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     compilation = json.loads(Path(args.compilation).read_text(encoding="utf-8"))
@@ -939,6 +1347,7 @@ def main() -> int:
         compilation,
         Path(args.artifact_root),
         background_video=args.background_video,
+        visual_mode=args.visual_mode,
         tts_state=(
             json.loads(Path(args.tts_state).read_text(encoding="utf-8"))
             if args.tts_state else None

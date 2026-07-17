@@ -1,5 +1,5 @@
 name: acc1 Daily Episode Factory
-run-name: acc1 daily episode date=${{ inputs.production_date }} pilot=${{ inputs.pilot_id }}
+run-name: acc1 daily episode date=${{ inputs.production_date }} pilot=${{ inputs.pilot_id }} mode=${{ inputs.visual_mode }}
 
 # This workflow can enforce source, packaging, media, and review gates. It
 # cannot guarantee millions of views: audience response is measurable only
@@ -30,6 +30,14 @@ on:
         required: false
         default: ""
         type: string
+      visual_mode:
+        description: Explicit renderer contract; cinematic is never a fallback
+        required: true
+        default: reddit_pages
+        type: choice
+        options:
+          - reddit_pages
+          - cinematic_story_v1
       confirm_reddit_read:
         description: Explicitly allow the bounded read-only Reddit source stage
         required: true
@@ -182,6 +190,7 @@ jobs:
       ACC1_RELEASE_CEILING: READY_FOR_HUMAN_REVIEW
       WORKDIR: build/acc1-daily-episode
       DAILY_PLAN_PATH: build/acc1-daily-episode/daily-plan.json
+      VISUAL_MODE: ${{ inputs.visual_mode }}
     steps:
       - name: Refuse replay of a spend-enabled dispatch
         env:
@@ -221,7 +230,8 @@ jobs:
           python scripts/run_acc1_episode_factory.py \
             --plan "$DAILY_PLAN_PATH" \
             --workdir "$WORKDIR" \
-            --stage preflight
+            --stage preflight \
+            --visual-mode "$VISUAL_MODE"
       - name: Refuse an existing cross-dispatch paid spend lease
         if: inputs.resume_source_run_id == ''
         env:
@@ -318,6 +328,7 @@ jobs:
             --plan "$DAILY_PLAN_PATH" \
             --workdir "$WORKDIR" \
             --stage paid-preflight \
+            --visual-mode "$VISUAL_MODE" \
             --confirm-openai-spend "$CONFIRM_OPENAI_SPEND" \
             --openai-call-cap "$OPENAI_CALL_CAP" \
             --openai-token-cap "$OPENAI_TOKEN_CAP" \
@@ -470,6 +481,7 @@ jobs:
             --plan "$DAILY_PLAN_PATH"
             --workdir "$WORKDIR"
             --stage produce
+            --visual-mode "$VISUAL_MODE"
             --reddit-request-cap "$REDDIT_REQUEST_CAP"
             --confirm-openai-spend "$CONFIRM_OPENAI_SPEND"
             --openai-call-cap "$OPENAI_CALL_CAP"
@@ -558,10 +570,44 @@ jobs:
           if embedded_manifest_hash != bindings["release_candidate_manifest_sha256"]:
               raise SystemExit("release manifest embedded hash does not match bound JSON")
 
+          visual_mode = str(result.get("visual_mode") or "")
+          if visual_mode not in {"reddit_pages", "cinematic_story_v1"}:
+              raise SystemExit("factory result has unknown visual_mode")
+          for field in (
+              "visual_mode",
+              "narration_profile_id",
+              "narration_profile_sha256",
+          ):
+              expected = result.get(field)
+              if plan.get(field) != expected or manifest.get(field) != expected:
+                  raise SystemExit(f"factory mode/profile binding mismatch: {field}")
+          for field in (
+              "timing_contract_sha256",
+              "pause_map_sha256",
+              "audio_mix_report_sha256",
+              "audio_sha256",
+          ):
+              expected = str(result.get(field) or "")
+              if not sha256.fullmatch(expected) or manifest.get(field) != expected:
+                  raise SystemExit(f"factory audio binding mismatch: {field}")
+          for field in (
+              "shot_plan_sha256",
+              "caption_track_sha256",
+              "caption_srt_sha256",
+          ):
+              expected = result.get(field)
+              if visual_mode == "cinematic_story_v1":
+                  if not sha256.fullmatch(str(expected or "")):
+                      raise SystemExit(f"cinematic result has invalid {field}")
+                  if manifest.get(field) != expected:
+                      raise SystemExit(f"cinematic manifest binding mismatch: {field}")
+              elif expected is not None or manifest.get(field) is not None:
+                  raise SystemExit(f"baseline result must not claim {field}")
+
           root = result_path.parent
           artifact_paths = {
               "script_sha256": root / "episode-script.json",
-              "audio_sha256": root / "tts" / "compilation_narration.mp3",
+              "audio_sha256": root / "tts" / "compilation_voice_mix.wav",
               "metadata_sha256": root / "youtube-metadata.json",
               "storyboard_sha256": root / "storyboard.json",
               "video_sha256": root / "final-output.mp4",
@@ -585,6 +631,8 @@ jobs:
               "scene_image_checkpoint": root / "scene-image-checkpoint.json",
               "thumbnail_manifest": root / "thumbnail-manifest.json",
               "tts_state": root / "tts" / "compilation_tts_state.json",
+              "pause_map": root / "tts" / "narration-pause-map.json",
+              "audio_mix_report": root / "tts" / "audio-mix-report.json",
               "render_report": root / "render-report.json",
               "text_layout_report": root / "text-layout-report.json",
               "runtime_estimate_report": root / "runtime-estimate-report.json",
@@ -594,6 +642,12 @@ jobs:
               "image_attempts": root / "provider-attempts" / "image.json",
               "ai33_attempts": root / "provider-attempts" / "ai33.json",
           }
+          if visual_mode == "cinematic_story_v1":
+              evidence_paths.update({
+                  "shot_plan": root / "shot-plan.json",
+                  "caption_track": root / "caption-track.json",
+                  "caption_srt": root / "final-output.srt",
+              })
           for label, paths, claimed in (
               ("artifact", artifact_paths, manifest.get("artifact_sha256")),
               ("evidence", evidence_paths, manifest.get("evidence_sha256")),

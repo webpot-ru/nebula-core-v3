@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
+SUPPORTED_MANIFEST_VERSIONS = frozenset({1, MANIFEST_VERSION})
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 EPISODE_KEY_RE = re.compile(
@@ -32,17 +33,144 @@ DISCLOSURES = {
         "Это личный рассказ пользователя Reddit, не подтверждённый независимо."
     ),
 }
-SECRET_KEY_NAMES = (
-    "api_key",
+SECRET_KEY_SEGMENTS = frozenset({
     "apikey",
-    "secret",
-    "password",
-    "passwd",
-    "token",
     "cookie",
+    "cookies",
     "credential",
-    "private_key",
+    "credentials",
+    "password",
+    "passwords",
+    "passwd",
+    "passphrase",
+    "passphrases",
+    "privatekey",
+    "secret",
+    "secrets",
+    "token",
+})
+SECRET_KEY_SEQUENCES = (
+    ("api", "key"),
+    ("api", "keys"),
+    ("private", "key"),
+    ("private", "keys"),
+    ("access", "tokens"),
+    ("auth", "tokens"),
+    ("bearer", "tokens"),
+    ("id", "tokens"),
+    ("oauth", "tokens"),
+    ("refresh", "tokens"),
+    ("session", "tokens"),
 )
+
+
+def _expected_visual_contracts(visual_mode: str) -> dict[str, dict[str, Any]]:
+    """Return path-independent downstream expectations for one visual mode.
+
+    These are deliberately *contracts*, not references to rendered artifacts.
+    A manifest is upstream of a shot plan, subtitle track and audio-mix report,
+    therefore storing their eventual hashes here would create a circular
+    identity chain.
+    """
+
+    from acc1_visual_contract import (
+        CINEMATIC_CAPTION_TRACK_VERSION,
+        CINEMATIC_SHOT_PLAN_VERSION,
+        CINEMATIC_STORY_MODE,
+        CINEMATIC_STORY_SHOT_MAX_SECONDS,
+        CINEMATIC_STORY_SHOT_MIN_SECONDS,
+        DEFAULT_VISUAL_MODE,
+        resolve_visual_mode,
+    )
+
+    resolved_mode = resolve_visual_mode(visual_mode)
+    if resolved_mode == CINEMATIC_STORY_MODE:
+        return {
+            "shot_plan_contract": {
+                "contract": "acc1_cinematic_shot_plan",
+                "version": CINEMATIC_SHOT_PLAN_VERSION,
+                "visual_mode": resolved_mode,
+                "required": True,
+                "story_shot_duration_seconds": {
+                    "min": CINEMATIC_STORY_SHOT_MIN_SECONDS,
+                    "max": CINEMATIC_STORY_SHOT_MAX_SECONDS,
+                },
+            },
+            "caption_track_contract": {
+                "contract": "acc1_cinematic_caption_track",
+                "version": CINEMATIC_CAPTION_TRACK_VERSION,
+                "visual_mode": resolved_mode,
+                "required": True,
+            },
+        }
+    if resolved_mode != DEFAULT_VISUAL_MODE:
+        # ``resolve_visual_mode`` currently makes this unreachable, but leave
+        # the guard explicit so a future visual mode cannot silently inherit
+        # the baseline contract.
+        raise EpisodeManifestError(f"unsupported visual_mode {resolved_mode!r}")
+    return {
+        "shot_plan_contract": {
+            "contract": "acc1_cinematic_shot_plan",
+            "version": CINEMATIC_SHOT_PLAN_VERSION,
+            "visual_mode": resolved_mode,
+            "required": False,
+        },
+        "caption_track_contract": {
+            "contract": "acc1_cinematic_caption_track",
+            "version": CINEMATIC_CAPTION_TRACK_VERSION,
+            "visual_mode": resolved_mode,
+            "required": False,
+        },
+    }
+
+
+def _expected_audio_mix_contract(profile: dict[str, Any]) -> dict[str, Any]:
+    """Return the exact no-provider voice-mix expectation for one profile."""
+
+    from compilation_audio_mix import AUDIO_MIX_REPORT_VERSION, PAUSE_MAP_VERSION
+
+    loudness = profile["voice_only_loudness"]
+    return {
+        "contract": "acc1_voice_only_audio_mix",
+        "version": AUDIO_MIX_REPORT_VERSION,
+        "pause_map_version": PAUSE_MAP_VERSION,
+        "required": True,
+        "narration_profile_id": profile["profile_id"],
+        "narration_profile_sha256": profile["profile_sha256"],
+        "voice_only_loudness": copy.deepcopy(loudness),
+    }
+
+
+def _resolve_manifest_profile(
+    *,
+    pillar: object,
+    narration_profile_id: object = None,
+) -> dict[str, Any]:
+    """Resolve the sole canonical profile for an episode pillar, fail closed."""
+
+    from acc1_narration_profiles import (
+        NARRATION_PROFILE_IDS_BY_PILLAR,
+        NarrationProfileError,
+        resolve_narration_profile,
+    )
+
+    normalized_pillar = str(pillar or "").strip()
+    selected = str(narration_profile_id or "").strip()
+    if not selected:
+        selected = NARRATION_PROFILE_IDS_BY_PILLAR.get(normalized_pillar, "")
+    try:
+        return resolve_narration_profile(selected, pillar_id=normalized_pillar)
+    except NarrationProfileError as exc:
+        raise EpisodeManifestError(str(exc)) from exc
+
+
+def _resolve_visual_mode(value: object = None) -> str:
+    from acc1_visual_contract import resolve_visual_mode
+
+    try:
+        return resolve_visual_mode(value)
+    except ValueError as exc:
+        raise EpisodeManifestError(str(exc)) from exc
 
 
 class EpisodeManifestError(RuntimeError):
@@ -126,14 +254,34 @@ def extract_greenlight_sources(greenlight: dict[str, Any]) -> list[dict[str, str
     return normalized
 
 
+def _key_segments(key: Any) -> tuple[str, ...]:
+    """Normalize snake, kebab, spaced and camel-case keys into exact segments."""
+
+    raw = str(key)
+    raw = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", raw)
+    raw = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", raw)
+    return tuple(
+        segment
+        for segment in re.sub(r"[^a-z0-9]+", "_", raw.casefold()).split("_")
+        if segment
+    )
+
+
+def _is_secret_key(key: Any) -> bool:
+    segments = _key_segments(key)
+    if any(segment in SECRET_KEY_SEGMENTS for segment in segments):
+        return True
+    return any(
+        segments[index:index + len(sequence)] == sequence
+        for sequence in SECRET_KEY_SEQUENCES
+        for index in range(len(segments) - len(sequence) + 1)
+    )
+
+
 def _contains_secret_key(value: Any, path: str = "provider_settings") -> str | None:
     if isinstance(value, dict):
         for key, child in value.items():
-            normalized = str(key).casefold().replace("-", "_")
-            secret_name = normalized in SECRET_KEY_NAMES or any(
-                normalized.endswith(f"_{name}") for name in SECRET_KEY_NAMES
-            )
-            if secret_name:
+            if _is_secret_key(key):
                 return f"{path}.{key}"
             found = _contains_secret_key(child, f"{path}.{key}")
             if found:
@@ -220,8 +368,12 @@ def validate_episode_manifest(
     """Validate self identity and, when supplied, every exact upstream artifact."""
 
     failures: list[str] = []
-    if manifest.get("version") != MANIFEST_VERSION:
-        failures.append(f"manifest version must be {MANIFEST_VERSION}")
+    manifest_version = manifest.get("version")
+    if manifest_version not in SUPPORTED_MANIFEST_VERSIONS:
+        failures.append(
+            "manifest version must be one of "
+            + ", ".join(str(version) for version in sorted(SUPPORTED_MANIFEST_VERSIONS))
+        )
     if manifest.get("status") != "LOCKED":
         failures.append("manifest status must be LOCKED")
     if manifest.get("channel_id") != "acc1":
@@ -325,6 +477,47 @@ def validate_episode_manifest(
             "truth_disclosure_contract must bind one audible and metadata disclosure per episode"
         )
 
+    # v1 manifests are historical immutable records.  Do not enrich, normalize
+    # or recompute their content beyond their original self-hash validation.
+    # v2 additionally binds the deterministic visual/narration contracts that
+    # downstream plans must satisfy.
+    if manifest_version == MANIFEST_VERSION:
+        try:
+            visual_mode = _resolve_visual_mode(manifest.get("visual_mode"))
+        except EpisodeManifestError as exc:
+            failures.append(str(exc))
+            visual_mode = ""
+        else:
+            if manifest.get("visual_mode") != visual_mode:
+                failures.append("visual_mode must be explicitly declared in v2")
+        try:
+            profile = _resolve_manifest_profile(
+                pillar=manifest.get("pillar"),
+                narration_profile_id=manifest.get("narration_profile_id"),
+            )
+        except EpisodeManifestError as exc:
+            failures.append(str(exc))
+            profile = None
+        if profile is not None:
+            if manifest.get("narration_profile_id") != profile["profile_id"]:
+                failures.append(
+                    "narration_profile_id must be explicitly declared in v2"
+                )
+            if manifest.get("narration_profile_sha256") != profile["profile_sha256"]:
+                failures.append(
+                    "narration_profile_sha256 does not match the canonical profile"
+                )
+            if visual_mode:
+                expected_contracts = _expected_visual_contracts(visual_mode)
+                for field, expected in expected_contracts.items():
+                    if manifest.get(field) != expected:
+                        failures.append(f"{field} does not match the visual-mode contract")
+                expected_audio_contract = _expected_audio_mix_contract(profile)
+                if manifest.get("audio_mix_contract") != expected_audio_contract:
+                    failures.append(
+                        "audio_mix_contract does not match the narration-profile contract"
+                    )
+
     bindings = manifest.get("artifact_bindings")
     if not isinstance(bindings, dict):
         failures.append("artifact_bindings must be an object")
@@ -368,7 +561,7 @@ def validate_episode_manifest(
         failures.append("episode_plan_sha256 does not match manifest content")
 
     return {
-        "version": MANIFEST_VERSION,
+        "version": manifest_version,
         "status": "PASS" if not failures else "BLOCKED",
         "publication_authorized": False,
         "episode_plan_sha256": recorded_plan_hash or None,
@@ -391,6 +584,8 @@ def build_episode_manifest(
     git_sha: str,
     provider_settings: dict[str, Any],
     sources: list[dict[str, Any]] | None = None,
+    visual_mode: str | None = None,
+    narration_profile_id: str | None = None,
 ) -> dict[str, Any]:
     """Build and immediately validate an immutable acc1 episode plan."""
 
@@ -398,6 +593,13 @@ def build_episode_manifest(
         _normalized_source(item)
         for item in (sources if sources is not None else extract_greenlight_sources(greenlight))
     ]
+    normalized_pillar = str(pillar or "").strip()
+    resolved_visual_mode = _resolve_visual_mode(visual_mode)
+    narration_profile = _resolve_manifest_profile(
+        pillar=normalized_pillar,
+        narration_profile_id=narration_profile_id,
+    )
+    visual_contracts = _expected_visual_contracts(resolved_visual_mode)
     manifest: dict[str, Any] = {
         "version": MANIFEST_VERSION,
         "status": "LOCKED",
@@ -406,7 +608,7 @@ def build_episode_manifest(
         "episode_date": str(episode_date or "").strip(),
         "pilot_id": str(pilot_id or "").strip(),
         "format": str(format_id or "").strip().upper(),
-        "pillar": str(pillar or "").strip(),
+        "pillar": normalized_pillar,
         "daily_plan_sha256": canonical_hash(daily_plan),
         "sources": normalized_sources,
         "truth_disclosure_contract": {
@@ -423,6 +625,11 @@ def build_episode_manifest(
         },
         "git_sha": str(git_sha or "").strip().lower(),
         "provider_settings": copy.deepcopy(provider_settings),
+        "visual_mode": resolved_visual_mode,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
+        **visual_contracts,
+        "audio_mix_contract": _expected_audio_mix_contract(narration_profile),
         "publication_authorized": False,
     }
     manifest["episode_plan_sha256"] = canonical_hash(manifest)
@@ -465,6 +672,8 @@ def main() -> int:
     parser.add_argument("--daily-plan", required=True)
     parser.add_argument("--git-sha", required=True)
     parser.add_argument("--provider-settings", required=True)
+    parser.add_argument("--visual-mode")
+    parser.add_argument("--narration-profile-id")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -481,6 +690,8 @@ def main() -> int:
         daily_plan=load_object(Path(args.daily_plan)),
         git_sha=args.git_sha,
         provider_settings=load_object(Path(args.provider_settings)),
+        visual_mode=args.visual_mode,
+        narration_profile_id=args.narration_profile_id,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

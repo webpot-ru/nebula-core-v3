@@ -1,5 +1,8 @@
 import unittest
 
+from acc1_narration_profiles import (
+    STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+)
 from compilation_narration import (
     NarrationPreflightError,
     build_compilation_segments,
@@ -35,6 +38,12 @@ class CompilationNarrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "PASS")
         self.assertIn("три часа пятнадцать минут", result["narration_text"])
         self.assertIn("четыре часа ровно", result["narration_text"])
+
+    def test_emergency_911_is_spoken_digit_by_digit(self):
+        result = narration_preflight("Диспетчер 911 ответил на звонок.")
+        self.assertEqual(result["status"], "PASS")
+        self.assertIn("девять один один", result["narration_text"])
+        self.assertNotIn("девятьсот одиннадцать", result["narration_text"])
 
     def test_builds_ordered_story_segments(self):
         disclosure = "Это художественные истории с Reddit."
@@ -91,6 +100,66 @@ class CompilationNarrationTests(unittest.TestCase):
         duplicated["outro_ru"] = f"Конец. {disclosure}"
         with self.assertRaisesRegex(NarrationPreflightError, "exactly once per episode"):
             build_compilation_segments(duplicated)
+
+    def test_profile_semantic_units_follow_exact_story_beats(self):
+        disclosure = "Это художественная история с Reddit."
+        compilation = {
+            "pillar": "strange_dark_unexplained",
+            "truth_disclosure_ru": disclosure,
+            "intro_ru": f"Начало. {disclosure}",
+            "stories": [{
+                "source_snapshot": {"post_id": "a", "truth_mode": "fiction"},
+                "narration_ru": "Первый абзац.\n\nВторой абзац.",
+                "story_beats": ["Первый абзац.", "Второй абзац."],
+            }],
+            "outro_ru": "Конец.",
+        }
+        segments = build_compilation_segments(
+            compilation,
+            narration_profile_id=STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+        )
+        story = next(item for item in segments if item["kind"] == "story")
+        self.assertEqual(
+            [item["boundary_source"] for item in story["semantic_units"]],
+            ["explicit_story_beat", "explicit_story_beat"],
+        )
+        self.assertEqual(
+            " ".join(item["text"] for item in story["semantic_units"]),
+            "Первый абзац. Второй абзац.",
+        )
+        self.assertEqual(
+            story["narration_profile_id"],
+            STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+        )
+
+    def test_profile_selection_fails_on_unknown_pillar_or_changed_beats(self):
+        disclosure = "Это художественная история с Reddit."
+        compilation = {
+            "pillar": "unknown",
+            "truth_disclosure_ru": disclosure,
+            "intro_ru": f"Начало. {disclosure}",
+            "stories": [{
+                "source_snapshot": {"post_id": "a", "truth_mode": "fiction"},
+                "narration_ru": "Первый абзац. Второй абзац.",
+            }],
+            "outro_ru": "Конец.",
+        }
+        with self.assertRaisesRegex(NarrationPreflightError, "pillar must be"):
+            build_compilation_segments(
+                compilation,
+                narration_profile_id=STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+            )
+        compilation["pillar"] = "strange_dark_unexplained"
+        compilation["stories"][0]["story_beats"] = [
+            "Первый абзац.", "Изменённый финал.",
+        ]
+        with self.assertRaisesRegex(
+            NarrationPreflightError, "preserve exact sanitized narration",
+        ):
+            build_compilation_segments(
+                compilation,
+                narration_profile_id=STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+            )
 
 
 if __name__ == "__main__":

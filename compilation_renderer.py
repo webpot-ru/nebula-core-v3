@@ -23,6 +23,8 @@ from acc1_visual_contract import (
     CANVAS_FPS as FPS,
     CANVAS_HEIGHT as HEIGHT,
     CANVAS_WIDTH as WIDTH,
+    CINEMATIC_STORY_MODE,
+    DEFAULT_VISUAL_MODE,
     MASCOT_SAFE_X,
     READABILITY_SHADE_ALPHA,
     STORY_VISUAL_BRIGHTNESS,
@@ -30,6 +32,8 @@ from acc1_visual_contract import (
     STORY_VISUAL_FEATHER_START_X,
     TEXT_LEFT_X,
     TEXT_RIGHT_X,
+    VISUAL_MODES,
+    resolve_visual_mode,
 )
 from compilation_storyboard import (
     CompilationStoryboardError,
@@ -140,7 +144,41 @@ def _storyboard_bindings(storyboard: dict[str, Any]) -> dict[str, str]:
     return bindings
 
 
-def preflight_storyboard(storyboard: dict[str, Any], artifact_root: Path) -> list[dict[str, Any]]:
+def _storyboard_visual_mode(storyboard: dict[str, Any]) -> str:
+    creative = storyboard.get("creative_manifest")
+    creative_mode = (
+        str(creative.get("mode") or "")
+        if isinstance(creative, dict)
+        else ""
+    )
+    raw_mode = storyboard.get("visual_mode")
+    if raw_mode in (None, ""):
+        if creative_mode in VISUAL_MODES:
+            raw_mode = creative_mode
+        elif creative_mode and int(storyboard.get("version") or 1) >= 2:
+            raise CompilationRenderError(
+                f"unsupported creative manifest mode: {creative_mode}",
+            )
+        else:
+            raw_mode = DEFAULT_VISUAL_MODE
+    try:
+        mode = resolve_visual_mode(raw_mode)
+    except ValueError as exc:
+        raise CompilationRenderError(str(exc)) from exc
+    if (
+        creative_mode
+        and int(storyboard.get("version") or 1) >= 2
+        and creative_mode != mode
+    ):
+        raise CompilationRenderError(
+            "storyboard visual_mode does not match creative manifest mode",
+        )
+    return mode
+
+
+def _preflight_reddit_storyboard(
+    storyboard: dict[str, Any], artifact_root: Path,
+) -> list[dict[str, Any]]:
     if storyboard.get("format") != "compilation_16x9" or storyboard.get("resolution") != [WIDTH, HEIGHT]:
         raise CompilationRenderError("storyboard must be compilation_16x9 at 1920x1080")
     slides = storyboard.get("slides")
@@ -200,6 +238,23 @@ def preflight_storyboard(storyboard: dict[str, Any], artifact_root: Path) -> lis
         checked.append(slide)
     _local_background_video(storyboard, artifact_root)
     return checked
+
+
+def preflight_storyboard(
+    storyboard: dict[str, Any], artifact_root: Path,
+) -> list[dict[str, Any]]:
+    mode = _storyboard_visual_mode(storyboard)
+    if mode == CINEMATIC_STORY_MODE:
+        from compilation_cinematic_renderer import (
+            CinematicRenderError,
+            preflight_cinematic_storyboard,
+        )
+
+        try:
+            return preflight_cinematic_storyboard(storyboard, artifact_root)
+        except CinematicRenderError as exc:
+            raise CompilationRenderError(str(exc)) from exc
+    return _preflight_reddit_storyboard(storyboard, artifact_root)
 
 
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -303,7 +358,10 @@ def _reddit_page_text_layout(
             raise CompilationRenderError("reddit source line is wider than the text column")
         cursor = top + 90
 
-    title_font = _font(52, True)
+    is_story_title_screen = slide.get("screen_mode") == "story_title"
+    title_font = _font(46 if is_story_title_screen else 52, True)
+    title_line_height = 58 if is_story_title_screen else 66
+    max_title_lines = 5 if is_story_title_screen else 3
     title_lines: list[str] = []
     display_title = ""
     title_truncated = False
@@ -336,6 +394,7 @@ def _reddit_page_text_layout(
         "display_title": display_title,
         "title_truncated": title_truncated,
         "title_start": title_start,
+        "title_line_height": title_line_height,
         "body_font": body_font,
         "body_lines": body_lines,
         "body_start": body_start,
@@ -478,6 +537,17 @@ def _draw_reddit_actions(draw: ImageDraw.ImageDraw, x: int, y: int, slide: dict[
 
 
 def _reddit_page_frame(slide: dict[str, Any], *, transparent: bool) -> Image.Image:
+    # The compact audio intro is source-bound but is not printed as faux Reddit
+    # text.  The first screen is instead the real post title and source header.
+    if slide.get("screen_mode") == "story_title":
+        slide = {
+            **slide,
+            "presentation": "story",
+            "title": str(slide.get("screen_title") or slide.get("title") or "История с Reddit"),
+            "display_text": "",
+            "show_title": True,
+            "show_actions": False,
+        }
     canvas = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0) if transparent else (8, 11, 18, 255))
     visual_path = slide.get("verified_image_path")
     if visual_path:
@@ -531,7 +601,7 @@ def _reddit_page_frame(slide: dict[str, Any], *, transparent: bool) -> Image.Ima
     cursor = int(layout["title_start"])
     for line in layout["title_lines"]:
         draw.text((left, cursor), line, font=layout["title_font"], fill="#ffffff", stroke_width=1, stroke_fill="#080b12")
-        cursor += 66
+        cursor += int(layout["title_line_height"])
     cursor = int(layout["body_start"])
     for line in layout["body_lines"]:
         draw.text((left, cursor), line, font=layout["body_font"], fill="#e6e9eb", stroke_width=1, stroke_fill="#080b12")
@@ -543,6 +613,21 @@ def _reddit_page_frame(slide: dict[str, Any], *, transparent: bool) -> Image.Ima
 
 
 def render_slide_frame(slide: dict[str, Any], output: Path, *, transparent: bool = False) -> None:
+    if slide["kind"] == "cinematic_shot":
+        if transparent:
+            raise CompilationRenderError(
+                "cinematic full-screen frames cannot be transparent",
+            )
+        from compilation_cinematic_renderer import (
+            CinematicRenderError,
+            render_cinematic_frame,
+        )
+
+        try:
+            render_cinematic_frame(slide, output)
+        except CinematicRenderError as exc:
+            raise CompilationRenderError(str(exc)) from exc
+        return
     if slide["kind"] == "reddit_page":
         canvas = _reddit_page_frame(slide, transparent=transparent)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -585,8 +670,14 @@ def _probe_duration(ffprobe: str, path: Path) -> float:
     return value
 
 
-def render_compilation(storyboard: dict[str, Any], artifact_root: Path, output: Path, *, audio: Path | None = None) -> dict[str, Any]:
-    slides = preflight_storyboard(storyboard, artifact_root)
+def _render_reddit_compilation(
+    storyboard: dict[str, Any],
+    artifact_root: Path,
+    output: Path,
+    *,
+    audio: Path | None = None,
+) -> dict[str, Any]:
+    slides = _preflight_reddit_storyboard(storyboard, artifact_root)
     bindings = _storyboard_bindings(storyboard)
     ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
@@ -668,6 +759,7 @@ def render_compilation(storyboard: dict[str, Any], artifact_root: Path, output: 
     return {
         "status": "ok",
         "output": str(output),
+        "visual_mode": DEFAULT_VISUAL_MODE,
         "resolution": [WIDTH, HEIGHT],
         "fps": FPS,
         "slide_count": len(slides),
@@ -677,7 +769,14 @@ def render_compilation(storyboard: dict[str, Any], artifact_root: Path, output: 
         "episode_plan_sha256": bindings.get("episode_plan_sha256"),
         "daily_plan_sha256": bindings.get("daily_plan_sha256"),
         "narration_plan_sha256": bindings.get("narration_plan_sha256"),
+        "timing_contract_sha256": storyboard.get("timing_contract_sha256"),
         "audio_sha256": audio_sha256,
+        "pause_map_sha256": storyboard.get("pause_map_sha256"),
+        "audio_mix_report_sha256": storyboard.get("audio_mix_report_sha256"),
+        "narration_profile_id": storyboard.get("narration_profile_id"),
+        "narration_profile_sha256": storyboard.get(
+            "narration_profile_sha256",
+        ),
         "publication_authorized": False,
         "audio_merged": audio is not None,
         "audio_duration_sec": audio_duration,
@@ -690,6 +789,37 @@ def render_compilation(storyboard: dict[str, Any], artifact_root: Path, output: 
         "text_timing_coverage": creative_manifest.get("text_timing_coverage", 0.0),
         "creative_manifest_sha256": creative_hash,
     }
+
+
+def render_compilation(
+    storyboard: dict[str, Any],
+    artifact_root: Path,
+    output: Path,
+    *,
+    audio: Path | None = None,
+) -> dict[str, Any]:
+    mode = _storyboard_visual_mode(storyboard)
+    if mode == CINEMATIC_STORY_MODE:
+        from compilation_cinematic_renderer import (
+            CinematicRenderError,
+            render_cinematic_compilation,
+        )
+
+        try:
+            return render_cinematic_compilation(
+                storyboard,
+                artifact_root,
+                output,
+                audio=audio,
+            )
+        except CinematicRenderError as exc:
+            raise CompilationRenderError(str(exc)) from exc
+    return _render_reddit_compilation(
+        storyboard,
+        artifact_root,
+        output,
+        audio=audio,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -709,8 +839,10 @@ def main() -> int:
         storyboard = json.loads(Path(args.storyboard).read_text(encoding="utf-8"))
         slides = preflight_storyboard(storyboard, Path(args.artifact_root))
         bindings = _storyboard_bindings(storyboard)
+        visual_mode = _storyboard_visual_mode(storyboard)
         report = ({
             "status": "preflight_ok",
+            "visual_mode": visual_mode,
             "slide_count": len(slides),
             **bindings,
             "publication_authorized": False,
