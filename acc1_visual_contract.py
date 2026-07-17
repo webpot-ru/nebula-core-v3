@@ -5,6 +5,11 @@ from __future__ import annotations
 
 CONTRACT_VERSION = 1
 
+REDDIT_PAGES_MODE = "reddit_pages"
+CINEMATIC_STORY_MODE = "cinematic_story_v1"
+DEFAULT_VISUAL_MODE = REDDIT_PAGES_MODE
+VISUAL_MODES = frozenset({REDDIT_PAGES_MODE, CINEMATIC_STORY_MODE})
+
 CANVAS_WIDTH = 1920
 CANVAS_HEIGHT = 1080
 CANVAS_FPS = 30
@@ -25,5 +30,27 @@ MIN_VISUAL_SCENES = 3
 MAX_VISUAL_SCENES = 5
 WORDS_PER_VISUAL_SCENE = 420
 
+CINEMATIC_SHOT_PLAN_VERSION = 1
+CINEMATIC_CAPTION_TRACK_VERSION = 1
+CINEMATIC_STORY_SHOT_MIN_SECONDS = 20.0
+CINEMATIC_STORY_SHOT_MAX_SECONDS = 45.0
+CINEMATIC_SERVICE_SHOT_MAX_SECONDS = 15.0
+CINEMATIC_ZOOM_END_MIN = 1.06
+CINEMATIC_ZOOM_END_MAX = 1.10
+CINEMATIC_PAN_CENTER_MIN = 0.46
+CINEMATIC_PAN_CENTER_MAX = 0.54
+CINEMATIC_CAPTION_WORDS_PER_CUE = 8
+
 BACKGROUND_ASSET_PATH = "assets/acc1/video/chonker-reading-loop-v1.mp4"
 BACKGROUND_ASSET_SHA256 = "88e943c6c675f1327eb7020d755e312dbec3864e19dae0d021d909131c349e61"
+
+
+def resolve_visual_mode(value: object = None) -> str:
+    """Return one explicit supported mode, defaulting only to the baseline."""
+
+    mode = str(value or DEFAULT_VISUAL_MODE).strip()
+    if mode not in VISUAL_MODES:
+        raise ValueError(
+            f"visual_mode must be one of {', '.join(sorted(VISUAL_MODES))}"
+        )
+    return mode

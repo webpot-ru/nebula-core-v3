@@ -5,6 +5,10 @@ from pathlib import Path
 
 from PIL import Image
 
+from acc1_cinematic_shots import verify_bound_payload, write_caption_srt
+from acc1_narration_profiles import STRANGE_DARK_UNEXPLAINED_PROFILE_ID
+from acc1_visual_contract import CINEMATIC_STORY_MODE
+from compilation_audio_mix import build_pause_map
 from compilation_storyboard import (
     CompilationStoryboardError,
     _timed_chunks,
@@ -87,6 +91,55 @@ class CompilationStoryboardTests(unittest.TestCase):
         state["timing_contract_sha256"] = _canonical_hash(_state_timing_contract(state))
         return state
 
+    @classmethod
+    def _profiled_tts_state(cls, compilation):
+        compilation["pillar"] = "strange_dark_unexplained"
+        compilation["narration_profile_id"] = (
+            STRANGE_DARK_UNEXPLAINED_PROFILE_ID
+        )
+        bindings = {
+            "episode_plan_sha256": compilation["episode_plan_sha256"],
+            "daily_plan_sha256": compilation["daily_plan_sha256"],
+        }
+        chunks = build_tts_chunks(
+            compilation,
+            voice_id="narrator",
+            narration_profile_id=STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+        )
+        state = _new_state(chunks, bindings)
+        raw_duration = 0.0
+        for item in state["chunks"]:
+            words = item["text"].split()
+            duration = len(words) * 0.75
+            timings = [{
+                "word": word,
+                "start": round(index * 0.75, 3),
+                "end": round((index + 1) * 0.75, 3),
+                "timing_source": "estimated_from_audio_duration",
+            } for index, word in enumerate(words)]
+            item.update({
+                "status": "COMPLETE",
+                "audio_path": f"tts/{item['chunk_id']}.wav",
+                "audio_sha256": hashlib.sha256(item["chunk_id"].encode()).hexdigest(),
+                "audio_duration_sec": duration,
+                "timing_source": "estimated_from_audio_duration",
+                "word_timings": timings,
+                "word_timings_sha256": _canonical_hash(timings),
+            })
+            raw_duration += duration
+        state.update({
+            "status": "COMPLETE",
+            "final_audio_sha256": "3" * 64,
+            "timing_contract_version": 1,
+            "final_audio_duration_sec": raw_duration,
+            "raw_chunk_duration_sec": raw_duration,
+            "timeline_scale": 1.0,
+        })
+        state["timing_contract_sha256"] = _canonical_hash(
+            _state_timing_contract(state),
+        )
+        return state
+
     def test_includes_verified_local_source_image(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -149,6 +202,148 @@ class CompilationStoryboardTests(unittest.TestCase):
             {slide["presentation"] for slide in storyboard["slides"] if slide["segment_id"] == "outro"},
             {"outro"},
         )
+        intro_slides = [slide for slide in storyboard["slides"] if slide["segment_id"] == "intro"]
+        self.assertTrue(all(slide["screen_mode"] == "story_title" for slide in intro_slides))
+        self.assertTrue(all(slide["screen_title"] == "Сосед постучал ночью" for slide in intro_slides))
+        self.assertTrue(all(not slide["show_title"] for slide in story_pages))
+
+    def test_cinematic_storyboard_is_full_screen_continuous_and_hash_bound(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            image = root / "scene.png"
+            Image.new("RGB", (1536, 864), "#314159").save(image)
+            compilation = self._complete_compilation()
+            compilation["visual_mode"] = CINEMATIC_STORY_MODE
+            compilation["stories"][0]["generated_media"] = [{
+                "download_status": "verified",
+                "local_path": "scene.png",
+                "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+            }]
+            state = self._tts_state(compilation)
+            first = build_storyboard(compilation, root, tts_state=state)
+            second = build_storyboard(compilation, root, tts_state=state)
+            caption_path = write_caption_srt(
+                first["caption_track"], root / "captions.srt",
+            )
+
+        self.assertEqual(first["visual_mode"], CINEMATIC_STORY_MODE)
+        self.assertEqual(first["version"], 3)
+        self.assertTrue(all(
+            slide["kind"] == "cinematic_shot" for slide in first["slides"]
+        ))
+        self.assertTrue(all(
+            slide["visual"]["fit"] == "cover" for slide in first["slides"]
+        ))
+        story_shots = [
+            slide for slide in first["slides"]
+            if slide["presentation"] == "story"
+        ]
+        self.assertTrue(all(
+            20 <= slide["duration_sec"] <= 45 for slide in story_shots
+        ))
+        for previous, current in zip(first["slides"], first["slides"][1:]):
+            self.assertAlmostEqual(previous["end_sec"], current["start_sec"], places=3)
+        self.assertTrue(verify_bound_payload(first["shot_plan"], "shot_plan_sha256"))
+        self.assertTrue(verify_bound_payload(
+            first["caption_track"], "caption_track_sha256",
+        ))
+        self.assertEqual(first["shot_plan_sha256"], second["shot_plan_sha256"])
+        self.assertEqual(
+            first["caption_track_sha256"], second["caption_track_sha256"],
+        )
+        self.assertTrue(caption_path.name.endswith(".srt"))
+
+    def test_cinematic_storyboard_rejects_unverified_image_checksum(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            image = root / "scene.png"
+            Image.new("RGB", (1536, 864), "#314159").save(image)
+            compilation = self._complete_compilation()
+            compilation["stories"][0]["generated_media"] = [{
+                "download_status": "verified",
+                "local_path": "scene.png",
+                "sha256": "0" * 64,
+            }]
+            with self.assertRaisesRegex(
+                CompilationStoryboardError, "verified file checksum",
+            ):
+                build_storyboard(
+                    compilation,
+                    root,
+                    visual_mode=CINEMATIC_STORY_MODE,
+                    tts_state=self._tts_state(compilation),
+                )
+
+    def test_cinematic_storyboard_binds_exact_pause_and_mix_timeline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            image = root / "scene.png"
+            Image.new("RGB", (1536, 864), "#314159").save(image)
+            compilation = self._complete_compilation()
+            compilation["visual_mode"] = CINEMATIC_STORY_MODE
+            compilation["stories"][0]["generated_media"] = [{
+                "download_status": "verified",
+                "local_path": "scene.png",
+                "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+            }]
+            state = self._profiled_tts_state(compilation)
+            pause_map = build_pause_map(state)
+            mix_report = {
+                "version": 1,
+                "status": "PASS",
+                "episode_plan_sha256": state["episode_plan_sha256"],
+                "daily_plan_sha256": state["daily_plan_sha256"],
+                "narration_plan_sha256": state["narration_plan_sha256"],
+                "timing_contract_sha256": state["timing_contract_sha256"],
+                "narration_profile_id": state["narration_profile_id"],
+                "narration_profile_sha256": state["narration_profile_sha256"],
+                "pause_map_sha256": pause_map["pause_map_sha256"],
+                "output_sha256": "4" * 64,
+                "output_duration_sec": pause_map["timeline_duration_sec"],
+                "expected_timeline_duration_sec": pause_map[
+                    "timeline_duration_sec"
+                ],
+                "duration_tolerance_sec": 0.25,
+                "publication_authorized": False,
+            }
+            mix_report["audio_mix_report_sha256"] = _canonical_hash(mix_report)
+            storyboard = build_storyboard(
+                compilation,
+                root,
+                tts_state=state,
+                pause_map=pause_map,
+                audio_mix_report=mix_report,
+            )
+
+        self.assertEqual(storyboard["audio_sha256"], "4" * 64)
+        self.assertEqual(
+            storyboard["timeline_duration_sec"],
+            round(pause_map["timeline_duration_sec"], 3),
+        )
+        self.assertEqual(
+            storyboard["pause_map_sha256"], pause_map["pause_map_sha256"],
+        )
+        self.assertEqual(
+            storyboard["audio_mix_report_sha256"],
+            mix_report["audio_mix_report_sha256"],
+        )
+        self.assertEqual(
+            storyboard["slides"][-1]["end_sec"],
+            round(pause_map["timeline_duration_sec"], 3),
+        )
+
+        tampered = dict(mix_report, output_sha256="5" * 64)
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(
+                CompilationStoryboardError, "audio mix report checksum",
+            ):
+                build_storyboard(
+                    compilation,
+                    Path(temp),
+                    tts_state=state,
+                    pause_map=pause_map,
+                    audio_mix_report=tampered,
+                )
 
     def test_page_boundaries_follow_bound_ai33_alignment_pause(self):
         compilation = self._complete_compilation()
@@ -188,7 +383,7 @@ class CompilationStoryboardTests(unittest.TestCase):
         story_slides = [
             slide for slide in storyboard["slides"] if slide["segment_id"] == "story_abc"
         ]
-        self.assertAlmostEqual(story_slides[0]["duration_sec"], 4.5, places=3)
+        self.assertAlmostEqual(story_slides[0]["duration_sec"], 7.92, places=3)
         self.assertIn("ai33", storyboard["creative_manifest"]["timing_sources"])
         self.assertEqual(storyboard["creative_manifest"]["audio_timing_coverage"], 1.0)
 

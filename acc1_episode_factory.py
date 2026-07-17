@@ -30,6 +30,7 @@ from acc1_bundle_selector import (
 from acc1_daily_planner import build_daily_plan
 from acc1_episode_contract import (
     build_intro_contract,
+    build_outro_prompt,
     truth_disclosure_ru,
     validate_episode_script,
 )
@@ -40,6 +41,11 @@ from acc1_episode_manifest import (
     validate_episode_manifest,
 )
 from acc1_episode_packaging import generate_packaging, validate_packaging
+from acc1_narration_profiles import (
+    NARRATION_PROFILE_IDS_BY_PILLAR,
+    NarrationProfileError,
+    resolve_narration_profile,
+)
 from acc1_thread_source import collect_thread_source_candidates
 from acc1_topic_playoff import (
     HARD_VETOES,
@@ -47,6 +53,17 @@ from acc1_topic_playoff import (
     SCORE_MINIMA,
     run_playoff,
     validate_base_candidate,
+)
+from acc1_visual_contract import (
+    CINEMATIC_STORY_MODE,
+    DEFAULT_VISUAL_MODE,
+    VISUAL_MODES,
+    resolve_visual_mode,
+)
+from compilation_audio_mix import (
+    CompilationAudioMixError,
+    build_pause_map,
+    mix_compilation_audio,
 )
 from compilation_qa import run_qa
 from compilation_renderer import (
@@ -101,7 +118,7 @@ from vectorengine_client import (
 )
 
 
-FACTORY_VERSION = 1
+FACTORY_VERSION = 2
 MIN_SOURCE_REVIEW_CANDIDATES = 3
 MAX_SOURCE_REVIEW_CANDIDATES = 5
 MIN_PASSING_FINALISTS = 3
@@ -1607,7 +1624,11 @@ def _translate_script(
         "title_ru": f"Chonker Talks — {format_label}",
         "intro_contract": intro_contract,
         "intro_ru": intro_contract["intro_ru"],
-        "outro_ru": "Как бы вы поступили на месте героев? Напишите своё мнение в комментариях.",
+        "outro_ru": build_outro_prompt(
+            episode_format=daily_plan["format"],
+            pillar=daily_plan["pillar"],
+            first_source=sources[0],
+        ),
         "truth_disclosure_ru": disclosure,
         "source_story_beats": copy.deepcopy(winner.get("story_beats") or []),
         "originality_plan": copy.deepcopy(winner.get("originality_plan") or {}),
@@ -1743,8 +1764,30 @@ def _paid_preflight_contract(
     image_call_cap: int,
     confirm_ai33_spend: str | bool,
     ai33_call_cap: int,
+    visual_mode: str,
     write_report: bool,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    try:
+        resolved_visual_mode = resolve_visual_mode(visual_mode)
+    except ValueError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
+    if (
+        resolved_visual_mode == CINEMATIC_STORY_MODE
+        and str(daily_plan.get("format") or "").upper() == "THREAD"
+    ):
+        raise EpisodeFactoryError(
+            "cinematic_story_v1 supports SAGA/BUNDLE; THREAD requires its "
+            "separate response-card hybrid contract",
+        )
+
+    pillar_id = str(daily_plan.get("pillar") or "").strip()
+    try:
+        narration_profile = resolve_narration_profile(
+            NARRATION_PROFILE_IDS_BY_PILLAR.get(pillar_id, ""),
+            pillar_id=pillar_id,
+        )
+    except NarrationProfileError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
     _exact_confirmation(confirm_openai_spend, "confirm_openai_spend")
     _exact_confirmation(confirm_image_spend, "confirm_image_spend")
     _exact_confirmation(confirm_ai33_spend, "confirm_ai33_spend")
@@ -1775,6 +1818,9 @@ def _paid_preflight_contract(
     report = {
         "version": FACTORY_VERSION,
         "status": "PAID_PREFLIGHT_PASS",
+        "visual_mode": resolved_visual_mode,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
         "daily_plan_sha256": canonical_hash(daily_plan),
         "source_stage_sha256": source_stage["source_stage_sha256"],
         "candidate_pool_sha256": pool["candidate_pool_sha256"],
@@ -1816,6 +1862,7 @@ def run_paid_preflight(
     image_call_cap: int,
     confirm_ai33_spend: str | bool,
     ai33_call_cap: int,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
 ) -> dict[str, Any]:
     """Prove paid readiness without issuing any provider generation request."""
     *_, report = _paid_preflight_contract(
@@ -1829,6 +1876,7 @@ def run_paid_preflight(
         image_call_cap=image_call_cap,
         confirm_ai33_spend=confirm_ai33_spend,
         ai33_call_cap=ai33_call_cap,
+        visual_mode=visual_mode,
         write_report=True,
     )
     return report
@@ -2043,7 +2091,7 @@ def _resolve_episode_plan(
     *, is_resume: bool, path: Path, daily_plan: dict[str, Any],
     queue: dict[str, Any], playoff: dict[str, Any], greenlight: dict[str, Any],
     channel: dict[str, Any], provider_settings: dict[str, Any],
-    winner: dict[str, Any],
+    winner: dict[str, Any], visual_mode: str, narration_profile_id: str,
 ) -> dict[str, Any]:
     """Reuse an exact validated plan across commits instead of changing its identity."""
     if is_resume and path.exists():
@@ -2065,6 +2113,14 @@ def _resolve_episode_plan(
             raise EpisodeFactoryError(
                 "restored episode plan provider settings do not match the current contract"
             )
+        if episode_plan.get("visual_mode") != visual_mode:
+            raise EpisodeFactoryError(
+                "restored episode plan visual mode does not match the current contract"
+            )
+        if episode_plan.get("narration_profile_id") != narration_profile_id:
+            raise EpisodeFactoryError(
+                "restored episode plan narration profile does not match the current contract"
+            )
         return episode_plan
     return build_episode_manifest(
         episode_key=daily_plan["episode_key"],
@@ -2084,6 +2140,8 @@ def _resolve_episode_plan(
             "body_sha256": item["body_sha256"],
             "truth_mode": item["truth_mode"],
         } for item in winner["sources"]],
+        visual_mode=visual_mode,
+        narration_profile_id=narration_profile_id,
     )
 
 
@@ -2105,9 +2163,31 @@ def run_produce_stage(
     resume_lease_path: Path | None = None,
     openai_provider: Callable[..., OpenAIJSONResult] = call_openai_json,
     image_provider: Callable[..., Path] = call_image_generation,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
 ) -> dict[str, Any]:
     """Create the review artifact after source and all spend gates have passed."""
     workdir = Path(workdir)
+    try:
+        resolved_visual_mode = resolve_visual_mode(visual_mode)
+    except ValueError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
+    if (
+        resolved_visual_mode == CINEMATIC_STORY_MODE
+        and str(daily_plan.get("format") or "").upper() == "THREAD"
+    ):
+        raise EpisodeFactoryError(
+            "cinematic_story_v1 supports SAGA/BUNDLE; THREAD requires its "
+            "separate response-card hybrid contract",
+        )
+    pillar_id = str(daily_plan.get("pillar") or "").strip()
+    narration_profile_id = NARRATION_PROFILE_IDS_BY_PILLAR.get(pillar_id, "")
+    try:
+        narration_profile = resolve_narration_profile(
+            narration_profile_id,
+            pillar_id=pillar_id,
+        )
+    except NarrationProfileError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
     queue, source_review, pool, source_stage, paid_preflight = _paid_preflight_contract(
         daily_plan=daily_plan,
         workdir=workdir,
@@ -2119,6 +2199,7 @@ def run_produce_stage(
         image_call_cap=image_call_cap,
         confirm_ai33_spend=confirm_ai33_spend,
         ai33_call_cap=ai33_call_cap,
+        visual_mode=resolved_visual_mode,
         write_report=True,
     )
     openai_cap = int(paid_preflight["caps"]["openai_call_cap"])
@@ -2264,7 +2345,10 @@ def run_produce_stage(
             "provider": "ai33", "model_id": TTS_MODEL_ID,
             "narrator_voice_id": NARRATOR_VOICE_ID,
             "comment_voice_id": COMMENT_VOICE_ID,
-            "speed": 1.0,
+            "narration_profile_id": narration_profile["profile_id"],
+            "narration_profile_sha256": narration_profile["profile_sha256"],
+            "speed": narration_profile["speed"],
+            "voice_settings_json": narration_profile["voice_settings_json"],
             "emotion_tags": False,
         },
     }
@@ -2279,6 +2363,8 @@ def run_produce_stage(
         channel=channel,
         provider_settings=provider_settings,
         winner=winner,
+        visual_mode=resolved_visual_mode,
+        narration_profile_id=narration_profile["profile_id"],
     )
 
     _atomic_json(workdir / "episode-greenlight.json", greenlight)
@@ -2292,12 +2378,27 @@ def run_produce_stage(
         openai=openai,
         checkpoint_dir=workdir / "translation-checkpoints",
     )
-    try:
-        text_layout_report = validate_compilation_text_layout(script)
-    except CompilationRenderError as exc:
-        raise EpisodeFactoryError(
-            f"translated episode cannot fit the production Reddit-card layout: {exc}"
-        ) from exc
+    script["visual_mode"] = resolved_visual_mode
+    script["narration_profile_id"] = narration_profile["profile_id"]
+    script["narration_profile_sha256"] = narration_profile["profile_sha256"]
+    script["pillar"] = pillar_id
+    if resolved_visual_mode == DEFAULT_VISUAL_MODE:
+        try:
+            text_layout_report = validate_compilation_text_layout(script)
+        except CompilationRenderError as exc:
+            raise EpisodeFactoryError(
+                "translated episode cannot fit the production Reddit-card "
+                f"layout: {exc}"
+            ) from exc
+    else:
+        text_layout_report = {
+            "version": 1,
+            "status": "PASS",
+            "visual_mode": resolved_visual_mode,
+            "check": "reddit_page_text_layout_not_applicable",
+            "full_screen_scene_contract_required": True,
+            "publication_authorized": False,
+        }
     text_layout_report["episode_plan_sha256"] = episode_plan["episode_plan_sha256"]
     text_layout_report["daily_plan_sha256"] = episode_plan["daily_plan_sha256"]
     _atomic_json(workdir / "text-layout-report.json", text_layout_report)
@@ -2335,6 +2436,7 @@ def run_produce_stage(
         script,
         voice_id=NARRATOR_VOICE_ID,
         comment_voice_id=COMMENT_VOICE_ID,
+        narration_profile_id=narration_profile["profile_id"],
         model_id=TTS_MODEL_ID,
     )
     if len(planned_chunks) > ai33_cap:
@@ -2351,14 +2453,18 @@ def run_produce_stage(
         artifact_root=workdir,
         provider_attempts=images.calls,
         checkpoint_path=workdir / "scene-image-checkpoint.json",
+        visual_mode=resolved_visual_mode,
     )
     _atomic_json(workdir / "episode-script.json", script)
     _atomic_json(workdir / "youtube-metadata.json", packaging)
     _atomic_json(workdir / "scene-images-manifest.json", {
-        "version": 1,
+        "version": 2,
         "status": "PASS",
         "episode_plan_sha256": episode_plan["episode_plan_sha256"],
         "daily_plan_sha256": episode_plan["daily_plan_sha256"],
+        "visual_mode": resolved_visual_mode,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
         "assets": scene_assets,
         "publication_authorized": False,
     })
@@ -2404,27 +2510,53 @@ def run_produce_stage(
         api_key=api_key,
         voice_id=NARRATOR_VOICE_ID,
         comment_voice_id=COMMENT_VOICE_ID,
+        narration_profile_id=narration_profile["profile_id"],
         model_id=TTS_MODEL_ID,
         post_task=ai33,
     )
-    audio_path = Path(tts_state["final_audio_path"])
-    if not audio_path.is_absolute():
-        audio_path = workdir / audio_path
+    pause_map_path = workdir / "tts" / "narration-pause-map.json"
+    try:
+        pause_map = build_pause_map(tts_state, output_path=pause_map_path)
+        audio_mix_report = mix_compilation_audio(
+            tts_state,
+            artifact_root=workdir,
+            pause_map=pause_map,
+            pause_map_path=pause_map_path,
+            output_path=workdir / "tts" / "compilation_voice_mix.wav",
+            report_path=workdir / "tts" / "audio-mix-report.json",
+        )
+    except CompilationAudioMixError as exc:
+        raise EpisodeFactoryError(f"voice-only audio mix blocked: {exc}") from exc
+    audio_path = workdir / str(audio_mix_report["output_path"])
 
-    background_source = BACKGROUND_ASSET.resolve()
-    if not background_source.is_file():
-        raise EpisodeFactoryError(f"verified background asset is missing: {BACKGROUND_ASSET}")
-    background_path = workdir / "assets" / BACKGROUND_ASSET.name
-    background_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(background_source, background_path)
+    background_path: Path | None = None
+    if resolved_visual_mode == DEFAULT_VISUAL_MODE:
+        background_source = BACKGROUND_ASSET.resolve()
+        if not background_source.is_file():
+            raise EpisodeFactoryError(
+                f"verified background asset is missing: {BACKGROUND_ASSET}",
+            )
+        background_path = workdir / "assets" / BACKGROUND_ASSET.name
+        background_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(background_source, background_path)
     storyboard = build_storyboard(
         script,
         workdir,
         background_video=background_path.relative_to(workdir),
         tts_state=tts_state,
+        visual_mode=resolved_visual_mode,
+        pause_map=pause_map,
+        audio_mix_report=audio_mix_report,
     )
     storyboard_path = workdir / "storyboard.json"
     _atomic_json(storyboard_path, storyboard)
+    shot_plan_path: Path | None = None
+    caption_track_path: Path | None = None
+    if resolved_visual_mode == CINEMATIC_STORY_MODE:
+        shot_plan_path = workdir / "shot-plan.json"
+        caption_track_path = workdir / "caption-track.json"
+        _atomic_json(shot_plan_path, storyboard["shot_plan"])
+        _atomic_json(caption_track_path, storyboard["caption_track"])
 
     video_path = workdir / "final-output.mp4"
     render_report = render_compilation(
@@ -2434,6 +2566,10 @@ def run_produce_stage(
         audio=audio_path,
     )
     render_report["output"] = "final-output.mp4"
+    if render_report.get("caption_srt"):
+        render_report["caption_srt"] = Path(
+            render_report["caption_srt"],
+        ).resolve().relative_to(workdir.resolve()).as_posix()
     _atomic_json(workdir / "render-report.json", render_report)
 
     artifact_paths = {
@@ -2461,15 +2597,35 @@ def run_produce_stage(
         topic_playoff=playoff,
         artifact_hashes=artifact_hashes,
         audio_path=audio_path,
+        pause_map=pause_map,
+        audio_mix_report=audio_mix_report,
         target_duration_minutes=daily_plan["source_plan"]["target_duration_minutes"],
     )
     _atomic_json(workdir / "media-qa.json", media_qa)
     if media_qa.get("status") != "PASS":
         raise EpisodeFactoryError("media QA blocked: " + "; ".join(media_qa.get("failures") or []))
 
-    creative_review = build_template(video_path, thumbnail_path)
+    creative_review = build_template(
+        video_path,
+        thumbnail_path,
+        visual_mode=resolved_visual_mode,
+    )
     creative_review["episode_plan_sha256"] = episode_plan["episode_plan_sha256"]
     creative_review["daily_plan_sha256"] = episode_plan["daily_plan_sha256"]
+    creative_review["visual_mode"] = resolved_visual_mode
+    creative_review["narration_profile_id"] = narration_profile["profile_id"]
+    creative_review["narration_profile_sha256"] = narration_profile[
+        "profile_sha256"
+    ]
+    creative_review["audio_sha256"] = audio_mix_report["output_sha256"]
+    creative_review["pause_map_sha256"] = pause_map["pause_map_sha256"]
+    creative_review["audio_mix_report_sha256"] = audio_mix_report[
+        "audio_mix_report_sha256"
+    ]
+    creative_review["shot_plan_sha256"] = storyboard.get("shot_plan_sha256")
+    creative_review["caption_track_sha256"] = storyboard.get(
+        "caption_track_sha256"
+    )
     _atomic_json(workdir / "creative-review.json", creative_review)
 
     evidence_paths = {
@@ -2492,6 +2648,8 @@ def run_produce_stage(
         "scene_image_checkpoint": workdir / "scene-image-checkpoint.json",
         "thumbnail_manifest": workdir / "thumbnail-manifest.json",
         "tts_state": workdir / "tts" / "compilation_tts_state.json",
+        "pause_map": pause_map_path,
+        "audio_mix_report": workdir / "tts" / "audio-mix-report.json",
         "render_report": workdir / "render-report.json",
         "media_qa": workdir / "media-qa.json",
         "creative_review": workdir / "creative-review.json",
@@ -2499,6 +2657,12 @@ def run_produce_stage(
         "image_attempts": provider_journal_dir / "image.json",
         "ai33_attempts": provider_journal_dir / "ai33.json",
     }
+    if resolved_visual_mode == CINEMATIC_STORY_MODE:
+        evidence_paths.update({
+            "shot_plan": shot_plan_path,
+            "caption_track": caption_track_path,
+            "caption_srt": video_path.with_suffix(".srt"),
+        })
     missing_evidence = [name for name, path in evidence_paths.items() if not path.is_file()]
     if missing_evidence:
         raise EpisodeFactoryError(
@@ -2509,7 +2673,7 @@ def run_produce_stage(
     }
 
     release_manifest: dict[str, Any] = {
-        "version": 1,
+        "version": FACTORY_VERSION,
         "status": "READY_FOR_HUMAN_REVIEW",
         "publication_authorized": False,
         "performance_outcome_guaranteed": False,
@@ -2517,6 +2681,9 @@ def run_produce_stage(
         "pilot_id": daily_plan["pilot_id"],
         "format": daily_plan["format"],
         "pillar": daily_plan["pillar"],
+        "visual_mode": resolved_visual_mode,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
         "winner_candidate_id": winner_id,
         "episode_plan_sha256": episode_plan["episode_plan_sha256"],
         "daily_plan_sha256": episode_plan["daily_plan_sha256"],
@@ -2528,6 +2695,15 @@ def run_produce_stage(
         "source_stage_sha256": source_stage["source_stage_sha256"],
         "artifact_sha256": artifact_hashes,
         "evidence_sha256": evidence_hashes,
+        "pause_map_sha256": pause_map["pause_map_sha256"],
+        "audio_mix_report_sha256": audio_mix_report[
+            "audio_mix_report_sha256"
+        ],
+        "shot_plan_sha256": storyboard.get("shot_plan_sha256"),
+        "caption_track_sha256": storyboard.get("caption_track_sha256"),
+        "caption_srt_sha256": render_report.get("caption_srt_sha256"),
+        "timing_contract_sha256": tts_state.get("timing_contract_sha256"),
+        "audio_sha256": audio_mix_report["output_sha256"],
         "media_qa_status": "PASS",
         "creative_review_status": "BLOCKED_PENDING_HUMAN",
         "provider_usage": {
@@ -2554,71 +2730,149 @@ def run_produce_stage(
         "publication_authorized": False,
         "performance_outcome_guaranteed": False,
         "episode_key": daily_plan["episode_key"],
+        "visual_mode": resolved_visual_mode,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
         "episode_plan_sha256": episode_plan["episode_plan_sha256"],
         "release_candidate_manifest_sha256": release_manifest["release_candidate_manifest_sha256"],
+        "pause_map_sha256": pause_map["pause_map_sha256"],
+        "audio_mix_report_sha256": audio_mix_report[
+            "audio_mix_report_sha256"
+        ],
+        "shot_plan_sha256": storyboard.get("shot_plan_sha256"),
+        "caption_track_sha256": storyboard.get("caption_track_sha256"),
+        "caption_srt_sha256": render_report.get("caption_srt_sha256"),
+        "timing_contract_sha256": tts_state.get("timing_contract_sha256"),
+        "audio_sha256": audio_mix_report["output_sha256"],
         "artifact_directory": ".",
     }
     _atomic_json(workdir / "factory-result.json", result)
     return result
 
 
-def run_preflight(*, daily_plan: dict[str, Any], workdir: Path, channels_path: Path) -> dict[str, Any]:
+def run_preflight(
+    *,
+    daily_plan: dict[str, Any],
+    workdir: Path,
+    channels_path: Path,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
+) -> dict[str, Any]:
     validate_daily_plan(daily_plan, channels_path)
-    background = BACKGROUND_ASSET.resolve()
-    if not background.is_file():
-        raise EpisodeFactoryError(f"background asset is missing: {BACKGROUND_ASSET}")
-    background_manifest = _read_object(BACKGROUND_MANIFEST)
-    background_sha256 = _sha256_file(background)
-    if background_manifest.get("asset") != str(BACKGROUND_ASSET):
-        raise EpisodeFactoryError("background manifest does not name the canonical acc1 asset")
-    if background_manifest.get("sha256") != background_sha256:
-        raise EpisodeFactoryError("background asset checksum does not match its approved manifest")
-    if background_manifest.get("audio_policy") != "discard" or background_manifest.get("loop") is not True:
-        raise EpisodeFactoryError("background manifest must require looping video with discarded audio")
+    try:
+        resolved_visual_mode = resolve_visual_mode(visual_mode)
+    except ValueError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
+    if (
+        resolved_visual_mode == CINEMATIC_STORY_MODE
+        and str(daily_plan.get("format") or "").upper() == "THREAD"
+    ):
+        raise EpisodeFactoryError(
+            "cinematic_story_v1 supports SAGA/BUNDLE; THREAD requires its "
+            "separate response-card hybrid contract",
+        )
+
+    pillar_id = str(daily_plan.get("pillar") or "").strip()
+    try:
+        narration_profile = resolve_narration_profile(
+            NARRATION_PROFILE_IDS_BY_PILLAR.get(pillar_id, ""),
+            pillar_id=pillar_id,
+        )
+    except NarrationProfileError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
 
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
-        raise EpisodeFactoryError("ffmpeg and ffprobe are required before any live source or provider call")
+        raise EpisodeFactoryError(
+            "ffmpeg and ffprobe are required before any live source or provider call",
+        )
     font = next((path for path in FONT_CANDIDATES if path.is_file()), None)
     if font is None:
-        raise EpisodeFactoryError("a Cyrillic-capable production font is required before provider calls")
-    try:
-        probe_result = subprocess.run(
-            [
-                ffprobe,
-                "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=codec_name,width,height:format=duration",
-                "-of", "json",
-                str(background),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
+        raise EpisodeFactoryError(
+            "a Cyrillic-capable production font is required before provider calls",
         )
-        probe = json.loads(probe_result.stdout)
-        stream = (probe.get("streams") or [])[0]
-        duration = float((probe.get("format") or {}).get("duration") or 0)
-    except (OSError, subprocess.CalledProcessError, ValueError, json.JSONDecodeError, IndexError) as exc:
-        raise EpisodeFactoryError("approved background asset is not decodable by ffprobe") from exc
-    expected_resolution = background_manifest.get("resolution")
-    if [stream.get("width"), stream.get("height")] != expected_resolution:
-        raise EpisodeFactoryError("background video resolution does not match its manifest")
-    if stream.get("codec_name") != background_manifest.get("video_codec"):
-        raise EpisodeFactoryError("background video codec does not match its manifest")
-    if abs(duration - float(background_manifest.get("duration_sec") or 0)) > 0.25:
-        raise EpisodeFactoryError("background video duration does not match its manifest")
+
+    background_sha256: str | None = None
+    background_manifest_sha256: str | None = None
+    duration: float | None = None
+    if resolved_visual_mode == DEFAULT_VISUAL_MODE:
+        background = BACKGROUND_ASSET.resolve()
+        if not background.is_file():
+            raise EpisodeFactoryError(
+                f"background asset is missing: {BACKGROUND_ASSET}",
+            )
+        background_manifest = _read_object(BACKGROUND_MANIFEST)
+        background_sha256 = _sha256_file(background)
+        background_manifest_sha256 = _sha256_file(BACKGROUND_MANIFEST)
+        if background_manifest.get("asset") != str(BACKGROUND_ASSET):
+            raise EpisodeFactoryError(
+                "background manifest does not name the canonical acc1 asset",
+            )
+        if background_manifest.get("sha256") != background_sha256:
+            raise EpisodeFactoryError(
+                "background asset checksum does not match its approved manifest",
+            )
+        if (
+            background_manifest.get("audio_policy") != "discard"
+            or background_manifest.get("loop") is not True
+        ):
+            raise EpisodeFactoryError(
+                "background manifest must require looping video with discarded audio",
+            )
+        try:
+            probe_result = subprocess.run(
+                [
+                    ffprobe, "-v", "error", "-select_streams", "v:0",
+                    "-show_entries",
+                    "stream=codec_name,width,height:format=duration",
+                    "-of", "json", str(background),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            probe = json.loads(probe_result.stdout)
+            stream = (probe.get("streams") or [])[0]
+            duration = float((probe.get("format") or {}).get("duration") or 0)
+        except (
+            OSError,
+            subprocess.CalledProcessError,
+            ValueError,
+            json.JSONDecodeError,
+            IndexError,
+        ) as exc:
+            raise EpisodeFactoryError(
+                "approved background asset is not decodable by ffprobe",
+            ) from exc
+        if [stream.get("width"), stream.get("height")] != background_manifest.get(
+            "resolution",
+        ):
+            raise EpisodeFactoryError(
+                "background video resolution does not match its manifest",
+            )
+        if stream.get("codec_name") != background_manifest.get("video_codec"):
+            raise EpisodeFactoryError(
+                "background video codec does not match its manifest",
+            )
+        if abs(duration - float(background_manifest.get("duration_sec") or 0)) > 0.25:
+            raise EpisodeFactoryError(
+                "background video duration does not match its manifest",
+            )
+
     report = {
         "version": FACTORY_VERSION,
         "status": "PREFLIGHT_PASS",
+        "visual_mode": resolved_visual_mode,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
         "would_call_reddit": False,
         "would_call_image_provider": False,
         "would_call_ai33": False,
         "would_upload_youtube": False,
         "daily_plan_sha256": canonical_hash(daily_plan),
+        "background_required": resolved_visual_mode == DEFAULT_VISUAL_MODE,
         "background_sha256": background_sha256,
-        "background_manifest_sha256": _sha256_file(BACKGROUND_MANIFEST),
+        "background_manifest_sha256": background_manifest_sha256,
         "background_duration_sec": duration,
         "ffmpeg_preflight": True,
         "font_preflight": True,
@@ -2651,12 +2905,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spend-lease")
     parser.add_argument("--resume-reviewed-run-id", type=int)
     parser.add_argument("--resume-lease")
+    parser.add_argument(
+        "--visual-mode",
+        choices=tuple(sorted(VISUAL_MODES)),
+        default=DEFAULT_VISUAL_MODE,
+        help="Explicit renderer contract; never selected by fallback.",
+    )
     args = parser.parse_args(argv)
     plan = _read_object(Path(args.plan))
     workdir = Path(args.workdir)
     channels = Path(args.channels)
     if args.stage == "preflight":
-        result = run_preflight(daily_plan=plan, workdir=workdir, channels_path=channels)
+        result = run_preflight(
+            daily_plan=plan,
+            workdir=workdir,
+            channels_path=channels,
+            visual_mode=args.visual_mode,
+        )
     elif args.stage == "source":
         result = run_source_stage(
             daily_plan=plan,
@@ -2682,6 +2947,7 @@ def main(argv: list[str] | None = None) -> int:
             image_call_cap=args.image_call_cap,
             confirm_ai33_spend=args.confirm_ai33_spend,
             ai33_call_cap=args.ai33_call_cap,
+            visual_mode=args.visual_mode,
         )
     else:
         result = run_produce_stage(
@@ -2699,6 +2965,7 @@ def main(argv: list[str] | None = None) -> int:
             spend_lease_path=Path(args.spend_lease) if args.spend_lease else None,
             resume_review_run_id=args.resume_reviewed_run_id,
             resume_lease_path=Path(args.resume_lease) if args.resume_lease else None,
+            visual_mode=args.visual_mode,
         )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0

@@ -112,6 +112,62 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertEqual(stored["would_upload_youtube"], False)
         self.assertFalse(stored["publication_authorized"])
 
+    def test_cinematic_preflight_skips_baseline_background(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            font = root / "font.ttf"
+            font.write_bytes(b"font")
+            with (
+                mock.patch.object(factory, "validate_daily_plan", return_value=self.plan),
+                mock.patch.object(factory.shutil, "which", return_value="/usr/bin/tool"),
+                mock.patch.object(factory, "FONT_CANDIDATES", (font,)),
+                mock.patch.object(
+                    factory,
+                    "BACKGROUND_ASSET",
+                    root / "must-not-be-read.mp4",
+                ),
+            ):
+                report = factory.run_preflight(
+                    daily_plan=self.plan,
+                    workdir=root,
+                    channels_path=ROOT / "channels.json",
+                    visual_mode="cinematic_story_v1",
+                )
+        self.assertEqual(report["visual_mode"], "cinematic_story_v1")
+        self.assertFalse(report["background_required"])
+        self.assertIsNone(report["background_sha256"])
+        self.assertRegex(report["narration_profile_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_unknown_mode_and_cinematic_thread_fail_before_paid_provider(self):
+        calls = []
+        common = {
+            "workdir": Path("/tmp/unused-acc1-mode-gate"),
+            "channels_path": ROOT / "channels.json",
+            "confirm_openai_spend": True,
+            "openai_call_cap": 96,
+            "openai_token_cap": 500_000,
+            "confirm_image_spend": True,
+            "image_call_cap": 16,
+            "confirm_ai33_spend": True,
+            "ai33_call_cap": 96,
+            "openai_provider": lambda **kwargs: calls.append(kwargs),
+        }
+        with self.assertRaisesRegex(factory.EpisodeFactoryError, "visual_mode must be"):
+            factory.run_produce_stage(
+                daily_plan=self.plan,
+                visual_mode="cinematic-ish",
+                **common,
+            )
+        thread_plan = copy.deepcopy(self.plan)
+        thread_plan["format"] = "THREAD"
+        with self.assertRaisesRegex(factory.EpisodeFactoryError, "response-card hybrid"):
+            factory.run_produce_stage(
+                daily_plan=thread_plan,
+                visual_mode="cinematic_story_v1",
+                **common,
+            )
+        self.assertEqual(calls, [])
+
     def test_source_cli_requires_exact_confirmation_before_client(self):
         with tempfile.TemporaryDirectory() as temp:
             plan_path = Path(temp) / "daily-plan.json"
@@ -606,20 +662,16 @@ class EpisodeFactoryTests(unittest.TestCase):
             )
         parts = {item["kind"]: item["text"] for item in script["intro_contract"]["parts"]}
         self.assertEqual(
-            parts["episode_promise"],
-            "Сегодня — две законченные истории с Reddit.",
-        )
-        self.assertEqual(
             parts["truth_disclosure"],
             "Это личные рассказы пользователей Reddit, не подтверждённые независимо.",
         )
         self.assertEqual(
-            parts["support_thanks"],
-            "Спасибо всем, кто помогает каналу расти.",
+            [item["kind"] for item in script["intro_contract"]["parts"]],
+            ["cold_open", "truth_disclosure", "first_story_cue"],
         )
-        self.assertIn("Устраивайтесь поудобнее", parts["brand_sting"])
         self.assertNotIn("спонсор", script["intro_ru"].casefold())
         self.assertEqual(script["intro_ru"], script["intro_contract"]["intro_ru"])
+        self.assertIn("Чью сторону", script["outro_ru"])
         validate.assert_called_once()
 
     def test_malformed_structured_candidate_uses_reserve_without_aborting_transport(self):
@@ -707,6 +759,8 @@ class EpisodeFactoryTests(unittest.TestCase):
             "episode_plan_sha256": "a" * 64,
             "git_sha": "1" * 40,
             "provider_settings": {"image": {"model": "gpt-image-2"}},
+            "visual_mode": "reddit_pages",
+            "narration_profile_id": "measured_confessional",
         }
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "episode-plan.json"
@@ -731,6 +785,8 @@ class EpisodeFactoryTests(unittest.TestCase):
                     channel={},
                     provider_settings=restored["provider_settings"],
                     winner={"sources": []},
+                    visual_mode=restored["visual_mode"],
+                    narration_profile_id=restored["narration_profile_id"],
                 )
         self.assertEqual(resolved, restored)
         validate.assert_called_once()
@@ -1632,6 +1688,9 @@ class EpisodeFactoryTests(unittest.TestCase):
                 "status": "COMPLETE",
                 "episode_plan_sha256": episode_plan["episode_plan_sha256"],
                 "daily_plan_sha256": episode_plan["daily_plan_sha256"],
+                "narration_plan_sha256": "9" * 64,
+                "timing_contract_sha256": "a" * 64,
+                "publication_authorized": False,
             }
             order = []
 
@@ -1689,10 +1748,47 @@ class EpisodeFactoryTests(unittest.TestCase):
                 audio.parent.mkdir(parents=True, exist_ok=True)
                 audio.write_bytes(b"audio")
                 tts_state["final_audio_path"] = "tts/final.mp3"
+                profile = factory.resolve_narration_profile(
+                    kwargs["narration_profile_id"],
+                    pillar_id=self.plan["pillar"],
+                )
+                tts_state["narration_profile_id"] = profile["profile_id"]
+                tts_state["narration_profile_sha256"] = profile[
+                    "profile_sha256"
+                ]
+                tts_state["narration_pillar_id"] = profile["pillar_id"]
                 factory._atomic_json(
                     workdir / "tts" / "compilation_tts_state.json", tts_state
                 )
                 return tts_state
+
+            pause_map = {
+                "status": "PASS",
+                "pause_map_sha256": "b" * 64,
+                "publication_authorized": False,
+            }
+            audio_mix_report = {
+                "status": "PASS",
+                "output_path": "tts/compilation_voice_mix.wav",
+                "output_sha256": hashlib.sha256(b"mixed-audio").hexdigest(),
+                "audio_mix_report_sha256": "c" * 64,
+                "publication_authorized": False,
+            }
+
+            def fake_pause_map(state, *, output_path):
+                order.append("pause-map")
+                self.assertIs(state, tts_state)
+                factory._atomic_json(Path(output_path), pause_map)
+                return pause_map
+
+            def fake_audio_mix(state, **kwargs):
+                order.append("mix")
+                self.assertIs(state, tts_state)
+                self.assertIs(kwargs.get("pause_map"), pause_map)
+                output = Path(kwargs["output_path"])
+                output.write_bytes(b"mixed-audio")
+                factory._atomic_json(Path(kwargs["report_path"]), audio_mix_report)
+                return audio_mix_report
 
             def fake_storyboard(*args, **kwargs):
                 order.append("storyboard")
@@ -1701,15 +1797,40 @@ class EpisodeFactoryTests(unittest.TestCase):
                     kwargs.get("background_video"),
                     Path("assets") / factory.BACKGROUND_ASSET.name,
                 )
-                return {"version": 2, "slides": [], "creative_manifest": {}}
+                self.assertIs(kwargs.get("pause_map"), pause_map)
+                self.assertIs(kwargs.get("audio_mix_report"), audio_mix_report)
+                return {
+                    "version": 2,
+                    "visual_mode": "reddit_pages",
+                    "audio_sha256": audio_mix_report["output_sha256"],
+                    "pause_map_sha256": pause_map["pause_map_sha256"],
+                    "audio_mix_report_sha256": audio_mix_report[
+                        "audio_mix_report_sha256"
+                    ],
+                    "slides": [],
+                    "creative_manifest": {},
+                }
 
             def fake_render(storyboard, artifact_root, output, **kwargs):
                 order.append("render")
+                self.assertEqual(
+                    Path(kwargs["audio"]),
+                    workdir / "tts" / "compilation_voice_mix.wav",
+                )
                 Path(output).write_bytes(b"video")
-                return {"status": "ok"}
+                return {
+                    "status": "ok",
+                    "audio_sha256": audio_mix_report["output_sha256"],
+                }
 
             def fake_qa(*args, **kwargs):
                 order.append("qa")
+                self.assertIs(kwargs.get("pause_map"), pause_map)
+                self.assertIs(kwargs.get("audio_mix_report"), audio_mix_report)
+                self.assertEqual(
+                    Path(kwargs["audio_path"]),
+                    workdir / "tts" / "compilation_voice_mix.wav",
+                )
                 return {"status": "PASS", "failures": []}
 
             def fake_overlay(base, output, text):
@@ -1768,6 +1889,8 @@ class EpisodeFactoryTests(unittest.TestCase):
                 mock.patch.object(factory, "write_thumbnail_report", return_value={"status": "PASS"}),
                 mock.patch.object(factory, "build_tts_chunks", return_value=[{"chunk_id": "one"}]),
                 mock.patch.object(factory, "run_compilation_tts", side_effect=fake_tts),
+                mock.patch.object(factory, "build_pause_map", side_effect=fake_pause_map),
+                mock.patch.object(factory, "mix_compilation_audio", side_effect=fake_audio_mix),
                 mock.patch.object(factory, "build_storyboard", side_effect=fake_storyboard),
                 mock.patch.object(factory, "render_compilation", side_effect=fake_render),
                 mock.patch.object(factory, "run_qa", side_effect=fake_qa),
@@ -1802,7 +1925,10 @@ class EpisodeFactoryTests(unittest.TestCase):
                     image_provider=image_provider,
                 )
 
-            self.assertEqual(order, ["tts", "storyboard", "render", "qa"])
+            self.assertEqual(
+                order,
+                ["tts", "pause-map", "mix", "storyboard", "render", "qa"],
+            )
             self.assertEqual(result["status"], "READY_FOR_HUMAN_REVIEW")
             self.assertFalse(result["publication_authorized"])
             self.assertTrue((workdir / "release-candidate-manifest.json").is_file())
@@ -1811,10 +1937,15 @@ class EpisodeFactoryTests(unittest.TestCase):
                 (workdir / "release-candidate-manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual(len(release["artifact_sha256"]), 6)
-            self.assertEqual(len(release["evidence_sha256"]), 25)
             self.assertIn("spend_lease", release["evidence_sha256"])
             self.assertIn("paid_preflight", release["evidence_sha256"])
             self.assertIn("runtime_estimate_report", release["evidence_sha256"])
+            self.assertIn("pause_map", release["evidence_sha256"])
+            self.assertIn("audio_mix_report", release["evidence_sha256"])
+            self.assertEqual(
+                release["audio_sha256"],
+                audio_mix_report["output_sha256"],
+            )
 
 
 if __name__ == "__main__":

@@ -9,7 +9,15 @@ on:
         required: true
         type: string
       expected_manifest_sha256:
-        description: Exact reviewed release-candidate-manifest self hash
+        description: Exact release-candidate-manifest self hash bound by the release gate
+        required: true
+        type: string
+      release_gate_run_id:
+        description: Successful acc1 Release Review Gate run id for the exact source artifact
+        required: true
+        type: string
+      expected_release_gate_sha256:
+        description: Exact release-gate.json self hash
         required: true
         type: string
       confirm_private_upload:
@@ -38,24 +46,30 @@ jobs:
         env:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+          RELEASE_GATE_RUN_ID: ${{ inputs.release_gate_run_id }}
+          EXPECTED_RELEASE_GATE_SHA256: ${{ inputs.expected_release_gate_sha256 }}
           CONFIRM_PRIVATE_UPLOAD: ${{ inputs.confirm_private_upload }}
         run: |
           set -euo pipefail
           test "$CONFIRM_PRIVATE_UPLOAD" = "true"
           [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RELEASE_GATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$EXPECTED_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_RELEASE_GATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
       - name: Verify the source run and download its exact artifact
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_SOURCE_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           mkdir -p build/acc1-private-upload
           gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --json workflowName,conclusion,event,headSha \
+            --json workflowName,conclusion,event,headBranch,headSha \
             > build/acc1-private-upload/source-run.json
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
           payload = json.loads(Path("build/acc1-private-upload/source-run.json").read_text())
@@ -63,13 +77,44 @@ jobs:
               raise SystemExit("source run is not the acc1 Daily Episode Factory")
           if payload.get("conclusion") != "success" or payload.get("event") != "workflow_dispatch":
               raise SystemExit("source run is not a successful manual factory run")
+          if payload.get("headBranch") != os.environ["EXPECTED_SOURCE_BRANCH"]:
+              raise SystemExit("source factory run is not from the trusted default branch")
           PY
           gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name "acc1-daily-episode-$SOURCE_RUN_ID" \
             --dir build/acc1-private-upload/artifact
-      - name: Verify reviewed manifest and all upload-bound hashes
+      - name: Verify and download the exact release-gate receipt
         env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_GATE_RUN_ID: ${{ inputs.release_gate_run_id }}
+          EXPECTED_GATE_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh run view "$RELEASE_GATE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json workflowName,conclusion,event,headSha \
+            > build/acc1-private-upload/release-gate-run.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          import os
+
+          payload = json.loads(Path("build/acc1-private-upload/release-gate-run.json").read_text())
+          if payload.get("workflowName") != "acc1 Release Review Gate":
+              raise SystemExit("release gate run has the wrong workflow")
+          if payload.get("conclusion") != "success" or payload.get("event") != "workflow_dispatch":
+              raise SystemExit("release gate is not a successful manual run")
+          if payload.get("headSha") != os.environ["EXPECTED_GATE_HEAD_SHA"]:
+              raise SystemExit("release gate did not run from this trusted revision")
+          PY
+          gh run download "$RELEASE_GATE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "acc1-release-gate-$RELEASE_GATE_RUN_ID" \
+            --dir build/acc1-private-upload/release-gate
+      - name: Verify release receipt, reviewed manifest and upload-bound hashes
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+          EXPECTED_RELEASE_GATE_SHA256: ${{ inputs.expected_release_gate_sha256 }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -80,6 +125,23 @@ jobs:
           from pathlib import Path
 
           root = Path("build/acc1-private-upload/artifact")
+          gate_root = Path("build/acc1-private-upload/release-gate")
+          gate = json.loads((gate_root / "release-gate.json").read_text(encoding="utf-8"))
+          gate_embedded = str(gate.get("release_gate_sha256") or "")
+          gate_payload = dict(gate)
+          gate_payload.pop("release_gate_sha256", None)
+          gate_actual = hashlib.sha256(json.dumps(
+              gate_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+          ).encode("utf-8")).hexdigest()
+          if gate_embedded != gate_actual or gate_embedded != os.environ["EXPECTED_RELEASE_GATE_SHA256"]:
+              raise SystemExit("release gate does not match the exact expected hash")
+          if gate.get("status") != "READY_FOR_PRIVATE_REVIEW":
+              raise SystemExit("release gate is not ready for private review")
+          if gate.get("publication_authorized") is not False or gate.get("upload_authorized") is not False:
+              raise SystemExit("release gate authorization ceiling drifted")
+          if str(gate.get("source_run_id")) != os.environ["SOURCE_RUN_ID"]:
+              raise SystemExit("release gate is bound to a different factory run")
+
           manifest_path = root / "release-candidate-manifest.json"
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
           embedded = str(manifest.get("release_candidate_manifest_sha256") or "")
@@ -90,7 +152,9 @@ jobs:
           ).encode("utf-8")).hexdigest()
           expected = os.environ["EXPECTED_MANIFEST_SHA256"]
           if embedded != actual_self_hash or embedded != expected:
-              raise SystemExit("release manifest does not match the exact reviewed hash")
+              raise SystemExit("release manifest does not match the exact gate-bound hash")
+          if gate.get("release_candidate_manifest_sha256") != embedded:
+              raise SystemExit("release gate is bound to a different factory manifest")
           if manifest.get("status") != "READY_FOR_HUMAN_REVIEW":
               raise SystemExit("release manifest is not review-ready")
           if manifest.get("publication_authorized") is not False:
@@ -111,12 +175,22 @@ jobs:
               "metadata_sha256": root / "youtube-metadata.json",
           }
           claimed = manifest.get("artifact_sha256") or {}
+          gate_claimed = gate.get("artifact_sha256") or {}
           for field, path in paths.items():
               if not path.is_file():
                   raise SystemExit(f"missing upload artifact: {path.name}")
               digest = file_sha256(path)
               if claimed.get(field) != digest:
                   raise SystemExit(f"upload artifact hash mismatch: {field}")
+              if gate_claimed.get(field) != digest:
+                  raise SystemExit(f"release gate artifact hash mismatch: {field}")
+          for field, filename in (
+              ("creative_review_file_sha256", "creative-review.json"),
+              ("rights_manifest_file_sha256", "rights-manifest.json"),
+          ):
+              path = gate_root / filename
+              if not path.is_file() or gate.get(field) != file_sha256(path):
+                  raise SystemExit(f"release evidence hash mismatch: {field}")
           media_qa = json.loads((root / "media-qa.json").read_text(encoding="utf-8"))
           if media_qa.get("status") != "PASS" or media_qa.get("failures"):
               raise SystemExit("media-qa.json does not pass")
@@ -165,6 +239,8 @@ jobs:
           name: acc1-private-upload-${{ github.run_id }}
           path: |
             build/acc1-private-upload/source-run.json
+            build/acc1-private-upload/release-gate-run.json
+            build/acc1-private-upload/release-gate/release-gate.json
             build/acc1-private-upload/youtube-private-upload.json
           if-no-files-found: warn
           retention-days: 30

@@ -15,14 +15,10 @@ from acc1_episode_manifest import disclosure_for_truth_mode, validate_episode_ma
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 TRUTH_MODES = {"fiction", "unverified_personal_account"}
-INTRO_CONTRACT_VERSION = 1
+INTRO_CONTRACT_VERSION = 2
 INTRO_PART_ORDER = (
     "cold_open",
-    "episode_promise",
     "truth_disclosure",
-    "source_note",
-    "support_thanks",
-    "brand_sting",
     "first_story_cue",
 )
 SOURCE_NOTE_RU = "Оригинальные публикации Reddit указаны в описании."
@@ -33,7 +29,7 @@ GENERIC_BRAND_STING_RU = (
 DARK_BRAND_STING_RU = (
     "Вы слушаете Chonker Talks. Свет можно оставить включённым. Мы начинаем."
 )
-MAX_INTRO_WORDS = 90
+MAX_INTRO_WORDS = 60
 
 _STORY_COUNT_PHRASES = {
     1: "одна законченная история",
@@ -69,6 +65,10 @@ def _spoken_title(value: Any) -> str:
     title = re.sub(r"\s+", " ", _text(value)).strip(" \"'«»")
     if not title:
         raise ValueError("first translated title is required for the intro")
+    title = re.sub(r"(?<!\d)911(?!\d)", "девять один один", title)
+    head = re.split(r"\s*(?::|—|–)\s*", title, maxsplit=1)[0].strip()
+    if 4 <= len(WORD_RE.findall(head)) <= 14:
+        return head
     return title
 
 
@@ -100,7 +100,7 @@ def _first_story_cue_ru(episode_format: str, title_ru: str) -> str:
     )
     format_id = _text(episode_format).upper()
     if format_id == "SAGA":
-        return f"Сегодняшняя история. {quoted_title}"
+        return f"Название поста. {quoted_title}"
     if format_id == "BUNDLE":
         return f"История первая. {quoted_title}"
     if format_id == "THREAD":
@@ -127,23 +127,16 @@ def build_intro_contract(
     }
     if not all(normalized_cold_open.values()):
         raise ValueError("cold_open text, source_id, and source_quote are required")
-    promise = _episode_promise_ru(
+    # Validate the format/count envelope even though the compact spoken intro
+    # deliberately does not narrate a generic Reddit-format promise.
+    _episode_promise_ru(
         episode_format=episode_format,
         source_count=source_count,
         response_count=response_count,
     )
-    brand_sting = (
-        DARK_BRAND_STING_RU
-        if _text(pillar) == "strange_dark_unexplained"
-        else GENERIC_BRAND_STING_RU
-    )
     parts = [
         {"kind": "cold_open", "text": normalized_cold_open["text"]},
-        {"kind": "episode_promise", "text": promise},
         {"kind": "truth_disclosure", "text": _text(truth_disclosure)},
-        {"kind": "source_note", "text": SOURCE_NOTE_RU},
-        {"kind": "support_thanks", "text": SUPPORT_THANKS_RU},
-        {"kind": "brand_sting", "text": brand_sting},
         {
             "kind": "first_story_cue",
             "text": _first_story_cue_ru(episode_format, first_title_ru),
@@ -232,6 +225,34 @@ def validate_intro_contract(
     if expected["spoken_word_count"] > MAX_INTRO_WORDS:
         failures.append(f"intro must contain at most {MAX_INTRO_WORDS} spoken words")
     return failures
+
+
+def build_outro_prompt(
+    *, episode_format: str, pillar: str, first_source: dict[str, Any],
+) -> str:
+    """Return a grounded discussion question without asserting Reddit as fact."""
+
+    source_text = " ".join((
+        _text(first_source.get("title")),
+        _source_body(first_source),
+    )).lower()
+    if _text(pillar) == "strange_dark_unexplained":
+        if re.search(r"звон|телефон|диспетчер|911|call|phone|dispatch", source_text):
+            return (
+                "Вы бы ответили на такой звонок? А если у вас есть история, "
+                "от которой до сих пор не по себе, расскажите её в комментариях."
+            )
+        return (
+            "Есть история, от которой вам до сих пор не по себе? "
+            "Расскажите её в комментариях."
+        )
+    if _text(episode_format).upper() == "THREAD":
+        return "Какой ответ в этой теме вы бы написали сами? Расскажите в комментариях."
+    if _text(pillar) == "relationships_family":
+        return "Чью сторону вы бы заняли в этой истории — и почему? Расскажите в комментариях."
+    if _text(pillar) == "work_money_consumer":
+        return "Как бы вы поступили на этом месте? Расскажите в комментариях."
+    return "Что в этой истории вы бы сделали иначе? Расскажите в комментариях."
 
 
 def _source_id(snapshot: dict[str, Any]) -> str:

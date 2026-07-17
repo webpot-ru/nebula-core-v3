@@ -6,13 +6,15 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 **GitHub**: [github.com/webpot-ru/nebula-core-v3](https://github.com/webpot-ru/nebula-core-v3) *(private)*
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-07-15
+**Last updated**: 2026-07-17
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 
 **Current topic decision**: [`topic-strategy-research-2026-07-10.md`](topic-strategy-research-2026-07-10.md) is the source of truth for channel ownership, source lanes, the 90-day plan, evidence boundaries, and validation gates.
 
 **Current Russian channel decision**: [`acc1-russian-reddit-story-strategy-2026-07-13.md`](acc1-russian-reddit-story-strategy-2026-07-13.md) is the canonical viewer promise, SAGA/BUNDLE/THREAD contract, six-slot daily pilot matrix, S-tier target gates, brand package, and visual/thumbnail system for `acc1`.
+
+**Current acc1 cinematic implementation**: [`acc1-cinematic-production-plan-2026-07-16.md`](acc1-cinematic-production-plan-2026-07-16.md) defines the opt-in `cinematic_story_v1` migration, narration/mix contract and promotion gates. [`acc1-visual-qa-checklist.md`](acc1-visual-qa-checklist.md) is the mandatory human-facing MP4 review gate. `reddit_pages` remains the default.
 
 **Russian dark-series references**: [`russian-longform-competitor-analysis-2026-07-11.md`](russian-longform-competitor-analysis-2026-07-11.md) and [`russian-horror-editorial-system.md`](russian-horror-editorial-system.md) remain the specialized evidence/editorial contracts for the horror series; they no longer define the whole `acc1` channel.
 
@@ -807,7 +809,7 @@ must show the new scopes and then match every authenticated channel against
 
 ### acc1 Daily Review-Ready Episode Factory
 
-`.github/workflows/acc1_daily_episode.yml` is the one-dispatch, artifact-only long-form factory for `acc1`. Its OpenAI-capable revision is active on GitHub `main` as workflow `312924313`; GPT-5.4 Flex transport has been live-verified, but no review-ready artifact exists because later source/editorial gates blocked fail-closed. The merged factory includes the PRAW lazy-fetch fix and never invokes `uploader.py`; its maximum result is `READY_FOR_HUMAN_REVIEW`.
+`.github/workflows/acc1_daily_episode.yml` is the one-dispatch, artifact-only long-form factory for `acc1`. Its OpenAI-capable revision is active on GitHub `main` as workflow `312924313`; GPT-5.4 Flex transport has been live-verified, but no review-ready artifact exists because later source/editorial gates blocked fail-closed. The merged factory includes the PRAW lazy-fetch fix and never invokes `uploader.py`; its maximum result is `READY_FOR_HUMAN_REVIEW`. The current integration branch adds an explicit `visual_mode` input without changing the default: `reddit_pages` remains the existing Reddit/Chonker renderer, while `cinematic_story_v1` is opt-in and accepts SAGA/BUNDLE only. Unknown modes and cinematic THREAD fail before provider calls.
 
 The planner resolves one Europe/Moscow production date against the fixed interleaved cycle `pilot_01, pilot_04, pilot_02, pilot_05, pilot_03, pilot_06`. It reads exact pilot rows from `channels.json`, not the superseded `topic_mix`. The source stage performs only bounded read-only Reddit collection with `AI_QUALITY_CHECK=0` and `AI_QUALITY_FAIL_OPEN=0`; long BUNDLE discovery uses the evidence-backed evergreen windows `week/month/year`, SAGA may scan up to three configured windows, and THREAD uses a 20-prompt bounded year pool under the explicit Reddit request cap. The PRAW requestor enforces that cap before every OAuth/API HTTP request. The factory must retain exactly 3-5 complete candidates before any paid stage. Insufficient THREAD/SAGA pools, BUNDLE subset failures, and deterministic base-source-contract failures write self-hashed `source-diagnostics.json` with the partial queue/review, exact failure, observed request count, and fail-closed publication flags. Explicit `depends_on_screenshot_or_link=false` is preserved; a missing/unknown dependency verdict remains fail-closed as dependent. For SAGA, explicit series markers, explicit open-ending language, or a non-terminal source ending block before paid review. A terminal punctuated ending without those markers is structurally complete enough to enter the independent semantic producer/critic payoff review; a fixed English connective word such as `finally` is not required. Sources are otherwise rejected for incomplete provenance/payoff, link or screenshot dependence, high-confidence safety/PII failures, viewer-promise mismatch, fictional-as-real risk, or narration/render envelope violations. These are source and spend gates, not claims that Reddit text is factual.
 
@@ -831,7 +833,13 @@ AI33 resume binds both `provider-attempts/ai33.json` and `tts/compilation_tts_st
 
 The factory stages the approved cat background under the episode artifact and passes its artifact-relative path into the storyboard. This is required because GitHub uses a relative `build/acc1-daily-episode` workdir; passing that prefixed path as if it were already relative would join the workdir twice even though the staged MP4 exists. Storyboard path validation remains fail-closed and resolves the artifact-relative path under the exact root before hashing it.
 
-Private YouTube upload is deliberately a separate manual workflow, `.github/workflows/acc1_private_upload.yml`, after the factory artifact has been downloaded and visually reviewed. It is registered on GitHub `main` as workflow `313326356`, but must not be run until a factory artifact has passed human review and an exact private-upload authorization is given. It accepts the successful factory `source_run_id`, `expected_manifest_sha256` equal to the exact reviewed `release_candidate_manifest_sha256`, and `confirm_private_upload=true`; it verifies the bound artifact and acc1 OAuth mapping, uploads exactly one private video, applies the custom thumbnail, and preserves the readback receipt. It contains no Reddit, Gemini, OpenAI, image, AI33, history write, public, or unlisted path.
+The cinematic branch keeps all current OpenAI Flex, spend-lease, source-rotation, image-resume and AI33-resume protections. It adds manifest v2, pillar-bound narration profiles, semantic TTS chunks, a deterministic pause map, measured voice-only mix, checksum-bound full-screen shot plans, slow local zoom/pan, caption JSON/SRT, and mode-aware render/media QA. Historical manifest v1 validation remains supported. Scene generation still uses the same bounded provider budget; virtual camera movement is created locally from accepted images and does not create hidden provider calls.
+
+The no-network integration proof is `/tmp/acc1-cinematic-comparison-main-20260717`. Both 1920×1080 H.264/AAC 30 fps outputs pass media QA and share final audio SHA-256 `0db0f81f8d8665a8abf0a1eab512b959114d636ea0fedef89d98418deb7dfd05`; the comparison report self-hash is `af329ebd0bd2818ab8df431faa19be73b84695017fc3ee18d7c1055592ed15e8`. The fixture uses synthetic shapes and tones, so its honest status is `BLOCKED_PENDING_HUMAN`: it proves mechanics and binding, not final image or voice quality.
+
+Private YouTube upload is deliberately separated into two manual workflows after the factory artifact has been downloaded and reviewed. `.github/workflows/acc1_release_review.yml` downloads the exact successful factory artifact, joins a completed checksum-bound human creative review with a source-by-source rights manifest, and can emit only `READY_FOR_PRIVATE_REVIEW`; it cannot call providers or YouTube and never authorizes upload/publication. The hardened `.github/workflows/acc1_private_upload.yml` then requires that exact release-gate run and self-hash in addition to the factory run and manifest hash before a separately confirmed one-video private upload. It verifies the acc1 OAuth mapping, uploads exactly one private video, applies the custom thumbnail, and preserves readback. It has no Reddit, Gemini, OpenAI, image, AI33, history-write, public, or unlisted path.
+
+Live readback on 2026-07-17 found the older active `acc1 Private Artifact Upload` on `main` (workflow id `313326356`) still accepts `READY_FOR_HUMAN_REVIEW` without the new rights/release receipt, while `acc1 Release Review Gate` is not registered. Do not dispatch that old workflow. The local hardened chain must be merged and registered first; the old workflow should remain disabled while the PR is pending.
 
 `workflow_dispatch` exists on the repository default branch for both the factory and private-upload workflow. The base OpenAI factory, background assets, and all-channel `videos_per_day=0` hold are merged to `main`; PR #5 adds the unverified Flex contract described above. Before any dispatch, verify that the exact reviewed PR revision is on `main`. The following factory command remains a paid operation and requires separate exact approval.
 
@@ -839,7 +847,7 @@ Private YouTube upload is deliberately a separate manual workflow, `.github/work
 gh workflow run acc1_daily_episode.yml \
   --repo webpot-ru/nebula-core-v3 \
   --ref main \
-  -f production_date="" -f pilot_id=auto \
+  -f production_date="" -f pilot_id=auto -f visual_mode=reddit_pages \
   -f confirm_reddit_read=true -f reddit_request_cap=24 \
   -f confirm_openai_spend=true -f openai_call_cap=96 \
   -f openai_token_cap=500000 \
@@ -861,17 +869,30 @@ gh workflow run acc1_daily_episode.yml \
   -f confirm_ai33_spend=true -f ai33_call_cap=32
 ```
 
-Only after a factory run succeeds and its downloaded video plus thumbnail are accepted should its exact manifest self-hash be used for the private-only upload:
+Only after a factory run succeeds may a completed human review plus rights bundle be evaluated. The bundle path is repo-relative and contains only the structured evidence, not private agreement text:
+
+```bash
+gh workflow run acc1_release_review.yml \
+  --repo webpot-ru/nebula-core-v3 --ref main \
+  -f source_run_id=EXACT_FACTORY_RUN_ID \
+  -f expected_manifest_sha256=EXACT_REVIEWED_MANIFEST_SHA256 \
+  -f review_bundle_path=release-reviews/acc1/EXACT_BUNDLE \
+  -f confirm_release_review=true
+```
+
+Only after that gate succeeds and the user separately authorizes one private upload may the exact receipts be used:
 
 ```bash
 gh workflow run acc1_private_upload.yml \
   --repo webpot-ru/nebula-core-v3 --ref main \
   -f source_run_id=EXACT_FACTORY_RUN_ID \
   -f expected_manifest_sha256=EXACT_REVIEWED_MANIFEST_SHA256 \
+  -f release_gate_run_id=EXACT_RELEASE_GATE_RUN_ID \
+  -f expected_release_gate_sha256=EXACT_RELEASE_GATE_SHA256 \
   -f confirm_private_upload=true
 ```
 
-This command can consume Reddit/API quota, OpenAI Flex tokens, image-generation, AI33, GitHub runner, and artifact storage. Do not run it without exact approval of that spend scope. The uploaded artifact contains `daily-plan.json`, source evidence, 3-5 finalist reviews, `topic-playoff.json`, immutable `episode-plan.json`, paid-preflight and spend-lease evidence, script, metadata, scene images, thumbnail, narration state/audio, exact layout/runtime reports, storyboard, `final-output.mp4`, media QA, creative-review template, provider attempt journals, and `release-candidate-manifest.json`. Human creative review and a separately authorized release/upload remain mandatory. The legacy `acc1_release_gate.py` is not yet adapted to this new factory evidence shape, so it cannot currently promote the artifact after human review; this does not weaken the `READY_FOR_HUMAN_REVIEW` ceiling.
+The factory command can consume Reddit/API quota, OpenAI Flex tokens, image generation, AI33, GitHub runner, and artifact storage. Do not run it without exact approval of that spend scope. The artifact contains `daily-plan.json`, source evidence, 3-5 finalist reviews, `topic-playoff.json`, immutable `episode-plan.json`, paid-preflight and spend-lease evidence, script, metadata, scene images, thumbnail, narration state/audio, exact layout/runtime reports, storyboard, `final-output.mp4`, media QA, creative-review template, provider attempt journals, and `release-candidate-manifest.json`. `acc1_release_gate.py` now supports this factory evidence shape but remains a review receipt only: human creative review, real rights evidence, and a separately authorized private upload are still mandatory.
 
 ### Dry-Run Render Workflow
 

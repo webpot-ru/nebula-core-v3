@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from PIL import Image, ImageEnhance, ImageOps, UnidentifiedImageError
 
+from acc1_visual_contract import CINEMATIC_STORY_MODE, resolve_visual_mode
 from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
 
 
@@ -23,10 +24,26 @@ STYLE = (
     "16:9, no text, no letters, no UI, no logo, no watermark, no gore, "
     "leave the rightmost forty percent calm because the copper cat mascot remains visible there"
 )
+CINEMATIC_STYLE = (
+    "cinematic editorial illustration for a Russian Reddit storytelling video, "
+    "realistic textured lighting, one clear focal event, restrained dark copper and teal palette, "
+    "full-screen 16:9 composition, no text, no letters, no UI, no logo, no watermark, no gore, "
+    "keep the important subject and source-supported action inside the central safe area so a "
+    "subtle camera push and pan can crop every edge without losing the focal event"
+)
 
 
 class EpisodeImageError(RuntimeError):
     """Raised when visuals would exceed spend or source-integrity contracts."""
+
+
+def _safe_filename_token(value: str) -> str:
+    raw = str(value or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", raw):
+        return raw
+    normalized = re.sub(r"[^A-Za-z0-9_-]+", "-", raw).strip("-_")[:48] or "source"
+    suffix = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
+    return f"{normalized}-{suffix}"
 
 
 def _expected_dimensions(size: str) -> tuple[int, int]:
@@ -143,8 +160,16 @@ def _scene_excerpt(story: dict[str, Any], index: int, count: int) -> str:
     return excerpt[:700]
 
 
-def image_plan(script: dict[str, Any]) -> list[dict[str, Any]]:
+def image_plan(
+    script: dict[str, Any], *, visual_mode: str | None = None,
+) -> list[dict[str, Any]]:
     """Plan the smallest useful visual set without calling an image provider."""
+    try:
+        mode = resolve_visual_mode(
+            visual_mode if visual_mode is not None else script.get("visual_mode"),
+        )
+    except ValueError as exc:
+        raise EpisodeImageError(str(exc)) from exc
     stories = script.get("stories")
     if not isinstance(stories, list) or not stories:
         raise EpisodeImageError("episode script must contain stories")
@@ -173,6 +198,18 @@ def image_plan(script: dict[str, Any]) -> list[dict[str, Any]]:
             raise EpisodeImageError(f"stories[{story_index}] has no source id")
         for scene_index in range(1, scene_count + 1):
             excerpt = _scene_excerpt(story, scene_index, scene_count)
+            if mode == CINEMATIC_STORY_MODE:
+                prompt = (
+                    f"{CINEMATIC_STYLE}. Depict only this source-preserving translated moment: "
+                    f"{excerpt}. Do not add a person, clue, object, outcome, danger, or emotion "
+                    "not supported by that moment."
+                )
+            else:
+                prompt = (
+                    f"{STYLE}. Depict only this source-preserving translated moment: {excerpt}. "
+                    "Do not add a person, clue, object, outcome, danger, or emotion not supported "
+                    "by that moment. Keep the important scene in the left and center-left region."
+                )
             plan.append({
                 "story_index": story_index,
                 "source_id": source_id,
@@ -180,11 +217,7 @@ def image_plan(script: dict[str, Any]) -> list[dict[str, Any]]:
                 "scene_count": scene_count,
                 "source_excerpt": excerpt,
                 "source_excerpt_sha256": hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
-                "prompt": (
-                    f"{STYLE}. Depict only this source-preserving translated moment: {excerpt}. "
-                    "Do not add a person, clue, object, outcome, danger, or emotion not supported by that moment. "
-                    "Keep the important scene in the left and center-left region."
-                ),
+                "prompt": prompt,
             })
     return plan
 
@@ -200,9 +233,10 @@ def generate_episode_images(
     artifact_root: Path | None = None,
     provider_attempts: list[dict[str, Any]] | None = None,
     checkpoint_path: Path | None = None,
+    visual_mode: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Generate the exact plan and bind every decoded file by checksum."""
-    planned = image_plan(script)
+    planned = image_plan(script, visual_mode=visual_mode)
     if isinstance(max_images, bool) or not isinstance(max_images, int) or max_images < 1:
         raise EpisodeImageError("max_images must be a positive integer")
     if len(planned) > max_images:
@@ -211,7 +245,6 @@ def generate_episode_images(
         )
     updated = copy.deepcopy(script)
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     root = Path(artifact_root) if artifact_root is not None else output_dir
     root = root.resolve()
     expected_size = _expected_dimensions(size)
@@ -249,12 +282,24 @@ def generate_episode_images(
         checkpoint_rebound = False
     if len(checkpoint["entries"]) > len(attempts):
         raise EpisodeImageError("image checkpoint exceeds the provider journal")
+    resolved_output_dir = output_dir.resolve()
+    if artifact_root is not None and (
+        resolved_output_dir != root and root not in resolved_output_dir.parents
+    ):
+        raise EpisodeImageError("image output_dir must remain under artifact_root")
+    output_dir.mkdir(parents=True, exist_ok=True)
     assets: list[dict[str, Any]] = []
     for plan_index, item in enumerate(planned):
         story_number = item["story_index"] + 1
+        source_token = _safe_filename_token(item["source_id"])
         output = output_dir / (
-            f"story-{story_number:02d}-{item['source_id']}-scene-{item['scene_index']:02d}.png"
+            f"story-{story_number:02d}-{source_token}-scene-{item['scene_index']:02d}.png"
         )
+        resolved_output = output.resolve()
+        if resolved_output == root or root not in resolved_output.parents:
+            raise EpisodeImageError(
+                "planned image output must remain under artifact_root",
+            )
         request_sha256 = _canonical_hash({
             "prompt": item["prompt"], "model": model,
             "max_output_tokens": None, "voice_id": None,

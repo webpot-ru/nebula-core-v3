@@ -91,6 +91,22 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         self.assertIn('--resume-lease "$WORKDIR/resume-spend-lease.json"', workflow)
         self.assertNotIn("uploader.py", workflow)
 
+    def test_visual_mode_is_explicit_defaulted_and_forwarded_to_all_media_gates(self):
+        workflow = self.workflow
+        self.assertIn("      visual_mode:\n", workflow)
+        self.assertIn("        default: reddit_pages\n", workflow)
+        self.assertIn("          - reddit_pages\n", workflow)
+        self.assertIn("          - cinematic_story_v1\n", workflow)
+        self.assertIn("VISUAL_MODE: ${{ inputs.visual_mode }}", workflow)
+        self.assertEqual(
+            workflow.count('--visual-mode "$VISUAL_MODE"'),
+            3,
+        )
+        source_section = workflow.split("--stage source", 1)[1].split(
+            "Refuse cross-date reserved-source overlap", 1,
+        )[0]
+        self.assertNotIn("--visual-mode", source_section)
+
     def test_every_external_provider_has_exact_confirmation_and_cap(self):
         for provider in (
             "reddit_read",
@@ -258,11 +274,20 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             "if embedded_plan_hash != bindings",
             "if embedded_manifest_hash != bindings",
             '"video_sha256": root / "final-output.mp4"',
-            '"audio_sha256": root / "tts" / "compilation_narration.mp3"',
+            '"audio_sha256": root / "tts" / "compilation_voice_mix.wav"',
             '"text_layout_report": root / "text-layout-report.json"',
             '"spend_lease": root / "spend-lease.json"',
             '"paid_preflight": root / "paid-preflight.json"',
             '"runtime_estimate_report": root / "runtime-estimate-report.json"',
+            '"pause_map": root / "tts" / "narration-pause-map.json"',
+            '"audio_mix_report": root / "tts" / "audio-mix-report.json"',
+            'if visual_mode == "cinematic_story_v1":',
+            '"shot_plan": root / "shot-plan.json"',
+            '"caption_track": root / "caption-track.json"',
+            '"caption_srt": root / "final-output.srt"',
+            '"narration_profile_sha256"',
+            '"audio_mix_report_sha256"',
+            '"caption_srt_sha256"',
             'manifest.get("artifact_sha256")',
             'manifest.get("evidence_sha256")',
             "actual = file_sha256(path)",

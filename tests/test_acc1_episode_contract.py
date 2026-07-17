@@ -2,8 +2,8 @@ import hashlib
 import unittest
 
 from acc1_episode_contract import (
-    DARK_BRAND_STING_RU,
     build_intro_contract,
+    build_outro_prompt,
     canonical_hash,
     truth_disclosure_ru,
     validate_episode_script,
@@ -157,7 +157,7 @@ class EpisodeContractTests(unittest.TestCase):
             "source_quote": "exact source evidence for the opening",
         }
 
-    def test_bundle_intro_uses_exact_count_and_first_story_label(self):
+    def test_bundle_intro_uses_compact_source_bound_first_story_label(self):
         contract = build_intro_contract(
             cold_open=self._intro_cold_open(),
             episode_format="BUNDLE",
@@ -169,15 +169,12 @@ class EpisodeContractTests(unittest.TestCase):
         )
         texts = {item["kind"]: item["text"] for item in contract["parts"]}
         self.assertEqual(
-            texts["episode_promise"],
-            "Сегодня — пять законченных историй с Reddit.",
-        )
-        self.assertEqual(
             texts["first_story_cue"],
             "История первая. «Мой сосед — маньяк».",
         )
-        self.assertIn("Устраивайтесь поудобнее", texts["brand_sting"])
-        self.assertNotIn("Свет можно", texts["brand_sting"])
+        self.assertEqual([item["kind"] for item in contract["parts"]], [
+            "cold_open", "truth_disclosure", "first_story_cue",
+        ])
 
     def test_thread_intro_uses_response_count_and_topic_label(self):
         contract = build_intro_contract(
@@ -192,10 +189,6 @@ class EpisodeContractTests(unittest.TestCase):
             ),
         )
         texts = {item["kind"]: item["text"] for item in contract["parts"]}
-        self.assertEqual(
-            texts["episode_promise"],
-            "Сегодня — одна тема и восемь полных ответов с Reddit.",
-        )
         self.assertEqual(
             texts["first_story_cue"],
             "Тема выпуска. «Какую тайну вы скрывали годами?»",
@@ -217,21 +210,19 @@ class EpisodeContractTests(unittest.TestCase):
         result = validate_episode_script(script, plan=plan, playoff=playoff)
         self.assertTrue(any("spoken" in item for item in result["failures"]))
 
-    def test_intro_has_exact_approved_order_and_dark_brand_sting(self):
+    def test_intro_has_exact_compact_approved_order(self):
         plan, playoff, script = fixtures()
         kinds = [item["kind"] for item in script["intro_contract"]["parts"]]
         self.assertEqual(kinds, [
-            "cold_open", "episode_promise", "truth_disclosure", "source_note",
-            "support_thanks", "brand_sting", "first_story_cue",
+            "cold_open", "truth_disclosure", "first_story_cue",
         ])
-        self.assertEqual(script["intro_contract"]["parts"][5]["text"], DARK_BRAND_STING_RU)
         self.assertEqual(validate_episode_script(script, plan=plan, playoff=playoff)["status"], "PASS")
 
     def test_unverified_named_sponsor_tamper_blocks(self):
         plan, playoff, script = fixtures()
-        script["intro_contract"]["parts"][4]["text"] = (
-            "Спасибо спонсору Ивану за оплату этого выпуска."
-        )
+        script["intro_contract"]["parts"].append({
+            "kind": "support_thanks", "text": "Спасибо спонсору Ивану за оплату этого выпуска.",
+        })
         script["intro_ru"] = " ".join(
             item["text"] for item in script["intro_contract"]["parts"]
         )
@@ -240,6 +231,33 @@ class EpisodeContractTests(unittest.TestCase):
             "intro_contract must exactly match the approved deterministic structure",
             result["failures"],
         )
+
+    def test_dark_call_outro_is_specific_without_claiming_source_is_real(self):
+        result = build_outro_prompt(
+            episode_format="SAGA",
+            pillar="strange_dark_unexplained",
+            first_source={"title": "A 911 dispatcher call", "body": "The phone rang."},
+        )
+        self.assertEqual(
+            result,
+            "Вы бы ответили на такой звонок? А если у вас есть история, от которой до сих пор не по себе, расскажите её в комментариях.",
+        )
+
+    def test_spoken_title_says_911_digit_by_digit_and_avoids_repeating_payoff(self):
+        contract = build_intro_contract(
+            cold_open=self._intro_cold_open(),
+            episode_format="SAGA",
+            pillar="strange_dark_unexplained",
+            source_count=1,
+            response_count=0,
+            first_title_ru=(
+                "Мой начальник дал мне одно правило как диспетчеру 911: "
+                "если звонят из старого дома, не отвечай."
+            ),
+            truth_disclosure="Это художественная история с Reddit.",
+        )
+        self.assertIn("девять один один", contract["intro_ru"])
+        self.assertNotIn("если звонят из старого дома", contract["intro_ru"])
 
     def test_cold_open_tamper_after_playoff_blocks(self):
         plan, playoff, script = fixtures()

@@ -7,7 +7,12 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw
 
-from acc1_visual_contract import MASCOT_SAFE_X
+from acc1_cinematic_shots import build_cinematic_contract, canonical_hash
+from acc1_visual_contract import CINEMATIC_STORY_MODE, MASCOT_SAFE_X
+from compilation_cinematic_renderer import (
+    _service_overlay_slide,
+    render_cinematic_frame,
+)
 from compilation_renderer import (
     CompilationRenderError,
     _font,
@@ -109,6 +114,140 @@ class CompilationRendererTests(unittest.TestCase):
             }
         return storyboard
 
+    def _cinematic_fixture(
+        self,
+        root: Path,
+        *,
+        audio_sha256: str = "3" * 64,
+        duration: float = 20.0,
+    ):
+        image = root / "cinematic.png"
+        canvas = Image.new("RGB", (960, 540), "#08131f")
+        draw = ImageDraw.Draw(canvas)
+        draw.rectangle((40, 60, 430, 480), fill="#a64b2a")
+        draw.ellipse((600, 100, 900, 400), fill="#2a8aa6")
+        canvas.save(image)
+        image_sha = hashlib.sha256(image.read_bytes()).hexdigest()
+        intro_text = "Начинаем."
+        text = "Точная история продолжается без разрыва."
+        outro_text = "Обсудим."
+        words = text.split()
+        timings = [{
+            "word": word,
+            "start": index * duration / len(words),
+            "end": (index + 1) * duration / len(words),
+            "timing_source": "ai33",
+        } for index, word in enumerate(words)]
+        total_duration = duration + 1.0
+        contract = build_cinematic_contract(
+            narration_segments=[
+                {
+                    "segment_id": "intro",
+                    "kind": "intro",
+                    "voice_role": "narrator",
+                    "text": intro_text,
+                },
+                {
+                    "segment_id": "story_abc",
+                    "kind": "story",
+                    "voice_role": "narrator",
+                    "text": text,
+                },
+                {
+                    "segment_id": "outro",
+                    "kind": "outro",
+                    "voice_role": "narrator",
+                    "text": outro_text,
+                },
+            ],
+            segment_timings={
+                "intro": {
+                    "duration_sec": 0.5,
+                    "words": [{
+                        "word": intro_text,
+                        "start": 0.0,
+                        "end": 0.5,
+                        "timing_source": "ai33",
+                    }],
+                    "timing_source": "ai33",
+                },
+                "story_abc": {
+                    "duration_sec": duration,
+                    "words": timings,
+                    "timing_source": "ai33",
+                },
+                "outro": {
+                    "duration_sec": 0.5,
+                    "words": [{
+                        "word": outro_text,
+                        "start": 0.0,
+                        "end": 0.5,
+                        "timing_source": "ai33",
+                    }],
+                    "timing_source": "ai33",
+                },
+            },
+            story_visuals={
+                "story_abc": [{
+                    "kind": "source_image",
+                    "local_path": image.name,
+                    "fit": "cover",
+                    "caption": "",
+                    "sha256": image_sha,
+                }],
+            },
+            story_metadata={
+                "story_abc": {
+                    "story_index": 1,
+                    "title": "Стук в дверь",
+                    "source_label": "r/nosleep • u/example_author",
+                    "truth_mode": "fiction",
+                },
+            },
+            final_audio_duration_sec=total_duration,
+        )
+        bindings = {
+            "episode_plan_sha256": "1" * 64,
+            "daily_plan_sha256": "2" * 64,
+            "audio_sha256": audio_sha256,
+            "narration_plan_sha256": "4" * 64,
+        }
+        timing_contract_sha256 = "5" * 64
+        narration_sha256 = contract["caption_track"]["text_sha256"]
+        storyboard = {
+            "version": 3,
+            "format": "compilation_16x9",
+            "resolution": [1920, 1080],
+            "visual_mode": CINEMATIC_STORY_MODE,
+            **bindings,
+            "timing_contract_sha256": timing_contract_sha256,
+            "final_audio_duration_sec": total_duration,
+            "publication_authorized": False,
+            "timeline_duration_sec": total_duration,
+            "slides": contract["shots"],
+            "shot_plan": contract["shot_plan"],
+            "shot_plan_sha256": contract["shot_plan"]["shot_plan_sha256"],
+            "caption_track": contract["caption_track"],
+            "caption_track_sha256": contract["caption_track"][
+                "caption_track_sha256"
+            ],
+            "creative_manifest": {
+                "version": 1,
+                "mode": CINEMATIC_STORY_MODE,
+                **bindings,
+                "timing_contract_sha256": timing_contract_sha256,
+                "final_audio_duration_sec": total_duration,
+                "publication_authorized": False,
+                "narration_sha256": narration_sha256,
+                "text_timing_coverage": 1.0,
+                "shot_plan_sha256": contract["shot_plan"]["shot_plan_sha256"],
+                "caption_track_sha256": contract["caption_track"][
+                    "caption_track_sha256"
+                ],
+            },
+        }
+        return storyboard, image
+
     def test_preflight_accepts_verified_local_image(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -154,6 +293,105 @@ class CompilationRendererTests(unittest.TestCase):
             with self.assertRaisesRegex(CompilationRenderError, "timing gap"):
                 preflight_storyboard(storyboard, root)
 
+    def test_unknown_version_two_mode_does_not_fall_back_to_reddit_pages(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard = self._reddit_fixture(root)
+            storyboard["creative_manifest"]["mode"] = "cinematic_story_v1_typo"
+            with self.assertRaisesRegex(
+                CompilationRenderError, "unsupported creative manifest mode",
+            ):
+                preflight_storyboard(storyboard, root)
+
+    def test_cinematic_preflight_verifies_motion_and_frame_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard, _ = self._cinematic_fixture(root)
+            slide = next(
+                item for item in preflight_storyboard(storyboard, root)
+                if item["presentation"] == "story"
+            )
+            start = root / "start.png"
+            end = root / "end.png"
+            render_cinematic_frame(slide, start, progress=0.0)
+            render_cinematic_frame(slide, end, progress=1.0)
+            with Image.open(start) as first, Image.open(end) as second:
+                difference = ImageChops.difference(first, second)
+                self.assertIsNotNone(difference.getbbox())
+            self.assertEqual(slide["kind"], "cinematic_shot")
+            self.assertEqual(slide["duration_sec"], 20.0)
+
+    def test_cinematic_transition_discloses_the_following_story(self):
+        slides = [
+            {"presentation": "story", "source_label": "first"},
+            {"presentation": "transition"},
+            {
+                "presentation": "story",
+                "story_title": "Вторая история",
+                "source_label": "r/AskReddit • u/second",
+                "truth_mode": "unverified_personal_account",
+            },
+        ]
+        overlay = _service_overlay_slide(slides, 1)
+        self.assertEqual(overlay["story_title"], "Вторая история")
+        self.assertEqual(overlay["source_label"], "r/AskReddit • u/second")
+        self.assertEqual(
+            overlay["truth_mode"], "unverified_personal_account",
+        )
+
+    def test_cinematic_preflight_rejects_motion_outside_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard, _ = self._cinematic_fixture(root)
+            storyboard["slides"][0]["motion"]["end_scale"] = 1.25
+            payload = {
+                key: value for key, value in storyboard["shot_plan"].items()
+                if key != "shot_plan_sha256"
+            }
+            digest = canonical_hash(payload)
+            storyboard["shot_plan"]["shot_plan_sha256"] = digest
+            storyboard["shot_plan_sha256"] = digest
+            storyboard["creative_manifest"]["shot_plan_sha256"] = digest
+            with self.assertRaisesRegex(
+                CompilationRenderError, "push/pan bounds",
+            ):
+                preflight_storyboard(storyboard, root)
+
+    def test_cinematic_preflight_rejects_rehashed_caption_text_substitution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard, _ = self._cinematic_fixture(root)
+            track = storyboard["caption_track"]
+            track["cues"][0]["text"] = "Подмененный текст"
+            track["cues"][0]["text_sha256"] = hashlib.sha256(
+                track["cues"][0]["text"].encode("utf-8"),
+            ).hexdigest()
+            track["text_sha256"] = hashlib.sha256(
+                " ".join(cue["text"] for cue in track["cues"]).encode("utf-8"),
+            ).hexdigest()
+            payload = {
+                key: value for key, value in track.items()
+                if key != "caption_track_sha256"
+            }
+            digest = canonical_hash(payload)
+            track["caption_track_sha256"] = digest
+            storyboard["caption_track_sha256"] = digest
+            storyboard["creative_manifest"]["caption_track_sha256"] = digest
+            with self.assertRaisesRegex(
+                CompilationRenderError, "exact shot narration",
+            ):
+                preflight_storyboard(storyboard, root)
+
+    def test_cinematic_preflight_rejects_timing_contract_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard, _ = self._cinematic_fixture(root)
+            storyboard["creative_manifest"]["timing_contract_sha256"] = "6" * 64
+            with self.assertRaisesRegex(
+                CompilationRenderError, "timing_contract_sha256",
+            ):
+                preflight_storyboard(storyboard, root)
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
     def test_version_two_render_rejects_audio_not_bound_to_storyboard(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -180,6 +418,23 @@ class CompilationRendererTests(unittest.TestCase):
             with Image.open(without_actions) as first, Image.open(with_actions) as second:
                 action_difference = ImageChops.difference(first.convert("RGB"), second.convert("RGB"))
                 self.assertIsNotNone(action_difference.getbbox())
+
+    def test_intro_screen_mode_renders_real_story_title_not_intro_copy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            slide = preflight_storyboard(self._reddit_fixture(root), root)[0]
+            slide.update({
+                "presentation": "intro",
+                "title": "Текст приветствия не должен быть на экране",
+                "display_text": "Текст приветствия не должен быть на экране.",
+                "screen_mode": "story_title",
+                "screen_title": "Стук в дверь",
+                "show_title": False,
+                "show_actions": False,
+            })
+            output = root / "intro-story-title.png"
+            render_slide_frame(slide, output)
+            self.assertTrue(output.is_file())
 
     def test_reddit_metrics_use_english_compact_notation_without_fake_values(self):
         self.assertEqual(_compact_metric(12400, "Vote"), "12.4K")
@@ -262,6 +517,88 @@ class CompilationRendererTests(unittest.TestCase):
             self.assertEqual(report["resolution"], [1920, 1080])
             probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(output)], check=True, capture_output=True, text=True)
             self.assertEqual(probe.stdout.strip(), "1920,1080")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+    def test_renders_bound_cinematic_mp4_and_caption_sidecar(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / "narration.wav"
+            subprocess.run([
+                "ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                "sine=frequency=440:duration=21", str(audio),
+            ], check=True)
+            storyboard, _ = self._cinematic_fixture(
+                root,
+                audio_sha256=hashlib.sha256(audio.read_bytes()).hexdigest(),
+            )
+            output = root / "cinematic.mp4"
+            report = render_compilation(
+                storyboard, root, output, audio=audio,
+            )
+            self.assertTrue(output.is_file())
+            self.assertTrue(output.with_suffix(".srt").is_file())
+            self.assertEqual(report["visual_mode"], CINEMATIC_STORY_MODE)
+            self.assertEqual(
+                report["timing_contract_sha256"],
+                storyboard["timing_contract_sha256"],
+            )
+            self.assertEqual(report["shot_plan_sha256"], storyboard["shot_plan_sha256"])
+            self.assertEqual(
+                report["caption_track_sha256"],
+                storyboard["caption_track_sha256"],
+            )
+            self.assertTrue(report["fullscreen_images_verified"])
+            self.assertTrue(report["story_shots_overlay_free"])
+            self.assertEqual(report["service_overlay_count"], 2)
+            self.assertRegex(
+                report["service_overlay_evidence_sha256"], r"^[0-9a-f]{64}$",
+            )
+            intro_evidence = report["service_overlay_evidence"][0]
+            self.assertEqual(intro_evidence["presentation"], "intro")
+            self.assertEqual(
+                intro_evidence["source_label"],
+                "r/nosleep • u/example_author",
+            )
+            self.assertEqual(intro_evidence["truth_mode"], "fiction")
+            self.assertEqual(
+                intro_evidence["truth_label"],
+                "ХУДОЖЕСТВЕННАЯ ИСТОРИЯ",
+            )
+            self.assertRegex(report["motion_evidence_sha256"], r"^[0-9a-f]{64}$")
+            self.assertAlmostEqual(report["duration_sec"], 21.0, delta=0.05)
+
+            intro_frame = root / "intro-frame.png"
+            story_frame = root / "story-frame.png"
+            outro_frame = root / "outro-frame.png"
+            for timestamp, frame in (
+                (0.2, intro_frame),
+                (1.0, story_frame),
+                (20.75, outro_frame),
+            ):
+                subprocess.run([
+                    "ffmpeg", "-y", "-v", "error", "-ss", str(timestamp),
+                    "-i", str(output), "-frames:v", "1", str(frame),
+                ], check=True)
+
+            def bright_pixels(path, box):
+                with Image.open(path).convert("RGB") as frame:
+                    return sum(
+                        min(pixel) >= 180
+                        for pixel in frame.crop(box).get_flattened_data()
+                    )
+
+            # Source + truth disclosures are really burned into the intro frame,
+            # while the story image remains a clean full-screen shot.
+            self.assertGreater(
+                bright_pixels(intro_frame, (60, 800, 1700, 1040)), 250,
+            )
+            self.assertLess(
+                bright_pixels(story_frame, (60, 800, 1700, 1040)), 25,
+            )
+            # The actual encoded outro also carries its service label.
+            self.assertGreater(
+                bright_pixels(outro_frame, (60, 50, 900, 150)), 100,
+            )
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
     def test_audio_merge_seam_adds_aac_track(self):

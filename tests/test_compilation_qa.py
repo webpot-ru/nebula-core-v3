@@ -13,6 +13,9 @@ from compilation_narration import build_compilation_segments
 from compilation_qa import run_qa, validate_tts_state
 from compilation_storyboard import build_storyboard
 from compilation_tts_runner import _canonical_hash, _state_timing_contract
+from compilation_audio_mix import build_pause_map, canonical_hash as audio_canonical_hash
+from acc1_cinematic_shots import write_caption_srt
+from acc1_narration_profiles import resolve_narration_profile
 
 
 def fixture_compilation():
@@ -91,7 +94,7 @@ class CompilationQaTests(unittest.TestCase):
         return hashlib.sha256(encoded).hexdigest()
 
     @staticmethod
-    def _episode_plan(compilation):
+    def _episode_plan(compilation, *, historical=True, visual_mode=None):
         queue = {
             "channel_id": "acc1",
             "entries": [
@@ -131,7 +134,7 @@ class CompilationQaTests(unittest.TestCase):
             "pillar": "strange_dark_unexplained",
             "publication_authorized": False,
         }
-        return acc1_episode_manifest.build_episode_manifest(
+        plan = acc1_episode_manifest.build_episode_manifest(
             episode_key="acc1/2026-07-14/pilot_bundle_01",
             episode_date="2026-07-14",
             pilot_id="pilot_bundle_01",
@@ -148,6 +151,29 @@ class CompilationQaTests(unittest.TestCase):
                 "translation": {"model": "gemini-3.5-flash"},
             },
         )
+        if historical:
+            # Preserve a genuine historical manifest shape for the baseline test.
+            # v1 has no mode/profile/mix obligations.
+            plan["version"] = 1
+            for field in (
+                "visual_mode", "narration_profile_id", "narration_profile_sha256",
+                "shot_plan_contract", "caption_track_contract", "audio_mix_contract",
+            ):
+                plan.pop(field, None)
+            plan["episode_plan_sha256"] = acc1_episode_manifest.canonical_hash({
+                key: value for key, value in plan.items() if key != "episode_plan_sha256"
+            })
+        elif visual_mode:
+            # Rebuild so all immutable v2 contracts bind the requested mode.
+            plan = acc1_episode_manifest.build_episode_manifest(
+                episode_key="acc1/2026-07-14/pilot_bundle_01", episode_date="2026-07-14",
+                pilot_id="pilot_bundle_01", format_id="BUNDLE", pillar="strange_dark_unexplained",
+                source_queue=queue, topic_review=review, greenlight=greenlight, config=config,
+                daily_plan=daily_plan, git_sha="1234567890abcdef1234567890abcdef12345678",
+                provider_settings={"tts": {"model_id": "eleven_v3", "voice_id": "voice-primary"}, "translation": {"model": "gemini-3.5-flash"}},
+                visual_mode=visual_mode,
+            )
+        return plan
 
     def _complete_case(self, root):
         compilation = fixture_compilation()
@@ -260,14 +286,125 @@ class CompilationQaTests(unittest.TestCase):
             "thumbnail": thumbnail,
         }
 
+    def _complete_v2_case(self, root, *, cinematic=False):
+        """Build a fully bound synthetic v2 artifact without invoking FFmpeg."""
+        case = self._complete_case(root)
+        mode = "cinematic_story_v1" if cinematic else "reddit_pages"
+        compilation = case["compilation"]
+        compilation["visual_mode"] = mode
+        plan = self._episode_plan(compilation, historical=False, visual_mode=mode)
+        plan_hash = plan["episode_plan_sha256"]
+        for payload in (compilation, case["metadata"], case["tts"], case["render_report"]):
+            payload["episode_plan_sha256"] = plan_hash
+            payload["daily_plan_sha256"] = plan["daily_plan_sha256"]
+        profile = resolve_narration_profile(
+            plan["narration_profile_id"], pillar_id="strange_dark_unexplained",
+        )
+        tts = case["tts"]
+        tts["narration_profile_id"] = profile["profile_id"]
+        tts["narration_profile_sha256"] = profile["profile_sha256"]
+        tts["narration_pillar_id"] = profile["pillar_id"]
+        for index, chunk in enumerate(tts["chunks"]):
+            chunk.update({
+                "episode_plan_sha256": plan_hash,
+                "daily_plan_sha256": plan["daily_plan_sha256"],
+                "narration_profile_id": profile["profile_id"],
+                "narration_profile_sha256": profile["profile_sha256"],
+                "audio_path": f"chunks/{index}.mp3",
+                "is_last_in_beat": True,
+                "is_last_in_segment": True,
+            })
+        tts["timing_contract_sha256"] = _canonical_hash(_state_timing_contract(tts))
+        pause_map = build_pause_map(tts)
+        input_chunks = [{
+            key: chunk[key] for key in (
+                "chunk_id", "audio_path", "audio_sha256", "audio_duration_sec",
+                "timing_source", "word_timings_sha256",
+            )
+        } for chunk in tts["chunks"]]
+        loudness = profile["voice_only_loudness"]
+        mix_report = {
+            "version": 1, "status": "PASS", "mode": "voice_only",
+            "episode_plan_sha256": plan_hash, "daily_plan_sha256": plan["daily_plan_sha256"],
+            "narration_plan_sha256": tts["narration_plan_sha256"],
+            "timing_contract_sha256": tts["timing_contract_sha256"],
+            "narration_profile_id": profile["profile_id"],
+            "narration_profile_sha256": profile["profile_sha256"],
+            "input_chunks": input_chunks, "input_chunks_sha256": audio_canonical_hash(input_chunks),
+            "pause_map_sha256": pause_map["pause_map_sha256"],
+            "output_sha256": case["tts"]["final_audio_sha256"],
+            "expected_timeline_duration_sec": pause_map["timeline_duration_sec"],
+            "output_duration_sec": pause_map["timeline_duration_sec"],
+            "duration_tolerance_sec": 0.25,
+            "loudness": {
+                "target_integrated_lufs": loudness["integrated_lufs"],
+                "tolerance_lu": loudness["tolerance_lu"],
+                "max_true_peak_dbtp": loudness["max_true_peak_dbtp"],
+                "measured_integrated_lufs": loudness["integrated_lufs"],
+                "measured_true_peak_dbtp": loudness["max_true_peak_dbtp"],
+                "integrated_loudness_pass": True, "true_peak_pass": True,
+            },
+            "failures": [], "network_used": False, "publication_authorized": False,
+        }
+        mix_report["audio_mix_report_sha256"] = audio_canonical_hash(mix_report)
+        if cinematic:
+            for index, story in enumerate(compilation["stories"]):
+                image = root / f"scene-{index}.png"
+                Image.new("RGB", (32, 18), "#445566").save(image)
+                story["generated_media"] = [{
+                    "download_status": "verified", "artifact_path": image.name,
+                    "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+                }]
+        storyboard = build_storyboard(
+            compilation, root, tts_state=tts, visual_mode=mode,
+            pause_map=pause_map, audio_mix_report=mix_report,
+        )
+        manifest = storyboard["creative_manifest"]
+        duration = pause_map["timeline_duration_sec"]
+        render = case["render_report"]
+        render.update({
+            "duration_sec": duration, "audio_duration_sec": duration,
+            "audio_sha256": tts["final_audio_sha256"], "visual_mode": mode,
+            "creative_manifest_sha256": self._creative_hash(manifest),
+            "pause_map_sha256": pause_map["pause_map_sha256"],
+            "audio_mix_report_sha256": mix_report["audio_mix_report_sha256"],
+        })
+        if cinematic:
+            srt = write_caption_srt(storyboard["caption_track"], root / "captions.srt")
+            motion = [{"shot_id": slide["shot_id"], "visual_sha256": slide["visual_sha256"], "motion": slide["motion"]} for slide in storyboard["slides"]]
+            story_lengths = [slide["duration_sec"] for slide in storyboard["slides"] if slide["presentation"] == "story"]
+            render.update({
+                "reddit_page_count": 0, "background_video_used": False,
+                "fullscreen_images_verified": True, "shot_count": len(storyboard["slides"]),
+                "shot_plan_sha256": storyboard["shot_plan_sha256"],
+                "caption_track_sha256": storyboard["caption_track_sha256"],
+                "motion_evidence": motion, "motion_evidence_sha256": self._creative_hash(motion),
+                "story_shot_duration_min_sec": min(story_lengths),
+                "story_shot_duration_max_sec": max(story_lengths),
+                "caption_srt": str(srt), "caption_srt_sha256": hashlib.sha256(srt.read_bytes()).hexdigest(),
+            })
+        else:
+            planned = sum(slide["duration_sec"] for slide in storyboard["slides"])
+            render["max_slide_duration_sec"] = max(slide["duration_sec"] for slide in storyboard["slides"]) * duration / planned
+            render["reddit_page_count"] = len(storyboard["slides"])
+        artifacts = {
+            "script_sha256": self._creative_hash(compilation), "audio_sha256": tts["final_audio_sha256"],
+            "metadata_sha256": self._creative_hash(case["metadata"]), "storyboard_sha256": self._creative_hash(storyboard),
+            "video_sha256": hashlib.sha256(case["video"].read_bytes()).hexdigest(),
+            "thumbnail_sha256": hashlib.sha256(case["thumbnail"].read_bytes()).hexdigest(),
+        }
+        case.update({"episode_plan": plan, "storyboard": storyboard, "render_report": render,
+                     "pause_map": pause_map, "audio_mix_report": mix_report, "artifact_hashes": artifacts})
+        return case
+
     def test_passes_complete_artifact_contract(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             case = self._complete_case(root)
             probe = {
                 "streams": [
-                    {"codec_type": "video", "width": 1920, "height": 1080},
-                    {"codec_type": "audio"},
+                    {"codec_type": "video", "width": 1920, "height": 1080, "codec_name": "h264", "avg_frame_rate": "30/1"},
+                    {"codec_type": "audio", "codec_name": "aac"},
                 ],
                 "format": {"duration": "3000"},
             }
@@ -286,14 +423,62 @@ class CompilationQaTests(unittest.TestCase):
         self.assertTrue(result["truth_disclosure_audible"])
         self.assertTrue(result["truth_disclosure_visible_in_metadata"])
 
+    def test_passes_v2_mixed_reddit_pages_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._complete_v2_case(root)
+            probe = {"streams": [
+                {"codec_type": "video", "width": 1920, "height": 1080, "codec_name": "h264", "avg_frame_rate": "30/1"},
+                {"codec_type": "audio", "codec_name": "aac"},
+            ], "format": {"duration": str(case["render_report"]["audio_duration_sec"])}}
+            with patch("compilation_qa.ffprobe_json", return_value=probe):
+                result = run_qa(
+                    case["compilation"], case["metadata"], case["tts"], case["storyboard"], case["render_report"],
+                    artifact_root=root, video_path=case["video"], thumbnail_path=case["thumbnail"], audio_path=case["audio"],
+                    expected_voice_id="voice-primary", episode_plan=case["episode_plan"], artifact_hashes=case["artifact_hashes"],
+                    pause_map=case["pause_map"], audio_mix_report=case["audio_mix_report"],
+                )
+        self.assertEqual(result["status"], "PASS", result["failures"])
+        self.assertEqual(result["visual_mode"], "reddit_pages")
+        self.assertEqual(result["pause_map_sha256"], case["pause_map"]["pause_map_sha256"])
+        self.assertEqual(result["audio_mix_report_sha256"], case["audio_mix_report"]["audio_mix_report_sha256"])
+        self.assertEqual(result["timing_contract_sha256"], case["tts"]["timing_contract_sha256"])
+
+    def test_passes_v2_cinematic_srt_contract_and_blocks_tamper(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._complete_v2_case(root, cinematic=True)
+            probe = {"streams": [
+                {"codec_type": "video", "width": 1920, "height": 1080, "codec_name": "h264", "avg_frame_rate": "30/1"},
+                {"codec_type": "audio", "codec_name": "aac"},
+            ], "format": {"duration": str(case["render_report"]["audio_duration_sec"])}}
+            with patch("compilation_qa.ffprobe_json", return_value=probe):
+                result = run_qa(
+                    case["compilation"], case["metadata"], case["tts"], case["storyboard"], case["render_report"],
+                    artifact_root=root, video_path=case["video"], thumbnail_path=case["thumbnail"], audio_path=case["audio"],
+                    expected_voice_id="voice-primary", episode_plan=case["episode_plan"], artifact_hashes=case["artifact_hashes"],
+                    pause_map=case["pause_map"], audio_mix_report=case["audio_mix_report"],
+                )
+                self.assertEqual(result["status"], "PASS", result["failures"])
+                srt = Path(case["render_report"]["caption_srt"])
+                srt.write_text(srt.read_text(encoding="utf-8").replace("Сегодня", "Завтра", 1), encoding="utf-8")
+                tampered = run_qa(
+                    case["compilation"], case["metadata"], case["tts"], case["storyboard"], case["render_report"],
+                    artifact_root=root, video_path=case["video"], thumbnail_path=case["thumbnail"], audio_path=case["audio"],
+                    expected_voice_id="voice-primary", episode_plan=case["episode_plan"], artifact_hashes=case["artifact_hashes"],
+                    pause_map=case["pause_map"], audio_mix_report=case["audio_mix_report"],
+                )
+        self.assertEqual(tampered["status"], "BLOCKED")
+        self.assertTrue(any("caption SRT" in item for item in tampered["failures"]))
+
     def test_actual_runtime_must_fit_locked_format_target(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             case = self._complete_case(root)
             probe = {
                 "streams": [
-                    {"codec_type": "video", "width": 1920, "height": 1080},
-                    {"codec_type": "audio"},
+                    {"codec_type": "video", "width": 1920, "height": 1080, "codec_name": "h264", "avg_frame_rate": "30/1"},
+                    {"codec_type": "audio", "codec_name": "aac"},
                 ],
                 "format": {"duration": "3000"},
             }
@@ -320,8 +505,8 @@ class CompilationQaTests(unittest.TestCase):
             case["metadata"]["episode_plan_sha256"] = "9" * 64
             probe = {
                 "streams": [
-                    {"codec_type": "video", "width": 1920, "height": 1080},
-                    {"codec_type": "audio"},
+                    {"codec_type": "video", "width": 1920, "height": 1080, "codec_name": "h264", "avg_frame_rate": "30/1"},
+                    {"codec_type": "audio", "codec_name": "aac"},
                 ],
                 "format": {"duration": "3000"},
             }
@@ -343,8 +528,8 @@ class CompilationQaTests(unittest.TestCase):
             case["audio"].write_bytes(b"different-audio-after-tts")
             probe = {
                 "streams": [
-                    {"codec_type": "video", "width": 1920, "height": 1080},
-                    {"codec_type": "audio"},
+                    {"codec_type": "video", "width": 1920, "height": 1080, "codec_name": "h264", "avg_frame_rate": "30/1"},
+                    {"codec_type": "audio", "codec_name": "aac"},
                 ],
                 "format": {"duration": "3000"},
             }
@@ -426,7 +611,7 @@ class CompilationQaTests(unittest.TestCase):
             root = Path(temp)
             case = self._complete_case(root)
             case["tts"]["chunks"][0]["voice_id"] = "wrong"
-            case["render_report"]["max_slide_duration_sec"] = 20.0
+            case["render_report"]["max_slide_duration_sec"] = 12.251
             result = run_qa(
                 case["compilation"], case["metadata"], case["tts"],
                 case["storyboard"], case["render_report"], artifact_root=root,
@@ -471,6 +656,46 @@ class CompilationQaTests(unittest.TestCase):
             )
         self.assertEqual(result["status"], "BLOCKED")
         self.assertTrue(any("requires a background video" in item for item in result["failures"]))
+
+    def test_malformed_manifest_and_sidecar_numbers_block_without_raising(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._complete_case(root)
+            case["episode_plan"]["version"] = "not-a-number"
+            malformed_pause_map = {"timeline_duration_sec": "nope", "entries": []}
+            malformed_mix = {"output_duration_sec": "nope", "loudness": {}}
+            result = run_qa(
+                case["compilation"], case["metadata"], case["tts"],
+                case["storyboard"], case["render_report"], artifact_root=root,
+                audio_path=case["audio"], expected_voice_id="voice-primary",
+                episode_plan=case["episode_plan"], artifact_hashes=case["artifact_hashes"],
+                pause_map=malformed_pause_map, audio_mix_report=malformed_mix,
+            )
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertTrue(any("self-hash" in item for item in result["failures"]))
+
+    def test_blocks_non_h264_or_non_aac_video(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._complete_case(root)
+            probe = {
+                "streams": [
+                    {"codec_type": "video", "width": 1920, "height": 1080, "codec_name": "hevc", "avg_frame_rate": "24/1"},
+                    {"codec_type": "audio", "codec_name": "mp3"},
+                ],
+                "format": {"duration": "3000"},
+            }
+            with patch("compilation_qa.ffprobe_json", return_value=probe):
+                result = run_qa(
+                    case["compilation"], case["metadata"], case["tts"],
+                    case["storyboard"], case["render_report"], artifact_root=root,
+                    video_path=case["video"], thumbnail_path=case["thumbnail"],
+                    audio_path=case["audio"], expected_voice_id="voice-primary",
+                    episode_plan=case["episode_plan"], artifact_hashes=case["artifact_hashes"],
+                )
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertTrue(any("H.264 at 30 fps" in item for item in result["failures"]))
+        self.assertTrue(any("AAC" in item for item in result["failures"]))
 
 
 if __name__ == "__main__":

@@ -69,17 +69,15 @@ An ambiguous ending is acceptable when the story resolves the protagonist's emot
 
 ## Current Implementation Boundary
 
-The `acc1` factory now implements an artifact-only pilot path on GitHub `main`: bounded source collection, source review, source-preserving Russian translation, scene/image planning, AI33 narration, Reddit-card/cat rendering, media QA, and a `READY_FOR_HUMAN_REVIEW` ceiling. It does not yet implement the full rights-cleared product in this document: there is no recorded rights manifest, author-clearance workflow, or publication authorization. Current deployment status belongs in [`PROJECT_STATE.md`](PROJECT_STATE.md).
+The `acc1` factory now implements an artifact-only pilot path on GitHub `main`: bounded source collection, source review, source-preserving Russian translation, scene/image planning, AI33 narration, Reddit-card/cat rendering, media QA, and a `READY_FOR_HUMAN_REVIEW` ceiling. The current local integration adds a structured source-by-source rights manifest plus a factory-aware post-human release review that can advance only to `READY_FOR_PRIVATE_REVIEW`; both upload and publication remain false. This is contract infrastructure, not author clearance: there is still no real permission evidence for a production source, and the hardened workflows are not yet registered on `main`. Current deployment status belongs in [`PROJECT_STATE.md`](PROJECT_STATE.md).
 
-Before an `acc1` production pilot, implementation therefore needs:
+Before an `acc1` distribution pilot, the project therefore still needs:
 
-1. a rights manifest and pre-spend gate;
-2. truth-mode classification (`fiction`, `unverified_account`, or `verified_case`);
-3. complete-story producer review rather than a short prefix;
-4. a dedicated Russian episode-script artifact and change ledger;
-5. a manual shortlist and script-approval checkpoint;
-6. metadata generation from the approved Russian script;
-7. scene-based storyboard and editorial QA gates.
+1. real permission evidence for every exact selected source, recorded through the rights-manifest contract;
+2. a completed checksum-bound human creative/audio review for the exact final MP4;
+3. merge and GitHub registration of the release-review/private-upload chain;
+4. a successful bounded artifact-only provider canary and downloaded evidence readback;
+5. a separately authorized one-video private upload with OAuth mapping and post-upload readback.
 
 Until those exist, an artifact may prove source and render readiness only; it cannot authorize distribution. Both the local configuration and GitHub `main` keep legacy automation blocked.
 

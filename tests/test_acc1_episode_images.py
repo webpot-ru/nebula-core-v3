@@ -13,6 +13,7 @@ from acc1_episode_images import (
     generate_episode_images,
     image_plan,
 )
+from acc1_visual_contract import CINEMATIC_STORY_MODE
 
 
 def story(source_id: str, words: int = 80):
@@ -32,6 +33,26 @@ class EpisodeImageTests(unittest.TestCase):
         self.assertEqual(len(image_plan(bundle)), 6)
         self.assertEqual(len(image_plan(thread)), 3)
         self.assertEqual({item["story_index"] for item in image_plan(thread)}, {0})
+
+    def test_cinematic_mode_requests_full_screen_crop_safe_images(self):
+        script = {
+            "episode_format": "SAGA",
+            "visual_mode": CINEMATIC_STORY_MODE,
+            "stories": [story("one")],
+        }
+        prompt = image_plan(script)[0]["prompt"]
+        self.assertIn("full-screen 16:9 composition", prompt)
+        self.assertIn("subtle camera push and pan", prompt)
+        self.assertNotIn("rightmost forty percent", prompt)
+        self.assertNotIn("left and center-left", prompt)
+
+    def test_default_image_prompt_remains_mascot_safe_baseline(self):
+        prompt = image_plan({
+            "episode_format": "SAGA",
+            "stories": [story("one")],
+        })[0]["prompt"]
+        self.assertIn("rightmost forty percent", prompt)
+        self.assertIn("left and center-left", prompt)
 
     def test_spend_cap_blocks_before_generator_call(self):
         script = {"episode_format": "SAGA", "stories": [story("one")]}
@@ -244,6 +265,50 @@ class EpisodeImageTests(unittest.TestCase):
                 "ambiguous_provider_attempt_not_retried",
             )
             self.assertEqual(len(updated["stories"][0]["generated_media"]), 3)
+
+    def test_outside_output_dir_is_blocked_before_generator_spend(self):
+        script = {"episode_format": "SAGA", "stories": [story("one")]}
+        calls = []
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as outside:
+            with self.assertRaisesRegex(EpisodeImageError, "output_dir"):
+                generate_episode_images(
+                    script,
+                    Path(outside) / "scene-images",
+                    artifact_root=Path(temp),
+                    max_images=5,
+                    generator=lambda **kwargs: calls.append(kwargs),
+                )
+        self.assertEqual(calls, [])
+
+    def test_source_id_cannot_escape_planned_output_path(self):
+        script = {
+            "episode_format": "THREAD",
+            "stories": [story("../../outside"), story("response")],
+        }
+        observed = []
+
+        def fake_generator(*, output_path, **_kwargs):
+            observed.append(output_path)
+            Image.new("RGB", (1536, 864), "#314159").save(output_path)
+            return output_path
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _updated, assets = generate_episode_images(
+                script,
+                root / "scene-images",
+                artifact_root=root,
+                max_images=3,
+                generator=fake_generator,
+            )
+            self.assertTrue(all(
+                root.resolve() in path.resolve().parents for path in observed
+            ))
+            self.assertTrue(all(".." not in path.name for path in observed))
+            self.assertTrue(all(
+                asset["local_path"].startswith("scene-images/")
+                for asset in assets
+            ))
 
 
 if __name__ == "__main__":
