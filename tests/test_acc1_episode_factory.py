@@ -524,11 +524,31 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertIn('"renderability": 5', producer_prompt)
         self.assertIn("canonical Reddit source_url is provenance", producer_prompt)
         self.assertIn('"depends_on_screenshot_or_link": false', producer_prompt)
+        self.assertIn(
+            "complete payoff means the supplied source delivers the promised",
+            producer_prompt,
+        )
+        self.assertIn(
+            "explaining the ontology, identity, motive, or mechanism",
+            producer_prompt,
+        )
+        self.assertIn(
+            "Do not use missing_payoff or open_ending_misrepresented merely because",
+            producer_prompt,
+        )
+        self.assertIn(
+            "packaging_honesty separately audits any explanatory claim",
+            producer_prompt,
+        )
 
         candidate["producer_proposal"] = {"review": {"verdict": "PASS"}}
         critic_prompt = factory._candidate_prompt(candidate, self.plan, "critic")
         self.assertIn("WEIGHTED POINTS, never percentages", critic_prompt)
         self.assertIn("screenshot_or_link_dependent", critic_prompt)
+        self.assertIn(
+            "Use open_ending_misrepresented only when the producer or packaging explicitly promises",
+            critic_prompt,
+        )
 
     def test_candidate_prompts_keep_labeled_nosleep_fiction_inside_viewer_promise(self):
         candidate = {

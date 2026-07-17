@@ -1197,6 +1197,18 @@ Non-negotiable rules:
   Use fictional_as_real only when the proposed framing explicitly presents fiction as a
   verified/real event or suppresses/contradicts that required disclosure.
 - Do not invent facts, chronology, outcomes, hooks, people, or visual events.
+- For SAGA/BUNDLE, complete payoff means the supplied source delivers the promised
+  confrontation, reversal, consequence, or other narrative outcome. It does not require
+  explaining the ontology, identity, motive, or mechanism of a supernatural event, and it
+  does not require eliminating deliberate residual ambiguity after the climax. Calling a
+  delivered climax and outcome a complete payoff is not itself a claim that the mystery is
+  explained. Do not infer from "полноценная развязка" that every strange event must be solved.
+- Do not use missing_payoff or open_ending_misrepresented merely because a monster, double,
+  glitch, motive, or future risk remains unexplained after the promised confrontation/outcome.
+  Use open_ending_misrepresented only when the producer or packaging explicitly promises a
+  closed explanation/outcome that the source does not provide, or when the source actually
+  stops before its promised central confrontation/outcome. Score payoff on the delivered
+  climax and consequence, while packaging_honesty separately audits any explanatory claim.
 - Any evidence field must be a short exact substring copied from a supplied source body.
 - Every evidence quote must contain at least 24 characters, four words, and three unique words.
 - The direction is fixed: format={daily_plan['format']}, pillar={daily_plan['pillar']}.
