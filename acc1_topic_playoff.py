@@ -25,7 +25,10 @@ TRUTH_MODES = {"fiction", "unverified_personal_account"}
 FORMATS = {"SAGA", "BUNDLE", "THREAD"}
 MIN_FINALISTS = 3
 MIN_PASSING_FINALISTS = 3
-EXCEPTIONAL_WINNER_MIN_CANDIDATES = 5
+# The bounded source contract already requires the complete 3-5 finalist pool.
+# An exceptional winner is therefore compared against every available finalist,
+# even when only the minimum valid pool of three survives deterministic gates.
+EXCEPTIONAL_WINNER_MIN_CANDIDATES = MIN_FINALISTS
 EXCEPTIONAL_WINNER_MIN_SCORE = 95
 PASS_SCORE = 90
 MIN_EVIDENCE_CHARACTERS = 24
@@ -756,7 +759,7 @@ def run_playoff(payload: dict[str, Any]) -> dict[str, Any]:
         "winner": winner,
         "failures": failures,
         "selection_rule": (
-            "three_independent_passes_or_exceptional_clean_winner_after_five_reviews_"
+            "three_independent_passes_or_exceptional_clean_winner_after_full_source_pool_"
             "then_review_average_desc_then_candidate_id_asc"
         ),
     }

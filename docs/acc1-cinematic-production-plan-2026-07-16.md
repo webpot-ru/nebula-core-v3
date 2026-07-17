@@ -340,8 +340,15 @@ S-tier score, safety, evidence, or packaging-honesty gates. Follow-up source run
 `29560368413` made zero paid calls and exposed a separate terminal-punctuation
 false block: exact local replay of its immutable queue now yields three valid,
 link-independent SAGA sources while all 13 link-dependent entries remain
-blocked. The next artifact-only canary uses the canonical 500,000-token daily
-ceiling; promotion to the default still requires the technical, human, audio,
+blocked. Paid checkpoint `29561785390` then reviewed that exact three-story pool
+on the standard tier for 50,919 tokens. One candidate passed both reviews at
+95.5 with zero final failures; the other two were correctly blocked for weak
+discussion potential and advertiser safety. The run stopped only because the
+exceptional-winner rule required five alternatives despite the complete source
+contract allowing 3-5. The aligned rule still requires three ordinary passes,
+but permits a single >=95 zero-failure winner after every member of the complete
+contracted pool was reviewed. A hash-bound resume reuses the seven completed
+reviews; promotion to the default still requires the technical, human, audio,
 rights and retention gates above.
 
 ## Результат первого implementation slice
