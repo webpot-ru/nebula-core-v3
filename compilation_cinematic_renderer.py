@@ -383,6 +383,51 @@ def _clean_overlay_text(value: Any, *, limit: int = 120) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
+def _wrapped_overlay_lines(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    *,
+    max_width: int,
+    max_lines: int,
+) -> list[str]:
+    """Wrap display text by measured pixels and ellipsize only the final line."""
+
+    words = str(text or "").split()
+    if not words or max_width <= 0 or max_lines < 1:
+        return []
+
+    def width(value: str) -> int:
+        box = draw.textbbox((0, 0), value, font=font)
+        return box[2] - box[0]
+
+    def ellipsize(value: str) -> str:
+        suffix = "…"
+        candidate = value.strip()
+        while candidate and width(candidate + suffix) > max_width:
+            candidate = candidate[:-1].rstrip()
+        return candidate + suffix if candidate else suffix
+
+    lines: list[str] = []
+    cursor = 0
+    while cursor < len(words) and len(lines) < max_lines:
+        line = words[cursor]
+        cursor += 1
+        if width(line) > max_width:
+            line = ellipsize(line)
+        while cursor < len(words):
+            candidate = f"{line} {words[cursor]}"
+            if width(candidate) > max_width:
+                break
+            line = candidate
+            cursor += 1
+        if len(lines) == max_lines - 1 and cursor < len(words):
+            line = ellipsize(" ".join([line, *words[cursor:]]))
+            cursor = len(words)
+        lines.append(line)
+    return lines
+
+
 def _truth_label(value: Any) -> str:
     truth_mode = _clean_overlay_text(value, limit=64)
     return {
@@ -432,12 +477,25 @@ def _draw_service_overlay(
         "outro": "ОБСУДИМ В КОММЕНТАРИЯХ",
     }[presentation]
     draw.text((72, 72), label, font=_font(34), fill=(255, 255, 255, 225))
-    title = _clean_overlay_text(slide.get("story_title"), limit=84)
+    title = _clean_overlay_text(slide.get("story_title"), limit=160)
     source = _clean_overlay_text(slide.get("source_label"), limit=100)
     truth = _truth_label(slide.get("truth_mode"))
     if title:
-        draw.text(
-            (72, 820), title, font=_font(54),
+        title_font = _font(54)
+        title_lines = _wrapped_overlay_lines(
+            draw,
+            title,
+            title_font,
+            max_width=WIDTH - 144,
+            max_lines=2,
+        )
+        title_text = "\n".join(title_lines)
+        title_box = draw.multiline_textbbox(
+            (0, 0), title_text, font=title_font, spacing=10,
+        )
+        title_y = 880 - title_box[3]
+        draw.multiline_text(
+            (72, title_y), title_text, font=title_font, spacing=10,
             fill=(255, 255, 255, 242),
         )
     if source:

@@ -10,7 +10,9 @@ from PIL import Image, ImageChops, ImageDraw
 from acc1_cinematic_shots import build_cinematic_contract, canonical_hash
 from acc1_visual_contract import CINEMATIC_STORY_MODE, MASCOT_SAFE_X
 from compilation_cinematic_renderer import (
+    _font as _cinematic_font,
     _service_overlay_slide,
+    _wrapped_overlay_lines,
     render_cinematic_frame,
 )
 from compilation_renderer import (
@@ -338,6 +340,24 @@ class CompilationRendererTests(unittest.TestCase):
         self.assertEqual(
             overlay["truth_mode"], "unverified_personal_account",
         )
+
+    def test_cinematic_long_intro_title_wraps_inside_safe_width(self):
+        title = (
+            "Вчера мы с моим женихом пошли в поход в лес. Когда я вернулась, "
+            "я узнала, что пропадала 10 лет."
+        )
+        canvas = Image.new("RGB", (1920, 1080), "black")
+        draw = ImageDraw.Draw(canvas)
+        font = _cinematic_font(54)
+        lines = _wrapped_overlay_lines(
+            draw, title, font, max_width=1920 - 144, max_lines=2,
+        )
+
+        self.assertEqual(" ".join(lines), title)
+        self.assertEqual(len(lines), 2)
+        for line in lines:
+            box = draw.textbbox((0, 0), line, font=font)
+            self.assertLessEqual(box[2] - box[0], 1920 - 144)
 
     def test_cinematic_preflight_rejects_motion_outside_contract(self):
         with tempfile.TemporaryDirectory() as temp:
