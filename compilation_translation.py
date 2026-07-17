@@ -133,6 +133,45 @@ def _invalid_review_source_quote_indexes(
     return invalid
 
 
+def _normalize_review_source_quote_casing(
+    source_title: str,
+    source_body: str,
+    review: dict[str, Any],
+) -> dict[str, Any]:
+    """Recover a unique exact source slice when only quote casing differs."""
+    issues = review.get("issues")
+    if not isinstance(issues, list) or not issues:
+        raise TranslationError("REVISE verdict requires structured issues")
+    repaired_issues: list[dict[str, Any]] = []
+    changed = False
+    for index, issue in enumerate(issues, 1):
+        if not isinstance(issue, dict):
+            raise TranslationError(f"review issue {index} is not an object")
+        repaired_issue = dict(issue)
+        quote = str(issue.get("source_quote") or "").strip()
+        if quote and quote not in source_body and quote not in source_title:
+            matches: list[str] = []
+            folded_quote = quote.casefold()
+            for source_text in (source_title, source_body):
+                folded_source = source_text.casefold()
+                start = 0
+                while True:
+                    offset = folded_source.find(folded_quote, start)
+                    if offset < 0:
+                        break
+                    matches.append(source_text[offset:offset + len(quote)])
+                    start = offset + 1
+            if len(matches) == 1:
+                repaired_issue["source_quote"] = matches[0]
+                changed = True
+        repaired_issues.append(repaired_issue)
+    if not changed:
+        return review
+    repaired_review = dict(review)
+    repaired_review["issues"] = repaired_issues
+    return repaired_review
+
+
 def _repair_review_source_quotes(
     provider: Provider,
     source_title: str,
@@ -530,6 +569,19 @@ def translate_and_review_story(
 
     def repair_pending_source_quotes(pending: dict[str, Any]) -> dict[str, Any]:
         nonlocal source_quote_repair_completed
+        normalized = _normalize_review_source_quote_casing(title, body, pending)
+        if normalized is not pending:
+            pending = normalized
+            review_history[-1] = pending
+            if review_checkpoint_path:
+                _atomic_json(review_checkpoint_path, {
+                    "schema_version": 2,
+                    "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                    "revisions_completed": revisions,
+                    "review_history": review_history,
+                    "current_translation": translated,
+                    "source_quote_repair_completed": source_quote_repair_completed,
+                })
         invalid_indexes = _invalid_review_source_quote_indexes(title, body, pending)
         if not invalid_indexes:
             return pending

@@ -432,6 +432,44 @@ class CompilationTranslationTests(unittest.TestCase):
             )
         self.assertEqual(len(reviewer.calls), 3)
 
+    def test_unique_case_only_source_quote_is_normalized_without_repair_call(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        translator = QueueProvider([translation])
+        reviewer = QueueProvider([
+            {
+                "verdict": "REVISE",
+                "issues": [{
+                    "kind": "place",
+                    "source_quote": "i hid in the hall.",
+                    "translation_quote": "Я спрятался в коридоре.",
+                    "replacement": "Я затаился в коридоре.",
+                }],
+                "ending_preserved": True,
+            },
+            {"verdict": "PASS", "issues": [], "ending_preserved": True},
+        ])
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "review.json"
+            result = translate_and_review_story(
+                STORY,
+                provider=translator,
+                reviewer=reviewer,
+                review_checkpoint_path=checkpoint,
+            )
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+        self.assertEqual(len(reviewer.calls), 2)
+        self.assertEqual(
+            saved["review_history"][0]["issues"][0]["source_quote"],
+            "I hid in the hall.",
+        )
+        self.assertFalse(result["translation_audit"]["source_quote_repair_completed"])
+        self.assertIn("Я затаился в коридоре", result["body"])
+
     def test_resume_repairs_saved_invalid_quote_without_retranslating(self):
         translation = {
             "title": "Дверь",
