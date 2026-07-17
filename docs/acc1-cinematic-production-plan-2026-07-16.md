@@ -333,9 +333,16 @@ image, AI33, render, and YouTube were not reached. Because this is the second
 independent Flex-capacity failure, PR #45 adds an explicit `default` service-tier
 canary path while retaining Flex as the default and prohibiting automatic
 fallback. The selected tier is hash-bound through preflight, lease, request,
-journal, and response readback. A fresh standard-tier artifact-only canary is
-still required; promotion to the default still requires the technical, human,
-audio, rights and retention gates above.
+journal, and response readback. Standard-tier canary `29559999245` then proved
+eight exact-tier responses (55,588 total tokens) and stopped at editorial
+review, not transport. Its payoff wording was corrected without lowering the
+S-tier score, safety, evidence, or packaging-honesty gates. Follow-up source run
+`29560368413` made zero paid calls and exposed a separate terminal-punctuation
+false block: exact local replay of its immutable queue now yields three valid,
+link-independent SAGA sources while all 13 link-dependent entries remain
+blocked. The next artifact-only canary uses the canonical 500,000-token daily
+ceiling; promotion to the default still requires the technical, human, audio,
+rights and retention gates above.
 
 ## Результат первого implementation slice
 

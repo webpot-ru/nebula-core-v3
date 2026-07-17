@@ -316,6 +316,62 @@ class EpisodeFactoryTests(unittest.TestCase):
         )
         self.assertFalse(diagnostics["publication_authorized"])
 
+    def test_saga_review_failure_persists_exact_source_diagnostics(self):
+        dark_plan = build_daily_plan(
+            ROOT / "channels.json",
+            production_date="2026-07-18",
+            pilot_override="pilot_03",
+        )
+        queue = {"version": 1, "entries": [{"post_id": "blocked-one"}]}
+        review = {
+            "version": 2,
+            "status": "no_eligible_saga_candidate",
+            "candidate_count": 1,
+            "eligible_candidate_count": 0,
+        }
+        fake_reddit = mock.Mock()
+        fake_reddit._core._requestor.request_count = 13
+
+        def fake_fetch(**kwargs):
+            Path(kwargs["producer_queue_output"]).write_text(
+                json.dumps(queue), encoding="utf-8",
+            )
+            return {"post_id": "blocked-one"}
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch("scraper.AI_QUALITY_ENABLED", False),
+            mock.patch("scraper.AI_QUALITY_FAIL_OPEN", False),
+            mock.patch.object(factory, "fetch_best_story", side_effect=fake_fetch),
+            mock.patch.object(factory, "build_review", return_value=review),
+        ):
+            workdir = Path(temp)
+            with self.assertRaisesRegex(
+                factory.EpisodeFactoryError, "no_eligible_saga_candidate",
+            ):
+                factory.run_source_stage(
+                    daily_plan=dark_plan,
+                    workdir=workdir,
+                    channels_path=ROOT / "channels.json",
+                    confirm_reddit_read=True,
+                    reddit_request_cap=24,
+                    reddit_factory=lambda **_kwargs: fake_reddit,
+                )
+            diagnostics = json.loads(
+                (workdir / "source-diagnostics.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(
+            diagnostics["status"], "BLOCKED_DETERMINISTIC_SOURCE_REVIEW"
+        )
+        self.assertEqual(diagnostics["review"], review)
+        self.assertEqual(diagnostics["reddit_http_requests_observed"], 13)
+        self.assertTrue(
+            factory._verify_self_hash(diagnostics, "source_diagnostics_sha256")
+        )
+        self.assertFalse(diagnostics["production_authorized"])
+        self.assertFalse(diagnostics["publication_authorized"])
+
     def test_bundle_selector_failure_persists_exact_source_diagnostics(self):
         bundle_plan = build_daily_plan(
             ROOT / "channels.json",

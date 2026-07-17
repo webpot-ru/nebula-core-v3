@@ -327,7 +327,29 @@ def _payoff_evidence(title: str, body: str) -> dict[str, Any]:
     if OPEN_ENDING_RE.search(ending):
         return {"complete": False, "reason": "possible_open_ending", "evidence": ""}
     closure = CLOSURE_RE.search(ending)
-    terminal = bool(re.search(r"[.!?][\"')\]]*$", ending))
+    # Reddit prose commonly ends inside Markdown emphasis or without a final
+    # punctuation mark.  That typography is not evidence of an unfinished
+    # story.  Preserve the explicit series/open-ending vetoes above, then
+    # accept a substantive final prose line unless it ends on an obvious
+    # syntactic continuation.
+    punctuation_tail = re.sub(r"[*_~`]+$", "", ending).rstrip()
+    terminal = bool(re.search(r"[.!?][\"')\]]*$", punctuation_tail))
+    if not terminal:
+        final_line = next(
+            (line.strip() for line in reversed(ending.splitlines()) if line.strip()),
+            "",
+        )
+        final_line = re.sub(r"^[*_~`]+|[*_~`]+$", "", final_line).strip()
+        final_words = WORD_RE.findall(final_line)
+        continuation_tail = bool(
+            re.search(
+                r"(?:[,;:/\\]|[-–—]|\b(?:and|or|but|because|so|then|when|while|if|"
+                r"that|to|of|the|a|an))\s*$",
+                final_line,
+                re.I,
+            )
+        )
+        terminal = len(final_words) >= 3 and not continuation_tail
     if not terminal:
         return {
             "complete": False,
@@ -342,7 +364,11 @@ def _payoff_evidence(title: str, body: str) -> dict[str, Any]:
         # still scored independently by the paid producer and critic.
         return {
             "complete": True,
-            "reason": "terminal_ending_without_open_marker",
+            "reason": (
+                "terminal_ending_without_open_marker"
+                if re.search(r"[.!?][\"')\]]*$", punctuation_tail)
+                else "terminal_prose_without_final_punctuation"
+            ),
             "evidence": ending[-600:].strip(),
         }
     evidence_start = max(0, closure.start() - 180)

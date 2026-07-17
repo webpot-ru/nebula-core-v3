@@ -768,6 +768,27 @@ def run_source_stage(
         queue = _read_object(queue_path)
         review = build_review(queue, 30)
         if review.get("status") != "review_ready":
+            source_diagnostics = {
+                "version": 1,
+                "status": "BLOCKED_DETERMINISTIC_SOURCE_REVIEW",
+                "channel_id": "acc1",
+                "episode_key": daily_plan["episode_key"],
+                "pilot_id": daily_plan["pilot_id"],
+                "format": format_id,
+                "pillar": daily_plan["pillar"],
+                "daily_plan_sha256": canonical_hash(daily_plan),
+                "failure": f"deterministic source review blocked: {review.get('status')}",
+                "reddit_http_request_cap": cap,
+                "reddit_http_requests_observed": _reddit_request_count(reddit),
+                "queue": queue,
+                "review": review,
+                "production_authorized": False,
+                "publication_authorized": False,
+            }
+            source_diagnostics["source_diagnostics_sha256"] = _self_hash(
+                source_diagnostics, "source_diagnostics_sha256",
+            )
+            _atomic_json(workdir / "source-diagnostics.json", source_diagnostics)
             raise EpisodeFactoryError(f"deterministic source review blocked: {review.get('status')}")
         if format_id == "SAGA":
             candidates = _saga_candidates(queue, review, daily_plan)

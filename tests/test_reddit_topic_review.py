@@ -339,6 +339,59 @@ class RedditTopicReviewTests(unittest.TestCase):
         self.assertTrue(topic["payoff_complete"])
         self.assertIn("The shadow smiled.", topic["payoff_evidence"])
 
+    def test_saga_terminal_reddit_prose_does_not_require_final_punctuation(self):
+        for ending in (
+            "Do not stop. Do not pull over to help them",
+            "*Fuck that.*",
+            "Would I still be…\n\n…Lost in the Forest",
+        ):
+            with self.subTest(ending=ending):
+                entry = self.entry(
+                    "terminal-reddit",
+                    "One strange rule kept the night shift alive",
+                    self.saga_body(
+                        "Every night the impossible shadow waited behind the locked door.",
+                        ending,
+                    ),
+                    subreddit="r/nosleep",
+                )
+                entry["topic_family"] = "dark_curiosity"
+
+                review = review_reddit_topics.build_review(
+                    self.saga_queue(
+                        "strange_dark_unexplained", "dark_curiosity", [entry],
+                    ),
+                    3,
+                )
+
+                self.assertEqual(review["status"], "review_ready", review)
+                self.assertTrue(review["top_topics"][0]["payoff_complete"])
+
+    def test_saga_obvious_syntactic_continuation_remains_blocked(self):
+        entry = self.entry(
+            "unfinished-syntax",
+            "One strange rule kept the night shift alive",
+            self.saga_body(
+                "Every night the impossible shadow waited behind the locked door.",
+                "I reached for the door because",
+            ),
+            subreddit="r/nosleep",
+        )
+        entry["topic_family"] = "dark_curiosity"
+
+        review = review_reddit_topics.build_review(
+            self.saga_queue(
+                "strange_dark_unexplained", "dark_curiosity", [entry],
+            ),
+            3,
+        )
+
+        self.assertEqual(review["status"], "no_eligible_saga_candidate")
+        self.assertIn(
+            "payoff_not_structurally_proven",
+            review["candidate_reviews"][0]["blocking_reasons"],
+        )
+
     def test_saga_intent_without_source_plan_cannot_fall_back_to_legacy_review(self):
         entry = self.entry(
             "missing-plan",
