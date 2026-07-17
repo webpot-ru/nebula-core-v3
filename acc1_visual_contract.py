@@ -34,7 +34,10 @@ CINEMATIC_SHOT_PLAN_VERSION = 1
 CINEMATIC_CAPTION_TRACK_VERSION = 1
 CINEMATIC_STORY_SHOT_MIN_SECONDS = 20.0
 CINEMATIC_STORY_SHOT_MAX_SECONDS = 45.0
-CINEMATIC_SERVICE_SHOT_MAX_SECONDS = 15.0
+# The mixed timeline includes both provider audio padding and the deliberate
+# post-segment pause. Keep the editorial target near 15 seconds while allowing
+# that bounded tail without turning a service bumper into a story shot.
+CINEMATIC_SERVICE_SHOT_MAX_SECONDS = 17.0
 CINEMATIC_ZOOM_END_MIN = 1.06
 CINEMATIC_ZOOM_END_MAX = 1.10
 CINEMATIC_PAN_CENTER_MIN = 0.46

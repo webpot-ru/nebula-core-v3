@@ -139,6 +139,15 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertIsNone(report["background_sha256"])
         self.assertRegex(report["narration_profile_sha256"], r"^[0-9a-f]{64}$")
 
+    def test_cinematic_storyboard_receives_no_baseline_background(self):
+        self.assertIsNone(factory._storyboard_background_path(None, Path("workdir")))
+        self.assertEqual(
+            factory._storyboard_background_path(
+                Path("workdir/assets/loop.mp4"), Path("workdir"),
+            ),
+            Path("assets/loop.mp4"),
+        )
+
     def test_unknown_mode_and_cinematic_thread_fail_before_paid_provider(self):
         calls = []
         common = {
@@ -1933,9 +1942,23 @@ class EpisodeFactoryTests(unittest.TestCase):
                 order.append("mix")
                 self.assertIs(state, tts_state)
                 self.assertIs(kwargs.get("pause_map"), pause_map)
-                output = Path(kwargs["output_path"])
+                self.assertEqual(
+                    Path(kwargs["pause_map_path"]),
+                    Path("tts/narration-pause-map.json"),
+                )
+                self.assertEqual(
+                    Path(kwargs["output_path"]),
+                    Path("tts/compilation_voice_mix.wav"),
+                )
+                self.assertEqual(
+                    Path(kwargs["report_path"]),
+                    Path("tts/audio-mix-report.json"),
+                )
+                output = workdir / Path(kwargs["output_path"])
                 output.write_bytes(b"mixed-audio")
-                factory._atomic_json(Path(kwargs["report_path"]), audio_mix_report)
+                factory._atomic_json(
+                    workdir / Path(kwargs["report_path"]), audio_mix_report,
+                )
                 return audio_mix_report
 
             def fake_storyboard(*args, **kwargs):

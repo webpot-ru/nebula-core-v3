@@ -1579,6 +1579,16 @@ def _git_sha() -> str:
     return value
 
 
+def _storyboard_background_path(
+    background_path: Path | None,
+    workdir: Path,
+) -> Path | None:
+    """Return the artifact-relative baseline background, or none for cinematic mode."""
+    if background_path is None:
+        return None
+    return background_path.relative_to(workdir)
+
+
 def _greenlight(daily_plan: dict[str, Any], winner: dict[str, Any], playoff: dict[str, Any]) -> dict[str, Any]:
     sources = [{
         "post_id": item["source_id"],
@@ -2593,16 +2603,17 @@ def run_produce_stage(
         model_id=TTS_MODEL_ID,
         post_task=ai33,
     )
-    pause_map_path = workdir / "tts" / "narration-pause-map.json"
+    pause_map_relative_path = Path("tts/narration-pause-map.json")
+    pause_map_path = workdir / pause_map_relative_path
     try:
         pause_map = build_pause_map(tts_state, output_path=pause_map_path)
         audio_mix_report = mix_compilation_audio(
             tts_state,
             artifact_root=workdir,
             pause_map=pause_map,
-            pause_map_path=pause_map_path,
-            output_path=workdir / "tts" / "compilation_voice_mix.wav",
-            report_path=workdir / "tts" / "audio-mix-report.json",
+            pause_map_path=pause_map_relative_path,
+            output_path=Path("tts/compilation_voice_mix.wav"),
+            report_path=Path("tts/audio-mix-report.json"),
         )
     except CompilationAudioMixError as exc:
         raise EpisodeFactoryError(f"voice-only audio mix blocked: {exc}") from exc
@@ -2621,7 +2632,7 @@ def run_produce_stage(
     storyboard = build_storyboard(
         script,
         workdir,
-        background_video=background_path.relative_to(workdir),
+        background_video=_storyboard_background_path(background_path, workdir),
         tts_state=tts_state,
         visual_mode=resolved_visual_mode,
         pause_map=pause_map,
