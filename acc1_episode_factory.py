@@ -122,6 +122,7 @@ FACTORY_VERSION = 2
 MIN_SOURCE_REVIEW_CANDIDATES = 3
 MAX_SOURCE_REVIEW_CANDIDATES = 5
 MIN_PASSING_FINALISTS = 3
+SAGA_BUNDLE_CANDIDATE_LIMIT_PER_SOURCE = 50
 THREAD_PROMPT_CANDIDATE_LIMIT = 20
 NARRATOR_VOICE_ID = "elevenlabs_JBFqnCBsd6RMkjVDRZzb"
 COMMENT_VOICE_ID = "elevenlabs_MOgsVr0EwwxqQs5cNDhu"
@@ -751,7 +752,7 @@ def run_source_stage(
             channel_config=channel,
             skip_rank=0,
             max_ai_candidates=0,
-            candidate_limit=25,
+            candidate_limit=SAGA_BUNDLE_CANDIDATE_LIMIT_PER_SOURCE,
             topic_family=daily_plan["source_plan"]["topic_family"],
             include_source_body_in_queue=True,
             format_intent=daily_plan["source_plan"]["format_intent"],

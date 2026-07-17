@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from source_text_quality import source_text_quality_blockers
 from source_safety import source_safety_evidence
@@ -23,6 +24,17 @@ SERIES_RE = re.compile(r"\b(?:part|chapter|episode|season)\s*(?:one|two|three|[0
 OPEN_ENDING_RE = re.compile(
     r"\b(?:to be continued|i(?:'m| am) still waiting|i don'?t know what happens next|"
     r"i(?:'m| am) writing this in case|if anything happens to me|in case .{0,60} happens to me)\b",
+    re.I,
+)
+MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)", re.I)
+MARKDOWN_LINK_RE = re.compile(
+    r"(?<!!)\[([^\]]+)\]\(\s*([^\s)]+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)",
+    re.I,
+)
+PLAIN_URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.I)
+CONTINUATION_LINK_TEXT_RE = re.compile(
+    r"\b(?:read\s+more|continue|continued|continuation|next\s+part|part\s*[0-9ivx]+|"
+    r"chapter\s*[0-9ivx]+|update)\b",
     re.I,
 )
 CLOSURE_RE = re.compile(
@@ -162,6 +174,59 @@ def source_narration_blockers(body: str) -> list[str]:
     return source_text_quality_blockers(body)
 
 
+def _benign_reddit_profile_link(label: str, target: str) -> bool:
+    """Allow only optional author-profile attribution, never story continuations."""
+    if CONTINUATION_LINK_TEXT_RE.search(label):
+        return False
+    parsed = urlparse(target.strip())
+    host = (parsed.hostname or "").casefold()
+    if parsed.query or parsed.fragment:
+        return False
+    if parsed.scheme:
+        if parsed.scheme.casefold() not in {"http", "https"} or not host:
+            return False
+        if host != "reddit.com" and not host.endswith(".reddit.com"):
+            return False
+    elif host or not parsed.path.startswith("/"):
+        return False
+    return bool(re.fullmatch(r"/(?:u|user)/[A-Za-z0-9_-]+/?", parsed.path))
+
+
+def source_depends_on_external(entry: dict[str, Any], body: str) -> bool:
+    """Classify link/media dependency from the full source body, fail closed.
+
+    Reddit profile attribution links are metadata rather than narrative inputs.
+    Every other link, image, native-media object, or inconsistent link flag is
+    still treated as a hard external dependency.
+    """
+    source_media = entry.get("source_media")
+    if (
+        entry.get("source_has_markdown_image")
+        or MARKDOWN_IMAGE_RE.search(body)
+        or (
+            isinstance(source_media, list)
+            and any(isinstance(item, dict) for item in source_media)
+        )
+    ):
+        return True
+
+    markdown_links = list(MARKDOWN_LINK_RE.finditer(body))
+    if any(
+        not _benign_reddit_profile_link(match.group(1), match.group(2))
+        for match in markdown_links
+    ):
+        return True
+    if entry.get("source_has_markdown_link") and not markdown_links:
+        return True
+
+    body_without_markdown_links = MARKDOWN_LINK_RE.sub(lambda match: match.group(1), body)
+    if PLAIN_URL_RE.search(body_without_markdown_links):
+        return True
+    if entry.get("source_has_url") and not markdown_links:
+        return True
+    return False
+
+
 def term_hits(text: str, terms: tuple[str, ...]) -> int:
     return sum(1 for term in terms if re.search(rf"\b{re.escape(term)}\b", text))
 
@@ -179,7 +244,7 @@ def truth_mode(subreddit: str) -> str:
 
 def candidate_risks(entry: dict[str, Any], body: str) -> list[str]:
     risks: list[str] = []
-    if entry.get("source_has_url") or entry.get("source_has_markdown_link") or entry.get("source_has_markdown_image"):
+    if source_depends_on_external(entry, body):
         risks.append("external_dependency")
     title = str(entry.get("title") or "")
     if SERIES_RE.search(title):
@@ -307,17 +372,7 @@ def analyze_saga_entry(
     normalized_subreddit = str(entry.get("subreddit") or "").strip().casefold().removeprefix("r/")
     pillar_fit = _pillar_fit(title, body, pillar_id, topic_family)
     payoff = _payoff_evidence(title, body)
-    source_media = entry.get("source_media")
-    has_native_media = bool(
-        isinstance(source_media, list)
-        and any(isinstance(item, dict) for item in source_media)
-    )
-    depends_on_external = bool(
-        entry.get("source_has_url")
-        or entry.get("source_has_markdown_link")
-        or entry.get("source_has_markdown_image")
-        or has_native_media
-    )
+    depends_on_external = source_depends_on_external(entry, body)
     blocking_reasons: list[str] = []
     if topic_family != expected_family:
         blocking_reasons.append("wrong_source_family")
@@ -391,17 +446,7 @@ def analyze_bundle_entry(
     normalized_subreddit = str(entry.get("subreddit") or "").strip().casefold().removeprefix("r/")
     pillar_fit = _pillar_fit(title, body, pillar_id, topic_family)
     payoff = _payoff_evidence(title, body)
-    source_media = entry.get("source_media")
-    has_native_media = bool(
-        isinstance(source_media, list)
-        and any(isinstance(item, dict) for item in source_media)
-    )
-    depends_on_external = bool(
-        entry.get("source_has_url")
-        or entry.get("source_has_markdown_link")
-        or entry.get("source_has_markdown_image")
-        or has_native_media
-    )
+    depends_on_external = source_depends_on_external(entry, body)
     blocking_reasons: list[str] = []
     if topic_family != expected_family:
         blocking_reasons.append("wrong_source_family")

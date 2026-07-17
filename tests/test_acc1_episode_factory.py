@@ -244,6 +244,11 @@ class EpisodeFactoryTests(unittest.TestCase):
             self.assertFalse((workdir / "candidate-pool.json").exists())
             self.assertFalse((workdir / "source-stage.json").exists())
         self.assertEqual(captured["max_time_windows_per_topic"], 3)
+        self.assertEqual(
+            captured["candidate_limit"],
+            factory.SAGA_BUNDLE_CANDIDATE_LIMIT_PER_SOURCE,
+        )
+        self.assertEqual(captured["candidate_limit"], 50)
         self.assertEqual(captured["excluded_source_ids"], {"old-source"})
         self.assertEqual(captured["excluded_story_signatures"], {"old-signature"})
 

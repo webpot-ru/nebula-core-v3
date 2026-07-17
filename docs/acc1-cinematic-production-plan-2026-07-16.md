@@ -310,6 +310,22 @@ Review Gate` там не зарегистрирован. Старый workflow �
 Один outlier конкурента или один красивый локальный ролик не является
 достаточным основанием.
 
+## Live implementation status — 2026-07-17
+
+PR [#44](https://github.com/webpot-ru/nebula-core-v3/pull/44) merged the
+feature-flagged cinematic implementation and factory-aware release chain to
+`main@017934e3`. The first authorized artifact-only canary
+[`29555487790`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/29555487790)
+stopped before every paid provider because deterministic source review found
+only one eligible candidate out of four. The saved queue proved one rejection
+was a classifier false positive: a final Reddit author-profile attribution was
+treated like a part-2 dependency. The corrected contract allows only exact
+Reddit `/user/` and `/u/` attribution links, keeps every continuation/external
+link and image blocked, and expands SAGA/BUNDLE listing depth from 25 to 50
+under the unchanged Reddit HTTP cap. A fresh paid canary remains required;
+promotion to the default still requires the technical, human, audio, rights and
+retention gates above.
+
 ## Результат первого implementation slice
 
 Первый локальный проход выполнен в исходных границах visual contract:
