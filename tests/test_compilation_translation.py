@@ -390,7 +390,7 @@ class CompilationTranslationTests(unittest.TestCase):
                          "I heard something at the door.")
         self.assertFalse(saved["source_quote_repair_completed"])
 
-    def test_source_quote_repair_allowance_cannot_be_used_twice(self):
+    def test_consumed_source_quote_repair_still_blocks_an_all_invalid_review(self):
         translation = {
             "title": "Дверь",
             "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
@@ -426,11 +426,71 @@ class CompilationTranslationTests(unittest.TestCase):
                 "ending_preserved": True,
             },
         ])
-        with self.assertRaisesRegex(TranslationError, "allowance is already consumed"):
+        with self.assertRaisesRegex(TranslationError, "no actionable issues with exact source evidence"):
             translate_and_review_story(
                 STORY, provider=translator, reviewer=reviewer,
             )
         self.assertEqual(len(reviewer.calls), 3)
+
+    def test_consumed_source_quote_repair_discards_only_invalid_mixed_issue(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        pending = {
+            "verdict": "REVISE",
+            "issues": [
+                {
+                    "kind": "tone",
+                    "source_quote": "I heard a knock.",
+                    "translation_quote": "Я услышал стук.",
+                    "replacement": "Я услышал громкий стук.",
+                },
+                {
+                    "kind": "place",
+                    "source_quote": "I hid inside the hallway.",
+                    "translation_quote": "Я спрятался в коридоре.",
+                    "replacement": "Я затаился в коридоре.",
+                },
+            ],
+            "ending_preserved": True,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "review.json"
+            checkpoint.write_text(json.dumps({
+                "schema_version": 2,
+                "source_sha256": hashlib.sha256(STORY["body"].encode()).hexdigest(),
+                "revisions_completed": 1,
+                "review_history": [
+                    {"verdict": "REVISE", "issues": [], "ending_preserved": True},
+                    pending,
+                ],
+                "current_translation": translation,
+                "source_quote_repair_completed": True,
+            }, ensure_ascii=False), encoding="utf-8")
+            provider = QueueProvider([
+                {"verdict": "PASS", "issues": [], "ending_preserved": True},
+            ])
+            result = translate_and_review_story(
+                STORY,
+                provider=provider,
+                review_checkpoint_path=checkpoint,
+            )
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+        revised = saved["review_history"][1]
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(len(revised["issues"]), 1)
+        self.assertEqual(
+            revised["discarded_invalid_evidence_issues"][0]["issue_index"], 2,
+        )
+        self.assertEqual(
+            revised["discarded_invalid_evidence_issues"][0]["reason"],
+            "INVALID_SOURCE_EVIDENCE_AFTER_REPAIR_ALLOWANCE",
+        )
+        self.assertIn("громкий стук", result["body"])
+        self.assertIn("Я спрятался в коридоре", result["body"])
 
     def test_unique_case_only_source_quote_is_normalized_without_repair_call(self):
         translation = {

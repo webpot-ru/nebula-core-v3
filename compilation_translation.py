@@ -111,7 +111,8 @@ For REVISE, report every material issue you can find in this one complete pass; 
 minor alternatives across repeated reviews. Return strict JSON:
 {{"verdict":"PASS|REVISE","issues":[{{"kind":"...","source_quote":"exact source quote","translation_quote":"exact current Russian quote","replacement":"exact Russian replacement","explanation":"..."}}],"ending_preserved":true}}
 For every REVISE issue, translation_quote must occur verbatim in the current translation and replacement
-must be the complete local replacement for only that quote. Do not request or perform a full rewrite.
+must be the complete local replacement for only that quote. source_quote must occur verbatim in SOURCE
+TITLE or SOURCE BODY. Do not request or perform a full rewrite.
 SOURCE TITLE: {source_title}\nSOURCE BODY:\n{source_body}\nTRANSLATION:\n{json.dumps(translated, ensure_ascii=False)}"""
 
 
@@ -212,6 +213,45 @@ def _discard_explicit_review_noops(review: dict[str, Any]) -> dict[str, Any]:
     repaired_review["issues"] = actionable
     repaired_review["discarded_noop_issues"] = [
         *(review.get("discarded_noop_issues") or []),
+        *discarded,
+    ]
+    return repaired_review
+
+
+def _discard_review_issues_without_exact_source_evidence(
+    source_title: str,
+    source_body: str,
+    review: dict[str, Any],
+) -> dict[str, Any]:
+    """Preserve but do not apply issues unsupported by an exact source quote."""
+    issues = review.get("issues")
+    if not isinstance(issues, list) or not issues:
+        raise TranslationError("REVISE verdict requires structured issues")
+    invalid_indexes = _invalid_review_source_quote_indexes(source_title, source_body, review)
+    if not invalid_indexes:
+        return review
+    invalid_set = set(invalid_indexes)
+    actionable = [dict(issue) for index, issue in enumerate(issues, 1) if index not in invalid_set]
+    if not actionable:
+        raise TranslationError(
+            "REVISE review contains no actionable issues with exact source evidence"
+        )
+    discarded = [
+        {
+            "issue_index": index,
+            "kind": issues[index - 1].get("kind"),
+            "source_quote": issues[index - 1].get("source_quote"),
+            "translation_quote": issues[index - 1].get("translation_quote"),
+            "replacement": issues[index - 1].get("replacement"),
+            "explanation": issues[index - 1].get("explanation"),
+            "reason": "INVALID_SOURCE_EVIDENCE_AFTER_REPAIR_ALLOWANCE",
+        }
+        for index in invalid_indexes
+    ]
+    repaired_review = dict(review)
+    repaired_review["issues"] = actionable
+    repaired_review["discarded_invalid_evidence_issues"] = [
+        *(review.get("discarded_invalid_evidence_issues") or []),
         *discarded,
     ]
     return repaired_review
@@ -632,7 +672,20 @@ def translate_and_review_story(
         if not invalid_indexes:
             return pending
         if source_quote_repair_completed:
-            raise TranslationError("translation source-quote repair allowance is already consumed")
+            pending = _discard_review_issues_without_exact_source_evidence(
+                title, body, pending,
+            )
+            review_history[-1] = pending
+            if review_checkpoint_path:
+                _atomic_json(review_checkpoint_path, {
+                    "schema_version": 2,
+                    "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                    "revisions_completed": revisions,
+                    "review_history": review_history,
+                    "current_translation": translated,
+                    "source_quote_repair_completed": True,
+                })
+            return pending
         repaired = _repair_review_source_quotes(
             review_provider, title, body, pending, config,
         )
