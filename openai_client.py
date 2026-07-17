@@ -20,7 +20,10 @@ DEFAULT_MAX_COMPLETION_TOKENS = 16_384
 # request blocks the episode for human adjudication instead of silently falling
 # back to a different tier or holding the whole render indefinitely.
 DEFAULT_TIMEOUT_SECONDS = 900
-REQUIRED_SERVICE_TIER = "flex"
+DEFAULT_SERVICE_TIER = "flex"
+SUPPORTED_SERVICE_TIERS = frozenset({"flex", "default"})
+# Backward-compatible name for callers that still mean the default contract.
+REQUIRED_SERVICE_TIER = DEFAULT_SERVICE_TIER
 PROMPT_CACHE_KEY = "acc1-translation-json-v1"
 
 
@@ -43,6 +46,16 @@ class OpenAIJSONResult:
     usage: OpenAIUsage
     service_tier: str
     response_id: str | None = None
+
+
+def normalize_service_tier(value: Any) -> str:
+    """Accept only an explicitly supported, billable processing tier."""
+    tier = str(value or "").strip().lower()
+    if tier not in SUPPORTED_SERVICE_TIERS:
+        raise OpenAIClientError(
+            "OpenAI service_tier must be exactly 'flex' or 'default'"
+        )
+    return tier
 
 
 def _nonnegative_int(value: Any, label: str) -> int:
@@ -155,6 +168,7 @@ def call_openai_json(
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     retries: int = 0,
     temperature: float | None = None,
+    service_tier: str = DEFAULT_SERVICE_TIER,
 ) -> OpenAIJSONResult:
     """Call the exact approved model once and parse one strict JSON object.
 
@@ -172,6 +186,7 @@ def call_openai_json(
         raise OpenAIClientError("OpenAI automatic retries must be exactly zero")
     if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or timeout_seconds < 1:
         raise OpenAIClientError("timeout_seconds must be a positive integer")
+    requested_service_tier = normalize_service_tier(service_tier)
     api_key = str(os.environ.get("OPENAI_API_KEY") or "").strip()
     if not api_key:
         raise OpenAIClientError("Missing OPENAI_API_KEY")
@@ -187,7 +202,7 @@ def call_openai_json(
         "max_completion_tokens": _completion_limit(
             max_completion_tokens, max_output_tokens,
         ),
-        "service_tier": REQUIRED_SERVICE_TIER,
+        "service_tier": requested_service_tier,
         # Prompt caching is automatic when the repeated prefix is long enough.
         # The key improves routing, but never makes a cache hit a correctness
         # dependency; actual cached tokens are recorded below.
@@ -235,14 +250,14 @@ def call_openai_json(
     response_id = data.get("id")
     if response_id is not None and not isinstance(response_id, str):
         raise OpenAIClientError("OpenAI response id must be a string when present")
-    service_tier = data.get("service_tier")
-    if service_tier != REQUIRED_SERVICE_TIER:
+    returned_service_tier = data.get("service_tier")
+    if returned_service_tier != requested_service_tier:
         raise OpenAIClientError(
-            "OpenAI did not confirm the required Flex service tier"
+            "OpenAI did not confirm the explicitly requested service tier"
         )
     return OpenAIJSONResult(
         payload=payload,
         usage=usage,
         response_id=response_id or None,
-        service_tier=service_tier,
+        service_tier=returned_service_tier,
     )

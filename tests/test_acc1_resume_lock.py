@@ -46,6 +46,7 @@ def parent_evidence(run_id=101):
         "attempts": [{
             "index": 1,
             "status": "COMPLETE",
+            "service_tier": lease["provider_contract"]["openai"]["service_tier"],
             "usage": {
                 "input_tokens": 10,
                 "cached_input_tokens": 0,

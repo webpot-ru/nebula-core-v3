@@ -1,5 +1,5 @@
 name: acc1 Daily Episode Factory
-run-name: acc1 daily episode date=${{ inputs.production_date }} pilot=${{ inputs.pilot_id }} mode=${{ inputs.visual_mode }}
+run-name: acc1 daily episode date=${{ inputs.production_date }} pilot=${{ inputs.pilot_id }} mode=${{ inputs.visual_mode }} tier=${{ inputs.openai_service_tier }}
 
 # This workflow can enforce source, packaging, media, and review gates. It
 # cannot guarantee millions of views: audience response is measurable only
@@ -48,6 +48,14 @@ on:
         required: true
         default: false
         type: boolean
+      openai_service_tier:
+        description: Explicit OpenAI tier; flex remains default and no automatic fallback occurs
+        required: true
+        default: flex
+        type: choice
+        options:
+          - flex
+          - default
       confirm_image_spend:
         description: Explicitly allow bounded image-generation calls after source success
         required: true
@@ -320,6 +328,7 @@ jobs:
           CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
           OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
           OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
+          OPENAI_SERVICE_TIER: ${{ inputs.openai_service_tier }}
           IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
           AI33_CALL_CAP: ${{ inputs.ai33_call_cap }}
         run: |
@@ -330,6 +339,7 @@ jobs:
             --stage paid-preflight \
             --visual-mode "$VISUAL_MODE" \
             --confirm-openai-spend "$CONFIRM_OPENAI_SPEND" \
+            --openai-service-tier "$OPENAI_SERVICE_TIER" \
             --openai-call-cap "$OPENAI_CALL_CAP" \
             --openai-token-cap "$OPENAI_TOKEN_CAP" \
             --confirm-image-spend "$CONFIRM_IMAGE_SPEND" \
@@ -346,6 +356,7 @@ jobs:
           REDDIT_REQUEST_CAP: ${{ inputs.reddit_request_cap }}
           OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
           OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
+          OPENAI_SERVICE_TIER: ${{ inputs.openai_service_tier }}
           IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
           AI33_CALL_CAP: ${{ inputs.ai33_call_cap }}
         run: |
@@ -365,6 +376,7 @@ jobs:
             --reddit-request-cap "$REDDIT_REQUEST_CAP" \
             --openai-call-cap "$OPENAI_CALL_CAP" \
             --openai-token-cap "$OPENAI_TOKEN_CAP" \
+            --openai-service-tier "$OPENAI_SERVICE_TIER" \
             --image-call-cap "$IMAGE_CALL_CAP" \
             --ai33-call-cap "$AI33_CALL_CAP" \
             --confirm-reddit-read "$CONFIRM_REDDIT_READ" \
@@ -472,6 +484,7 @@ jobs:
           REDDIT_REQUEST_CAP: ${{ inputs.reddit_request_cap }}
           OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
           OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
+          OPENAI_SERVICE_TIER: ${{ inputs.openai_service_tier }}
           IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
           AI33_CALL_CAP: ${{ inputs.ai33_call_cap }}
           RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
@@ -486,6 +499,7 @@ jobs:
             --confirm-openai-spend "$CONFIRM_OPENAI_SPEND"
             --openai-call-cap "$OPENAI_CALL_CAP"
             --openai-token-cap "$OPENAI_TOKEN_CAP"
+            --openai-service-tier "$OPENAI_SERVICE_TIER"
             --confirm-image-spend "$CONFIRM_IMAGE_SPEND"
             --image-call-cap "$IMAGE_CALL_CAP"
             --confirm-ai33-spend "$CONFIRM_AI33_SPEND"

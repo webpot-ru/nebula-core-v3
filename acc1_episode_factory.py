@@ -86,19 +86,19 @@ from compilation_translation import (
 )
 from compilation_tts_runner import build_tts_chunks, run_compilation_tts
 from openai_client import (
+    DEFAULT_SERVICE_TIER,
     DEFAULT_TIMEOUT_SECONDS as OPENAI_REQUEST_TIMEOUT_SECONDS,
     OPENAI_MODEL,
     PROMPT_CACHE_KEY,
-    REQUIRED_SERVICE_TIER,
     OpenAIJSONResult,
     call_openai_json,
+    normalize_service_tier,
 )
 from scraper import fetch_best_story, get_reddit, history_posts, load_channel_config, load_history
 from source_text_quality import source_text_quality_blockers
 from source_safety import source_safety_evidence
 from scripts.build_acc1_creative_review_template import build_template
 from scripts.acc1_spend_lock import (
-    PROVIDER_CONTRACT as SPEND_LOCK_PROVIDER_CONTRACT,
     WORKFLOW_PATH as SPEND_LOCK_WORKFLOW_PATH,
     SpendLockError,
     validate_lease_for_production,
@@ -945,10 +945,20 @@ class CallBudget:
         journal_path: Path | None = None,
         token_cap: int | None = None,
         allow_completed_resume: bool = False,
+        required_service_tier: str | None = None,
     ):
         self.provider = provider
         self.cap = _positive_cap(cap, f"{label}_call_cap", maximum=256)
         self.label = label
+        self.required_service_tier = (
+            normalize_service_tier(required_service_tier or DEFAULT_SERVICE_TIER)
+            if label == "openai"
+            else None
+        )
+        if label != "openai" and required_service_tier is not None:
+            raise EpisodeFactoryError(
+                "required_service_tier is valid only for the OpenAI budget"
+            )
         self.token_cap = (
             _positive_cap(token_cap, f"{label}_token_cap", maximum=1_000_000)
             if token_cap is not None else None
@@ -1006,6 +1016,13 @@ class CallBudget:
                 ):
                     raise EpisodeFactoryError(
                         f"{label} completed resume journal contains an unresolved or invalid attempt"
+                    )
+                if self.required_service_tier is not None and any(
+                    item.get("service_tier") != self.required_service_tier
+                    for item in attempts
+                ):
+                    raise EpisodeFactoryError(
+                        "openai completed resume journal service tier does not match"
                     )
                 if self.token_cap is not None:
                     totals = previous.get("usage_totals")
@@ -1072,6 +1089,15 @@ class CallBudget:
         # explicit factory cap.
         if self.label in {"openai", "image"}:
             kwargs.setdefault("retries", 0)
+        if self.required_service_tier is not None:
+            requested_service_tier = normalize_service_tier(
+                kwargs.get("service_tier", self.required_service_tier)
+            )
+            if requested_service_tier != self.required_service_tier:
+                raise EpisodeFactoryError(
+                    "OpenAI call service tier does not match the approved budget"
+                )
+            kwargs["service_tier"] = self.required_service_tier
         prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
         attempt = {
             "index": len(self.calls) + 1,
@@ -1080,6 +1106,7 @@ class CallBudget:
                 "model": kwargs.get("model") or kwargs.get("model_id"),
                 "max_output_tokens": kwargs.get("max_output_tokens"),
                 "voice_id": kwargs.get("voice_id"),
+                "service_tier": kwargs.get("service_tier"),
             }),
             "model": kwargs.get("model") or kwargs.get("model_id"),
             "status": "IN_FLIGHT",
@@ -1116,11 +1143,11 @@ class CallBudget:
                 attempt["status"] = "BLOCKED_TOKEN_CAP_EXCEEDED"
                 self._write_journal()
                 raise EpisodeFactoryError("OpenAI actual usage exceeded the approved token cap")
-            if raw_response.service_tier != REQUIRED_SERVICE_TIER:
+            if raw_response.service_tier != self.required_service_tier:
                 attempt["status"] = "BLOCKED_SERVICE_TIER_MISMATCH"
                 self._write_journal()
                 raise EpisodeFactoryError(
-                    "OpenAI response did not prove the required Flex service tier"
+                    "OpenAI response did not prove the explicitly requested service tier"
                 )
         elif self.token_cap is not None:
             attempt["status"] = "BLOCKED_MISSING_USAGE"
@@ -1680,7 +1707,10 @@ def _source_artifacts(workdir: Path, daily_plan: dict[str, Any]) -> tuple[dict[s
     return queue, review, pool, stage
 
 
-def _factory_provider_contract() -> dict[str, Any]:
+def _factory_provider_contract(
+    openai_service_tier: str = DEFAULT_SERVICE_TIER,
+) -> dict[str, Any]:
+    resolved_service_tier = normalize_service_tier(openai_service_tier)
     return {
         "openai": {
             "provider": "openai",
@@ -1688,7 +1718,7 @@ def _factory_provider_contract() -> dict[str, Any]:
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
             "automatic_retries": 0,
-            "service_tier": REQUIRED_SERVICE_TIER,
+            "service_tier": resolved_service_tier,
             "prompt_cache_key": PROMPT_CACHE_KEY,
             "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
@@ -1759,6 +1789,7 @@ def _paid_preflight_contract(
     workdir: Path,
     channels_path: Path,
     confirm_openai_spend: str | bool,
+    openai_service_tier: str = DEFAULT_SERVICE_TIER,
     openai_call_cap: int,
     openai_token_cap: int,
     confirm_image_spend: str | bool,
@@ -1813,9 +1844,7 @@ def _paid_preflight_contract(
     api_key = str(os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY") or "")
     if not api_key:
         raise EpisodeFactoryError("AI33_API_KEY is required before creating the paid spend lease")
-    provider_contract = _factory_provider_contract()
-    if provider_contract != SPEND_LOCK_PROVIDER_CONTRACT:
-        raise EpisodeFactoryError("factory provider/model contract drifted from spend-lock schema")
+    provider_contract = _factory_provider_contract(openai_service_tier)
     report = {
         "version": FACTORY_VERSION,
         "status": "PAID_PREFLIGHT_PASS",
@@ -1857,6 +1886,7 @@ def run_paid_preflight(
     workdir: Path,
     channels_path: Path,
     confirm_openai_spend: str | bool,
+    openai_service_tier: str = DEFAULT_SERVICE_TIER,
     openai_call_cap: int,
     openai_token_cap: int,
     confirm_image_spend: str | bool,
@@ -1871,6 +1901,7 @@ def run_paid_preflight(
         workdir=workdir,
         channels_path=channels_path,
         confirm_openai_spend=confirm_openai_spend,
+        openai_service_tier=openai_service_tier,
         openai_call_cap=openai_call_cap,
         openai_token_cap=openai_token_cap,
         confirm_image_spend=confirm_image_spend,
@@ -1920,6 +1951,7 @@ def _validate_spend_lease_contract(
     openai_token_cap: int,
     image_call_cap: int,
     ai33_call_cap: int,
+    provider_contract: dict[str, Any],
 ) -> dict[str, Any]:
     expected_path = (Path(workdir) / "spend-lease.json").resolve()
     if spend_lease_path is None or Path(spend_lease_path).resolve() != expected_path:
@@ -1951,7 +1983,7 @@ def _validate_spend_lease_contract(
                 "image_spend": True,
                 "ai33_spend": True,
             },
-            provider_contract=_factory_provider_contract(),
+            provider_contract=provider_contract,
             run_id=run_id,
             run_attempt=run_attempt,
             head_sha=head_sha,
@@ -1975,6 +2007,7 @@ def _validate_resume_contract(
     openai_token_cap: int,
     image_call_cap: int,
     ai33_call_cap: int,
+    provider_contract: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     expected_path = (workdir / "resume-spend-lease.json").resolve()
     if resume_lease_path is None or Path(resume_lease_path).resolve() != expected_path:
@@ -2014,7 +2047,7 @@ def _validate_resume_contract(
             workflow_path=SPEND_LOCK_WORKFLOW_PATH,
             requested_caps=parent_lease.get("requested_caps") or {},
             confirmations=parent_lease.get("confirmations") or {},
-            provider_contract=parent_lease.get("provider_contract") or {},
+            provider_contract=provider_contract,
             run_id=parent_lease.get("run_id"),
             run_attempt=parent_lease.get("run_attempt"),
             head_sha=parent_lease.get("head_sha"),
@@ -2152,6 +2185,7 @@ def run_produce_stage(
     workdir: Path,
     channels_path: Path,
     confirm_openai_spend: str | bool,
+    openai_service_tier: str = DEFAULT_SERVICE_TIER,
     openai_call_cap: int,
     openai_token_cap: int,
     confirm_image_spend: str | bool,
@@ -2194,6 +2228,7 @@ def run_produce_stage(
         workdir=workdir,
         channels_path=channels_path,
         confirm_openai_spend=confirm_openai_spend,
+        openai_service_tier=openai_service_tier,
         openai_call_cap=openai_call_cap,
         openai_token_cap=openai_token_cap,
         confirm_image_spend=confirm_image_spend,
@@ -2207,6 +2242,12 @@ def run_produce_stage(
     openai_tokens = int(paid_preflight["caps"]["openai_token_cap"])
     image_cap = int(paid_preflight["caps"]["image_call_cap"])
     ai33_cap = int(paid_preflight["caps"]["ai33_call_cap"])
+    provider_contract = paid_preflight.get("provider_contract")
+    expected_provider_contract = _factory_provider_contract(openai_service_tier)
+    if provider_contract != expected_provider_contract:
+        raise EpisodeFactoryError(
+            "paid preflight provider/model contract does not match production"
+        )
     is_resume = resume_review_run_id is not None
     if is_resume:
         enriched, producer_reports, critic_reports = _validate_resume_contract(
@@ -2222,6 +2263,7 @@ def run_produce_stage(
             openai_token_cap=openai_tokens,
             image_call_cap=image_cap,
             ai33_call_cap=ai33_cap,
+            provider_contract=provider_contract,
         )
     else:
         _validate_spend_lease_contract(
@@ -2237,6 +2279,7 @@ def run_produce_stage(
             openai_token_cap=openai_tokens,
             image_call_cap=image_cap,
             ai33_call_cap=ai33_cap,
+            provider_contract=provider_contract,
         )
     api_key = str(os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY") or "")
     channel = _channel_config(channels_path)
@@ -2250,6 +2293,7 @@ def run_produce_stage(
         label="openai",
         journal_path=provider_journal_dir / "openai.json",
         allow_completed_resume=is_resume,
+        required_service_tier=openai_service_tier,
     )
     images = CallBudget(
         image_provider,
@@ -2326,7 +2370,7 @@ def run_produce_stage(
             "model": OPENAI_MODEL,
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
-            "service_tier": REQUIRED_SERVICE_TIER,
+            "service_tier": normalize_service_tier(openai_service_tier),
             "prompt_cache_key": PROMPT_CACHE_KEY,
             "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
@@ -2337,7 +2381,7 @@ def run_produce_stage(
             "reviewer_model": OPENAI_MODEL,
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
-            "service_tier": REQUIRED_SERVICE_TIER,
+            "service_tier": normalize_service_tier(openai_service_tier),
             "prompt_cache_key": PROMPT_CACHE_KEY,
             "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
@@ -2897,6 +2941,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reddit-request-cap", type=int, default=24)
     parser.add_argument("--reserved-source-exclusions")
     parser.add_argument("--confirm-openai-spend", default="false")
+    parser.add_argument(
+        "--openai-service-tier",
+        choices=("flex", "default"),
+        default=DEFAULT_SERVICE_TIER,
+        help="Explicit OpenAI processing tier; never changed by fallback.",
+    )
     parser.add_argument("--openai-call-cap", type=int, default=96)
     parser.add_argument("--openai-token-cap", type=int, default=500_000)
     parser.add_argument("--confirm-image-spend", default="false")
@@ -2942,6 +2992,7 @@ def main(argv: list[str] | None = None) -> int:
             workdir=workdir,
             channels_path=channels,
             confirm_openai_spend=args.confirm_openai_spend,
+            openai_service_tier=args.openai_service_tier,
             openai_call_cap=args.openai_call_cap,
             openai_token_cap=args.openai_token_cap,
             confirm_image_spend=args.confirm_image_spend,
@@ -2956,6 +3007,7 @@ def main(argv: list[str] | None = None) -> int:
             workdir=workdir,
             channels_path=channels,
             confirm_openai_spend=args.confirm_openai_spend,
+            openai_service_tier=args.openai_service_tier,
             openai_call_cap=args.openai_call_cap,
             openai_token_cap=args.openai_token_cap,
             confirm_image_spend=args.confirm_image_spend,

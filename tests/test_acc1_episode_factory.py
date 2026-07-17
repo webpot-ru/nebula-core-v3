@@ -835,7 +835,12 @@ class EpisodeFactoryTests(unittest.TestCase):
         journal_payload = {
             "version": 1, "provider": "openai", "cap": 64,
             "token_cap": 1_000_000, "usage_totals": dict(usage),
-            "attempts": [{"index": 1, "status": "COMPLETE", "usage": dict(usage)}],
+            "attempts": [{
+                "index": 1,
+                "status": "COMPLETE",
+                "service_tier": factory.DEFAULT_SERVICE_TIER,
+                "usage": dict(usage),
+            }],
             "publication_authorized": False,
         }
         with tempfile.TemporaryDirectory() as temp:
@@ -851,7 +856,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                         input_tokens=2, cached_input_tokens=0, output_tokens=1,
                         total_tokens=3, reasoning_tokens=0,
                     ),
-                    service_tier=factory.REQUIRED_SERVICE_TIER,
+                    service_tier=factory.DEFAULT_SERVICE_TIER,
                 )
 
             budget = factory.CallBudget(
@@ -921,7 +926,7 @@ class EpisodeFactoryTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 factory.EpisodeFactoryError,
-                "required Flex service tier",
+                "explicitly requested service tier",
             ):
                 budget(
                     prompt="one translation",
@@ -941,6 +946,50 @@ class EpisodeFactoryTests(unittest.TestCase):
                 "total_tokens": 3,
                 "reasoning_tokens": 0,
             })
+
+    def test_openai_budget_binds_explicit_default_tier_before_transport(self):
+        calls = []
+
+        def provider(**kwargs):
+            calls.append(kwargs)
+            return OpenAIJSONResult(
+                payload={"translated": True},
+                usage=OpenAIUsage(
+                    input_tokens=2,
+                    cached_input_tokens=0,
+                    output_tokens=1,
+                    total_tokens=3,
+                    reasoning_tokens=0,
+                ),
+                service_tier="default",
+            )
+
+        budget = factory.CallBudget(
+            provider,
+            cap=1,
+            label="openai",
+            token_cap=1_000,
+            required_service_tier="default",
+        )
+        budget(prompt="translation", model=factory.OPENAI_MODEL)
+        self.assertEqual(calls[0]["service_tier"], "default")
+        self.assertEqual(budget.calls[0]["service_tier"], "default")
+
+        with self.assertRaisesRegex(
+            factory.EpisodeFactoryError,
+            "does not match the approved budget",
+        ):
+            factory.CallBudget(
+                provider,
+                cap=1,
+                label="openai",
+                token_cap=1_000,
+                required_service_tier="default",
+            )(
+                prompt="wrong tier",
+                service_tier="flex",
+            )
+        self.assertEqual(len(calls), 1)
 
     def test_ai33_inline_audio_response_is_journaled_without_serializing_bytes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1145,6 +1194,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                     workdir=workdir,
                     channels_path=ROOT / "channels.json",
                     confirm_openai_spend=True,
+                    openai_service_tier="default",
                     openai_call_cap=96,
                     openai_token_cap=500_000,
                     confirm_image_spend=True,
@@ -1156,6 +1206,10 @@ class EpisodeFactoryTests(unittest.TestCase):
             self.assertFalse(report["would_call_openai"])
             self.assertFalse(report["would_call_image_provider"])
             self.assertFalse(report["would_call_ai33"])
+            self.assertEqual(
+                report["provider_contract"]["openai"]["service_tier"],
+                "default",
+            )
             self.assertEqual(
                 report["runtime_budget"]["workflow_timeout_minutes"], 360,
             )
@@ -1211,6 +1265,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 "image_call_cap": 16,
                 "ai33_call_cap": 96,
             },
+            "provider_contract": factory._factory_provider_contract(),
         }
         paid_calls = []
         with tempfile.TemporaryDirectory() as temp:
@@ -1540,6 +1595,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                     "image_call_cap": 8,
                     "ai33_call_cap": 32,
                 },
+                "provider_contract": factory._factory_provider_contract(),
             }
             producer_reports = [{"candidate_id": "candidate-1", "status": "COMPLETE"}]
             critic_reports = [{"candidate_id": "candidate-1", "status": "COMPLETE"}]

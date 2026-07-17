@@ -15,6 +15,7 @@ from scripts.acc1_spend_lock import (
     build_lease,
     canonical_hash,
     main,
+    provider_contract,
     scan_leases,
     self_hash,
     validate_lease_for_production,
@@ -98,6 +99,7 @@ def valid_lease(
     run_id=101,
     candidate_count=5,
     source_prefix="post",
+    openai_service_tier="flex",
 ):
     plan, stage, pool, queue, review = source_contract(
         episode_key, candidate_count, source_prefix,
@@ -126,6 +128,7 @@ def valid_lease(
             "image_spend": "true",
             "ai33_spend": "true",
         },
+        openai_service_tier=openai_service_tier,
         created_at="2026-07-14T12:00:00Z",
     )
 
@@ -254,6 +257,42 @@ class Acc1SpendLockTests(unittest.TestCase):
             })
             for item in lease["reserved_sources"]
         ))
+
+    def test_default_openai_tier_is_hash_bound_and_validated_exactly(self):
+        lease = valid_lease(openai_service_tier="default")
+        plan, stage, pool, queue, review = source_contract()
+        expected_contract = provider_contract("default")
+        self.assertEqual(
+            lease["provider_contract"]["openai"]["service_tier"],
+            "default",
+        )
+        validate_lease_for_production(
+            lease,
+            plan=plan,
+            source_stage=stage,
+            candidate_pool=pool,
+            source_queue=queue,
+            source_review=review,
+            repository=REPOSITORY,
+            workflow_path=WORKFLOW,
+            requested_caps=lease["requested_caps"],
+            confirmations=lease["confirmations"],
+            provider_contract=expected_contract,
+        )
+        with self.assertRaisesRegex(SpendLockError, "exact provider/model contract"):
+            validate_lease_for_production(
+                lease,
+                plan=plan,
+                source_stage=stage,
+                candidate_pool=pool,
+                source_queue=queue,
+                source_review=review,
+                repository=REPOSITORY,
+                workflow_path=WORKFLOW,
+                requested_caps=lease["requested_caps"],
+                confirmations=lease["confirmations"],
+                provider_contract=provider_contract("flex"),
+            )
         self.assertEqual(set(lease["source_bindings"]), {
             "daily_plan_sha256",
             "config_sha256",

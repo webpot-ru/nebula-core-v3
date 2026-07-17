@@ -326,9 +326,16 @@ stories at depth 50 and reached paid production, where one Flex response
 completed before an explicit capacity HTTP 429 stopped the next request.
 Those five sources are now correctly reserved, so sustainable episode rotation
 uses one maximum-size Reddit listing page (100 rows) under the unchanged HTTP
-cap. A fresh source-only rotation proof and then a fresh paid canary remain required;
-promotion to the default still requires the technical, human, audio, rights and
-retention gates above.
+cap. Source-only run `29558815654` proved that path with five new, reservation-
+disjoint finalists. Paid run `29559053073` then passed the new source lease but
+received the same explicit Flex-capacity HTTP 429 on its first OpenAI request;
+image, AI33, render, and YouTube were not reached. Because this is the second
+independent Flex-capacity failure, PR #45 adds an explicit `default` service-tier
+canary path while retaining Flex as the default and prohibiting automatic
+fallback. The selected tier is hash-bound through preflight, lease, request,
+journal, and response readback. A fresh standard-tier artifact-only canary is
+still required; promotion to the default still requires the technical, human,
+audio, rights and retention gates above.
 
 ## Результат первого implementation slice
 
