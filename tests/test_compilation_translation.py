@@ -470,6 +470,79 @@ class CompilationTranslationTests(unittest.TestCase):
         self.assertFalse(result["translation_audit"]["source_quote_repair_completed"])
         self.assertIn("Я затаился в коридоре", result["body"])
 
+    def test_explicit_noop_issue_is_discarded_but_other_patch_is_applied(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        translator = QueueProvider([translation])
+        reviewer = QueueProvider([
+            {
+                "verdict": "REVISE",
+                "issues": [
+                    {
+                        "kind": "meaning_change",
+                        "source_quote": "I heard a knock.",
+                        "translation_quote": "Я услышал стук.",
+                        "replacement": "Я услышал стук.",
+                        "explanation": "The Russian is fine; there is no issue here.",
+                    },
+                    {
+                        "kind": "place",
+                        "source_quote": "I hid in the hall.",
+                        "translation_quote": "Я спрятался в коридоре.",
+                        "replacement": "Я затаился в коридоре.",
+                        "explanation": "Use a closer local verb.",
+                    },
+                ],
+                "ending_preserved": True,
+            },
+            {"verdict": "PASS", "issues": [], "ending_preserved": True},
+        ])
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "review.json"
+            result = translate_and_review_story(
+                STORY,
+                provider=translator,
+                reviewer=reviewer,
+                review_checkpoint_path=checkpoint,
+            )
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+        first_review = saved["review_history"][0]
+        self.assertEqual(len(first_review["issues"]), 1)
+        self.assertEqual(first_review["discarded_noop_issues"][0]["issue_index"], 1)
+        self.assertEqual(
+            first_review["discarded_noop_issues"][0]["reason"],
+            "EXPLICIT_NONISSUE_WITH_IDENTICAL_REPLACEMENT",
+        )
+        self.assertIn("Я затаился в коридоре", result["body"])
+
+    def test_ambiguous_noop_issue_still_fails_closed(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        translator = QueueProvider([translation])
+        reviewer = QueueProvider([{
+            "verdict": "REVISE",
+            "issues": [{
+                "kind": "meaning_change",
+                "source_quote": "I heard a knock.",
+                "translation_quote": "Я услышал стук.",
+                "replacement": "Я услышал стук.",
+                "explanation": "Check this phrase again.",
+            }],
+            "ending_preserved": True,
+        }])
+        with self.assertRaisesRegex(TranslationError, "without declaring a non-issue"):
+            translate_and_review_story(
+                STORY, provider=translator, reviewer=reviewer,
+            )
+
     def test_resume_repairs_saved_invalid_quote_without_retranslating(self):
         translation = {
             "title": "Дверь",

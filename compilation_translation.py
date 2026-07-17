@@ -172,6 +172,51 @@ def _normalize_review_source_quote_casing(
     return repaired_review
 
 
+def _discard_explicit_review_noops(review: dict[str, Any]) -> dict[str, Any]:
+    """Discard only self-identified non-issues whose replacement changes nothing."""
+    issues = review.get("issues")
+    if not isinstance(issues, list) or not issues:
+        raise TranslationError("REVISE verdict requires structured issues")
+    nonissue_markers = (
+        "no issue", "no material issue", "is fine", "already correct",
+        "does not need correction", "does not require correction",
+    )
+    actionable: list[dict[str, Any]] = []
+    discarded: list[dict[str, Any]] = []
+    for index, issue in enumerate(issues, 1):
+        if not isinstance(issue, dict):
+            raise TranslationError(f"review issue {index} is not an object")
+        old = str(issue.get("translation_quote") or "").strip()
+        new = str(issue.get("replacement") or "").strip()
+        if old and old == new:
+            explanation = str(issue.get("explanation") or "").strip()
+            if not any(marker in explanation.casefold() for marker in nonissue_markers):
+                raise TranslationError(
+                    f"review issue {index} repeats its replacement without declaring a non-issue"
+                )
+            discarded.append({
+                "issue_index": index,
+                "kind": issue.get("kind"),
+                "source_quote": issue.get("source_quote"),
+                "translation_quote": old,
+                "explanation": explanation,
+                "reason": "EXPLICIT_NONISSUE_WITH_IDENTICAL_REPLACEMENT",
+            })
+            continue
+        actionable.append(dict(issue))
+    if not discarded:
+        return review
+    if not actionable:
+        raise TranslationError("REVISE review contains no actionable issues after explicit no-op removal")
+    repaired_review = dict(review)
+    repaired_review["issues"] = actionable
+    repaired_review["discarded_noop_issues"] = [
+        *(review.get("discarded_noop_issues") or []),
+        *discarded,
+    ]
+    return repaired_review
+
+
 def _repair_review_source_quotes(
     provider: Provider,
     source_title: str,
@@ -567,9 +612,10 @@ def translate_and_review_story(
         saved_review.get("source_quote_repair_completed")
     ) if saved_review else False
 
-    def repair_pending_source_quotes(pending: dict[str, Any]) -> dict[str, Any]:
+    def normalize_pending_review(pending: dict[str, Any]) -> dict[str, Any]:
         nonlocal source_quote_repair_completed
-        normalized = _normalize_review_source_quote_casing(title, body, pending)
+        normalized = _discard_explicit_review_noops(pending)
+        normalized = _normalize_review_source_quote_casing(title, body, normalized)
         if normalized is not pending:
             pending = normalized
             review_history[-1] = pending
@@ -609,7 +655,7 @@ def translate_and_review_story(
         if pending.get("verdict") == "PASS" and pending.get("ending_preserved") is True:
             review = pending
         elif pending.get("verdict") == "REVISE" and len(review_history) == revisions + 1:
-            pending = repair_pending_source_quotes(pending)
+            pending = normalize_pending_review(pending)
             if revisions >= config.max_story_revisions:
                 if not config.allow_final_adjudication:
                     raise TranslationError("translation remains REVISE after maximum story revisions")
@@ -660,7 +706,7 @@ def translate_and_review_story(
             break
         if review.get("verdict") != "REVISE":
             raise TranslationError("reviewer returned invalid or unsafe verdict")
-        review = repair_pending_source_quotes(review)
+        review = normalize_pending_review(review)
         if revisions >= config.max_story_revisions:
             if not config.allow_final_adjudication:
                 raise TranslationError("translation remains REVISE after maximum story revisions")
