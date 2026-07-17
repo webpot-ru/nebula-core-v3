@@ -321,8 +321,12 @@ only one eligible candidate out of four. The saved queue proved one rejection
 was a classifier false positive: a final Reddit author-profile attribution was
 treated like a part-2 dependency. The corrected contract allows only exact
 Reddit `/user/` and `/u/` attribution links, keeps every continuation/external
-link and image blocked, and expands SAGA/BUNDLE listing depth from 25 to 50
-under the unchanged Reddit HTTP cap. A fresh paid canary remains required;
+link and image blocked. Canary `29557578785` then found exactly five valid
+stories at depth 50 and reached paid production, where one Flex response
+completed before an explicit capacity HTTP 429 stopped the next request.
+Those five sources are now correctly reserved, so sustainable episode rotation
+uses one maximum-size Reddit listing page (100 rows) under the unchanged HTTP
+cap. A fresh source-only rotation proof and then a fresh paid canary remain required;
 promotion to the default still requires the technical, human, audio, rights and
 retention gates above.
 

@@ -248,7 +248,7 @@ class EpisodeFactoryTests(unittest.TestCase):
             captured["candidate_limit"],
             factory.SAGA_BUNDLE_CANDIDATE_LIMIT_PER_SOURCE,
         )
-        self.assertEqual(captured["candidate_limit"], 50)
+        self.assertEqual(captured["candidate_limit"], 100)
         self.assertEqual(captured["excluded_source_ids"], {"old-source"})
         self.assertEqual(captured["excluded_story_signatures"], {"old-signature"})
 
