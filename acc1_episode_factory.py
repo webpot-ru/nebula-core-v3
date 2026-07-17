@@ -94,6 +94,7 @@ from openai_client import (
     call_openai_json,
     normalize_service_tier,
 )
+from provider_call_identity import provider_request_sha256
 from scraper import fetch_best_story, get_reddit, history_posts, load_channel_config, load_history
 from source_text_quality import source_text_quality_blockers
 from source_safety import source_safety_evidence
@@ -1122,13 +1123,13 @@ class CallBudget:
         prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
         attempt = {
             "index": len(self.calls) + 1,
-            "request_sha256": canonical_hash({
-                "prompt": prompt,
-                "model": kwargs.get("model") or kwargs.get("model_id"),
-                "max_output_tokens": kwargs.get("max_output_tokens"),
-                "voice_id": kwargs.get("voice_id"),
-                "service_tier": kwargs.get("service_tier"),
-            }),
+            "request_sha256": provider_request_sha256(
+                prompt=prompt,
+                model=kwargs.get("model") or kwargs.get("model_id"),
+                max_output_tokens=kwargs.get("max_output_tokens"),
+                voice_id=kwargs.get("voice_id"),
+                service_tier=kwargs.get("service_tier"),
+            ),
             "model": kwargs.get("model") or kwargs.get("model_id"),
             "status": "IN_FLIGHT",
         }

@@ -9,11 +9,11 @@ from PIL import Image
 
 from acc1_episode_images import (
     EpisodeImageError,
-    _canonical_hash,
     generate_episode_images,
     image_plan,
 )
 from acc1_visual_contract import CINEMATIC_STORY_MODE
+from provider_call_identity import provider_request_sha256
 
 
 def story(source_id: str, words: int = 80):
@@ -140,10 +140,9 @@ class EpisodeImageTests(unittest.TestCase):
             attempts.append({
                 "index": len(attempts) + 1,
                 "status": "COMPLETE",
-                "request_sha256": _canonical_hash({
-                    "prompt": prompt, "model": model,
-                    "max_output_tokens": None, "voice_id": None,
-                }),
+                "request_sha256": provider_request_sha256(
+                    prompt=prompt, model=model,
+                ),
                 "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
             })
             return output_path
@@ -227,10 +226,9 @@ class EpisodeImageTests(unittest.TestCase):
             attempts.append({
                 "index": len(attempts) + 1,
                 "status": "COMPLETE",
-                "request_sha256": _canonical_hash({
-                    "prompt": prompt, "model": model,
-                    "max_output_tokens": None, "voice_id": None,
-                }),
+                "request_sha256": provider_request_sha256(
+                    prompt=prompt, model=model,
+                ),
                 "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
             })
             return output_path

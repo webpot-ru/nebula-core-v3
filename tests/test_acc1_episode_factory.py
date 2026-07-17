@@ -10,6 +10,7 @@ from unittest import mock
 import acc1_episode_factory as factory
 from acc1_daily_planner import build_daily_plan
 from openai_client import OpenAIJSONResult, OpenAIUsage
+from provider_call_identity import provider_request_sha256
 from scripts.acc1_spend_lock import build_lease, self_hash
 
 
@@ -558,6 +559,16 @@ class EpisodeFactoryTests(unittest.TestCase):
                 )
                 budget(prompt="bounded request")
                 self.assertEqual(calls[0]["retries"], 0)
+
+    def test_image_budget_uses_shared_resumable_request_identity(self):
+        budget = factory.CallBudget(
+            lambda **_kwargs: {"ok": True}, cap=1, label="image",
+        )
+        budget(prompt="scene prompt", model="gpt-image-2", size="1536x864")
+        self.assertEqual(
+            budget.calls[0]["request_sha256"],
+            provider_request_sha256(prompt="scene prompt", model="gpt-image-2"),
+        )
 
     def test_candidate_prompts_define_weighted_score_ranges_and_link_dependency(self):
         candidate = {
