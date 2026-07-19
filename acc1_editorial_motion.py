@@ -1,0 +1,385 @@
+"""Deterministic source-bound contract for ``editorial_motion_v1``.
+
+The contract treats generated images as coordinated asset packs instead of
+finished frames.  Exact text, dates, evidence labels, and captions remain DOM
+content owned by the HyperFrames composition.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from typing import Any
+
+from acc1_visual_contract import (
+    ADULT_ANIMATION_SERIES,
+    CANVAS_FPS,
+    CANVAS_HEIGHT,
+    CANVAS_WIDTH,
+    EDITORIAL_MOTION_ASSETS_PER_PACK,
+    EDITORIAL_MOTION_CAPTION_TRACK_VERSION,
+    EDITORIAL_MOTION_MAX_SCENE_SECONDS,
+    EDITORIAL_MOTION_MIN_SCENE_SECONDS,
+    EDITORIAL_MOTION_MODULES,
+    EDITORIAL_MOTION_PLAN_VERSION,
+    EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS,
+    EDITORIAL_MOTION_STYLE_PROFILE,
+    EDITORIAL_MOTION_STYLE_PROFILES,
+    EDITORIAL_MOTION_MODE,
+    EDITORIAL_MOTION_TARGET_SCENE_SECONDS,
+    INK_GOUACHE_PAGE_LAYOUTS,
+    INK_GOUACHE_STORY_FAMILIES,
+    INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+    is_adult_animation_style_profile,
+)
+
+
+CAPTION_WORDS_PER_CUE = 8
+REQUIRED_LAYER_ROLES = ("hero_plate", "detail_plate")
+
+
+class EditorialMotionError(RuntimeError):
+    """Raised when a motion plan cannot remain exact and deterministic."""
+
+
+def canonical_hash(value: Any) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def bind_payload(value: dict[str, Any], hash_field: str) -> dict[str, Any]:
+    payload = dict(value)
+    payload[hash_field] = canonical_hash(value)
+    return payload
+
+
+def verify_bound_payload(value: Any, hash_field: str) -> bool:
+    if not isinstance(value, dict):
+        return False
+    recorded = str(value.get(hash_field) or "")
+    payload = {key: item for key, item in value.items() if key != hash_field}
+    return len(recorded) == 64 and recorded == canonical_hash(payload)
+
+
+def _word_partitions(text: str, count: int) -> list[str]:
+    words = " ".join(str(text or "").split()).split()
+    if not words or count < 1 or count > len(words):
+        raise EditorialMotionError("motion scene text cannot be partitioned exactly")
+    boundaries = [round(index * len(words) / count) for index in range(count + 1)]
+    parts = [
+        " ".join(words[boundaries[index]:boundaries[index + 1]])
+        for index in range(count)
+    ]
+    if any(not part for part in parts) or " ".join(parts) != " ".join(words):
+        raise EditorialMotionError("motion scene partition changed narration")
+    return parts
+
+
+def _scene_count(duration: float, available_packs: int) -> int:
+    if duration + 0.001 < EDITORIAL_MOTION_MIN_SCENE_SECONDS:
+        raise EditorialMotionError(
+            "editorial story segment is shorter than the minimum motion scene",
+        )
+    minimum = max(1, math.ceil(duration / EDITORIAL_MOTION_MAX_SCENE_SECONDS))
+    maximum = max(1, math.floor(duration / EDITORIAL_MOTION_MIN_SCENE_SECONDS))
+    desired = max(1, round(duration / EDITORIAL_MOTION_TARGET_SCENE_SECONDS))
+    count = min(maximum, max(minimum, desired))
+    if available_packs < count:
+        raise EditorialMotionError(
+            f"editorial story requires {count} asset packs but has {available_packs}",
+        )
+    return count
+
+
+def _group_asset_packs(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    order: list[str] = []
+    for asset in assets:
+        if not isinstance(asset, dict):
+            raise EditorialMotionError("editorial asset must be an object")
+        family_id = str(asset.get("asset_family_id") or "").strip()
+        role = str(asset.get("layer_role") or "").strip()
+        if not family_id or role not in REQUIRED_LAYER_ROLES:
+            raise EditorialMotionError(
+                "editorial assets require asset_family_id and a supported layer_role",
+            )
+        if family_id not in grouped:
+            grouped[family_id] = []
+            order.append(family_id)
+        if any(item.get("layer_role") == role for item in grouped[family_id]):
+            raise EditorialMotionError(f"duplicate {role} in asset family {family_id}")
+        grouped[family_id].append(asset)
+
+    packs: list[dict[str, Any]] = []
+    for family_id in order:
+        family_assets = sorted(
+            grouped[family_id],
+            key=lambda item: REQUIRED_LAYER_ROLES.index(str(item["layer_role"])),
+        )
+        if len(family_assets) != EDITORIAL_MOTION_ASSETS_PER_PACK or tuple(
+            str(item.get("layer_role") or "") for item in family_assets
+        ) != REQUIRED_LAYER_ROLES:
+            raise EditorialMotionError(
+                f"asset family {family_id} must contain exactly {REQUIRED_LAYER_ROLES}",
+            )
+        modules = {str(item.get("motion_module") or "") for item in family_assets}
+        if len(modules) != 1 or next(iter(modules)) not in EDITORIAL_MOTION_MODULES:
+            raise EditorialMotionError(f"asset family {family_id} has invalid motion module")
+        story_families = {str(item.get("story_family") or "") for item in family_assets}
+        page_layouts = {str(item.get("page_layout") or "") for item in family_assets}
+        if len(story_families) != 1 or len(page_layouts) != 1:
+            raise EditorialMotionError(f"asset family {family_id} has inconsistent art direction")
+        pack_payload = {
+            "asset_family_id": family_id,
+            "motion_module": next(iter(modules)),
+            "story_family": next(iter(story_families)),
+            "page_layout": next(iter(page_layouts)),
+            "assets": family_assets,
+        }
+        packs.append({**pack_payload, "asset_pack_sha256": canonical_hash(pack_payload)})
+    return packs
+
+
+def _caption_track(
+    narration_segments: list[dict[str, Any]],
+    segment_timings: dict[str, dict[str, Any]],
+    final_audio_duration_sec: float,
+) -> dict[str, Any]:
+    cues: list[dict[str, Any]] = []
+    all_text: list[str] = []
+    cursor = 0.0
+    for segment in narration_segments:
+        segment_id = str(segment.get("segment_id") or "")
+        text = " ".join(str(segment.get("text") or "").split())
+        timing = segment_timings.get(segment_id)
+        if not isinstance(timing, dict):
+            raise EditorialMotionError(f"missing caption timing for {segment_id}")
+        words = timing.get("words")
+        if not isinstance(words, list) or [
+            str(item.get("word") or "") for item in words
+        ] != text.split():
+            raise EditorialMotionError(f"caption words do not match {segment_id}")
+        all_text.append(text)
+        for offset in range(0, len(words), CAPTION_WORDS_PER_CUE):
+            group = words[offset:offset + CAPTION_WORDS_PER_CUE]
+            start = cursor + float(group[0]["start"])
+            end = cursor + float(group[-1]["end"])
+            if end <= start:
+                end = start + 0.001
+            cue_text = " ".join(str(item["word"]) for item in group)
+            cues.append({
+                "cue_id": f"cue-{len(cues) + 1:04d}",
+                "segment_id": segment_id,
+                "start_sec": round(start, 3),
+                "end_sec": round(min(end, final_audio_duration_sec), 3),
+                "text": cue_text,
+                "text_sha256": hashlib.sha256(cue_text.encode("utf-8")).hexdigest(),
+            })
+        cursor += float(timing.get("duration_sec") or 0)
+    for previous, current in zip(cues, cues[1:]):
+        if float(previous["end_sec"]) <= float(current["start_sec"]) + 0.001:
+            continue
+        boundary = round(
+            (float(previous["end_sec"]) + float(current["start_sec"])) / 2,
+            3,
+        )
+        previous["end_sec"] = boundary
+        current["start_sec"] = boundary
+    if abs(cursor - final_audio_duration_sec) > 0.001:
+        raise EditorialMotionError("caption track does not cover final audio")
+    payload = {
+        "version": EDITORIAL_MOTION_CAPTION_TRACK_VERSION,
+        "language": "ru",
+        "timeline_duration_sec": round(final_audio_duration_sec, 3),
+        "cue_count": len(cues),
+        "text_sha256": hashlib.sha256(" ".join(all_text).encode("utf-8")).hexdigest(),
+        "cues": cues,
+    }
+    return bind_payload(payload, "caption_track_sha256")
+
+
+def _motion_contract(module: str) -> dict[str, Any]:
+    contracts = {
+        "living_photo_depth": {"camera": "cutout_parallax", "transition": "torn_edge_match"},
+        "evidence_transform": {"camera": "object_to_portal", "transition": "shape_match"},
+        "digital_memory_stack": {"camera": "phone_portal", "transition": "screen_threshold"},
+        "graphic_timeline": {"camera": "guided_line_track", "transition": "color_plane_wipe"},
+        "dark_semantic_reveal": {"camera": "shadow_reframe", "transition": "ink_iris"},
+        "nested_collage_zoom": {"camera": "continuous_portal_zoom", "transition": "portal_match"},
+    }
+    return {
+        "module": module,
+        **contracts[module],
+        "easing": "power2.inOut",
+        "seek_safe": True,
+    }
+
+
+def build_editorial_motion_contract(
+    *,
+    narration_segments: list[dict[str, Any]],
+    segment_timings: dict[str, dict[str, Any]],
+    story_assets: dict[str, list[dict[str, Any]]],
+    story_metadata: dict[str, dict[str, Any]],
+    final_audio_duration_sec: float,
+    style_profile: str = EDITORIAL_MOTION_STYLE_PROFILE,
+) -> dict[str, Any]:
+    """Build one continuous mixed-media motion plan from verified asset packs."""
+
+    if not narration_segments or final_audio_duration_sec <= 0:
+        raise EditorialMotionError("editorial narration and final duration are required")
+    style_profile = str(style_profile or "").strip()
+    if style_profile not in EDITORIAL_MOTION_STYLE_PROFILES:
+        raise EditorialMotionError("unsupported editorial motion style profile")
+    story_ids = [
+        str(segment["segment_id"])
+        for segment in narration_segments
+        if segment.get("kind") == "story"
+    ]
+    if not story_ids:
+        raise EditorialMotionError("editorial motion requires at least one story")
+    story_packs = {
+        segment_id: _group_asset_packs(story_assets.get(segment_id) or [])
+        for segment_id in story_ids
+    }
+    if any(not packs for packs in story_packs.values()):
+        raise EditorialMotionError("every editorial story requires verified asset packs")
+
+    scenes: list[dict[str, Any]] = []
+    cursor = 0.0
+    completed_story_count = 0
+    for segment in narration_segments:
+        segment_id = str(segment.get("segment_id") or "")
+        segment_kind = str(segment.get("kind") or "")
+        timing = segment_timings.get(segment_id)
+        if not isinstance(timing, dict):
+            raise EditorialMotionError(f"missing editorial timing for {segment_id}")
+        duration = float(timing.get("duration_sec") or 0)
+        if duration < 0.5:
+            raise EditorialMotionError(f"editorial segment {segment_id} is too short")
+
+        if segment_kind == "story":
+            packs = story_packs[segment_id]
+            scene_count = _scene_count(duration, len(packs))
+            completed_story_count += 1
+        else:
+            if duration > EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS + 0.001:
+                raise EditorialMotionError(
+                    f"editorial {segment_kind} must remain a short service scene",
+                )
+            scene_count = 1
+            if segment_kind == "intro":
+                packs = [story_packs[story_ids[0]][0]]
+            elif segment_kind == "outro":
+                packs = [story_packs[story_ids[-1]][-1]]
+            elif segment_kind == "transition":
+                position = min(completed_story_count, len(story_ids) - 1)
+                packs = [story_packs[story_ids[position]][0]]
+            else:
+                raise EditorialMotionError(f"unsupported segment kind {segment_kind}")
+
+        text_parts = _word_partitions(str(segment.get("text") or ""), scene_count)
+        for index in range(scene_count):
+            start = cursor + duration * index / scene_count
+            end = cursor + duration * (index + 1) / scene_count
+            pack = packs[index]
+            story_family = str(pack.get("story_family") or "")
+            page_layout = str(pack.get("page_layout") or "")
+            if style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE:
+                if (
+                    story_family not in INK_GOUACHE_STORY_FAMILIES
+                    or page_layout not in INK_GOUACHE_PAGE_LAYOUTS
+                ):
+                    raise EditorialMotionError(
+                        "ink-and-gouache scenes require a supported story family and page layout",
+                    )
+            elif is_adult_animation_style_profile(style_profile):
+                series = ADULT_ANIMATION_SERIES[style_profile]
+                if (
+                    story_family != series["story_family"]
+                    or page_layout not in series["layouts"]
+                ):
+                    raise EditorialMotionError(
+                        "adult-animation scenes require their profile family and approved layout",
+                    )
+            module = str(pack["motion_module"])
+            if segment_kind == "intro":
+                module = "nested_collage_zoom"
+            elif segment_kind == "outro":
+                module = "dark_semantic_reveal"
+            scene_id = f"{segment_id}-motion-{index + 1:03d}"
+            text = text_parts[index]
+            metadata = story_metadata.get(segment_id, {})
+            scene_titles = metadata.get("scene_titles")
+            if scene_titles is not None and (
+                not isinstance(scene_titles, list)
+                or len(scene_titles) != scene_count
+                or any(not str(item).strip() for item in scene_titles)
+            ):
+                raise EditorialMotionError(
+                    f"editorial scene_titles for {segment_id} must match scene count",
+                )
+            scene = {
+                "slide_id": scene_id,
+                "scene_id": scene_id,
+                "segment_id": segment_id,
+                "kind": "editorial_motion_scene",
+                "presentation": segment_kind,
+                "story_index": metadata.get("story_index"),
+                "voice_role": str(segment.get("voice_role") or ""),
+                "start_sec": round(start, 3),
+                "end_sec": round(end, 3),
+                "duration_sec": round(end - start, 3),
+                "narration_text": text,
+                "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "timing_source": str(timing.get("timing_source") or ""),
+                "asset_family_id": pack["asset_family_id"],
+                "asset_pack_sha256": pack["asset_pack_sha256"],
+                "assets": pack["assets"],
+                "story_family": story_family or None,
+                "page_layout": page_layout or None,
+                "motion": _motion_contract(module),
+                "style_profile": style_profile,
+                "truth_status": "editorial_illustration",
+                "factual_text_rendering": "html_svg_only",
+            }
+            for field in ("title", "source_label", "truth_mode"):
+                if metadata.get(field):
+                    scene[{"title": "story_title"}.get(field, field)] = str(metadata[field])
+            if scene_titles is not None:
+                scene["story_title"] = str(scene_titles[index]).strip()
+            scenes.append(scene)
+        cursor += duration
+
+    if abs(cursor - final_audio_duration_sec) > 0.001:
+        raise EditorialMotionError("editorial scenes do not cover final audio")
+    for previous, current in zip(scenes, scenes[1:]):
+        if abs(float(previous["end_sec"]) - float(current["start_sec"])) > 0.001:
+            raise EditorialMotionError("editorial timeline contains a gap or overlap")
+
+    plan_payload = {
+        "version": EDITORIAL_MOTION_PLAN_VERSION,
+        "visual_mode": EDITORIAL_MOTION_MODE,
+        "style_profile": style_profile,
+        "resolution": [CANVAS_WIDTH, CANVAS_HEIGHT],
+        "fps": CANVAS_FPS,
+        "timeline_duration_sec": round(final_audio_duration_sec, 3),
+        "scene_count": len(scenes),
+        "module_usage": {
+            module: sum(scene["motion"]["module"] == module for scene in scenes)
+            for module in EDITORIAL_MOTION_MODULES
+        },
+        "scenes": scenes,
+    }
+    motion_plan = bind_payload(plan_payload, "motion_plan_sha256")
+    captions = _caption_track(
+        narration_segments, segment_timings, final_audio_duration_sec,
+    )
+    return {
+        "scenes": scenes,
+        "motion_plan": motion_plan,
+        "caption_track": captions,
+    }

@@ -107,6 +107,7 @@ class Acc1DailyPlannerTests(unittest.TestCase):
             self.assertEqual(first["max_release_status"], MAX_RELEASE_STATUS)
             self.assertEqual(first["format"], first["source_plan"]["format"])
             self.assertEqual(first["pillar"], first["source_plan"]["pillar"])
+            self.assertEqual(first["editorial_motion_style_profile"], "adult_animation_family_v1")
             self.assertNotIn("topic_mix", json.dumps(first, ensure_ascii=False))
 
 
