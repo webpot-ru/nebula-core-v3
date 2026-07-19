@@ -1,8 +1,10 @@
 # Russian Horror Editorial System
 
+Status: specialized dark-series contract. The channel-wide `acc1` strategy was broadened on 2026-07-13; see [`acc1-russian-reddit-story-strategy-2026-07-13.md`](acc1-russian-reddit-story-strategy-2026-07-13.md). This document remains authoritative for horror-specific sourcing, truth modes, compilation artifacts, and editorial safeguards, but no longer defines the whole channel.
+
 ## Decision
 
-`acc1` is a Russian horror channel built from Reddit stories, not a literal translated-Reddit reading channel.
+The dark series inside `acc1` is built from Reddit horror stories and is not a literal translated-Reddit reading lane.
 
 The primary product is a 45-60 minute themed compilation of 3-6 complete Reddit horror stories built for Russian listening habits. `r/nosleep` fiction and `r/LetsNotMeet` unverified encounters are separate series and are not mixed inside one compilation. Stories receive natural literary Russian editing but are not expanded into new plots: events, characters, order, and ending remain source-preserving.
 
@@ -67,11 +69,11 @@ An ambiguous ending is acceptable when the story resolves the protagonist's emot
 
 ## Current Implementation Boundary
 
-The current code does not yet implement this product. `scraper.py` discovers Reddit candidates, `story_adapter.py` cleans a selected source without inventing, and `translator_tts.py` translates that text while preserving its sequence. `storyboard_generator.py` and `render.py` then present the translated story through the Reddit-card visual system. This remains a localized reading workflow even when the output is horizontal.
+The local `acc1` factory implements an artifact-only pilot path: bounded source collection, source review, source-preserving Russian translation, scene/image planning, AI33 narration, two visual modes, media QA, and a `READY_FOR_HUMAN_REVIEW` ceiling. The post-human boundary is also implemented locally: `acc1_rights_manifest.py` records exact-source permission metadata and evidence hashes, while the factory-aware `acc1_release_gate.py` requires both that evidence and a completed checksum-bound human review before returning `READY_FOR_PRIVATE_REVIEW`. That result still keeps publication and upload authorization false. There is no completed author-clearance record for a production episode, and the workflow revision is not yet merged or live-verified on GitHub; current deployment status belongs in [`PROJECT_STATE.md`](PROJECT_STATE.md).
 
 Before an `acc1` production pilot, implementation therefore needs:
 
-1. a rights manifest and pre-spend gate;
+1. complete the implemented rights manifest with real permission/license evidence; a true pre-adaptation rights gate remains required for ordinary production rather than the bounded historical artifact-only exceptions;
 2. truth-mode classification (`fiction`, `unverified_account`, or `verified_case`);
 3. complete-story producer review rather than a short prefix;
 4. a dedicated Russian episode-script artifact and change ledger;
@@ -79,6 +81,6 @@ Before an `acc1` production pilot, implementation therefore needs:
 6. metadata generation from the approved Russian script;
 7. scene-based storyboard and editorial QA gates.
 
-Until those exist, `acc1` stays automation-disabled and source reviews prove availability only, not production readiness.
+Until those exist, an artifact may prove source and render readiness only; it cannot authorize distribution. The local configuration keeps legacy automation blocked, while GitHub `main` must receive that hold separately before its scheduled legacy workflow can be considered safe.
 
 The isolated implementation plan lives in [`../specs/acc1-automated-reddit-pilot/README.md`](../specs/acc1-automated-reddit-pilot/README.md). A local deterministic contract or selector does not mean that a paid pilot has run.

@@ -98,7 +98,7 @@ def producer_packaging_context(story: dict[str, Any]) -> str:
 def build_prompt(story: dict[str, Any], channel: dict[str, Any]) -> str:
     language = channel.get("lang", "en")
     channel_name = channel.get("name") or channel.get("handle") or channel.get("id")
-    niche = channel.get("niche_label") or channel.get("niche")
+    niche = channel.get("viewer_promise") or channel.get("niche_label") or channel.get("niche")
     translate_prompt = channel.get("translate_prompt") or "Keep natural native phrasing."
     return f"""
 Create YouTube packaging metadata for a Reddit story video.

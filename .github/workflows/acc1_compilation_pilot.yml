@@ -13,6 +13,12 @@ on:
         default: "3"
         type: choice
         options: ["3", "4", "5", "6"]
+      visuals_per_story:
+        description: Paid GPT Image 2 scene visuals per accepted story
+        required: true
+        default: "4"
+        type: choice
+        options: ["3", "4", "5"]
       confirm_provider_spend:
         description: Explicitly allow Gemini, GPT Image 2 and AI33 for this artifact-only run
         required: true
@@ -87,19 +93,32 @@ jobs:
         run: |
           python compilation_metadata.py --compilation build/acc1-pilot/compilation-script.json \
             --output build/acc1-pilot/youtube-metadata.json --confirm-spend
-      - name: Generate one GPT Image 2 visual per story
+      - name: Generate source-backed GPT Image 2 scene visuals
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
           python compilation_images.py --compilation build/acc1-pilot/compilation-script.json \
             --output-dir build/acc1-pilot/images \
             --updated-compilation build/acc1-pilot/compilation-script-with-images.json \
-            --model gpt-image-2 --size 1536x864 --confirm-spend
+            --model gpt-image-2 --size 1536x864 \
+            --images-per-story '${{ inputs.visuals_per_story }}' --confirm-spend
+      - name: Compose deterministic Cyrillic thumbnail
+        run: |
+          THUMBNAIL_BASE=$(python -c "import json; c=json.load(open('build/acc1-pilot/compilation-script-with-images.json')); print(next(a['local_path'] for s in c['stories'] for a in s.get('generated_media', []) if a.get('download_status') == 'verified'))")
+          python thumbnail_generator.py \
+            --metadata build/acc1-pilot/youtube-metadata.json \
+            --base-image "$THUMBNAIL_BASE" \
+            --output build/acc1-pilot/youtube-thumbnail.png \
+            --report build/acc1-pilot/thumbnail-report.json
       - name: Build local-only compilation storyboard
         run: |
+          cp assets/acc1/video/chonker-reading-loop-v1.mp4 \
+            build/acc1-pilot/chonker-reading-loop-v1.mp4
           python compilation_storyboard.py \
             --compilation build/acc1-pilot/compilation-script-with-images.json \
-            --artifact-root build/acc1-pilot --output build/acc1-pilot/storyboard.json
+            --artifact-root build/acc1-pilot \
+            --background-video build/acc1-pilot/chonker-reading-loop-v1.mp4 \
+            --output build/acc1-pilot/storyboard.json
       - name: Generate resumable Eleven v3 narration
         env:
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
@@ -118,6 +137,7 @@ jobs:
             --report build/acc1-pilot/render-report.json
       - name: Fail-closed compilation QA
         run: |
+          VOICE_ID=$(python -c "import json; print(next(c['tts_voice'] for c in json.load(open('channels.json'))['channels'] if c['id']=='acc1'))")
           python compilation_qa.py \
             --compilation build/acc1-pilot/compilation-script-with-images.json \
             --metadata build/acc1-pilot/youtube-metadata.json \
@@ -126,7 +146,15 @@ jobs:
             --render-report build/acc1-pilot/render-report.json \
             --artifact-root build/acc1-pilot \
             --video build/acc1-pilot/final_output.mp4 \
+            --thumbnail build/acc1-pilot/youtube-thumbnail.png \
+            --expected-voice-id "$VOICE_ID" \
             --output build/acc1-pilot/compilation-qa.json
+      - name: Create fail-closed creative review template
+        run: |
+          python scripts/build_acc1_creative_review_template.py \
+            --video build/acc1-pilot/final_output.mp4 \
+            --thumbnail build/acc1-pilot/youtube-thumbnail.png \
+            --output build/acc1-pilot/creative-review.json
       - name: Upload checkpoints and final artifact
         if: always()
         uses: actions/upload-artifact@v4

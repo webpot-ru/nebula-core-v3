@@ -28,6 +28,12 @@ FORMAT_CONTRACTS = {
         "target_duration_minutes": [18, 30],
         "source_status": "manual_source_review_available",
     },
+    "BUNDLE": {
+        "target_duration_minutes": [18, 30],
+        "story_count": [2, 5],
+        "aggregate_source_word_count": [2340, 3900],
+        "source_status": "local_selector_implemented_live_unverified",
+    },
     "THREAD": {
         "target_duration_minutes": [15, 25],
         "response_count": [8, 15],
@@ -38,23 +44,54 @@ FORMAT_CONTRACTS = {
 SOURCE_MODES = {"narrative_story", "question_prompt"}
 
 SAGA_WORDS_PER_MINUTE = 130
-SAGA_PILLAR_SOURCE_FAMILY = {
-    "relationships_family": "human_drama",
-    "work_money_justice": "human_drama",
-    "strange_dark_unexplained": "dark_curiosity",
+FORMAT_PILLAR_SOURCE_FAMILY = {
+    "SAGA": {
+        "strange_dark_unexplained": "dark_curiosity",
+    },
+    "BUNDLE": {
+        "relationships_family": "human_drama",
+        "work_money_justice": "human_drama",
+    },
+    "THREAD": {
+        "confessions_awkward_taboo": "human_experience_thread",
+        "professions_human_experience": "human_experience_thread",
+        "strange_dark_unexplained": "human_experience_thread",
+    },
 }
-SAGA_PILLAR_SUBREDDITS = {
-    "relationships_family": (
-        "relationship_advice", "AmItheAsshole", "AITAH", "offmychest",
-    ),
-    "work_money_justice": (
-        "MaliciousCompliance", "prorevenge", "talesfromyourserver", "tifu",
-    ),
-    "strange_dark_unexplained": (
-        "nosleep", "LetsNotMeet", "creepyencounters", "Glitch_in_the_Matrix",
-    ),
+FORMAT_PILLAR_SUBREDDITS = {
+    "SAGA": {
+        "strange_dark_unexplained": (
+            "nosleep", "LetsNotMeet", "creepyencounters", "Glitch_in_the_Matrix",
+        ),
+    },
+    "BUNDLE": {
+        "relationships_family": (
+            "relationship_advice", "AmItheAsshole", "AITAH", "offmychest",
+        ),
+        "work_money_justice": (
+            "MaliciousCompliance", "prorevenge", "talesfromyourserver", "tifu",
+        ),
+    },
+    "THREAD": {
+        "confessions_awkward_taboo": ("AskReddit",),
+        "professions_human_experience": ("AskReddit",),
+        "strange_dark_unexplained": ("AskReddit",),
+    },
 }
-READY_SAGA_SOURCE_STATUSES = {"manual_forced_family_review", "ready"}
+BUNDLE_PILOT_STORY_COUNTS = {
+    "pilot_01": [2, 3],
+    "pilot_02": [3, 5],
+}
+THREAD_PILOT_SEARCH_QUERIES = {
+    "pilot_04": "(confession OR secret OR embarrassing OR awkward)",
+    "pilot_05": "(job OR profession OR workplace OR career)",
+    "pilot_06": "(creepy OR unexplained OR strange OR terrifying)",
+}
+ROUTABLE_SOURCE_STATUSES = {
+    "SAGA": {"manual_forced_family_review", "ready"},
+    "BUNDLE": {"local_selector_implemented_live_unverified", "ready"},
+    "THREAD": {"local_collector_implemented_live_unverified", "manual_source_review_available", "ready"},
+}
 READY_THREAD_SOURCE_STATUSES = {"manual_source_review_available", "ready"}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 # Keep source-body counts identical across scraper, deterministic review,
@@ -63,12 +100,15 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 WORD_RE = re.compile(r"[A-Za-z0-9']+")
 
 EXPECTED_PILOT_MATRIX = (
-    ("pilot_01", "SAGA", "relationships_family"),
-    ("pilot_02", "SAGA", "work_money_justice"),
+    ("pilot_01", "BUNDLE", "relationships_family"),
+    ("pilot_02", "BUNDLE", "work_money_justice"),
     ("pilot_03", "SAGA", "strange_dark_unexplained"),
     ("pilot_04", "THREAD", "confessions_awkward_taboo"),
     ("pilot_05", "THREAD", "professions_human_experience"),
     ("pilot_06", "THREAD", "strange_dark_unexplained"),
+)
+EXPECTED_PILOT_CYCLE_ORDER = (
+    "pilot_01", "pilot_04", "pilot_02", "pilot_05", "pilot_03", "pilot_06",
 )
 
 GREENLIGHT_SCORE_MAX = {
@@ -105,7 +145,7 @@ def resolve_comment_plan(format_id: str, source_mode: str) -> dict[str, Any]:
     normalized_format = _text(format_id).upper()
     normalized_source = _text(source_mode).lower()
     if normalized_format not in FORMAT_CONTRACTS:
-        raise StrategyContractError("format must be SAGA or THREAD")
+        raise StrategyContractError("format must be SAGA, BUNDLE, or THREAD")
     if normalized_source not in SOURCE_MODES:
         raise StrategyContractError("source_mode must be narrative_story or question_prompt")
     if normalized_format == "THREAD":
@@ -117,6 +157,8 @@ def resolve_comment_plan(format_id: str, source_mode: str) -> dict[str, Any]:
             "count": [8, 15],
             "use_comment_voice": True,
         }
+    if normalized_format == "BUNDLE" and normalized_source != "narrative_story":
+        raise StrategyContractError("BUNDLE requires source_mode=narrative_story")
     if normalized_source == "question_prompt":
         return {
             "mode": "selected_answers",
@@ -310,11 +352,11 @@ def _verify_selected_saga_source(
 
 
 def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[str, Any]:
-    """Resolve one configured acc1 SAGA pilot to an executable source family.
+    """Resolve one configured acc1 pilot without consulting ``topic_mix``.
 
-    The function deliberately refuses THREAD pilots until the channel contract
-    reports a ready collector.  It also refuses missing/unknown source-family
-    rows instead of falling back to the superseded ``topic_mix``.
+    Resolution proves only that the exact format/pillar/source contract is
+    configured.  ``production_ready`` remains false for live-unverified BUNDLE
+    and THREAD adapters, so routing cannot be mistaken for source proof.
     """
     if channel.get("id") != "acc1":
         raise StrategyContractError("pilot source plans are only defined for acc1")
@@ -332,63 +374,99 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
 
     formats = channel.get("episode_formats") if isinstance(channel.get("episode_formats"), dict) else {}
     format_contract = formats.get(format_id) if isinstance(formats.get(format_id), dict) else {}
-    if format_id == "THREAD":
-        status = _text(format_contract.get("source_status"))
-        if status not in READY_THREAD_SOURCE_STATUSES:
-            raise StrategyContractError(
-                f"pilot {pilot_id} is THREAD source-blocked (collector status={status or 'missing'})"
-            )
-        raise StrategyContractError("THREAD collector routing is not implemented")
-    if format_id != "SAGA":
+    expected_contract = FORMAT_CONTRACTS.get(format_id)
+    if expected_contract is None:
         raise StrategyContractError(f"pilot {pilot_id} has unsupported format: {format_id}")
+    for key, expected_value in expected_contract.items():
+        if format_contract.get(key) != expected_value:
+            raise StrategyContractError(
+                f"pilot {pilot_id} configured {format_id} {key} does not match the canonical contract"
+            )
 
-    topic_family = SAGA_PILLAR_SOURCE_FAMILY.get(pillar_id)
+    topic_family = FORMAT_PILLAR_SOURCE_FAMILY[format_id].get(pillar_id)
     if not topic_family:
-        raise StrategyContractError(f"pilot {pilot_id} pillar has no SAGA source family: {pillar_id}")
+        raise StrategyContractError(
+            f"pilot {pilot_id} pillar has no {format_id} source family: {pillar_id}"
+        )
     family_rows = [
         item for item in channel.get("source_family_plan") or []
         if isinstance(item, dict)
-        and _text(item.get("format")).upper() == "SAGA"
+        and _text(item.get("format")).upper() == format_id
         and _text(item.get("scraper_family")) == topic_family
     ]
     if len(family_rows) != 1:
         raise StrategyContractError(
-            f"pilot {pilot_id} requires exactly one SAGA source_family_plan row for {topic_family}"
+            f"pilot {pilot_id} requires exactly one {format_id} source_family_plan row for {topic_family}"
         )
-    source_status = _text(family_rows[0].get("status"))
-    if source_status not in READY_SAGA_SOURCE_STATUSES:
+    source_family_status = _text(family_rows[0].get("status"))
+    if source_family_status not in ROUTABLE_SOURCE_STATUSES[format_id]:
         raise StrategyContractError(
-            f"pilot {pilot_id} source family {topic_family} is not review-ready (status={source_status or 'missing'})"
+            f"pilot {pilot_id} source family {topic_family} has an unsupported status "
+            f"({source_family_status or 'missing'})"
         )
 
     target_minutes = format_contract.get("target_duration_minutes")
-    if target_minutes != FORMAT_CONTRACTS["SAGA"]["target_duration_minutes"]:
-        raise StrategyContractError("configured SAGA duration does not match the canonical contract")
     configured_subreddits = {
         _text(item).casefold(): _text(item)
         for item in channel.get("subreddits") or []
         if _text(item)
     }
     planned_subreddits: list[str] = []
-    for required_subreddit in SAGA_PILLAR_SUBREDDITS[pillar_id]:
+    for required_subreddit in FORMAT_PILLAR_SUBREDDITS[format_id][pillar_id]:
         configured = configured_subreddits.get(required_subreddit.casefold())
         if not configured:
             raise StrategyContractError(
                 f"pilot {pilot_id} requires configured subreddit {required_subreddit}"
             )
         planned_subreddits.append(configured)
-    return {
+    source_status = _text(format_contract.get("source_status"))
+    plan: dict[str, Any] = {
         "pilot_id": pilot_id,
-        "format": "SAGA",
+        "format": format_id,
         "pillar": pillar_id,
         "topic_family": topic_family,
         "source_status": source_status,
+        "source_family_status": source_family_status,
+        "live_source_verified": source_status == "ready" and source_family_status == "ready",
+        "production_ready": source_status == "ready" and source_family_status == "ready",
         "subreddits": planned_subreddits,
-        "format_intent": "saga",
+        "format_intent": format_id.casefold(),
         "target_duration_minutes": list(target_minutes),
-        "source_word_count": _saga_word_range(target_minutes),
-        "words_per_minute": SAGA_WORDS_PER_MINUTE,
     }
+    if format_id == "SAGA":
+        plan.update({
+            "source_mode": "narrative_story",
+            "primary_story_count": 1,
+            "source_word_count": _saga_word_range(target_minutes),
+            "words_per_minute": SAGA_WORDS_PER_MINUTE,
+        })
+    elif format_id == "BUNDLE":
+        configured_story_count = pilot.get("story_count")
+        expected_story_count = BUNDLE_PILOT_STORY_COUNTS.get(pilot_id)
+        if configured_story_count != expected_story_count:
+            raise StrategyContractError(
+                f"pilot {pilot_id} story_count must equal {expected_story_count}"
+            )
+        plan.update({
+            "source_mode": "narrative_story",
+            "story_count": list(configured_story_count),
+            "aggregate_source_word_count": list(format_contract["aggregate_source_word_count"]),
+            "words_per_minute": SAGA_WORDS_PER_MINUTE,
+        })
+    else:
+        search_query = _text(pilot.get("search_query"))
+        expected_query = THREAD_PILOT_SEARCH_QUERIES.get(pilot_id)
+        if not expected_query or search_query != expected_query:
+            raise StrategyContractError(
+                f"pilot {pilot_id} search_query must equal the canonical pillar query"
+            )
+        plan.update({
+            "source_mode": "question_prompt",
+            "response_count": list(format_contract["response_count"]),
+            "collector_contract": "bounded_top_level_full_body_v1",
+            "search_query": search_query,
+        })
+    return plan
 
 
 def validate_channel_strategy(channel: dict[str, Any]) -> dict[str, Any]:
@@ -404,6 +482,18 @@ def validate_channel_strategy(channel: dict[str, Any]) -> dict[str, Any]:
         failures.append("strategy_status must be broad_reddit_story_pilot_local_only")
     if channel.get("topic_mix_status") != "superseded_pending_rebuild":
         failures.append("topic_mix_status must be superseded_pending_rebuild")
+
+    cadence = channel.get("cadence_plan")
+    if not isinstance(cadence, dict):
+        failures.append("cadence_plan must be an object")
+        cadence = {}
+    if cadence.get("mode") != "fixed_six_slot_saga_bundle_thread_pilot_local_only":
+        failures.append("cadence_plan.mode must use the fixed six-slot SAGA/BUNDLE/THREAD pilot")
+    cycle_order = tuple(cadence.get("pilot_cycle_order") or [])
+    if cycle_order != EXPECTED_PILOT_CYCLE_ORDER:
+        failures.append("cadence_plan.pilot_cycle_order must match the canonical interleaved pilot cycle")
+    if cadence.get("selection_policy") != "exact_cycle_slot_then_topic_playoff_no_cross_pillar_fallback":
+        failures.append("cadence_plan.selection_policy must forbid cross-pillar fallback")
 
     pillars = channel.get("content_pillars")
     pillar_ids = tuple(item.get("id") for item in pillars or [] if isinstance(item, dict))
@@ -433,12 +523,13 @@ def validate_channel_strategy(channel: dict[str, Any]) -> dict[str, Any]:
         failures.append("pilot_matrix must match the canonical six-pilot experiment")
 
     for pilot_id, format_id, _pillar_id in EXPECTED_PILOT_MATRIX:
-        if format_id != "SAGA":
-            continue
         try:
-            resolve_pilot_source_plan(channel, pilot_id)
+            plan = resolve_pilot_source_plan(channel, pilot_id)
         except StrategyContractError as exc:
             failures.append(str(exc))
+            continue
+        if plan.get("format") != format_id:
+            failures.append(f"pilot {pilot_id} resolved the wrong format")
 
     branding = channel.get("channel_branding")
     if not isinstance(branding, dict):
@@ -454,6 +545,8 @@ def validate_channel_strategy(channel: dict[str, Any]) -> dict[str, Any]:
         "failures": failures,
         "pillar_count": len(pillar_ids),
         "pilot_count": len(actual_matrix),
+        "pilot_cycle_order": list(cycle_order),
+        "bundle_source_ready": formats.get("BUNDLE", {}).get("source_status") == "ready",
         "thread_source_ready": formats.get("THREAD", {}).get("source_status")
         == "manual_source_review_available",
     }
@@ -493,7 +586,7 @@ def validate_greenlight(
     format_id = _text(payload.get("format")).upper()
     pillar_id = _text(payload.get("pillar"))
     if format_id not in FORMAT_CONTRACTS:
-        failures.append("format must be SAGA or THREAD")
+        failures.append("format must be SAGA, BUNDLE, or THREAD")
     if pillar_id not in PILLAR_IDS:
         failures.append("pillar is not part of the acc1 viewer promise")
 
@@ -527,6 +620,17 @@ def validate_greenlight(
             source_queue=source_queue,
             topic_review=topic_review,
             failures=failures,
+        )
+    if format_id == "BUNDLE":
+        primary_story_count = source.get("primary_story_count")
+        if (
+            isinstance(primary_story_count, bool)
+            or not isinstance(primary_story_count, int)
+            or not 2 <= primary_story_count <= 5
+        ):
+            failures.append("BUNDLE requires 2-5 complete primary stories")
+        failures.append(
+            "BUNDLE greenlight requires a checksum-bound bundle manifest; binding is not implemented"
         )
     if format_id == "THREAD":
         response_count = source.get("response_count")

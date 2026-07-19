@@ -20,12 +20,13 @@ class Acc1SourceRoutingTests(unittest.TestCase):
         with self.assertRaises(scraper.TopicSourcePlanError):
             scraper.resolve_topic_source_request(self.channel)
 
-    def test_pilot_resolves_exact_family_and_saga_contract(self):
+    def test_pilot_resolves_exact_family_and_bundle_contract(self):
         family, plan = scraper.resolve_topic_source_request(self.channel, pilot_id="pilot_02")
         self.assertEqual(family, "human_drama")
         self.assertEqual(plan["pillar"], "work_money_justice")
-        self.assertEqual(plan["format_intent"], "saga")
-        self.assertEqual(plan["source_word_count"], [2340, 3900])
+        self.assertEqual(plan["format_intent"], "bundle")
+        self.assertEqual(plan["story_count"], [3, 5])
+        self.assertEqual(plan["aggregate_source_word_count"], [2340, 3900])
         sources = scraper.build_topic_sources(
             self.channel["subreddits"],
             "auto",
@@ -40,6 +41,30 @@ class Acc1SourceRoutingTests(unittest.TestCase):
             scraper.resolve_topic_source_request(
                 self.channel, pilot_id="pilot_03", topic_family="human_drama",
             )
+
+    def test_saga_reserve_can_explicitly_scan_week_month_and_year(self):
+        family, plan = scraper.resolve_topic_source_request(
+            self.channel, pilot_id="pilot_03",
+        )
+        default_sources = scraper.build_topic_sources(
+            self.channel["subreddits"],
+            "auto",
+            self.channel,
+            family,
+            planned_subreddits=plan["subreddits"],
+        )
+        reserve_sources = scraper.build_topic_sources(
+            self.channel["subreddits"],
+            "auto",
+            self.channel,
+            family,
+            planned_subreddits=plan["subreddits"],
+            max_time_windows_per_topic=3,
+        )
+        self.assertEqual(default_sources[0]["time_windows"], ["week", "month"])
+        self.assertEqual(
+            reserve_sources[0]["time_windows"], ["week", "month", "year"],
+        )
 
     def test_unknown_family_fails_instead_of_legacy_fallback(self):
         with self.assertRaises(scraper.TopicSourcePlanError):

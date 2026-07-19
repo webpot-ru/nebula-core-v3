@@ -3,8 +3,8 @@ import tempfile
 from pathlib import Path
 
 from compilation_translation import (
-    DEFAULT_MAX_OUTPUT_TOKENS, TranslationConfig, TranslationError,
-    translate_and_review_story,
+    DEFAULT_MAX_OUTPUT_TOKENS, IncompleteTranslation, TranslationConfig, TranslationError,
+    canonicalize_source_for_translation, translate_and_review_story,
 )
 
 
@@ -25,6 +25,85 @@ class QueueProvider:
 
 
 class CompilationTranslationTests(unittest.TestCase):
+    def test_translation_collapses_only_nonsemantic_source_whitespace(self):
+        raw = "First     sentence.\n\n\nSecond\tparagraph."
+        self.assertEqual(
+            canonicalize_source_for_translation(raw),
+            "First sentence.\n\nSecond paragraph.",
+        )
+        translator = QueueProvider([{
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }])
+        reviewer = QueueProvider([{"verdict": "PASS", "issues": [], "ending_preserved": True}])
+        raw_story = dict(STORY)
+        raw_story["body"] = STORY["body"].replace(" ", " " * 8)
+        result = translate_and_review_story(raw_story, provider=translator, reviewer=reviewer)
+        self.assertNotIn(" " * 8, translator.calls[0]["prompt"])
+        self.assertEqual(result["source_body"], raw_story["body"])
+        normalization = result["translation_audit"]["source_text_normalization"]
+        self.assertTrue(normalization["applied"])
+        self.assertLess(normalization["working_character_count"], normalization["raw_character_count"])
+
+    def test_character_expansion_and_overlong_tokens_fail_closed(self):
+        source = {"title": "Source", "body": " ".join(["source"] * 100)}
+        expanded = " ".join(["двадцатисимвольныйтокен"] * 100)
+        provider = QueueProvider([
+            {"title": "Источник", "body": expanded, "complete": True, "ending_preserved": True},
+            {"translated_title": "Источник", "glossary": {}, "continuity": "none"},
+            {"body": expanded, "complete": True},
+        ])
+        with self.assertRaisesRegex(IncompleteTranslation, "character expansion"):
+            translate_and_review_story(
+                source,
+                provider=provider,
+                config=TranslationConfig(chunk_chars=10_000),
+            )
+
+        overlong = " ".join(["слово"] * 99 + ["я" * 81])
+        provider = QueueProvider([
+            {"title": "Источник", "body": overlong, "complete": True, "ending_preserved": True},
+            {"translated_title": "Источник", "glossary": {}, "continuity": "none"},
+            {"body": overlong, "complete": True},
+        ])
+        with self.assertRaisesRegex(IncompleteTranslation, "overlong narration token"):
+            translate_and_review_story(
+                source,
+                provider=provider,
+                config=TranslationConfig(
+                    chunk_chars=10_000,
+                    max_character_ratio=3.0,
+                ),
+            )
+
+    def test_spoken_number_expansion_is_bounded_before_tts(self):
+        source = {
+            "title": "Numbers",
+            "body": " ".join(["number 999999999999"] * 120),
+        }
+        translated = " ".join(["число 999999999999"] * 120)
+        provider = QueueProvider([
+            {
+                "title": "Числа",
+                "body": translated,
+                "complete": True,
+                "ending_preserved": True,
+            },
+            {"translated_title": "Числа", "glossary": {}, "continuity": "none"},
+            {"body": translated, "complete": True},
+        ])
+        with self.assertRaisesRegex(
+            IncompleteTranslation,
+            "spoken narration character expansion",
+        ):
+            translate_and_review_story(
+                source,
+                provider=provider,
+                config=TranslationConfig(chunk_chars=10_000),
+            )
+
     def test_full_story_first_uses_16384_and_independent_review(self):
         translator = QueueProvider([{"title": "Дверь", "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.", "complete": True, "ending_preserved": True}])
         reviewer = QueueProvider([{"verdict": "PASS", "issues": [], "ending_preserved": True}])

@@ -1,5 +1,7 @@
 # Russian Dark-Story Long-Form Competitor Analysis - 2026-07-11
 
+Status: historical evidence and dark-series reference. The broader 2026-07-13 acc1 decision is [`acc1-russian-reddit-story-strategy-2026-07-13.md`](acc1-russian-reddit-story-strategy-2026-07-13.md); it retains horror as one series rather than the channel-wide identity.
+
 ## Decision
 
 `acc1` should be Russian Reddit-horror long-form first, not a literal translated-Reddit reading channel. Its primary product should be one rights-cleared Reddit story transformed into a scene-based Russian episode in the 30-50 minute listening lane. Shorts should become trailers after the full episode exists, and multi-hour compilations should reuse a proven cleared catalog.
@@ -31,6 +33,32 @@ Fresh public catalog readback on 2026-07-11 sharpens the duration and authorship
 A Russian horror-channel overview distinguishes several useful models: `Nosferatu` uses short fictional provincial horror with matching Russian visual atmosphere; `n3kket` makes researched video essays about lost media, horror games, liminal spaces, and Reddit stories; `Пост Обзор` built an archive of translated `r/nosleep` stories. The same overview describes strong English competitors such as Nexpo as original, highly designed horror essays rather than plain readings: [T-J horror-channel overview](https://t-j.ru/short/cant-sleep/).
 
 The inference is that the market supports author-written IP, author/dictor partnerships, licensed literary narration, serialized worlds, animation, and compilation listening. Translation plus a repeated Reddit card is not sufficient differentiation.
+
+### Fresh US visual benchmark: Mr. Nightmare
+
+Snapshot date: 2026-07-16. View counts are public YouTube readback rounded only
+in the discussion below; relative breakout figures come from a third-party
+sample of 120 recent uploads and are not YouTube Studio analytics:
+[OutlierKit channel analysis](https://outlierkit.com/channel/mrnightmare).
+
+| Video | Published | Public readback | Strategic role |
+|---|---:|---:|---|
+| [10 Scariest TRUE Stories of 2025](https://www.youtube.com/watch?v=iP41dD7NHsU) | 2025-12-09 | 84:23, about 2.65M views, 2.5× recent median | strongest recent outlier, but an annual special rather than the ordinary episode template |
+| [4 Disturbing TRUE Night Shift Horror Stories](https://www.youtube.com/watch?v=PcOIqysxLtg) | 2025-09-16 | 28:39, about 2.49M views, 2.4× recent median | best recent regular-episode reference |
+| [3 Really Scary TRUE Deep Woods Horror Stories](https://www.youtube.com/watch?v=QV8_uSnT-H0) | 2026-02-23 | 38:02, about 1.97M views, 1.9× recent median | fresher control confirming that the visual language remains current |
+
+Public storyboard readback across the full videos shows the repeatable
+production language: one atmospheric image is held through several narration
+phrases, a very slow push-in or pan creates motion, and a new image appears on a
+location or story-beat change rather than every sentence. The ordinary working
+reference is therefore `Night Shift`; the 84-minute annual winner is useful for
+future catalog compilations, not as the default episode length.
+
+This evidence supports a motion and pacing pattern, not copying the channel's
+assets, voice, music, wording, or `TRUE` claim. `acc1` remains a broader
+Russian Reddit-story channel, and its truth-mode disclosure stays fail-closed.
+The staged implementation belongs in
+[`acc1-cinematic-production-plan-2026-07-16.md`](acc1-cinematic-production-plan-2026-07-16.md).
 
 ## Source-to-duration fit
 

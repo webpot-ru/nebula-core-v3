@@ -5,6 +5,17 @@ import scraper
 
 
 class RedditMediaManifestTests(unittest.TestCase):
+    def test_never_triggers_lazy_praw_fetch_for_missing_media_fields(self):
+        class ListingSubmission:
+            def __init__(self):
+                self.id = "listing-only"
+                self.title = "Hydrated listing row"
+
+            def __getattr__(self, name):
+                raise AssertionError(f"lazy fetch attempted for {name}")
+
+        self.assertEqual(scraper.reddit_media_manifest(ListingSubmission()), [])
+
     def test_extracts_ordered_static_gallery_and_unescapes_url(self):
         post = SimpleNamespace(
             id="gallery",

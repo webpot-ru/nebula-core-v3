@@ -186,6 +186,12 @@ jobs:
           echo "voice_settings_profile=${{ matrix.voice_settings_profile || 'default' }}" >> $GITHUB_OUTPUT
           echo "📺 ${CH} | slot=${{ matrix.slot }} | filter=${{ matrix.time_filter }} | topic=${{ matrix.topic_family || 'mixed' }} | privacy=${{ matrix.privacy_status || 'public' }} | format=${{ matrix.content_format || 'shorts' }} | voice=${{ matrix.voice_settings_profile || 'default' }}"
 
+      - name: Enforce channel automation gate before credentials or provider spend
+        run: >-
+          python scripts/check_channel_automation.py
+          --channels channels.json
+          --channel ${{ steps.target.outputs.channel_id }}
+
       - name: Verify YouTube channel token
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}

@@ -3,11 +3,33 @@ import sys
 import json
 import time
 import argparse
+import hashlib
 from pathlib import Path
 
 
 class UploadError(RuntimeError):
     pass
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_upload_state(path, payload):
+    if not path:
+        return
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(target.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, target)
 
 def get_youtube_service(account_index="1"):
     try:
@@ -199,7 +221,7 @@ def append_hashtags(description, hashtags):
 
 def upload_video(video_file, title, description, account_index="1", category_id="24",
                  privacy_status="public", tags=None, language=None,
-                 verify_channel=True):
+                 verify_channel=True, thumbnail_file=None, result_path=None):
     try:
         from googleapiclient.http import MediaFileUpload
     except ImportError as exc:
@@ -250,9 +272,23 @@ def upload_video(video_file, title, description, account_index="1", category_id=
             print(f"Uploaded {int(status.progress() * 100)}%")
 
     video_id = response.get('id')
+    if not video_id:
+        raise UploadError("YouTube upload response did not contain a video id.")
     print(f"SUCCESS! Video uploaded. Video ID: {video_id}")
 
-    readback = read_video_metadata(youtube, video_id) if video_id else None
+    state = {
+        "version": 1,
+        "status": "VIDEO_CREATED",
+        "video_id": video_id,
+        "privacy_status_requested": privacy_status,
+        "video_sha256": _sha256_file(video_file),
+        "thumbnail_sha256": (
+            _sha256_file(thumbnail_file) if thumbnail_file else None
+        ),
+    }
+    _write_upload_state(result_path, state)
+
+    readback = read_video_metadata(youtube, video_id)
     if readback:
         snippet_readback = readback.get("snippet") or {}
         status_readback = readback.get("status") or {}
@@ -267,6 +303,33 @@ def upload_video(video_file, title, description, account_index="1", category_id=
                 f"Uploaded video channel mismatch: readback channelId={snippet_readback.get('channelId')} "
                 f"but preflight channelId={channel_info.get('id')}."
             )
+        if status_readback.get("privacyStatus") != privacy_status:
+            raise UploadError(
+                "Uploaded video privacy mismatch: "
+                f"readback={status_readback.get('privacyStatus')} requested={privacy_status}."
+            )
+
+    thumbnail_response = None
+    if thumbnail_file:
+        thumbnail_path = Path(thumbnail_file)
+        if not thumbnail_path.is_file():
+            raise UploadError(f"Thumbnail file not found: {thumbnail_file}")
+        thumbnail_response = youtube.thumbnails().set(
+            videoId=video_id,
+            media_body=MediaFileUpload(str(thumbnail_path), resumable=False),
+        ).execute()
+        if not isinstance(thumbnail_response, dict):
+            raise UploadError("YouTube thumbnail upload returned an invalid response.")
+
+    snippet_readback = (readback or {}).get("snippet") or {}
+    status_readback = (readback or {}).get("status") or {}
+    state.update({
+        "status": "COMPLETE",
+        "channel_id": snippet_readback.get("channelId"),
+        "privacy_status_readback": status_readback.get("privacyStatus"),
+        "thumbnail_uploaded": thumbnail_file is not None,
+    })
+    _write_upload_state(result_path, state)
     return response
 
 
@@ -282,9 +345,9 @@ def read_video_metadata(youtube, video_id):
     return items[0]
 
 
-def load_upload_metadata():
-    metadata_file = os.path.join(os.path.dirname(__file__), 'youtube_metadata.json')
-    story_file = os.path.join(os.path.dirname(__file__), 'story_data.json')
+def load_upload_metadata(metadata_file=None, story_file=None):
+    metadata_file = metadata_file or os.path.join(os.path.dirname(__file__), 'youtube_metadata.json')
+    story_file = story_file or os.path.join(os.path.dirname(__file__), 'story_data.json')
 
     video_title = "Reddit Story"
     video_desc = "Subscribe for more viral Reddit stories!"
@@ -318,6 +381,9 @@ def parse_args(argv):
     parser.add_argument("--privacy-status", default=os.environ.get("YOUTUBE_PRIVACY_STATUS", "public"),
                         choices=["public", "unlisted", "private"])
     parser.add_argument("--category-id", default="24")
+    parser.add_argument("--metadata-file", help="Exact metadata JSON to upload.")
+    parser.add_argument("--thumbnail-file", help="Exact custom thumbnail to upload after the video.")
+    parser.add_argument("--result", help="Atomically persist upload id, hashes, privacy, and readback state.")
     parser.add_argument(
         "--check-channel-only",
         action="store_true",
@@ -363,7 +429,9 @@ if __name__ == '__main__':
             print(f"ERROR: YouTube account verification failed: {exc}")
             sys.exit(1)
 
-    video_title, video_desc, video_tags, video_language = load_upload_metadata()
+    video_title, video_desc, video_tags, video_language = load_upload_metadata(
+        metadata_file=args.metadata_file,
+    )
 
     if not os.path.exists(args.video):
         print(f"Video file '{args.video}' not found. Please render the video first.")
@@ -380,6 +448,8 @@ if __name__ == '__main__':
             tags=video_tags,
             language=video_language,
             verify_channel=not args.skip_channel_check,
+            thumbnail_file=args.thumbnail_file,
+            result_path=args.result,
         )
     except UploadError as exc:
         print(f"ERROR: {exc}")

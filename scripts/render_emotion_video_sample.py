@@ -109,6 +109,11 @@ def fixed_wrapped_prefix(full_text: str, prefix_text: str, *, line_chars: int = 
     return r"\N".join(revealed)
 
 
+def fixed_wrapped_prefix_lines(full_text: str, prefix_text: str, *, line_chars: int = 76) -> list[str]:
+    wrapped = fixed_wrapped_prefix(full_text, prefix_text, line_chars=line_chars)
+    return wrapped.split(r"\N") if wrapped else []
+
+
 def write_ass(chunks: list[dict[str, Any]], path: Path) -> None:
     header = """[Script Info]
 ScriptType: v4.00+
@@ -131,8 +136,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 def write_reddit_pages_ass(
     chunks: list[dict[str, Any]], path: Path, *, duration: float,
     title: str = "Ночная смена: последнее правило",
-    first_page_chars: int = 700,
-    continuation_page_chars: int = 900,
+    first_page_chars: int = 520,
+    continuation_page_chars: int = 640,
     line_chars: int = 76,
 ) -> None:
     if first_page_chars < 40 or continuation_page_chars < 40:
@@ -147,7 +152,7 @@ WrapStyle: 0
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Meta,Reddit Sans,28,&H00A9B8BA,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,80,80,70,1
 Style: Title,Reddit Sans,46,&H00F2F4F5,&H000000FF,&H00101010,&H00000000,-1,0,0,0,100,100,0,0,1,1,0,7,80,80,70,1
-Style: Body,Reddit Sans,40,&H00CFD7D8,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,80,80,70,1
+Style: Body,Reddit Sans,48,&H00CFD7D8,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,80,80,70,1
 Style: ActionText,Reddit Sans,27,&H00A9B8BA,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,0,0,0,1
 Style: ActionIcon,Reddit Sans,24,&H00A9B8BA,&H000000FF,&H00101010,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,0,0,0,1
 Style: OutlineIcon,Reddit Sans,24,&HFFA9B8BA,&H000000FF,&H00A9B8BA,&H00000000,0,0,0,0,100,100,0,0,1,2,0,7,0,0,0,1
@@ -184,14 +189,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             start = float(item["start"])
             end = float(page[row + 1]["start"]) if row + 1 < len(page) else page_end
             accumulated.append(str(item["text"]))
-            text = fixed_wrapped_prefix(full_page_text, " ".join(accumulated), line_chars=line_chars)
-            escaped_text = ass_escape(text).replace(r"\\N", r"\N")
-            events.append(
-                f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Body,,0,0,0,,"
-                f"{{\\pos(80,{base_y})}}{escaped_text}"
+            lines = fixed_wrapped_prefix_lines(
+                full_page_text, " ".join(accumulated), line_chars=line_chars
             )
+            for line_index, line in enumerate(lines):
+                line_y = base_y + line_index * 62
+                events.append(
+                    f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Body,,0,0,0,,"
+                    f"{{\\pos(80,{line_y})}}{ass_escape(line)}"
+                )
     actions_start = max(float(chunks[0]["start"]), duration - 3.2)
     action_window = f"{ass_time(actions_start)},{ass_time(duration)}"
+    last_page_base_y = 245 if len(pages) == 1 else 90
+    last_page_text = " ".join(str(value["text"]) for value in pages[-1])
+    last_page_lines = textwrap.wrap(
+        last_page_text, width=line_chars, break_long_words=False,
+        break_on_hyphens=False, replace_whitespace=True, drop_whitespace=True,
+    )
+    action_y = min(970, last_page_base_y + max(0, len(last_page_lines) - 1) * 62 + 84)
     vector_actions = [
         (86, "m 14 0 l 28 16 l 20 16 l 20 34 l 8 34 l 8 16 l 0 16"),
         (245, "m 0 18 l 14 34 l 28 18 l 20 18 l 20 0 l 8 0 l 8 18"),
@@ -199,16 +214,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         (575, "m 0 30 b 8 12 18 8 28 8 l 28 0 l 42 14 l 28 28 l 28 20 b 16 18 8 22 0 30"),
     ]
     for x, drawing in vector_actions:
-        events.append(f"Dialogue: 3,{action_window},OutlineIcon,,0,0,0,,{{\\pos({x},972)\\p1}}{drawing}{{\\p0}}")
+        events.append(f"Dialogue: 3,{action_window},OutlineIcon,,0,0,0,,{{\\pos({x},{action_y})\\p1}}{drawing}{{\\p0}}")
     action_labels = [(137, "12,4 тыс."), (378, "Ответить"), (623, "Поделиться"), (840, "•••")]
     for x, label in action_labels:
-        events.append(f"Dialogue: 3,{action_window},ActionText,,0,0,0,,{{\\pos({x},975)}}{ass_escape(label)}")
+        events.append(f"Dialogue: 3,{action_window},ActionText,,0,0,0,,{{\\pos({x},{action_y + 3})}}{ass_escape(label)}")
     path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
 
 def render(
     background: Path, audio: Path, captions: Path, output: Path, duration: float,
     *, direct_background: bool = False, font_dir: Path | None = None,
+    story_image: Path | None = None, story_image_start: float = 0.0,
+    story_image_end: float | None = None,
 ) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -223,6 +240,14 @@ def render(
             raise EmotionVideoError(f"font directory does not exist: {font_dir}")
         escaped_fonts = str(font_dir.resolve()).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
         ass_filter += f":fontsdir='{escaped_fonts}'"
+    if story_image is not None:
+        if not story_image.is_file():
+            raise EmotionVideoError(f"story image does not exist: {story_image}")
+        if story_image.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+            raise EmotionVideoError("story image must be PNG, JPEG, or WebP")
+        story_end = duration if story_image_end is None else float(story_image_end)
+        if story_image_start < 0 or story_end <= story_image_start or story_end > duration + 0.01:
+            raise EmotionVideoError("story image timing must stay inside the narration duration")
     if background_is_video:
         vf = (
             "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,fps=30,"
@@ -238,8 +263,30 @@ def render(
         )
         background_args = ["-loop", "1", "-i", str(background)]
     output.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([ffmpeg, "-y", "-v", "error", *background_args, "-i", str(audio),
-        "-vf", vf, "-map", "0:v:0", "-map", "1:a:0", "-t", f"{duration:.3f}", "-r", "30",
+    inputs = [*background_args, "-i", str(audio)]
+    video_filter_args = ["-vf", vf]
+    if story_image is not None:
+        story_end = duration if story_image_end is None else float(story_image_end)
+        fade_out_start = max(story_image_start, story_end - 0.8)
+        base_vf = vf[:-(len(ass_filter) + 1)]
+        story_filter = (
+            f"[0:v]{base_vf}[base];"
+            f"[2:v]scale=1400:1280:force_original_aspect_ratio=increase,crop=1400:1280,"
+            f"zoompan=z='min(zoom+0.00010,1.06)':x='iw/2-(iw/zoom/2)':"
+            f"y='ih/2-(ih/zoom/2)':d={frames}:s=1180x1080:fps=30,"
+            "eq=brightness=-0.10:saturation=0.78,boxblur=1:1,format=rgba,"
+            "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':"
+            "a='if(lte(X,760),178,if(gte(X,1080),0,178*(1080-X)/320))',"
+            f"fade=t=in:st={story_image_start:.3f}:d=0.8:alpha=1,"
+            f"fade=t=out:st={fade_out_start:.3f}:d=0.8:alpha=1[story];"
+            f"[base][story]overlay=x=0:y=0:enable='between(t,{story_image_start:.3f},{story_end:.3f})',"
+            f"{ass_filter}[vout]"
+        )
+        inputs.extend(["-loop", "1", "-i", str(story_image)])
+        video_filter_args = ["-filter_complex", story_filter]
+    video_map = "[vout]" if story_image is not None else "0:v:0"
+    subprocess.run([ffmpeg, "-y", "-v", "error", *inputs,
+        *video_filter_args, "-map", video_map, "-map", "1:a:0", "-t", f"{duration:.3f}", "-r", "30",
         "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output)], check=True)
 
@@ -253,6 +300,9 @@ def main() -> int:
     parser.add_argument("--reddit-title", default="Ночная смена: последнее правило")
     parser.add_argument("--reddit-line-chars", type=int, default=76)
     parser.add_argument("--font-dir", help="Directory containing Reddit Sans for ASS rendering")
+    parser.add_argument("--story-image", help="Optional still shown behind the left Reddit text column")
+    parser.add_argument("--story-image-start", type=float, default=0.0)
+    parser.add_argument("--story-image-end", type=float)
     args = parser.parse_args()
     manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     samples = [sample for channel in manifest.get("channels") or [] for sample in channel.get("samples") or []
@@ -289,19 +339,38 @@ def main() -> int:
     if args.style == "reddit_pages" and font_dir is None:
         raise EmotionVideoError("reddit_pages requires --font-dir with the official Reddit Sans font")
     render(Path(args.background), audio, ass_path, video_path, duration,
-           direct_background=args.style == "reddit_pages", font_dir=font_dir)
+           direct_background=args.style == "reddit_pages", font_dir=font_dir,
+           story_image=Path(args.story_image) if args.story_image else None,
+           story_image_start=args.story_image_start, story_image_end=args.story_image_end)
     (output_dir / "emotion-video-report.json").write_text(json.dumps({
         "status": "PASS", "duration": round(duration, 3), "caption_chunks": len(chunks),
         "timing_source": timing_source, "style": args.style,
         "video": str(video_path), "audio": str(audio),
+        "story_image": ({
+            "file": args.story_image,
+            "start": args.story_image_start,
+            "end": args.story_image_end if args.story_image_end is not None else round(duration, 3),
+            "region_px": {"x": 0, "y": 0, "width": 1180, "height": 1080},
+            "opacity": 0.70,
+            "right_edge_feather_px": {"start": 760, "end": 1080},
+            "brightness": -0.10,
+            "saturation": 0.78,
+            "blur": "1:1",
+            "motion": "slow_center_zoom",
+            "fade_seconds": 0.8,
+        } if args.story_image else None),
         "reddit_layout": ({
             "font_family": "Reddit Sans",
-            "font_sizes_px": {"meta": 28, "title": 46, "body": 40, "actions": 27},
+            "font_sizes_px": {"meta": 28, "title": 46, "body": 48, "actions": 27},
             "left_right_margin_px": 80,
             "header_avatar_px": 46,
-            "positions_y_px": {"header": 83, "title": 155, "body": 245, "actions": 975},
+            "positions_y_px": {
+                "header": 83, "title": 155, "body": 245,
+                "actions": "dynamic_below_last_body_line",
+            },
             "line_measure_chars": args.reddit_line_chars,
-            "page_capacity_chars": {"first": 700, "continuation": 900},
+            "body_line_height_px": 62,
+            "page_capacity_chars": {"first": 520, "continuation": 640},
             "actions_visible_final_seconds": 3.2,
         } if args.style == "reddit_pages" else None),
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

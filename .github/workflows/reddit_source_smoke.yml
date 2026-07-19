@@ -69,6 +69,9 @@ on:
           - pilot_01
           - pilot_02
           - pilot_03
+          - pilot_04
+          - pilot_05
+          - pilot_06
       candidate_limit:
         description: Maximum posts fetched per bounded source
         required: true
@@ -117,6 +120,15 @@ on:
           - "4"
           - "5"
           - "6"
+      acc1_visuals_per_story:
+        description: Paid GPT Image 2 scene visuals per story when the compilation branch is approved
+        required: false
+        default: "4"
+        type: choice
+        options:
+          - "3"
+          - "4"
+          - "5"
       run_compilation_pilot:
         description: Run the artifact-only acc1 compilation lane after source review
         required: false
@@ -361,14 +373,29 @@ jobs:
             --compilation /tmp/reddit-source-smoke/compilation-script.json \
             --output-dir /tmp/reddit-source-smoke/images \
             --updated-compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
-            --model gpt-image-2 --size 1536x864 "${RESUME_IMAGE_ARGS[@]}" --confirm-spend
+            --model gpt-image-2 --size 1536x864 \
+            --images-per-story "${{ inputs.acc1_visuals_per_story }}" \
+            "${RESUME_IMAGE_ARGS[@]}" --confirm-spend
+
+      - name: Compose deterministic Cyrillic thumbnail
+        if: inputs.run_compilation_pilot
+        run: |
+          THUMBNAIL_BASE=$(python -c "import json; c=json.load(open('/tmp/reddit-source-smoke/compilation-script-with-images.json')); print(next(a['local_path'] for s in c['stories'] for a in s.get('generated_media', []) if a.get('download_status') == 'verified'))")
+          python thumbnail_generator.py \
+            --metadata /tmp/reddit-source-smoke/youtube-metadata.json \
+            --base-image "$THUMBNAIL_BASE" \
+            --output /tmp/reddit-source-smoke/youtube-thumbnail.png \
+            --report /tmp/reddit-source-smoke/thumbnail-report.json
 
       - name: Build compilation storyboard
         if: inputs.run_compilation_pilot
         run: |
+          cp assets/acc1/video/chonker-reading-loop-v1.mp4 \
+            /tmp/reddit-source-smoke/chonker-reading-loop-v1.mp4
           python compilation_storyboard.py \
             --compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
             --artifact-root /tmp/reddit-source-smoke \
+            --background-video /tmp/reddit-source-smoke/chonker-reading-loop-v1.mp4 \
             --output /tmp/reddit-source-smoke/compilation-storyboard.json
 
       - name: Generate resumable Eleven v3 narration
@@ -395,6 +422,7 @@ jobs:
       - name: Run fail-closed compilation QA
         if: inputs.run_compilation_pilot
         run: |
+          VOICE_ID=$(python -c "import json; print(next(c['tts_voice'] for c in json.load(open('channels.json'))['channels'] if c['id']=='acc1'))")
           python compilation_qa.py \
             --compilation /tmp/reddit-source-smoke/compilation-script-with-images.json \
             --metadata /tmp/reddit-source-smoke/youtube-metadata.json \
@@ -403,7 +431,17 @@ jobs:
             --render-report /tmp/reddit-source-smoke/render-report.json \
             --artifact-root /tmp/reddit-source-smoke \
             --video /tmp/reddit-source-smoke/final_output.mp4 \
+            --thumbnail /tmp/reddit-source-smoke/youtube-thumbnail.png \
+            --expected-voice-id "$VOICE_ID" \
             --output /tmp/reddit-source-smoke/compilation-qa.json
+
+      - name: Create fail-closed creative review template
+        if: inputs.run_compilation_pilot
+        run: |
+          python scripts/build_acc1_creative_review_template.py \
+            --video /tmp/reddit-source-smoke/final_output.mp4 \
+            --thumbnail /tmp/reddit-source-smoke/youtube-thumbnail.png \
+            --output /tmp/reddit-source-smoke/creative-review.json
 
       - name: Upload Reddit smoke evidence
         if: always()

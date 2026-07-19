@@ -6,8 +6,8 @@
 }
 
 :root {
-  --font-main: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-accent: 'Outfit', sans-serif;
+  --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-accent: var(--font-main);
   
   /* Sidebar Controls Colors (Glassmorphic Dark Theme) */
   --sidebar-bg: rgba(20, 24, 30, 0.85);
@@ -1701,6 +1701,8 @@ body.karaoke-mode .cursor {
   border-radius: 0;
   box-shadow: none;
   padding: 0;
+  background:
+    linear-gradient(180deg, #07090c 0%, #0a1114 48%, #070b0d 100%);
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 {
@@ -1709,6 +1711,31 @@ body.karaoke-mode .cursor {
   border-radius: 0;
   box-shadow: none;
   padding: 0;
+  background:
+    linear-gradient(180deg, #07090c 0%, #0a1114 52%, #070b0d 100%);
+}
+
+.app-container.render-mode .canvas-container::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0) 26%, rgba(0, 0, 0, 0.28) 100%),
+    repeating-radial-gradient(circle at 18% 28%, rgba(255, 255, 255, 0.035) 0 0.7px, transparent 0.9px 3.4px);
+  opacity: 0.34;
+}
+
+.app-container.render-mode .canvas-container::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0) 18%, rgba(0, 0, 0, 0) 82%, rgba(0, 0, 0, 0.24)),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0) 22%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.36));
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 .desktop-layout-wrapper,
@@ -1716,6 +1743,8 @@ body.karaoke-mode .cursor {
 .app-container.render-mode .canvas-container.ratio-16-9 .desktop-center-feed {
   width: 100%;
   height: 100%;
+  position: relative;
+  z-index: 2;
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 .desktop-center-feed {
@@ -1733,11 +1762,11 @@ body.karaoke-mode .cursor {
 }
 
 .app-container.render-mode .reddit-card {
-  width: 88%;
-  max-width: 860px;
+  width: 92%;
+  max-width: 980px;
   max-height: 92vh;
-  padding: 38px;
-  border-radius: 28px;
+  padding: 48px 52px;
+  border-radius: 20px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1768,15 +1797,15 @@ body.karaoke-mode .cursor {
 }
 
 .app-container.render-mode .post-title {
-  font-size: 48px;
-  line-height: 1.25;
-  margin: 32px 0 24px;
+  font-size: 50px;
+  line-height: 1.22;
+  margin: 26px 0 20px;
   text-align: left;
 }
 
 .app-container.render-mode .post-body-text {
-  font-size: 36px;
-  line-height: 1.42;
+  font-size: 40px;
+  line-height: 1.34;
   text-align: left;
 }
 
@@ -1847,8 +1876,8 @@ body.karaoke-mode .cursor {
 }
 
 .app-container.render-mode .comment-body {
-  font-size: 32px;
-  line-height: 1.36;
+  font-size: 36px;
+  line-height: 1.34;
   text-align: left;
 }
 
@@ -1859,8 +1888,8 @@ body.karaoke-mode .cursor {
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 .post-body-text {
-  font-size: 34px;
-  line-height: 1.36;
+  font-size: 36px;
+  line-height: 1.34;
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 .post-footer {
@@ -1873,12 +1902,15 @@ body.karaoke-mode .cursor {
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 .comment-body {
-  font-size: 31px;
+  font-size: 34px;
   line-height: 1.32;
 }
 
 .app-container.render-mode .reddit-card.slide-continuation-only {
   justify-content: center;
+  width: 92%;
+  max-width: 980px;
+  padding: 56px 58px;
 }
 
 .app-container.render-mode .reddit-card.slide-continuation-only .post-body {
@@ -1887,8 +1919,8 @@ body.karaoke-mode .cursor {
 
 .app-container.render-mode .reddit-card.slide-continuation-only .post-body-text,
 .app-container.render-mode .reddit-card.slide-continuation-only .comment-body {
-  font-size: 38px;
-  line-height: 1.34;
+  font-size: 46px;
+  line-height: 1.3;
 }
 
 .app-container.render-mode .canvas-container.ratio-16-9 .reddit-card.slide-continuation-only {
@@ -1899,6 +1931,6 @@ body.karaoke-mode .cursor {
 
 .app-container.render-mode .canvas-container.ratio-16-9 .reddit-card.slide-continuation-only .post-body-text,
 .app-container.render-mode .canvas-container.ratio-16-9 .reddit-card.slide-continuation-only .comment-body {
-  font-size: 40px;
+  font-size: 44px;
   line-height: 1.32;
 }

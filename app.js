@@ -776,8 +776,16 @@ function renderSlideAtProgress(progress) {
   const slides = currentSlides();
   const progressState = slideProgressStateAtProgress(progress);
   const index = progressState.index;
+  return renderSlideAtIndex(index, progressState.localProgress);
+}
+
+function renderSlideAtIndex(slideIndex, localProgress = 0) {
+  const slides = currentSlides();
+  if (!slides.length) return false;
+  const index = Math.max(0, Math.min(slides.length - 1, Math.floor(Number(slideIndex) || 0)));
+  const progress = Math.max(0, Math.min(1, Number(localProgress) || 0));
   renderSlideStatic(slides[index], {
-    revealPostFooter: progressState.localProgress >= 0.86
+    revealPostFooter: progress >= 0.86
   });
   activeRenderSlideIndex = index;
   return true;
@@ -1396,6 +1404,7 @@ function getKaraokeFrameTimes(durationSeconds) {
 
 window.renderKaraokeAtTime = renderKaraokeAtTime;
 window.getKaraokeFrameTimes = getKaraokeFrameTimes;
+window.renderSlideAtIndex = renderSlideAtIndex;
 window.karaokeReady = false;
 window.karaokeWords = karaokeWords;
 

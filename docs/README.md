@@ -3,18 +3,24 @@
 Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJECT_STATE.md`](PROJECT_STATE.md) before non-trivial work.
 
 **Internal project name**: `nebula-core-v3`  
-**GitHub**: [github.com/lalishka/nebula-core-v3](https://github.com/lalishka/nebula-core-v3) *(private)*  
+**GitHub**: [github.com/webpot-ru/nebula-core-v3](https://github.com/webpot-ru/nebula-core-v3) *(private)*
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-07-10
+**Last updated**: 2026-07-18
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 
 **Current topic decision**: [`topic-strategy-research-2026-07-10.md`](topic-strategy-research-2026-07-10.md) is the source of truth for channel ownership, source lanes, the 90-day plan, evidence boundaries, and validation gates.
 
-**Russian long-form decision**: [`russian-longform-competitor-analysis-2026-07-11.md`](russian-longform-competitor-analysis-2026-07-11.md) records the competitor evidence, long-form product contract, source-duration fit, reuse-risk boundary, and six-video `acc1` pilot.
+**Current Russian channel decision**: [`acc1-russian-reddit-story-strategy-2026-07-13.md`](acc1-russian-reddit-story-strategy-2026-07-13.md) is the canonical viewer promise, SAGA/BUNDLE/THREAD contract, six-slot daily pilot matrix, S-tier target gates, brand package, and visual/thumbnail system for `acc1`.
 
-**Russian horror editorial contract**: [`russian-horror-editorial-system.md`](russian-horror-editorial-system.md) is the canonical source for `acc1` sourcing rights, story shape, editorial ownership, script artifacts, and pre-spend gates.
+**Acc1 production-candidate review**: [`acc1-visual-qa-checklist.md`](acc1-visual-qa-checklist.md) is the human-facing visual and editorial gate for a rendered MP4; it complements technical media QA and never authorizes publication.
+
+**Acc1 cinematic implementation plan**: [`acc1-cinematic-production-plan-2026-07-16.md`](acc1-cinematic-production-plan-2026-07-16.md) defines the staged full-screen scene-motion and narration/mix migration, the compatibility boundary with the current Reddit/Chonker renderer, and the evidence required before cinematic can become a default.
+
+**Acc1 editorial motion implementation and visual history**: [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md) is the source of truth for the HyperFrames renderer, the six pilot-bound adult-animated-comic profiles, their deterministic anti-template layout repertoires, provider spend ceiling and local proof. The locked reference is [`assets/acc1-adult-animation-six-series-v1.png`](assets/acc1-adult-animation-six-series-v1.png). Earlier collage and Ink & Gouache work remains technical history only, not the future art direction.
+
+**Russian dark-series references**: [`russian-longform-competitor-analysis-2026-07-11.md`](russian-longform-competitor-analysis-2026-07-11.md) and [`russian-horror-editorial-system.md`](russian-horror-editorial-system.md) remain the specialized evidence/editorial contracts for the horror series; they no longer define the whole `acc1` channel.
 
 **Automated acc1 pilot implementation**: [`../specs/acc1-automated-reddit-pilot/README.md`](../specs/acc1-automated-reddit-pilot/README.md) defines the isolated artifact-only slice graph, fail-closed contracts, provider boundaries, and two-pilot GitHub target.
 
@@ -58,7 +64,7 @@ Status: **supersedes the older "one language = one Reddit niche" plan.**
 
 `channels.json` is the current execution and strategy config for scripts, voices, scraper inputs, viewer promises, owned content bets, evidence/render contracts, and cadence gates. In the local working tree, all seven channels are `automation_enabled=false`; numeric `topic_mix` arrays are marked candidate-scouting-only or superseded and are not approved publishing weights. These guards do not affect GitHub until a separately approved commit/push.
 
-After the committed-config source review exposed cross-channel substitutions, `acc1`, `acc4`, `acc5`, and `acc7` use single-family `forced_family_validation_only` gates. Their `1.0` values mean "do not substitute another family when this source is empty," not "this topic has proven 100 percent audience performance." All channels remain automation-disabled.
+After the committed-config source review exposed cross-channel substitutions, `acc4`, `acc5`, and `acc7` keep single-family `forced_family_validation_only` gates. `acc1` now has a broad SAGA/BUNDLE/THREAD pilot contract; its old `dark_curiosity=1.0` array is marked `superseded_pending_rebuild` rather than being presented as an audience weight. The exact daily factory reads the six configured pilot rows and never uses that legacy numeric array as a fallback. All channels remain automation-disabled.
 
 ### Strategy Rule
 
@@ -73,7 +79,7 @@ Operational split:
 
 | Channel | Owned viewer promise | Production lane | Status |
 |---|---|---|---|
-| `acc1` Russian | long themed Reddit horror listening session | 3-6 source-preserving stories in a 45-60 minute compilation | compilation lane in progress |
+| `acc1` Russian | compelling Reddit stories, confessions, and discussions in Russian | BUNDLE (2-5 complete stories), SAGA (one complete story), or THREAD (8-15 responses); horror is one series | daily factory implemented locally; new workflow/provider artifact not yet live-verified |
 | `acc2` English | high-concept internet case file: what happened, why people cared, what changed | evidence dossier | evidence lane required |
 | `acc3` German | precise explanation of digital systems, scams, privacy, and tech consequences | evidence dossier | evidence lane required |
 | `acc4` LATAM Spanish | intimate moral conflict with two sides and a verdict-changing turn | Reddit story card | Reddit pilot candidate |
@@ -85,9 +91,12 @@ The detailed owned bets, forbidden bets, cadence gates, and 90-day rollout are i
 
 ### Production Lanes
 
-1. **`reddit_horror_compilation`** - required for `acc1`: 3-6 complete Reddit stories, source-preserving Russian editing, per-story disclosure and review, segmented Eleven v3 narration, and a 45-60 minute 16:9 compilation. `r/nosleep` and `r/LetsNotMeet` remain separate series.
-2. **`reddit_story_card`** - only complete first-person moral conflict or complete social absurdity for the channels that own those treatments. The current renderer supports this lane.
-3. **`evidence_dossier`** - required for facts, science/tech, scams, real mysteries, public-person allegations, internet timelines, and football. It needs independent evidence, an original script, and timeline/evidence visuals; one Reddit card is not sufficient.
+1. **`acc1_bundle`** - 2-3 complete relationship/family stories or 3-5 complete work/money/justice stories, 18-30 minutes aggregate, with no unrelated comment coda.
+2. **`acc1_saga`** - one complete strange/dark/unexplained Reddit story with available authored updates, 18-30 minutes, source-preserving Russian treatment, original framing, scene direction, and three packaging concepts.
+3. **`acc1_thread`** - one prompt plus 8-15 complete diverse responses, 15-25 minutes. `acc1_thread_collector.py` implements the deterministic manifest and `acc1_thread_source.py` provides the bounded read-only PRAW adapter with exact pillar-specific search queries.
+4. **`reddit_horror_compilation`** - retained specialized dark-series lane: 3-6 complete stories and 45-60 minutes. `r/nosleep` and `r/LetsNotMeet` remain separate truth modes.
+5. **`reddit_story_card`** - only complete first-person moral conflict or complete social absurdity for the channels that own those treatments. The current renderer supports this lane.
+6. **`evidence_dossier`** - required for facts, science/tech, scams, real mysteries, public-person allegations, internet timelines, and football. It needs independent evidence, an original script, and timeline/evidence visuals; one Reddit card is not sufficient.
 
 ### Evidence Basis
 
@@ -102,11 +111,11 @@ For Reddit-derived stories only:
 - **Comments ratio**: high comment/upvote ratio indicates controversy and discussion potential.
 - **Time window**: `auto` uses topic-family windows such as `day + week` for fresh drama and `week + month` for mystery/lore; manual `day|week|month|year` is still available for experiments.
 - **Body length**: minimum 300 characters for narration depth. Format-specific generation must choose the right source length before adaptation: `shorts` uses complete short source stories, while `long` requires a substantial long source. Production workflows must not cut a selected story body just to fit a runtime.
-- **Russian Reddit compilation first**: `acc1` targets 45-60 minutes from 3-6 complete stories. Events/order/endings remain source-preserving; literary Russian cleanup is allowed, artificial plot expansion is not. Shorts are trailer-only after the compilation exists.
+- **Russian six-slot pilot first**: `acc1` interleaves BUNDLE relationships, THREAD confessions, BUNDLE work/justice, THREAD professions, SAGA dark/unexplained, and THREAD dark/unexplained. Events/order/endings remain source-preserving; natural Russian translation cleanup is allowed, artificial plot expansion is not. The legacy 45-60 minute compilation remains a dark-series option, not the channel-wide default. Shorts are trailer-only after the long episode exists.
 - **Topic families**: channels now use weighted `topic_mix` values instead of one flat subreddit list. The scraper has rules for `human_drama`, `dark_curiosity`, `curiosity_facts`, `football_culture`, `internet_lore`, and `visual_comedy`.
 - **AI budget**: Gemini quality checks are bounded by `MAX_AI_CANDIDATES` / `--max-ai-candidates`; local Reddit metrics and duplicate guards run before any AI call.
 - **Producer gate**: Gemini must reject topics that are merely high-metric Reddit filler. The prompt now scores first-screen hook, discussion potential, Shorts/long-form fit, novelty, character-voice fit, AI-slop risk, source/link dependency, duplicate risk, and legal risk. For `shorts`, it receives the complete short-source body up to the Shorts source-length limit, not the old 800-character preview.
-- **No-spend topic review**: `scripts/review_reddit_topics.py` converts a bounded full-body queue into explicit theme clusters and a diverse three-item rights-review shortlist. It is deterministic and advisory: `SHORTLIST_FOR_RIGHTS_REVIEW` is not publication, rights, or quality approval.
+- **No-spend topic review**: `scripts/review_reddit_topics.py` checksum-binds a bounded full-body queue and deterministic review. For exact acc1 SAGA pilots it verifies the canonical source plan, allowed subreddit, 2,340-3,900 source-word range, viewer-promise pillar, truth mode, source completeness, payoff evidence, link/screenshot/native-media independence, and full-body hash. Runtime word counting is identical in scraper, review, and greenlight binding, including dates, ages, and amounts. `SAGA_SOURCE_ELIGIBLE_FOR_GREENLIGHT` means only that the source may enter a human greenlight; it is not publication, rights, or creative-quality approval. When `AI_QUALITY_CHECK=0`, scraper quality state is `UNREVIEWED`, never `PUBLISH`.
 - **Outside-in brief**: before scoring the Reddit post, Gemini receives a market/channel producer brief and a `content_bet` brief for the topic family. It must decide whether the idea would be worth pitching even without Reddit metrics, then return packaging fields such as `content_bet`, `audience_job_fit`, `first_screen_promise`, `first_screen_text`, `packaging_thesis`, `why_now`, `shorts_cut`, and `longform_angle`.
 - **Evidence-backed hooks**: Gemini must return `hook_evidence` with an exact title/body quote supporting the hook. The scraper writes `producer_queue.json`, ranks all approved candidates by producer score, and only then picks the slot winner.
 - **No-invent adaptation**: `story_adapter.py` runs after selection and before metadata/translation. It may tighten, clean, and move a source-backed hook into the opening, but it must preserve facts, point of view, URLs, and timeline. In `--strict-evidence` mode it fails if no hook quote is found in the source text.
@@ -114,7 +123,61 @@ For Reddit-derived stories only:
 - **Strategy preflight**: `automation_enabled=false` channels fail before Reddit access. `--allow-disabled-channel` is reserved for an approved review and is used by the isolated source-smoke workflow.
 - **Velocity scoring**: fresh `day/week` candidates get a small bonus for upvotes/hour and comments/hour, so rising stories can beat older high-total posts.
 - **Topic fatigue**: recently repeated topic families receive a penalty so one channel does not publish the same kind of story too many times in a row.
-- **Channel exclusions**: channels can define `topic_exclusions` in `channels.json`. `acc1` uses this to block Minecraft/gaming-server topics before Gemini quality checks, because the Russian channel default promise is dark curiosity / human drama / strange facts rather than gaming.
+- **Channel exclusions**: channels can define `topic_exclusions` in `channels.json`. `acc1` blocks Minecraft/gaming-server topics before any AI quality check because they do not fit its five-pillar Russian Reddit-story promise.
+
+### Exact acc1 source-review commands
+
+The SAGA command below performs a bounded live Reddit read but no Gemini, AI33, image, render, or YouTube call. Run it only after the exact Reddit-read scope is approved. `--pilot-id` owns the family, format, pillar, and subreddit plan; do not also pass a conflicting `--topic-family` or `--format-intent`.
+
+```bash
+AI_QUALITY_CHECK=0 python3 scraper.py \
+  --channel acc1 \
+  --pilot-id pilot_01 \
+  --time auto \
+  --max-ai-candidates 0 \
+  --candidate-limit 10 \
+  --comment-limit 0 \
+  --allow-disabled-channel \
+  --include-source-body-in-queue \
+  --no-save-history \
+  --producer-queue-output /tmp/acc1-pilot-01-queue.json \
+  --output /tmp/acc1-pilot-01-story.json
+
+python3 scripts/review_reddit_topics.py \
+  --queue /tmp/acc1-pilot-01-queue.json \
+  --output /tmp/acc1-pilot-01-review.json \
+  --top-n 6
+
+python3 scripts/build_acc1_greenlight_template.py \
+  --queue /tmp/acc1-pilot-01-queue.json \
+  --review /tmp/acc1-pilot-01-review.json \
+  --output /tmp/acc1-pilot-01-greenlight-draft.json
+```
+
+The generated greenlight is intentionally `DRAFT_BLOCKED`; a human must supply the three packaging concepts, source-backed cold open, story beats, originality plan, scores, and decisions. Binding validation requires the same exact queue and review:
+
+```bash
+python3 acc1_story_strategy.py \
+  --channels channels.json \
+  --pilot-id pilot_01 \
+  --source-queue /tmp/acc1-pilot-01-queue.json \
+  --topic-review /tmp/acc1-pilot-01-review.json \
+  --greenlight /tmp/acc1-pilot-01-greenlight.json
+```
+
+The THREAD adapter is separately bounded and read-only. It never expands `MoreComments`, scans only the configured top-level response limit, and writes a raw snapshot plus checksum-bound manifest:
+
+```bash
+python3 acc1_thread_source.py \
+  --confirm-reddit-read \
+  --subreddit AskReddit \
+  --time-filter month \
+  --candidate-limit 10 \
+  --response-scan-limit 50 \
+  --max-responses 15 \
+  --snapshot-output /tmp/acc1-thread-snapshot.json \
+  --manifest-output /tmp/acc1-thread-manifest.json
+```
 
 ---
 
@@ -127,8 +190,8 @@ For Reddit-derived stories only:
 | Voice synthesis | **AI33 TTS v3** via multipart FormData (`xi-api-key`) |
 | AI text routing | Direct **Google Gemini API** (`gemini-3.5-flash` / `gemini-3.1-flash-lite`) via `GOOGLE_GEMINI_API_KEY`, with VectorEngine Gemini fallback |
 | Metadata / SEO | Gemini text provider via `vectorengine_client.py` |
-| Thumbnail image generation | **VectorEngine image** (`gpt-image-2`) via explicit `--confirm-spend` |
-| Dry-run video rendering | Deterministic `storyboard_generator.py` + RedditSim headless Chrome/Chromium capture + FFmpeg |
+| Thumbnail image generation | Deterministic local Cyrillic overlay, or **VectorEngine image** (`gpt-image-2`) via explicit `--confirm-spend` |
+| Dry-run video rendering | RedditSim headless Chrome/Chromium lane plus acc1 Pillow/FFmpeg Reddit-pages lane |
 | YouTube publishing | YouTube Data API v3 (OAuth2 Refresh Tokens, 7 accounts) |
 | CI/CD | GitHub Actions (ubuntu-latest runners) |
 | Orchestration | GitHub CLI (`gh workflow run`) — **local dispatch only** |
@@ -147,18 +210,22 @@ reddit/                            ← Project root (nebula-core-v3)
 ├── app.js                         ← Simulator JS (typing engine, audio, state)
 │
 ├── scraper.py                     ← Reddit story fetcher (PRAW OAuth2 + virality + producer queue)
+├── acc1_story_strategy.py          ← exact six-pilot source/greenlight contract
+├── acc1_thread_collector.py        ← deterministic full-response THREAD manifest
+├── acc1_thread_source.py           ← bounded read-only PRAW adapter for THREAD
+├── acc1_release_gate.py            ← checksum-bound unlisted-review gate; never publication authorization
 ├── story_adapter.py               ← Source-backed no-invent story cleanup / hook adapter
 ├── metadata_generator.py          ← Gemini YouTube packaging + SEO metadata
-├── thumbnail_generator.py         ← VectorEngine image thumbnail generator
+├── thumbnail_generator.py         ← local Cyrillic overlay or explicitly paid VectorEngine base image
 ├── vectorengine_client.py         ← Shared Gemini text router + VectorEngine image client
 ├── translator_tts.py              ← AI33 TTS v3 narration generator
 ├── compilation_translation.py      ← full-story translation + exact local review patches + atomic resume
 ├── compilation_tts_runner.py       ← chunked Eleven v3 state/resume for long compilations
-├── compilation_images.py           ← guarded GPT Image 2 visual per accepted story
-├── compilation_storyboard.py       ← local-only 16:9 compilation storyboard
-├── compilation_renderer.py         ← deterministic H.264/AAC compilation renderer
+├── compilation_images.py           ← guarded 3-5 source-backed scene visuals per accepted story
+├── compilation_storyboard.py       ← cumulative Reddit-pages storyboard + checksum-bound background
+├── compilation_renderer.py         ← deterministic 1920x1080 H.264/AAC Reddit-pages renderer
 ├── compilation_metadata.py         ← three-angle packaging for a compilation
-├── compilation_qa.py               ← fail-closed compilation artifact gate
+├── compilation_qa.py               ← fail-closed voice/text/background/video/thumbnail QA
 ├── storyboard_generator.py        ← Deterministic story_data.json → storyboard.json
 ├── render.py                      ← RedditSim dry-run renderer: storyboard.json → final_output.mp4
 ├── pre_publish_qa.py              ← Fail-closed audio/evidence/render QA gate
@@ -243,19 +310,66 @@ Narration text may intentionally differ from display text only for service-safe 
 
 The acc1 compilation lane applies a stricter rule. Source URLs live in manifests/descriptions and are not narrated. Inline links become `ссылка на экране`; Markdown labels such as `фото` may become `фото (ссылка на экране)`. Static native Reddit images from `i.redd.it` or `preview.redd.it` are recorded as metadata in `source_media`; arbitrary outbound images, animation and video are rejected. Rendering an image still requires a later bounded downloader plus MIME/size/dimension/checksum validation and a local-only storyboard asset, so capture metadata does not yet mean the image is rendered.
 
-`compilation_narration.py` is the no-spend narration preflight. It builds ordered `intro`, `story_*`, `transition_*`, and `outro` segments, forces `eleven_v3`, removes raw spoken URLs, and reuses the existing Russian integer/percent/plus normalization. Valid 24-hour `HH:MM` tokens are deterministically expanded for Russian narration (`3:15` -> `три часа пятнадцать минут`; whole hours use `ровно`). Invalid times, contextual years, dates, decimals, and currencies still fail closed until the script provides an explicit natural spoken form; they are not sent to AI33 as ambiguous digits.
+`compilation_narration.py` is the no-spend narration preflight. It builds ordered `intro`, `story_*`, `transition_*`, and `outro` segments, forces `eleven_v3`, removes raw spoken URLs, and reuses the existing Russian integer/percent/plus normalization. Valid 24-hour `HH:MM` tokens are deterministically expanded for Russian narration (`3:15` -> `три часа пятнадцать минут`; whole hours use `ровно`); the US emergency service `911` is deterministically voiced as `девять один один`. Invalid times, contextual years, dates, decimals, and currencies still fail closed until the script provides an explicit natural spoken form; they are not sent to AI33 as ambiguous digits.
 
 `compilation_tts_runner.py` persists every AI33 task ID before polling and checksum-binds each completed MP3. Artifact resume restores the state plus finished audio, polls existing `SUBMITTED` tasks before any new submission, and applies bounded exponential backoff to retryable HTTP 500/502/503/504 polling failures. Non-retryable provider errors, plan/hash changes, model mismatches, missing task IDs, and checksum changes remain fail-closed.
 
 The first complete artifact-only compilation (`29184260452`) proves the technical 54-minute provider-to-MP4 path, not publish readiness. Its eight-slide static storyboard is sufficient for codec/audio/integrity QA but insufficient for retention-focused long-form horror. Before any distribution pilot, split accepted narration into source-backed scenes and provide materially more frequent visual changes through distinct scene assets, controlled crop/motion variants, or both; retain the no-invent and per-story review contracts.
 
-The bounded acc1 emotion-video proof uses `scripts/generate_ai33_voice_samples.py --roles narrator --with-transcript` plus `scripts/render_emotion_video_sample.py`. AI33 subtitle/alignment data is normalized through the existing timing parser and grouped into short on-screen phrases; if the provider returns no usable timing, the report explicitly marks an estimated fallback. The renderer uses a local checksum-reviewed background, slow Ken Burns movement, a dark readability grade, and phrase captions. In `reddit_pages` mode it precomputes final wrapping and reveals timed prefixes within fixed lines, so old text neither moves nor flashes. This mode fails closed unless `--font-dir` contains official Reddit Sans. The current competitor-like layout uses meta/title/body/action sizes 28/46/40/27 px, 80 px side margins, a 76-character measure, and 700/900-character page capacities. Avatar/username/time appear only on the first page; the thin upvote/count/downvote, reply, share, and overflow footer appears only for the final 3.2 seconds, with no save control or dark action pills. The exact values are repeated in `emotion-video-report.json`. This proof is deliberately isolated from the full compilation and from YouTube so voice direction, text density, background motion, and post-layout behavior can be judged before regenerating long-form audio.
+The current production-oriented acc1 surface is `compilation_storyboard.py` -> `compilation_renderer.py` -> `compilation_qa.py`. It builds cumulative Reddit pages with exact narration coverage: old lines keep fixed coordinates, metadata/title appear only on page one, continuation pages do not repeat the title, and vector upvote/comment/share actions appear exactly once after the final chunk of each `story-*` segment. Actions are forbidden on intro, transitions, intermediate story chunks, and outro. The first screen is a special `story_title` Reddit-card mode: it shows the real first post title and exact source header while the compact spoken intro runs, so no greeting or generic channel promise is printed as faux post text; long source titles can use up to five compact lines only in this mode. A local MP4 background may be supplied only from the artifact root; its checksum and use are bound through the storyboard, creative manifest, render report, and QA. QA also binds the configured voice, actual H.264/AAC MP4, actual 1280x720+ thumbnail, text timing/coverage, and slide-duration ceiling.
+
+The approved loop is now stored at `assets/acc1/video/chonker-reading-loop-v1.mp4` with a checksum manifest beside it. Both acc1 compilation workflows copy it into the run artifact root and pass it to the storyboard; the renderer maps only its video stream and reports that source audio was discarded. Long stories request an explicit 3-5 source-backed images. Storyboard scheduling prefers exact editorial story beats and otherwise uses deterministic word-position scenes, keeping the image stable through page rollover. The image and its readability shade end at `mascot_safe_x=1040` with a feathered boundary, leaving the cat layer unchanged. `compilation_qa.py` verifies scene counts/hashes/stability, the exact visual contract, background-audio discard, and the mascot-safe boundary. Its planned 12-second page target has a narrow `12.25s` hard ceiling for a real word-aligned AI33 punctuation boundary; it does not allow materially slow static pages. These workflow changes are locally tested but not GitHub-verified.
+
+Story-page chrome must preserve Reddit source identity rather than localize it. `compilation_storyboard.py` carries exact `r/subreddit`, optional `u/author`, score, and comment count from `source_snapshot`. `compilation_renderer.py` uses separate transparent current-Reddit-style vote, comment, and share pills with thin white outlines, white icons/text, and compact `K`/`M` metrics only when the source snapshot contains an integer value; it never invents a translated community, relative time, engagement count, award, or overflow action. Missing vote/comment metrics use neutral English action labels. The final controls are visible only on the completed story state and receive at least a 3.5-second storyboard hold. First pages allow up to 48 words / 340 characters and continuation pages up to 62 words / 440 characters so the text uses the lower part of the frame without colliding with the mascot or action controls. Timed narration chunks prefer comma/semicolon/colon/dash clause boundaries and allow up to 22 words, reducing rapid changes and orphaned phrase fragments. When valid AI33 alignment is available, each new text state starts 80 ms before the next aligned spoken word to absorb video frame quantization; AI33 timing remains the source of truth. Intro, transitions, and outro retain their separate presentation modes, except the first-screen `story_title` card described above.
+
+Two different no-spend proofs must not be confused. `scripts/build_acc1_visual_proof_fixture.py` is a long-text layout stress test and now generates silence; it is not for judging pacing, voice, or story quality. `scripts/build_acc1_format_review_fixture.py` builds a human-paced synthetic preview with the approved cat loop and macOS system speech. Its output proves presentation behavior only and explicitly does not prove Reddit source selection or the production voice.
+
+The current hardened SAGA path intentionally has no comments: both compilation workflows use `--comment-limit 0`. `acc1_story_strategy.resolve_comment_plan()` records the next contract: `narrative_story` uses no comments; an explicit `question_prompt` may use 2-4 selected answers; THREAD requires 8-15 responses and refuses a narrative source. The old `fetch_top_comments()` route is not acceptable because it truncates bodies and does not preserve the full provenance contract. Selected answers require exact comment/post/parent IDs, author, integer score, full body and SHA-256, official permalink, and retrieval snapshot hash. Reject deleted, removed, truncated, duplicate, link/media-dependent, generic-reaction-only, irrelevant, unsafe, and story-restating comments. Production THREAD responses additionally require 80-650 source words each, deterministic prompt relevance, high-confidence safety/PII clearance, at least three selected editorial roles, and a 40% cap on any one role; score cannot override a blocker. Comment TTS binds `elevenlabs_MOgsVr0EwwxqQs5cNDhu` only when the resolved plan requires it and fails closed rather than falling back to the narrator.
+
+`scripts/build_acc1_creative_review_template.py` creates a checksum-bound human review with every creative acceptance false by default. For historical compilation artifacts, `acc1_release_gate.py` joins exact source/greenlight evidence, technical media QA, thumbnail manifest, creative review, and actual file hashes; that legacy path tops out at `READY_FOR_UNLISTED_REVIEW`. The same gate now also accepts the v2 daily-factory artifact plus a completed version-3 creative review and `acc1_rights_manifest.py` evidence. The factory path tops out at `READY_FOR_PRIVATE_REVIEW`, keeps both `publication_authorized=false` and `upload_authorized=false`, and requires a separate exact private-upload authorization.
+
+```bash
+python3 scripts/build_acc1_creative_review_template.py \
+  --video final-output.mp4 \
+  --thumbnail youtube-thumbnail.png \
+  --output creative-review.json
+
+python3 acc1_release_gate.py \
+  --strategy-report strategy-report.json \
+  --greenlight-report greenlight-report.json \
+  --media-qa compilation-qa.json \
+  --thumbnail-manifest thumbnail-report.json \
+  --creative-review creative-review.json \
+  --video final-output.mp4 \
+  --thumbnail youtube-thumbnail.png \
+  --output release-gate.json
+```
+
+For a daily-factory artifact, first generate and complete the fail-closed rights template outside the artifact directory. Sensitive agreement text stays in approved storage; the manifest contains only an opaque evidence locator and SHA-256. Then run the factory-aware gate:
+
+```bash
+python3 acc1_rights_manifest.py template \
+  --episode-plan artifact/episode-plan.json \
+  --source-queue artifact/source-queue.json \
+  --output rights-manifest.json
+
+python3 acc1_release_gate.py \
+  --factory-artifact-root artifact \
+  --factory-creative-review creative-review.json \
+  --rights-manifest rights-manifest.json \
+  --source-run-id EXACT_FACTORY_RUN_ID \
+  --output release-gate.json
+```
+
+The bounded acc1 emotion-video proof uses `scripts/generate_ai33_voice_samples.py --roles narrator --with-transcript` plus `scripts/render_emotion_video_sample.py`. AI33 subtitle/alignment data is normalized through the existing timing parser and grouped into short on-screen phrases; if the provider returns no usable timing, the report explicitly marks an estimated fallback. In `reddit_pages` mode the renderer precomputes final wrapping and reveals timed prefixes within fixed lines, so old text neither moves nor flashes. This mode fails closed unless `--font-dir` contains official Reddit Sans. The Chonker-right layout uses meta/title/body/action sizes 28/46/48/27 px, 62 px body-line steps, a 44-character measure, and 520/640-character page capacities. Avatar/username/time appear only on page one; the vote/reply/share/overflow row appears only for the final 3.2 seconds and sits 84 px below the last body line. The exact values are repeated in `emotion-video-report.json`.
 
 Live proof `29186076815` confirmed that AI33 can return usable real word timings for the acc1 narrator. Caption grouping should prefer punctuation boundaries after at least four words, then use word/character ceilings only as safety limits; this avoids splitting semantic units such as spoken clock times. Visual review also established that the already-dark horror art needs only a light readability grade rather than heavy additional darkening.
 
-`scripts/render_emotion_video_sample.py --style reddit_pages` is the direct-background Reddit presentation proof. Page one owns the subreddit/author line and title; timed phrases append into one continuous outlined paragraph with natural wrapping and no opaque card; continuation pages omit the title; and the Reddit-like action row appears only at the ending. Page changes are driven by bounded text-area character capacity, so a long story can continue without shrinking text, turning every timing chunk into a separate subtitle row, or overflowing the frame.
+`scripts/render_emotion_video_sample.py --style reddit_pages` is the earlier direct-background presentation proof. Page one owns the subreddit/author line and title; timed phrases append into individually positioned stable lines without an opaque card; continuation pages omit the title. The proof's ending action row follows the last visible line instead of remaining pinned to the viewport bottom. Production action placement is governed by the stricter per-story contract above.
 
-The proof renderer accepts either a still image or a short MP4 background. MP4 inputs are looped to the narration duration and only their video stream is mapped; narration audio always comes from the verified AI33 sample. Use `--reddit-line-chars 38` for the Chonker-right / text-left composition so accumulated story lines stay clear of the mascot; the full-width competitor-like layout keeps the default 76-character measure.
+The proof renderer accepts either a still image or a short MP4 background. MP4 inputs are looped to the narration duration and only their video stream is mapped; narration audio always comes from the verified AI33 sample. Use `--reddit-line-chars 44` for the Chonker-right / text-left composition so larger text uses more horizontal space while staying clear of the mascot; the full-width competitor-like layout keeps the default 76-character measure.
+
+An optional `--story-image` adds a still behind only the left 1180x1080 Reddit-text region. `--story-image-start` and `--story-image-end` bound its screen time; the renderer applies a slow center zoom, 0.8-second alpha fades, brightness `-0.10`, saturation `0.78`, blur `1:1`, and 70% opacity before drawing the stable ASS text above it. A 320 px horizontal alpha feather dissolves the image from x=760 to x=1080 so the composited layer does not darken the mascot's left edge or paw. This is the deterministic no-spend compositing path for future story-beat imagery; provider generation and multi-image semantic scheduling remain separate unimplemented gates.
 
 Render orientation is duration-aware. In default `--orientation auto` mode, videos up to 180 seconds render as vertical Shorts (`1080x1920`, mobile layout), while videos longer than 180 seconds render as horizontal long-form video (`1920x1080`, desktop layout). Horizontal render fills the 16:9 viewport with a clean centered Reddit card and hides editor/sidebar widgets. Override only intentionally with `--orientation vertical` or `--orientation horizontal`.
 
@@ -407,7 +521,7 @@ Full-story Gemini translation allows 16,384 output tokens by default instead of 
 ```bash
 python3 translator_tts.py es --output narration_es.mp3
 python3 translator_tts.py --channel acc4 --output narration_es.mp3
-python3 translator_tts.py ru --voice-id elevenlabs_rQOBu7YxCDxGiFdTm28w
+python3 translator_tts.py ru --voice-id elevenlabs_JBFqnCBsd6RMkjVDRZzb
 python3 translator_tts.py --channel acc3 --comment-voice-id elevenlabs_LB5G0Z4EP98YaEgL654m --output narration.mp3
 ```
 
@@ -426,7 +540,7 @@ For less monotone ElevenLabs/AI33 delivery, the current test recommendation is:
 - Avoid making `context_chaining` the default; AI33 documents it as a higher-credit path in this project workflow.
 - Do not raise `style` by default. ElevenLabs documents style exaggeration as more resource-heavy and less stable, and recommends keeping it at `0` for most cases.
 - For voice samples only, sparse Eleven v3 audio tags such as `[curious]`, `[sighs]`, and `[whispers]` are useful for checking whether a voice can perform. Add them to production narration only after a listening test confirms the voice does not speak the tags aloud.
-- Current Russian candidate-listening decision: test `elevenlabs_MOgsVr0EwwxqQs5cNDhu` (male) and `elevenlabs_JBFqnCBsd6RMkjVDRZzb` (female) at provider speed `1.0`, with plain narration text and no emotion/audio tags. Locally accelerated or tagged proofs are comparison artifacts and must not be treated as the production voice contract. This does not assign either candidate to a role or change `channels.json`.
+- Current Russian voice contract: `elevenlabs_JBFqnCBsd6RMkjVDRZzb` is the male primary narrator and `elevenlabs_MOgsVr0EwwxqQs5cNDhu` is the female comment voice. Use provider speed `1.0`, plain narration text and no emotion/audio tags. Locally accelerated or tagged proofs are comparison artifacts and must not be treated as production settings.
 
 Manual `video_dry_run.yml` and `auto_publish.yml` runs expose `voice_settings_profile`. Leave it as `default` for unchanged provider behavior, or set it to `creative` for the first emotional test. Scheduled runs still use `default` unless the workflow is changed intentionally.
 
@@ -454,7 +568,7 @@ The publish workflow remains fail-closed: if either `tts_voice` or `comment_tts_
 
 | Channel | Narrator `tts_voice` | Comment `comment_tts_voice` |
 |---|---|---|
-| Russia | `elevenlabs_rQOBu7YxCDxGiFdTm28w` | `elevenlabs_ymDCYd8puC7gYjxIamPt` |
+| Russia | `elevenlabs_JBFqnCBsd6RMkjVDRZzb` | `elevenlabs_MOgsVr0EwwxqQs5cNDhu` |
 | English | `elevenlabs_sB7vwSCyX0tQmU24cW2C` | `elevenlabs_DODLEQrClDo8wCz460ld` |
 | Germany | `elevenlabs_aTTiK3YzK3dXETpuDE2h` | `elevenlabs_LB5G0Z4EP98YaEgL654m` |
 | LATAM | `elevenlabs_22VndfJPBU7AZORAZZTT` | `elevenlabs_8mBRP99B2Ng2QwsJMFQl` |
@@ -478,8 +592,8 @@ Current ElevenLabs candidates collected from AI33 Voice Library screenshots and 
 | `93nuHbke4dTER9x2pDwE` | `elevenlabs_93nuHbke4dTER9x2pDwE` | AI33 readback verified: French `fr-CA` / `quebec`, male, middle-aged; also supports Portuguese `pt-BR` / `brazilian`, Russian `ru-RU` / `standard`, English `en-US` / `southern`; Spanish is `es-ES` / `peninsular` | French Canada/Québec spare; not main France-standard narrator | LATAM Spanish, German, Italian |
 | `wufFsVwuYBePWKO6dMMN` | `elevenlabs_wufFsVwuYBePWKO6dMMN` | AI33 readback verified: French `fr-FR` / `standard`, male, middle-aged; name `Rudy - Narrator` | Active `acc6` France-standard French narrator | Pending sound test |
 | `i6ke7jvmGEVUyV4zjSaT` | `elevenlabs_i6ke7jvmGEVUyV4zjSaT` | AI33 readback verified: French `fr-FR` / `parisian`, female, young; name `Emilie - Pro` | Active `acc6` French comments | Pending sound test |
-| `ymDCYd8puC7gYjxIamPt` | `elevenlabs_ymDCYd8puC7gYjxIamPt` | AI33 readback verified: Russian `ru-RU` / `standard`, female, middle-aged | Active `acc1` Russian comments | Pending sound test |
-| `rQOBu7YxCDxGiFdTm28w` | `elevenlabs_rQOBu7YxCDxGiFdTm28w` | AI33 readback verified: Russian `ru-RU` / `standard`, male, middle-aged | Active `acc1` Russian narrator | Pending sound test |
+| `ymDCYd8puC7gYjxIamPt` | `elevenlabs_ymDCYd8puC7gYjxIamPt` | AI33 readback verified: Russian `ru-RU` / `standard`, female, middle-aged | Historical `acc1` comment alternate | Superseded by user-selected `MOgs...` |
+| `rQOBu7YxCDxGiFdTm28w` | `elevenlabs_rQOBu7YxCDxGiFdTm28w` | AI33 readback verified: Russian `ru-RU` / `standard`, male, middle-aged | Historical `acc1` narrator alternate | Superseded by user-selected `JBF...` |
 | `LB5G0Z4EP98YaEgL654m` | `elevenlabs_LB5G0Z4EP98YaEgL654m` | AI33 readback verified: German `de-DE` / `standard`, female, young | Active `acc3` German comments | Pending sound test |
 | `aTTiK3YzK3dXETpuDE2h` | `elevenlabs_aTTiK3YzK3dXETpuDE2h` | AI33 readback verified: German `de-DE` / `standard`, male, young | Active `acc3` German narrator | Pending sound test |
 | `5KvpaGteYkNayiswuX2h` | `elevenlabs_5KvpaGteYkNayiswuX2h` | AI33 readback verified: German `de-DE` / `standard`, male, old | German spare narrator/character voice; possible authoritative explainer tone | Pending sound test |
@@ -637,17 +751,28 @@ SEO/upload handling:
 
 ### VectorEngine Thumbnail Images
 
-`thumbnail_generator.py` uses `youtube_metadata.json.thumbnail_prompt` and VectorEngine image generation:
+`thumbnail_generator.py` supports two separate modes. `--base-image` performs a deterministic local Cyrillic overlay and can write a checksum/dimension manifest without any provider call. A generated base image still uses `youtube_metadata.json.thumbnail_prompt` and VectorEngine only after explicit spend confirmation:
 
 ```bash
-# No image spend
+# No provider call; payload preview only
 python3 thumbnail_generator.py --metadata youtube_metadata.json --dry-run
 
+# No provider call; real local thumbnail and verification report
+python3 thumbnail_generator.py \
+  --metadata youtube_metadata.json \
+  --base-image thumbnail-base.png \
+  --output youtube-thumbnail.png \
+  --report thumbnail-report.json
+
 # Paid image generation
-python3 thumbnail_generator.py --metadata youtube_metadata.json --confirm-spend --output youtube_thumbnail.png
+python3 thumbnail_generator.py \
+  --metadata youtube_metadata.json \
+  --confirm-spend \
+  --output youtube-thumbnail.png \
+  --report thumbnail-report.json
 ```
 
-The default image model is `gpt-image-2`, default size `1536x864`. Actual image generation is intentionally not run automatically in the current workflow.
+The default image model is `gpt-image-2`, default size `1536x864`. The report records status, output checksum, dimensions, mode, and whether a provider was called. Provider image generation is intentionally not run automatically.
 
 ### Multi-Account Architecture
 
@@ -699,6 +824,70 @@ must show the new scopes and then match every authenticated channel against
 ---
 
 ## 9. GitHub Actions Automation
+
+### acc1 Daily Review-Ready Episode Factory
+
+`.github/workflows/acc1_daily_episode.yml` is the one-dispatch, artifact-only long-form factory for `acc1`. Its base revision is active on GitHub `main` as workflow `312924313` at commit `bbfe22d`; its latest run failed before paid providers and produced no review-ready artifact. The richer local revision described below has not yet been merged: it adds the OpenAI translation/review lane, the PRAW lazy-fetch fix, and the separate private-upload workflow. Neither revision can guarantee views or invoke `uploader.py` from the factory; its maximum result is `READY_FOR_HUMAN_REVIEW`.
+
+The planner resolves one Europe/Moscow production date against the fixed interleaved cycle `pilot_01, pilot_04, pilot_02, pilot_05, pilot_03, pilot_06`. It reads exact pilot rows from `channels.json`, not the superseded `topic_mix`. The source stage then performs only bounded read-only Reddit collection with `AI_QUALITY_CHECK=0` and `AI_QUALITY_FAIL_OPEN=0`; SAGA/BUNDLE may scan up to three configured time windows and THREAD uses its bounded year pool. It must retain exactly 3-5 complete candidates before any paid stage is allowed. SAGA/BUNDLE stories and THREAD responses are rejected before finalist selection for incomplete source/provenance, link or screenshot dependence, high-confidence safety/PII failures, viewer-promise mismatch, or fictional-as-real risk. They are also rejected when normalized source characters exceed 12 per source word or a source token exceeds 80 characters; THREAD prompts have a 2,000-character spoken-source ceiling. These are source, renderability, and spend-envelope gates, not claims that Reddit text is factual.
+
+For each finalist, a producer and independent critic score the same source-bound candidate. The topic playoff requires both reviews to pass, total score at least 90/100, every category floor, three materially distinct title/thumbnail/first-screen options, exact source evidence, and no hard veto for incomplete payoff, wrong pillar, screenshot/link dependence, fictional-as-real framing, unverified claims presented as fact, or viewer-promise mismatch. Reddit metrics remain discovery signals, not factual or audience proof.
+
+After a winner is locked, the local revision performs source-preserving Russian translation plus a separate translation-review request with the exact pinned OpenAI model `gpt-5.4-2026-03-05` and `reasoning_effort=none`. Gemini remains limited to topic producer/critic scoring and final packaging; it is not the translator or translation reviewer in that revision. The OpenAI lane reads only `OPENAI_API_KEY`, uses strict JSON, has no fallback to Gemini and no automatic retry. Its journal records the API usage envelope, where billable/quota total is `input_tokens + output_tokens`; `reasoning_tokens` is a subset of `output_tokens` and is not added again. A conservative reservation is checked before transport and the actual total is checked afterward against `openai_token_cap` (maximum `1,000,000`). The same-model reviewer is an independent request and prompt, but it is not cross-model diversity. GitHub `main` does not yet contain this lane and must not be invoked with OpenAI inputs until the revision is reviewed and merged.
+
+Production then continues with source-bound packaging, bounded `gpt-image-2` scene/thumbnail generation through VectorEngine, role-aware AI33 `eleven_v3` narration, an explicit visual mode, media QA, and a checksum-bound creative-review template. `reddit_pages` is still the workflow and factory default and preserves exact Reddit-card page/layout validation plus the verified cat-background renderer. `cinematic_story_v1` is an opt-in SAGA/BUNDLE branch with full-screen accepted scene images, deterministic 1.06-1.10 slow push/pan shots, no cat-background dependency, caption/SRT sidecars and mode-specific QA; THREAD fails closed until it has a separate response-card contract. Neither mode is a fallback for the other. Before TTS the factory builds a fail-closed `intro_contract`: winning source-backed cold open -> exact format/count promise -> truth disclosure -> source-in-description note -> generic truthful thanks -> pillar-safe Chonker Talks sting -> first story/prompt cue. The cold open is 8-30 words and hash-bound to the playoff winner; the whole intro is at most 90 spoken words. Named sponsors or payment claims are forbidden because there is no verified supporter ledger. `Свет можно оставить включённым` is dark-pillar-only; all other pillars use `Устраивайтесь поудобнее`. The factory does not yet emit complete post-TTS chapters, so the spoken intro never claims that timestamps exist. The male `elevenlabs_JBFqnCBsd6RMkjVDRZzb` voice narrates; THREAD responses use the separate female `elevenlabs_MOgsVr0EwwxqQs5cNDhu` voice. The five canonical pillar profiles tune speed, stability, style and pause policy without changing either voice ID or source text. Thumbnail generation accepts only a meaningful exact quote and a deterministic non-photoreal source-bound prompt; generated images must decode to an accepted image format and exact dimensions before AI33 is called. The YouTube description is a deterministic neutral disclosure-plus-source template, so a provider cannot append an unsupported factual claim. TTS state binds semantic chunks, exact profile settings, actual `ffprobe` duration and exact AI33 word alignment when valid, or a declared timing estimate derived from the exact audio duration. A local pause map inserts beat/segment pauses without altering narration punctuation; the final voice-only WAV is two-pass loudness-normalized around `-16 LUFS` (±1 LU) with true peak no higher than `-1.5 dBTP`, measured and checksum-bound in the audio-mix report. Both renderers consume that same final mixed-audio contract. A pre-TTS estimate must fit the slot's duration range with tolerance and final media QA enforces the exact canonical duration. Generated asset paths are artifact-root-relative so the GitHub artifact is portable. Manifest v2 binds mode, profile, pause map, mix, shot/caption sidecars and final media; historical manifest v1 remains strict-compatible. Every downstream artifact is bound to the exact daily plan, episode plan, narration plan, audio, source, and final media hashes.
+
+The local revision also adds opt-in `editorial_motion_v1` for SAGA/BUNDLE. Motion-plan v2 supports both `contemporary_cutup_v1` and the implemented opt-in `ink_gouache_story_pages_v1`. The Ink & Gouache profile requires an explicit story family, unequal-panel page layout and episode-wide recurring-character identity contract before provider spend. It applies eight beat-specific camera/layout choreographies and family palettes for relationships, work, digital traces, memories, unusual jobs and dark SAGA; it does not reuse the old universal blue/coral/mustard cut-up palette. Photorealism is reserved for real documents, messages, interfaces and archival evidence. Exact captions, dates, quotations and evidence remain HTML/SVG. HyperFrames is the production renderer; `html-video` stays an alpha studio/catalog layer because its verified adapter truncates long fixed compositions. Editorial oversized near-16:9 provider responses are preserved and deterministically normalized to 1536x864 with original and normalized checksums; unsafe crops still fail closed. `contemporary_cutup_v1` remains the production default pending explicit promotion of the new profile. THREAD remains blocked in this mode. Full contracts, reference board, pilot commands and evidence are in [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md).
+
+The current Ink & Gouache canary is `build/reddit-five-minute-ink-gouache-v6/reddit-five-minute-ink-gouache-s-tier-v6.mp4`: source-locked Reddit/BORU `1i8nufm`, H.264/AAC, 1920x1080/30, exactly 300 seconds, SHA-256 `5cf32e036e34f983bb6df041878060fe8a2bfea92c5ceedcda7793a84347a37d`. It reuses the 16 accepted `gpt-image-2` plates from v3 with zero new provider calls. HyperFrames 0.7.61 reports zero runtime/layout/motion/contrast errors; eleven chapter samples and exact former-risk boundaries passed visual review, and FFmpeg black detection found no black intervals. The contact-sheet SHA-256 is `1b0b1197202524ef89e9d79c8427f6c6745063e9de33695fdabf5695529ae1dc`. This is local silent visual evidence only and changes no workflow, channel default, rights or publication state.
+
+Local no-spend proof is generated by `scripts/build_acc1_cinematic_fixture.py` and checked by `tests.test_acc1_cinematic_fixture`. The 2026-07-17 evidence at `/tmp/acc1-cinematic-comparison-20260717-v4` contains two real mode-bound MP4s, two separate v2 manifests/pause/mix chains, one shared source/narration/raw-chunk contract and byte-identical final voice-only WAVs. Both media-QA reports are `PASS`; `comparison-report.json` has self-hash `bca27e2ecf1a6ad0d053138d90ed5a84846ed267c4d3b4cd93fc505536aafe74`. Rendered MP4/SRT paths are artifact-root-relative, so the report remains valid after artifact download or relocation. This fixture uses synthetic drawings and tones, so it proves the local pipeline and motion geometry only. Human creative/audio review, real narrator continuity, provider-image semantics, rights and any production canary remain unproven and separately gated.
+
+After source success, a no-provider paid preflight validates all paid confirmations, credential presence, model/provider contracts, exact source hashes, and source-dependent call ceilings. The maximum five-finalist pool needs Gemini cap `11` for topic producer/critic scoring plus packaging. A 15-response THREAD winner whose sources each fit one fallback chunk needs OpenAI cap `90` for the conservative full translation/review path; exact source-dependent counts are calculated before spend. Non-semantic source whitespace is canonicalized only in the translation working copy so space/tab floods cannot inflate provider chunks, while the exact Reddit body and hash remain unchanged in source evidence. Every accepted source envelope fits AI33 cap `96`, and the exact planned chunks are checked again before image or voice spend. The workflow then creates and uploads a self-hashed spend lease bound to the episode, source artifacts, caps, models, repository, workflow, run identity, commit, and every candidate source's canonical ID/URL/body SHA/story signature before the first paid request. The acc1 build job is globally serialized; after collection it rescans all unexpired `acc1-paid-lease-*` artifacts and blocks any same-episode or reserved-source overlap across dates. Paid-provider attempt journals are written before each request; an ambiguous result blocks every later request for that provider and reuse of that work directory. Hidden Gemini/OpenAI/image retries are disabled. Translation character/token bounds apply to exact post-number-normalization narration, and cold opens have a 500-character spoken ceiling. The final release candidate hashes 25 evidence files, including paid preflight, spend lease, text-layout proof, runtime estimate, media QA, and all provider journals.
+
+The lease and journals are fail-closed duplicate-spend detectors, not a full cross-dispatch response cache. AI33 is additionally locally resumable without another POST: it atomically records `SUBMITTING` before transport, submits every missing chunk, persists all returned task IDs before the first poll, then polls the saved IDs with bounded concurrency under one shared deadline. An ambiguous submission never retries automatically. The workflow gives the complete produce step 300 minutes, supplies AI33 an absolute deadline 240 minutes from produce start, reserves the remaining 60 minutes for render/QA, and keeps the job's 360-minute ceiling for setup, source and artifact upload. Maximum Gemini/image caps still do not constitute a proven worst-case completion envelope, and a fresh GitHub runner cannot yet restore every prior provider response automatically. Treat the first live run as a separately approved canary and manually adjudicate every timeout or partial-spend result.
+
+Private YouTube upload is deliberately a separate local-only manual workflow, `.github/workflows/acc1_private_upload.yml`, after the factory artifact has been downloaded and visually reviewed. It is not registered on GitHub `main` and its command must not be run until it has been separately reviewed and merged. Once available, it accepts the successful factory `source_run_id`, `expected_manifest_sha256` equal to the exact reviewed `release_candidate_manifest_sha256`, and `confirm_private_upload=true`; it verifies the bound artifact and acc1 OAuth mapping, uploads exactly one private video, applies the custom thumbnail, and preserves the readback receipt. It contains no Reddit, Gemini, OpenAI, image, AI33, history write, public, or unlisted path.
+
+`workflow_dispatch` must already exist on the repository default branch. Therefore the local OpenAI revision, background assets, all-channel `videos_per_day=0` hold, and private-upload workflow must first be reviewed and merged to `main`; `--ref` alone cannot bootstrap them from a feature branch. The following commands are future-only references for that merged revision, not commands for the current GitHub `main`.
+
+```bash
+gh workflow run acc1_daily_episode.yml \
+  --repo webpot-ru/nebula-core-v3 \
+  --ref main \
+  -f production_date="" -f pilot_id=auto -f visual_mode=reddit_pages \
+  -f confirm_reddit_read=true -f reddit_request_cap=24 \
+  -f confirm_gemini_spend=true -f gemini_call_cap=128 \
+  -f confirm_openai_spend=true -f openai_call_cap=96 \
+  -f openai_token_cap=500000 \
+  -f confirm_image_spend=true -f image_call_cap=16 \
+  -f confirm_ai33_spend=true -f ai33_call_cap=96
+```
+
+Only after that future factory run succeeds, its exact video/audio/thumbnail receive a completed human review, and its source rights are recorded should the no-provider release-review workflow be dispatched. The review bundle is a repo-relative directory under `release-reviews/acc1/` containing `creative-review.json` and `rights-manifest.json`:
+
+```bash
+gh workflow run acc1_release_review.yml \
+  --repo webpot-ru/nebula-core-v3 --ref main \
+  -f source_run_id=EXACT_FACTORY_RUN_ID \
+  -f expected_manifest_sha256=EXACT_FACTORY_MANIFEST_SHA256 \
+  -f review_bundle_path=release-reviews/acc1/EXACT_EPISODE_KEY \
+  -f confirm_release_review=true
+```
+
+That workflow calls no content provider and performs no upload. It emits a self-hashed `release-gate.json` only after the exact factory evidence, completed version-3 creative review with timestamped visual/audio observations, and private-scope rights manifest all pass. The private-only upload then requires both the factory identity and that separate release-gate receipt:
+
+```bash
+gh workflow run acc1_private_upload.yml \
+  --repo webpot-ru/nebula-core-v3 --ref main \
+  -f source_run_id=EXACT_FACTORY_RUN_ID \
+  -f expected_manifest_sha256=EXACT_FACTORY_MANIFEST_SHA256 \
+  -f release_gate_run_id=EXACT_RELEASE_GATE_RUN_ID \
+  -f expected_release_gate_sha256=EXACT_RELEASE_GATE_SHA256 \
+  -f confirm_private_upload=true
+```
+
+The factory command can consume Reddit/API quota, OpenAI/Gemini, image-generation, AI33, GitHub runner, and artifact storage. The private-upload command mutates YouTube. Do not run either without exact approval of its scope. `visual_mode=reddit_pages` is the safe default; requesting `cinematic_story_v1` does not grant any additional provider or upload authority. The factory artifact contains `daily-plan.json`, source evidence, 3-5 finalist reviews, `topic-playoff.json`, immutable `episode-plan.json`, paid-preflight and spend-lease evidence, script, metadata, scene images, thumbnail, narration state/audio, pause map, measured audio-mix report, exact layout/runtime reports, storyboard, mode-specific shot/caption/SRT sidecars where applicable, `final-output.mp4`, media QA, creative-review template, provider attempt journals, and `release-candidate-manifest.json`. Human creative/audio review, exact source rights and a separately authorized upload remain mandatory. The adapter and revised two-workflow chain are locally tested but not committed or registered. Live readback on 2026-07-17 found the older `acc1 Private Artifact Upload` workflow id `313326356` active on GitHub `main`; it must not be dispatched because it lacks the new mandatory release-gate receipt. The new `acc1 Release Review Gate` is not registered, and no YouTube upload was made.
 
 ### Dry-Run Render Workflow
 
@@ -874,7 +1063,11 @@ ffprobe final_output.mp4
 - [x] `story_adapter.py` connected to the Gemini text provider for source-backed no-invent cleanup
 - [x] `metadata_generator.py` connected to the Gemini text provider for packaging options + SEO metadata
 - [x] `pre_publish_qa.py` blocks upload when audio, adaptation, evidence, metadata, or render report fail
-- [x] `thumbnail_generator.py` connected to VectorEngine image generation behind explicit spend confirmation
+- [x] `thumbnail_generator.py` supports deterministic local Cyrillic overlay/report and VectorEngine generation behind explicit spend confirmation
+- [x] Exact acc1 BUNDLE/SAGA/THREAD routing, bounded source collectors/selectors, 3-5-candidate producer/critic 90/100 topic playoff with at least three passing finalists, immutable episode plan, role-aware TTS, Reddit-pages renderer/QA, and human-review release ceiling are implemented locally
+- [x] Local `cinematic_story_v1` implementation for SAGA/BUNDLE: explicit non-default mode, deterministic full-screen shot plan, caption/SRT sidecars, five pillar narration profiles, semantic pause map, measured voice-only mix, manifest v2, factory/workflow propagation and mode-aware renderer/QA; no provider, GitHub or YouTube canary has run
+- [x] Local `editorial_motion_v1` implementation for SAGA/BUNDLE: paired source-bound image packs, six semantic collage modules, HyperFrames/GSAP renderer, exact HTML/SVG factual text, motion/caption sidecars and mode-aware QA/release evidence; the current visually inspected proof is a source-locked 300-second silent pilot using 16 successful `gpt-image-2` attempts with zero retries, while GitHub/YouTube publication remains untouched
+- [x] Base `acc1_daily_episode.yml` is active on GitHub `main`, but no successful review-ready artifact exists. The local OpenAI/private-upload extension is not yet merged and has no GitHub artifact proof.
 - [x] `storyboard_generator.py` and `render.py` create a no-spend dry-run `final_output.mp4`
 - [x] Slide-based RedditSim rendering: first story screen without comments, comment-only screens, long story chunking, clean no-karaoke visuals, timed slide boundaries, and larger Reddit-like render-mode fonts
 - [x] GitHub Actions workflow `video_dry_run.yml` renders and uploads a live dry-run MP4 artifact
@@ -883,12 +1076,12 @@ ffprobe final_output.mp4
 - [x] Verified GitHub dry-run rendering (`chonkertalks-dry-run-video` artifact generated)
 
 ### 🔄 Next Steps (Priority Order)
-- [ ] **1. Commit-aware source validation** - record git SHA/config digest, force one family per review, save bounded candidate bodies, and compare two independent snapshots.
-- [ ] **2. Validate distinct Reddit-native pilots** for `acc4`, `acc7`, then `acc1`; keep every channel automation-disabled until its gate passes.
-- [ ] **3. Build the evidence-dossier lane** for `acc2`, `acc3`, `acc5`, and `acc6` with independent sources, original scripts, timelines, and evidence visuals.
-- [ ] **4. Fix delayed-cron routing** so scheduled jobs map from `github.event.schedule` rather than the runner's current UTC hour.
-- [ ] **5. Run small unlisted pilots and analytics readback** before any public schedule; collect Engaged views, Stayed to watch, average percentage viewed, shares/comments/subscribers per 1,000 engaged views, and returning viewers.
-- [ ] **6. Select final voices and channel art** only after the channel promise and pilot format are accepted.
+- [ ] **1. Review and merge the local factory extension and all-channel legacy-publish hold, then run one explicitly approved bounded `acc1_daily_episode.yml` artifact** - inspect exact source evidence, topic playoff, voice roles, thumbnail, MP4, and QA; do not infer audience demand from a successful build.
+- [ ] **2. Complete human creative and rights review for that exact hash-bound artifact** - the local factory-aware adapter and no-provider release-review workflow are ready, but an actual version-3 human review and exact rights manifest do not yet exist. Only their `READY_FOR_PRIVATE_REVIEW` receipt may feed the separately authorized private upload.
+- [ ] **3. Validate distinct Reddit-native pilots** for `acc4` and `acc7`; keep every channel automation-disabled until its gate passes.
+- [ ] **4. Build the evidence-dossier lane** for `acc2`, `acc3`, `acc5`, and `acc6` with independent sources, original scripts, timelines, and evidence visuals.
+- [ ] **5. Fix delayed-cron routing** so scheduled jobs map from `github.event.schedule` rather than the runner's current UTC hour.
+- [ ] **6. Run small unlisted pilots and analytics readback** before any public schedule; collect Engaged views, Stayed to watch, average percentage viewed, shares/comments/subscribers per 1,000 engaged views, and returning viewers.
 
 ### 🔮 Future
 - [ ] Broader source discovery beyond Reddit: primary sources, official data, Google Trends, rights-safe archives, and RSS/news sources behind explicit spend/API boundaries

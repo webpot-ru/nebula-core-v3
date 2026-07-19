@@ -3,6 +3,7 @@ import base64
 import http.client
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -24,6 +25,7 @@ DEFAULT_BROWSER_TIMEOUT_SECONDS = 45
 DEFAULT_AUDIO = "narration.mp3"
 DEFAULT_TRANSCRIPT = "narration.json"
 LONG_FORM_THRESHOLD_SECONDS = 180.0
+WORD_RE = re.compile(r"\S+", re.UNICODE)
 VERTICAL_PROFILE = {
     "format": "shorts",
     "width": 1080,
@@ -512,6 +514,153 @@ def transcript_frame_timestamps(words: list[dict[str, Any]]) -> list[float]:
     return timestamps
 
 
+def coerce_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed
+
+
+def render_slides_from_storyboard(storyboard: dict[str, Any]) -> list[dict[str, Any]]:
+    slides = storyboard.get("render_slides")
+    if not isinstance(slides, list) or not slides:
+        render_story = storyboard.get("render_story") if isinstance(storyboard.get("render_story"), dict) else {}
+        slides = render_story.get("slides") if isinstance(render_story, dict) else []
+    if not isinstance(slides, list):
+        slides = []
+    return [slide for slide in slides if isinstance(slide, dict)]
+
+
+def slide_narration_text(slide: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for field in ("title", "body"):
+        value = slide.get(f"narration_{field}") or slide.get(field)
+        if value:
+            parts.append(str(value))
+    for comment in slide.get("comments") or []:
+        if isinstance(comment, dict):
+            value = comment.get("narration_body") or comment.get("body")
+            if value:
+                parts.append(str(value))
+    return "\n\n".join(parts)
+
+
+def slide_word_count(slide: dict[str, Any]) -> int:
+    explicit = coerce_int(slide.get("word_count"))
+    if explicit is not None and explicit > 0:
+        return explicit
+    return max(1, len(WORD_RE.findall(slide_narration_text(slide))))
+
+
+def slide_defers_footer(slide: dict[str, Any]) -> bool:
+    if slide.get("type") == "comments":
+        return False
+    return bool(slide.get("show_post_footer", True))
+
+
+def word_weighted_slide_starts(slides: list[dict[str, Any]], duration: float) -> list[float]:
+    if not slides:
+        return []
+    weights = [max(1, slide_word_count(slide)) for slide in slides]
+    total = max(1, sum(weights))
+    starts = [0.0]
+    cursor = 0
+    for weight in weights[:-1]:
+        cursor += weight
+        starts.append(round(max(0.0, min(duration, duration * cursor / total)), 6))
+    return starts
+
+
+def transcript_slide_starts(
+    slides: list[dict[str, Any]],
+    words: list[dict[str, Any]],
+    duration: float,
+) -> list[float] | None:
+    if not slides:
+        return []
+    if len(slides) == 1:
+        return [0.0]
+    if not words:
+        return None
+
+    min_interval = 1.0 / DEFAULT_OUTPUT_FPS
+    starts = [0.0]
+    for index, slide in enumerate(slides[1:], start=1):
+        word_start = coerce_int(slide.get("word_start"))
+        if word_start is None or word_start <= 0 or word_start >= len(words):
+            return None
+        start = words[word_start].get("start")
+        if not isinstance(start, (int, float)):
+            return None
+        timestamp = max(0.0, min(float(start), duration - min_interval))
+        if timestamp <= starts[-1] + min_interval:
+            return None
+        starts.append(round(timestamp, 6))
+    return starts
+
+
+def sanitize_frame_plan(plan: list[dict[str, Any]], duration: float) -> list[dict[str, Any]]:
+    min_interval = 1.0 / DEFAULT_OUTPUT_FPS
+    cleaned: list[dict[str, Any]] = []
+    for item in sorted(plan, key=lambda value: float(value.get("timestamp") or 0)):
+        timestamp = max(0.0, float(item.get("timestamp") or 0.0))
+        if timestamp >= duration:
+            continue
+        if cleaned and timestamp - float(cleaned[-1]["timestamp"]) < min_interval:
+            continue
+        cleaned.append({
+            "timestamp": round(timestamp, 6),
+            "slide_index": max(0, coerce_int(item.get("slide_index")) or 0),
+            "local_progress": max(0.0, min(1.0, float(item.get("local_progress") or 0.0))),
+        })
+    if not cleaned:
+        cleaned.append({"timestamp": 0.0, "slide_index": 0, "local_progress": 0.0})
+    elif cleaned[0]["timestamp"] != 0:
+        cleaned.insert(0, {"timestamp": 0.0, "slide_index": 0, "local_progress": 0.0})
+    return cleaned
+
+
+def static_slide_frame_plan(
+    storyboard: dict[str, Any],
+    duration: float,
+    transcript_words: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], str, str]:
+    slides = render_slides_from_storyboard(storyboard)
+    if not slides:
+        return [], "uniform_progress", "none"
+
+    starts = transcript_slide_starts(slides, transcript_words, duration)
+    timing_source = "transcript" if starts else "word_weighted"
+    if not starts:
+        starts = word_weighted_slide_starts(slides, duration)
+
+    plan: list[dict[str, Any]] = []
+    min_interval = 1.0 / DEFAULT_OUTPUT_FPS
+    for index, start in enumerate(starts):
+        next_start = starts[index + 1] if index + 1 < len(starts) else duration
+        slide_duration = max(min_interval, next_start - start)
+        plan.append({
+            "timestamp": start,
+            "slide_index": index,
+            "local_progress": 0.0,
+        })
+        if slide_defers_footer(slides[index]):
+            reveal_time = start + slide_duration * 0.86
+            if start + min_interval < reveal_time < duration - min_interval:
+                plan.append({
+                    "timestamp": reveal_time,
+                    "slide_index": index,
+                    "local_progress": 0.9,
+                })
+
+    return (
+        sanitize_frame_plan(plan, duration),
+        "static_slide_boundaries",
+        timing_source,
+    )
+
+
 def sanitize_frame_timestamps(timestamps: list[float], duration: float) -> list[float]:
     min_interval = 1.0 / DEFAULT_OUTPUT_FPS
     cleaned: list[float] = []
@@ -555,6 +704,8 @@ def capture_redditsim_frames(
     story_path: Path,
     audio_path: Path | None,
     transcript_path: Path | None,
+    enable_karaoke: bool,
+    static_frame_plan: list[dict[str, Any]] | None,
     workdir: Path,
     duration: float,
     frame_count: int,
@@ -577,7 +728,7 @@ def capture_redditsim_frames(
     ]
     if audio_path:
         query_parts.append(("audio", audio_path.resolve().as_uri()))
-    if transcript_path:
+    if transcript_path and enable_karaoke:
         query_parts.append(("transcript", transcript_path.resolve().as_uri()))
         query_parts.append(("karaoke", "1"))
     encoded_query = urllib.parse.urlencode(query_parts, quote_via=urllib.parse.quote, safe=":/")
@@ -589,13 +740,18 @@ def capture_redditsim_frames(
         initial_url = f"{index_url}?{encoded_query}"
         client.command("Page.navigate", {"url": initial_url}, timeout=5)
         wait_for_render_ready(client)
-        if transcript_path:
+        if transcript_path and enable_karaoke:
             browser_times = read_browser_karaoke_frame_times(client, duration)
             frame_times = sanitize_frame_timestamps(
                 browser_times or fallback_karaoke_times or [0.0],
                 duration,
             )
+            frame_plan: list[dict[str, Any]] = []
+        elif static_frame_plan:
+            frame_plan = static_frame_plan
+            frame_times = [float(item["timestamp"]) for item in frame_plan]
         else:
+            frame_plan = []
             frame_times = uniform_frame_timestamps(duration, frame_count)
 
         for frame_index, timestamp in enumerate(frame_times):
@@ -603,11 +759,22 @@ def capture_redditsim_frames(
             screenshot_path = frames_dir / f"frame_{frame_index:04d}.png"
 
             # Update typing/karaoke progress in-memory via JavaScript.
-            if transcript_path:
+            if transcript_path and enable_karaoke:
                 expression = (
                     "(() => { "
                     "if (!window.karaokeReady) { throw new Error('Karaoke transcript is required but not ready.'); } "
                     f"return renderKaraokeAtTime({timestamp:.6f}); "
+                    "})()"
+                )
+            elif frame_plan:
+                slide_index = int(frame_plan[frame_index].get("slide_index") or 0)
+                local_progress = float(frame_plan[frame_index].get("local_progress") or 0.0)
+                expression = (
+                    "(() => { "
+                    "if (typeof window.renderSlideAtIndex !== 'function') { "
+                    "throw new Error('renderSlideAtIndex is not available.'); "
+                    "} "
+                    f"return window.renderSlideAtIndex({slide_index}, {local_progress:.6f}); "
                     "})()"
                 )
             else:
@@ -720,6 +887,7 @@ def render_redditsim_video(
     long_form_threshold_sec: float,
     audio_path: Path | None,
     transcript_path: Path | None,
+    karaoke_enabled: bool,
     transcript_word_count_value: int,
     transcript_words: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -733,12 +901,25 @@ def render_redditsim_video(
     render_profile = resolve_render_profile(storyboard, duration, orientation, long_form_threshold_sec)
     width = int(render_profile["width"])
     height = int(render_profile["height"])
-    fallback_karaoke_times = transcript_frame_timestamps(transcript_words) if transcript_path else None
+    fallback_karaoke_times = transcript_frame_timestamps(transcript_words) if transcript_path and karaoke_enabled else None
+    static_plan: list[dict[str, Any]] | None = None
+    frame_schedule = "karaoke_phrase_times" if karaoke_enabled else "uniform_progress"
+    slide_timing_source = "none"
+    if not karaoke_enabled:
+        static_plan, frame_schedule, slide_timing_source = static_slide_frame_plan(
+            storyboard,
+            duration,
+            transcript_words,
+        )
+        if not static_plan:
+            static_plan = None
     frames, frame_timestamps = capture_redditsim_frames(
         browser=browser,
         story_path=story_path,
         audio_path=audio_path,
         transcript_path=transcript_path,
+        enable_karaoke=karaoke_enabled,
+        static_frame_plan=static_plan,
         workdir=workdir,
         duration=duration,
         frame_count=frame_count,
@@ -756,14 +937,17 @@ def render_redditsim_video(
         "ffprobe": ffprobe,
         "framesDir": str(frames[0].parent),
         "frameCount": len(frames),
-        "frameSchedule": "karaoke_phrase_times" if transcript_path else "uniform_progress",
+        "frameSchedule": frame_schedule,
+        "slideTimingSource": slide_timing_source,
+        "slideCount": len(render_slides_from_storyboard(storyboard)),
+        "slideFramePlan": static_plan or [],
         "durationSec": duration,
         "storyboardDurationSec": storyboard_sec,
         "audioDurationSec": audio_sec,
         "audio": str(audio_path) if audio_path else None,
         "transcript": str(transcript_path) if transcript_path else None,
         "transcriptWordCount": transcript_word_count_value,
-        "karaokeEnabled": bool(transcript_path),
+        "karaokeEnabled": bool(karaoke_enabled),
         "outputFps": DEFAULT_OUTPUT_FPS,
         "renderFormat": render_profile["format"],
         "resolution": f"{width}x{height}",
@@ -785,7 +969,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--no-karaoke",
         action="store_true",
-        help="Ignore transcript JSON and render clean static slide-progress frames while still merging narration audio.",
+        help="Disable visual karaoke highlights. If transcript JSON exists, it may still be used for clean static slide timing.",
     )
     parser.add_argument(
         "--require-karaoke",
@@ -819,7 +1003,7 @@ def main(argv: list[str]) -> int:
     audio_path = resolve_optional_file(args.audio)
     if args.no_karaoke and args.require_karaoke:
         raise RenderError("--no-karaoke cannot be combined with --require-karaoke.")
-    transcript_path = None if args.no_karaoke else resolve_optional_file(args.transcript)
+    transcript_path = resolve_optional_file(args.transcript)
     transcript_words_list = load_transcript_words(transcript_path) if transcript_path else []
     transcript_words = len(transcript_words_list)
     if transcript_path and transcript_words <= 0:
@@ -831,9 +1015,10 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         transcript_path = None
-    if args.require_karaoke and not transcript_path:
+    karaoke_enabled = bool(transcript_path and not args.no_karaoke)
+    if args.require_karaoke and not karaoke_enabled:
         raise RenderError("--require-karaoke was set, but no usable transcript file was found.")
-    if transcript_path and not audio_path:
+    if karaoke_enabled and not audio_path:
         raise RenderError("--transcript was found, but --audio is missing; karaoke render needs both.")
 
     output_path = Path(args.output)
@@ -846,6 +1031,7 @@ def main(argv: list[str]) -> int:
         long_form_threshold_sec=args.long_form_threshold_sec,
         audio_path=audio_path,
         transcript_path=transcript_path,
+        karaoke_enabled=karaoke_enabled,
         transcript_word_count_value=transcript_words if transcript_path else 0,
         transcript_words=transcript_words_list if transcript_path else [],
     )

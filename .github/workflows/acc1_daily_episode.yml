@@ -1,0 +1,583 @@
+name: acc1 Daily Episode Factory
+run-name: acc1 daily episode date=${{ inputs.production_date }} pilot=${{ inputs.pilot_id }} mode=${{ inputs.visual_mode }}
+
+# This workflow can enforce source, packaging, media, and review gates. It
+# cannot guarantee millions of views: audience response is measurable only
+# after a separately authorized release, which is outside this artifact lane.
+on:
+  workflow_dispatch:
+    inputs:
+      production_date:
+        description: Exact Europe/Moscow production date (YYYY-MM-DD); blank means Moscow today
+        required: false
+        default: ""
+        type: string
+      pilot_id:
+        description: Use today's canonical pilot, or explicitly override it
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - pilot_01
+          - pilot_02
+          - pilot_03
+          - pilot_04
+          - pilot_05
+          - pilot_06
+      visual_mode:
+        description: Explicit renderer contract; cinematic is never a fallback
+        required: true
+        default: reddit_pages
+        type: choice
+        options:
+          - reddit_pages
+          - cinematic_story_v1
+          - editorial_motion_v1
+      confirm_reddit_read:
+        description: Explicitly allow the bounded read-only Reddit source stage
+        required: true
+        default: false
+        type: boolean
+      confirm_gemini_spend:
+        description: Explicitly allow bounded Gemini calls after source success
+        required: true
+        default: false
+        type: boolean
+      confirm_openai_spend:
+        description: Explicitly allow bounded OpenAI translation calls after source success
+        required: true
+        default: false
+        type: boolean
+      confirm_image_spend:
+        description: Explicitly allow bounded image-generation calls after source success
+        required: true
+        default: false
+        type: boolean
+      confirm_ai33_spend:
+        description: Explicitly allow bounded AI33 voice calls after source success
+        required: true
+        default: false
+        type: boolean
+      reddit_request_cap:
+        description: Hard cap for Reddit requests in this episode run
+        required: true
+        default: "24"
+        type: choice
+        options: ["8", "16", "24"]
+      gemini_call_cap:
+        description: Hard cap for Gemini calls in this episode run
+        required: true
+        default: "128"
+        type: choice
+        options: ["32", "48", "64", "96", "128"]
+      openai_call_cap:
+        description: Hard cap for OpenAI translation calls in this episode run
+        required: true
+        default: "96"
+        type: choice
+        options: ["16", "24", "32", "48", "64", "96"]
+      openai_token_cap:
+        description: Hard cap for OpenAI translation tokens in this episode run
+        required: true
+        default: "500000"
+        type: choice
+        options: ["100000", "250000", "500000", "750000"]
+      image_call_cap:
+        description: Hard cap for image-generation calls in this episode run
+        required: true
+        default: "16"
+        type: choice
+        options: ["8", "12", "16", "20", "32", "40", "48", "60"]
+      ai33_call_cap:
+        description: Hard cap for AI33 task submissions in this episode run
+        required: true
+        default: "96"
+        type: choice
+        options: ["8", "16", "24", "32", "48", "64", "96"]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      episode_key: ${{ steps.daily-plan.outputs.episode_key }}
+      pilot_id: ${{ steps.daily-plan.outputs.pilot_id }}
+      production_date: ${{ steps.daily-plan.outputs.production_date }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test deterministic planner contract
+        run: >-
+          python -m unittest
+          tests.test_acc1_daily_planner
+          tests.test_acc1_daily_workflow
+          tests.test_acc1_spend_lock
+      - name: Build one Europe/Moscow daily plan
+        id: daily-plan
+        env:
+          DAILY_PLAN_PATH: build/acc1-daily/daily-plan.json
+          PRODUCTION_DATE: ${{ inputs.production_date }}
+          PILOT_ID: ${{ inputs.pilot_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$DAILY_PLAN_PATH")"
+          PLAN_ARGS=(--channels channels.json --output "$DAILY_PLAN_PATH")
+          if [[ -n "$PRODUCTION_DATE" ]]; then
+            PLAN_ARGS+=(--production-date "$PRODUCTION_DATE")
+          fi
+          if [[ "$PILOT_ID" != "auto" ]]; then
+            PLAN_ARGS+=(--pilot-id "$PILOT_ID")
+          fi
+          python acc1_daily_planner.py "${PLAN_ARGS[@]}" > build/acc1-daily/planner-stdout.json
+          python - "$DAILY_PLAN_PATH" >> "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+
+          plan = json.load(open(sys.argv[1], encoding="utf-8"))
+          print(f"episode_key={plan['episode_key']}")
+          print(f"pilot_id={plan['pilot_id']}")
+          print(f"production_date={plan['production_date']}")
+          PY
+      - name: Transfer immutable plan to build job
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-daily-plan-${{ github.run_id }}
+          path: build/acc1-daily
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    concurrency:
+      # Global acc1 serialization closes the cross-date TOCTOU window between
+      # source-overlap scan and durable lease upload.
+      group: acc1-paid-source-reservation
+      cancel-in-progress: false
+    env:
+      AI_QUALITY_CHECK: "0"
+      AI_QUALITY_FAIL_OPEN: "0"
+      ACC1_RELEASE_CEILING: READY_FOR_HUMAN_REVIEW
+      WORKDIR: build/acc1-daily-episode
+      DAILY_PLAN_PATH: build/acc1-daily-episode/daily-plan.json
+      VISUAL_MODE: ${{ inputs.visual_mode }}
+    steps:
+      - name: Refuse replay of a spend-enabled dispatch
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$RUN_ATTEMPT" = "1" || {
+            echo "GitHub reruns reuse paid confirmations; the episode remains spend-locked for manual adjudication."
+            exit 1
+          }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Download immutable daily plan
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-daily-plan-${{ github.run_id }}
+          path: build/acc1-daily-episode
+      - name: Run no-spend production preflight
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_episode_factory.py \
+            --plan "$DAILY_PLAN_PATH" \
+            --workdir "$WORKDIR" \
+            --stage preflight \
+            --visual-mode "$VISUAL_MODE"
+      - name: Refuse an existing cross-dispatch paid spend lease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEASE_SCAN_ROOT: ${{ runner.temp }}/acc1-paid-lease-scan
+        run: |
+          set -euo pipefail
+          mkdir -p "$LEASE_SCAN_ROOT"
+          LEASE_INDEX="$RUNNER_TEMP/acc1-paid-lease-index.tsv"
+          gh api --paginate \
+            "/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false and (.name | startswith("acc1-paid-lease-"))) | [.id, .name, (.workflow_run.id // "")] | @tsv' \
+            > "$LEASE_INDEX"
+          while IFS=$'\t' read -r artifact_id artifact_name owner_run_id; do
+            [[ -n "$artifact_id" ]] || continue
+            [[ "$artifact_id" =~ ^[1-9][0-9]*$ ]]
+            [[ "$owner_run_id" =~ ^[1-9][0-9]*$ ]]
+            test "$artifact_name" = "acc1-paid-lease-$owner_run_id"
+            artifact_dir="$LEASE_SCAN_ROOT/$owner_run_id-$artifact_id"
+            mkdir -p "$artifact_dir"
+            gh run download "$owner_run_id" \
+              --repo "$GITHUB_REPOSITORY" \
+              --name "$artifact_name" \
+              --dir "$artifact_dir"
+          done < "$LEASE_INDEX"
+          python scripts/acc1_spend_lock.py scan \
+            --plan "$DAILY_PLAN_PATH" \
+            --leases-root "$LEASE_SCAN_ROOT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow-path ".github/workflows/acc1_daily_episode.yml" \
+            --current-run-id "$GITHUB_RUN_ID"
+      - name: Build source evidence before any paid stage
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
+          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
+          CONFIRM_REDDIT_READ: ${{ inputs.confirm_reddit_read }}
+          REDDIT_REQUEST_CAP: ${{ inputs.reddit_request_cap }}
+        run: |
+          set -euo pipefail
+          FACTORY_ARGS=(
+            --plan "$DAILY_PLAN_PATH"
+            --workdir "$WORKDIR"
+            --stage source
+            --confirm-reddit-read "$CONFIRM_REDDIT_READ"
+            --reddit-request-cap "$REDDIT_REQUEST_CAP"
+          )
+          python scripts/run_acc1_episode_factory.py "${FACTORY_ARGS[@]}"
+      - name: Refuse cross-date reserved-source overlap before paid stages
+        env:
+          LEASE_SCAN_ROOT: ${{ runner.temp }}/acc1-paid-lease-scan
+        run: |
+          set -euo pipefail
+          python scripts/acc1_spend_lock.py scan \
+            --plan "$DAILY_PLAN_PATH" \
+            --leases-root "$LEASE_SCAN_ROOT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow-path ".github/workflows/acc1_daily_episode.yml" \
+            --current-run-id "$GITHUB_RUN_ID" \
+            --source-stage "$WORKDIR/source-stage.json" \
+            --candidate-pool "$WORKDIR/candidate-pool.json" \
+            --source-queue "$WORKDIR/source-queue.json" \
+            --source-review "$WORKDIR/source-review.json"
+      - name: Require all paid-provider confirmations after source success
+        env:
+          CONFIRM_GEMINI_SPEND: ${{ inputs.confirm_gemini_spend }}
+          CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
+          CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
+          CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM_GEMINI_SPEND" = "true"
+          test "$CONFIRM_OPENAI_SPEND" = "true"
+          test "$CONFIRM_IMAGE_SPEND" = "true"
+          test "$CONFIRM_AI33_SPEND" = "true"
+      - name: Run source-dependent paid preflight before lease
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          GEMINI_PROVIDER: vectorengine
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          CONFIRM_GEMINI_SPEND: ${{ inputs.confirm_gemini_spend }}
+          CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
+          CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
+          CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
+          GEMINI_CALL_CAP: ${{ inputs.gemini_call_cap }}
+          OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
+          OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
+          IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
+          AI33_CALL_CAP: ${{ inputs.ai33_call_cap }}
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_episode_factory.py \
+            --plan "$DAILY_PLAN_PATH" \
+            --workdir "$WORKDIR" \
+            --stage paid-preflight \
+            --visual-mode "$VISUAL_MODE" \
+            --confirm-gemini-spend "$CONFIRM_GEMINI_SPEND" \
+            --gemini-call-cap "$GEMINI_CALL_CAP" \
+            --confirm-openai-spend "$CONFIRM_OPENAI_SPEND" \
+            --openai-call-cap "$OPENAI_CALL_CAP" \
+            --openai-token-cap "$OPENAI_TOKEN_CAP" \
+            --confirm-image-spend "$CONFIRM_IMAGE_SPEND" \
+            --image-call-cap "$IMAGE_CALL_CAP" \
+            --confirm-ai33-spend "$CONFIRM_AI33_SPEND" \
+            --ai33-call-cap "$AI33_CALL_CAP"
+      - name: Create exact source-bound paid spend lease
+        env:
+          CONFIRM_REDDIT_READ: ${{ inputs.confirm_reddit_read }}
+          CONFIRM_GEMINI_SPEND: ${{ inputs.confirm_gemini_spend }}
+          CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
+          CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
+          CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
+          REDDIT_REQUEST_CAP: ${{ inputs.reddit_request_cap }}
+          GEMINI_CALL_CAP: ${{ inputs.gemini_call_cap }}
+          OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
+          OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
+          IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
+          AI33_CALL_CAP: ${{ inputs.ai33_call_cap }}
+        run: |
+          set -euo pipefail
+          python scripts/acc1_spend_lock.py create \
+            --plan "$DAILY_PLAN_PATH" \
+            --source-stage "$WORKDIR/source-stage.json" \
+            --candidate-pool "$WORKDIR/candidate-pool.json" \
+            --source-queue "$WORKDIR/source-queue.json" \
+            --source-review "$WORKDIR/source-review.json" \
+            --output "$WORKDIR/spend-lease.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow-path ".github/workflows/acc1_daily_episode.yml" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --head-sha "$GITHUB_SHA" \
+            --reddit-request-cap "$REDDIT_REQUEST_CAP" \
+            --gemini-call-cap "$GEMINI_CALL_CAP" \
+            --openai-call-cap "$OPENAI_CALL_CAP" \
+            --openai-token-cap "$OPENAI_TOKEN_CAP" \
+            --image-call-cap "$IMAGE_CALL_CAP" \
+            --ai33-call-cap "$AI33_CALL_CAP" \
+            --confirm-reddit-read "$CONFIRM_REDDIT_READ" \
+            --confirm-gemini-spend "$CONFIRM_GEMINI_SPEND" \
+            --confirm-openai-spend "$CONFIRM_OPENAI_SPEND" \
+            --confirm-image-spend "$CONFIRM_IMAGE_SPEND" \
+            --confirm-ai33-spend "$CONFIRM_AI33_SPEND"
+      - name: Persist paid spend lease before the first paid request
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-paid-lease-${{ github.run_id }}
+          path: build/acc1-daily-episode/spend-lease.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Produce review-ready episode artifact
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          GEMINI_PROVIDER: vectorengine
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          CONFIRM_GEMINI_SPEND: ${{ inputs.confirm_gemini_spend }}
+          CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
+          CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
+          CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
+          REDDIT_REQUEST_CAP: ${{ inputs.reddit_request_cap }}
+          GEMINI_CALL_CAP: ${{ inputs.gemini_call_cap }}
+          OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
+          OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
+          IMAGE_CALL_CAP: ${{ inputs.image_call_cap }}
+          AI33_CALL_CAP: ${{ inputs.ai33_call_cap }}
+        run: |
+          set -euo pipefail
+          FACTORY_ARGS=(
+            --plan "$DAILY_PLAN_PATH"
+            --workdir "$WORKDIR"
+            --stage produce
+            --visual-mode "$VISUAL_MODE"
+            --reddit-request-cap "$REDDIT_REQUEST_CAP"
+            --spend-lease "$WORKDIR/spend-lease.json"
+            --confirm-gemini-spend "$CONFIRM_GEMINI_SPEND"
+            --gemini-call-cap "$GEMINI_CALL_CAP"
+            --confirm-openai-spend "$CONFIRM_OPENAI_SPEND"
+            --openai-call-cap "$OPENAI_CALL_CAP"
+            --openai-token-cap "$OPENAI_TOKEN_CAP"
+            --confirm-image-spend "$CONFIRM_IMAGE_SPEND"
+            --image-call-cap "$IMAGE_CALL_CAP"
+            --confirm-ai33-spend "$CONFIRM_AI33_SPEND"
+            --ai33-call-cap "$AI33_CALL_CAP"
+          )
+          # Give AI33 one shared deadline four hours from produce start. The
+          # outer five-hour ceiling leaves one hour for render/QA, while the
+          # six-hour job ceiling retains setup/source/artifact headroom.
+          export AI33_TTS_DEADLINE_EPOCH
+          AI33_TTS_DEADLINE_EPOCH="$(python -c 'import time; print(int(time.time()) + 14400)')"
+          timeout --signal=TERM --kill-after=60s 18000s \
+            python scripts/run_acc1_episode_factory.py "${FACTORY_ARGS[@]}"
+      - name: Enforce hash-bound human-review ceiling
+        run: |
+          set -euo pipefail
+          python - "$WORKDIR/factory-result.json" <<'PY'
+          import json
+          import hashlib
+          import re
+          import sys
+          from pathlib import Path
+
+          def canonical_json_sha256(payload):
+              encoded = json.dumps(
+                  payload,
+                  ensure_ascii=False,
+                  sort_keys=True,
+                  separators=(",", ":"),
+              ).encode("utf-8")
+              return hashlib.sha256(encoded).hexdigest()
+
+          def file_sha256(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          result_path = Path(sys.argv[1])
+          result = json.loads(result_path.read_text(encoding="utf-8"))
+          if result.get("status") != "READY_FOR_HUMAN_REVIEW":
+              raise SystemExit("factory result is not READY_FOR_HUMAN_REVIEW")
+          if result.get("publication_authorized") is not False:
+              raise SystemExit("artifact-only workflow cannot authorize publication")
+          sha256 = re.compile(r"^[0-9a-f]{64}$")
+          plan_path = result_path.parent / "episode-plan.json"
+          manifest_path = result_path.parent / "release-candidate-manifest.json"
+          for bound_path in (plan_path, manifest_path):
+              if not bound_path.is_file():
+                  raise SystemExit(f"factory result is missing bound file {bound_path.name}")
+
+          plan = json.loads(plan_path.read_text(encoding="utf-8"))
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          plan_hash_payload = dict(plan)
+          embedded_plan_hash = str(plan_hash_payload.pop("episode_plan_sha256", ""))
+          manifest_hash_payload = dict(manifest)
+          embedded_manifest_hash = str(
+              manifest_hash_payload.pop("release_candidate_manifest_sha256", "")
+          )
+          bindings = {
+              "episode_plan_sha256": canonical_json_sha256(plan_hash_payload),
+              "release_candidate_manifest_sha256": canonical_json_sha256(
+                  manifest_hash_payload
+              ),
+          }
+          for field, actual in bindings.items():
+              claimed = str(result.get(field) or "")
+              if not sha256.fullmatch(claimed):
+                  raise SystemExit(f"factory result has invalid {field}")
+              if claimed != actual:
+                  raise SystemExit(f"factory result {field} does not match bound JSON")
+          if embedded_plan_hash != bindings["episode_plan_sha256"]:
+              raise SystemExit("locked episode plan embedded hash does not match bound JSON")
+          if embedded_manifest_hash != bindings["release_candidate_manifest_sha256"]:
+              raise SystemExit("release manifest embedded hash does not match bound JSON")
+
+          visual_mode = str(result.get("visual_mode") or "")
+          if visual_mode not in {"reddit_pages", "cinematic_story_v1"}:
+              raise SystemExit("factory result has unknown visual_mode")
+          for field in (
+              "visual_mode",
+              "narration_profile_id",
+              "narration_profile_sha256",
+          ):
+              expected = result.get(field)
+              if plan.get(field) != expected or manifest.get(field) != expected:
+                  raise SystemExit(f"factory mode/profile binding mismatch: {field}")
+          for field in (
+              "timing_contract_sha256",
+              "pause_map_sha256",
+              "audio_mix_report_sha256",
+              "audio_sha256",
+          ):
+              expected = str(result.get(field) or "")
+              if not sha256.fullmatch(expected) or manifest.get(field) != expected:
+                  raise SystemExit(f"factory audio binding mismatch: {field}")
+          for field in (
+              "shot_plan_sha256",
+              "caption_track_sha256",
+              "caption_srt_sha256",
+          ):
+              expected = result.get(field)
+              if visual_mode == "cinematic_story_v1":
+                  if not sha256.fullmatch(str(expected or "")):
+                      raise SystemExit(f"cinematic result has invalid {field}")
+                  if manifest.get(field) != expected:
+                      raise SystemExit(f"cinematic manifest binding mismatch: {field}")
+              elif expected is not None or manifest.get(field) is not None:
+                  raise SystemExit(f"baseline result must not claim {field}")
+
+          root = result_path.parent
+          artifact_paths = {
+              "script_sha256": root / "episode-script.json",
+              "audio_sha256": root / "tts" / "compilation_voice_mix.wav",
+              "metadata_sha256": root / "youtube-metadata.json",
+              "storyboard_sha256": root / "storyboard.json",
+              "video_sha256": root / "final-output.mp4",
+              "thumbnail_sha256": root / "youtube-thumbnail.png",
+          }
+          evidence_paths = {
+              "daily_plan": root / "daily-plan.json",
+              "source_queue": root / "source-queue.json",
+              "source_review": root / "source-review.json",
+              "candidate_pool": root / "candidate-pool.json",
+              "source_stage": root / "source-stage.json",
+              "spend_lease": root / "spend-lease.json",
+              "paid_preflight": root / "paid-preflight.json",
+              "producer_review": root / "producer-review.json",
+              "critic_review": root / "critic-review.json",
+              "topic_playoff_input": root / "topic-playoff-input.json",
+              "topic_playoff": root / "topic-playoff.json",
+              "episode_greenlight": root / "episode-greenlight.json",
+              "episode_plan": root / "episode-plan.json",
+              "scene_images_manifest": root / "scene-images-manifest.json",
+              "thumbnail_manifest": root / "thumbnail-manifest.json",
+              "tts_state": root / "tts" / "compilation_tts_state.json",
+              "pause_map": root / "tts" / "narration-pause-map.json",
+              "audio_mix_report": root / "tts" / "audio-mix-report.json",
+              "render_report": root / "render-report.json",
+              "text_layout_report": root / "text-layout-report.json",
+              "runtime_estimate_report": root / "runtime-estimate-report.json",
+              "media_qa": root / "media-qa.json",
+              "creative_review": root / "creative-review.json",
+              "gemini_attempts": root / "provider-attempts" / "gemini.json",
+              "openai_translation_attempts": root / "provider-attempts" / "openai-translation.json",
+              "image_attempts": root / "provider-attempts" / "image.json",
+              "ai33_attempts": root / "provider-attempts" / "ai33.json",
+          }
+          if visual_mode == "cinematic_story_v1":
+              evidence_paths.update({
+                  "shot_plan": root / "shot-plan.json",
+                  "caption_track": root / "caption-track.json",
+                  "caption_srt": root / "final-output.srt",
+              })
+          for label, paths, claimed in (
+              ("artifact", artifact_paths, manifest.get("artifact_sha256")),
+              ("evidence", evidence_paths, manifest.get("evidence_sha256")),
+          ):
+              if not isinstance(claimed, dict) or set(claimed) != set(paths):
+                  raise SystemExit(f"release manifest has incomplete {label} hash inventory")
+              for field, path in paths.items():
+                  if not path.is_file():
+                      raise SystemExit(f"release manifest is missing {label} file {path.name}")
+                  actual = file_sha256(path)
+                  if claimed.get(field) != actual:
+                      raise SystemExit(f"release manifest {label} hash mismatch: {field}")
+
+          source_stage = json.loads(evidence_paths["source_stage"].read_text(encoding="utf-8"))
+          source_stage_payload = dict(source_stage)
+          source_stage_hash = str(source_stage_payload.pop("source_stage_sha256", ""))
+          if source_stage_hash != canonical_json_sha256(source_stage_payload):
+              raise SystemExit("source-stage self hash mismatch")
+          if manifest.get("source_stage_sha256") != source_stage_hash:
+              raise SystemExit("release manifest is not bound to source-stage")
+
+          playoff_input = json.loads(
+              evidence_paths["topic_playoff_input"].read_text(encoding="utf-8")
+          )
+          playoff = json.loads(evidence_paths["topic_playoff"].read_text(encoding="utf-8"))
+          playoff_payload = dict(playoff)
+          playoff_hash = str(playoff_payload.pop("playoff_sha256", ""))
+          if playoff_hash != canonical_json_sha256(playoff_payload):
+              raise SystemExit("topic-playoff self hash mismatch")
+          if playoff.get("playoff_input_sha256") != canonical_json_sha256(playoff_input):
+              raise SystemExit("topic-playoff input binding mismatch")
+          if manifest.get("topic_playoff_sha256") != playoff_hash:
+              raise SystemExit("release manifest is not bound to topic-playoff")
+          if manifest.get("topic_playoff_input_sha256") != playoff.get("playoff_input_sha256"):
+              raise SystemExit("release manifest is not bound to topic-playoff input")
+          PY
+      - name: Upload checkpoints, evidence, media, and review artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-daily-episode-${{ github.run_id }}
+          path: build/acc1-daily-episode
+          if-no-files-found: error
+          retention-days: 14

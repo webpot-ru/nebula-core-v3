@@ -23,6 +23,10 @@ class RedditCredentialConfigError(RuntimeError):
     """Raised before any Reddit request when credential configuration is unsafe."""
 
 
+class RedditRequestBudgetExceeded(RuntimeError):
+    """Raised before a PRAW HTTP request would exceed the explicit live-read cap."""
+
+
 def reddit_credentials_from_env(env: dict[str, str] | None = None) -> dict[str, str | None]:
     """Read Reddit credentials without defaults or network access."""
     env = os.environ if env is None else env
@@ -47,19 +51,56 @@ def reddit_credentials_from_env(env: dict[str, str] | None = None) -> dict[str, 
     }
 
 
-def get_reddit():
-    """Authenticate with Reddit via PRAW using explicit environment credentials."""
+def _bounded_requestor_class(request_cap: int):
+    """Return a PRAW requestor that counts OAuth and API HTTP requests alike."""
+    if isinstance(request_cap, bool) or not isinstance(request_cap, int) or request_cap < 1:
+        raise ValueError("request_cap must be a positive integer")
+    try:
+        from prawcore.requestor import Requestor
+    except ImportError as exc:
+        raise RuntimeError("PRAW is required. Install dependencies with: pip3 install -r requirements.txt") from exc
+
+    class BoundedRequestor(Requestor):
+        request_limit = request_cap
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.request_count = 0
+
+        def request(self, *args, **kwargs):
+            if self.request_count >= self.request_limit:
+                raise RedditRequestBudgetExceeded(
+                    f"Reddit HTTP request cap exhausted ({self.request_limit}); refusing another request"
+                )
+            self.request_count += 1
+            return super().request(*args, **kwargs)
+
+    BoundedRequestor.__name__ = f"BoundedRedditRequestor{request_cap}"
+    return BoundedRequestor
+
+
+def get_reddit(*, request_cap: int | None = None):
+    """Authenticate with Reddit via PRAW using explicit environment credentials.
+
+    When ``request_cap`` is supplied, the cap is enforced at the PRAW requestor
+    layer, including OAuth, listings, comment expansion and automatic retries.
+    """
     credentials = reddit_credentials_from_env()
     try:
         import praw
     except ImportError as exc:
         raise RuntimeError("PRAW is required. Install dependencies with: pip3 install -r requirements.txt") from exc
 
+    requestor_kwargs = {}
+    if request_cap is not None:
+        requestor_kwargs["requestor_class"] = _bounded_requestor_class(request_cap)
+
     if not credentials["password"]:
         return praw.Reddit(
             client_id=credentials["client_id"],
             client_secret=credentials["client_secret"],
-            user_agent="macos:ChonkerTalksBot:v1.0 (read-only)"
+            user_agent="macos:ChonkerTalksBot:v1.0 (read-only)",
+            **requestor_kwargs,
         )
 
     return praw.Reddit(
@@ -67,7 +108,8 @@ def get_reddit():
         client_secret=credentials["client_secret"],
         username=credentials["username"],
         password=credentials["password"],
-        user_agent="macos:ChonkerTalksBot:v1.0 (authenticated)"
+        user_agent="macos:ChonkerTalksBot:v1.0 (authenticated)",
+        **requestor_kwargs,
     )
 
 
@@ -92,6 +134,18 @@ def reddit_media_manifest(post) -> list[dict]:
     """Return ordered metadata for native static Reddit images without downloading them."""
     assets: list[dict] = []
     seen: set[str] = set()
+    # PRAW lazily fetches a submission when an absent attribute is accessed
+    # through ``getattr``.  Candidate rows already carry the listing payload,
+    # so media inspection must stay inside that hydrated snapshot; otherwise
+    # building a source-only queue can silently consume one HTTP request per
+    # candidate and exhaust the bounded Reddit budget.
+    try:
+        loaded = vars(post)
+    except TypeError:
+        loaded = {}
+
+    def loaded_value(name: str, default=None):
+        return loaded.get(name, default)
 
     def append_asset(*, media_id: str, url, width=0, height=0, caption="", order=0) -> None:
         safe_url = _safe_reddit_image_url(url)
@@ -110,8 +164,8 @@ def reddit_media_manifest(post) -> list[dict]:
             "download_status": "not_downloaded",
         })
 
-    gallery_data = getattr(post, "gallery_data", None) or {}
-    media_metadata = getattr(post, "media_metadata", None) or {}
+    gallery_data = loaded_value("gallery_data") or {}
+    media_metadata = loaded_value("media_metadata") or {}
     for order, item in enumerate(gallery_data.get("items") or []):
         if not isinstance(item, dict):
             continue
@@ -134,21 +188,21 @@ def reddit_media_manifest(post) -> list[dict]:
     if assets:
         return assets
 
-    preview = getattr(post, "preview", None) or {}
+    preview = loaded_value("preview") or {}
     images = preview.get("images") or []
     if images and isinstance(images[0], dict):
         source = images[0].get("source") or {}
         append_asset(
-            media_id=str(getattr(post, "id", "image")),
+            media_id=str(loaded_value("id", "image")),
             url=source.get("url"),
             width=source.get("width"),
             height=source.get("height"),
         )
 
-    if not assets and str(getattr(post, "post_hint", "")) == "image":
+    if not assets and str(loaded_value("post_hint", "")) == "image":
         append_asset(
-            media_id=str(getattr(post, "id", "image")),
-            url=getattr(post, "url_overridden_by_dest", None) or getattr(post, "url", None),
+            media_id=str(loaded_value("id", "image")),
+            url=loaded_value("url_overridden_by_dest") or loaded_value("url"),
         )
     return assets
 
@@ -406,6 +460,12 @@ FORMAT_INTENT_RULES = {
         "Require a self-contained primary story with a source-backed setup, escalation, and closed payoff. "
         "Reject incomplete updates, serial fragments, link/screenshot-dependent sources, and stories outside the configured word-runtime envelope."
     ),
+    "bundle": (
+        "This post is only a candidate component for one acc1 BUNDLE episode. "
+        "Require a complete, self-contained setup, escalation, and closed payoff in the individual post. "
+        "Do not require the post to fill a full episode by itself; aggregate runtime is enforced later by the checksum-bound bundle selector. "
+        "Reject incomplete updates, serial fragments, link/screenshot-dependent sources, and weak or missing endings."
+    ),
 }
 
 
@@ -437,6 +497,16 @@ FORMAT_LENGTH_PROFILES = {
         "target_duration_minutes": [18, 30],
         "policy": "select_complete_acc1_saga_source_by_word_runtime",
         "description": "Acc1 SAGA must fit 18-30 minutes at 130 source words per minute without padding or truncation.",
+    },
+    "bundle": {
+        "min_body_chars": None,
+        "max_body_chars": None,
+        "min_words": 300,
+        "max_words": 1800,
+        "words_per_minute": 130,
+        "aggregate_target_words": [2340, 3900],
+        "policy": "select_complete_acc1_bundle_components_then_enforce_aggregate_runtime",
+        "description": "Each BUNDLE component must be complete; the later selector enforces 2340-3900 aggregate source words.",
     },
 }
 
@@ -770,6 +840,7 @@ def producer_queue_entry(
         "verdict": ai_result.get("verdict"),
         "subreddit": f"r/{post.subreddit}",
         "post_id": post.id,
+        "author": str(post.author) if getattr(post, "author", None) is not None else "",
         "title": post.title,
         "url": f"https://reddit.com{post.permalink}",
         "upvotes": post.score,
@@ -1475,7 +1546,17 @@ def build_topic_sources(
     channel_config: dict | None = None,
     topic_family: str | None = None,
     planned_subreddits: list[str] | None = None,
+    max_time_windows_per_topic: int | None = None,
 ) -> list[dict]:
+    if max_time_windows_per_topic is not None:
+        if (
+            isinstance(max_time_windows_per_topic, bool)
+            or not isinstance(max_time_windows_per_topic, int)
+            or not 1 <= max_time_windows_per_topic <= len(VALID_TIME_FILTERS)
+        ):
+            raise TopicSourcePlanError(
+                "max_time_windows_per_topic must be an integer from 1 to 4"
+            )
     if topic_family and topic_family not in TOPIC_FAMILY_PRESETS:
         raise TopicSourcePlanError(f"unknown topic family: {topic_family}")
     if planned_subreddits is not None:
@@ -1530,7 +1611,11 @@ def build_topic_sources(
         if time_filter != "auto":
             windows = [time_filter]
         max_subreddits = int(item.get("max_subreddits", DEFAULT_MAX_SUBREDDITS_PER_TOPIC))
-        max_windows = int(item.get("max_time_windows", DEFAULT_MAX_TIME_WINDOWS_PER_TOPIC))
+        max_windows = (
+            max_time_windows_per_topic
+            if max_time_windows_per_topic is not None
+            else int(item.get("max_time_windows", DEFAULT_MAX_TIME_WINDOWS_PER_TOPIC))
+        )
         sources.append({
             "family": family,
             "label": preset["label"],
@@ -1565,7 +1650,9 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
                      include_source_body_in_queue=False,
                      format_intent: str | None = None,
                      producer_queue_output: str | None = "producer_queue.json",
-                     pilot_id: str | None = None):
+                     pilot_id: str | None = None,
+                     max_time_windows_per_topic: int | None = None,
+                     reddit_client=None):
     """
     Search topic-family sources for the most viral post, then run a bounded AI
     quality gate (Gemini provider selected by vectorengine_client.py) to confirm channel fit, novelty, and
@@ -1589,6 +1676,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
     include_source_body_in_queue: bool - preserve bounded candidate bodies in review artifacts
     format_intent  : str|None   - auto | shorts | long; passed to Gemini producer gate
     producer_queue_output: str|None - JSON report of all AI-scored candidates
+    max_time_windows_per_topic: int|None - explicit bounded window count override
 
     Returns
     -------
@@ -1608,7 +1696,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
             )
         format_intent = planned_format
 
-    reddit = get_reddit()
+    reddit = reddit_client if reddit_client is not None else get_reddit()
     history = load_history()
     max_ai_candidates = DEFAULT_MAX_AI_CANDIDATES if max_ai_candidates is None else max_ai_candidates
     format_intent = (format_intent or "auto").strip().lower()
@@ -1626,6 +1714,7 @@ def fetch_best_story(subreddits, time_filter="auto", min_upvotes=1000,
         channel_config=channel_config,
         topic_family=topic_family,
         planned_subreddits=(source_plan or {}).get("subreddits"),
+        max_time_windows_per_topic=max_time_windows_per_topic,
     )
 
     print(f"Topic mode: {len(sources)} source family/families | candidate limit/source={candidate_limit}")

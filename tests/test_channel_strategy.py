@@ -71,7 +71,14 @@ class ChannelStrategyConfigTests(unittest.TestCase):
         channel = next(item for item in self.channels if item["id"] == "acc1")
         self.assertEqual(channel["primary_format"], "long")
         self.assertEqual(channel["shorts_role"], "trailer_after_long_only")
-        self.assertEqual(channel["cadence_plan"]["mode"], "six_video_saga_thread_pilot_local_only")
+        self.assertEqual(
+            channel["cadence_plan"]["mode"],
+            "fixed_six_slot_saga_bundle_thread_pilot_local_only",
+        )
+        self.assertEqual(
+            channel["cadence_plan"]["pilot_cycle_order"],
+            ["pilot_01", "pilot_04", "pilot_02", "pilot_05", "pilot_03", "pilot_06"],
+        )
         self.assertEqual(channel["topic_mix_status"], "superseded_pending_rebuild")
         self.assertFalse(channel["automation_enabled"])
 

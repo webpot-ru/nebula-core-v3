@@ -1,0 +1,2481 @@
+"""One-command, fail-closed acc1 episode artifact factory.
+
+The factory has two explicit live stages.  ``source`` may perform only a
+bounded read-only Reddit collection.  ``produce`` may call Gemini, OpenAI,
+GPT Image 2 through VectorEngine, and AI33 only after exact confirmations and hard caps.
+Neither stage uploads to YouTube, mutates publication history, or authorizes a
+release.  The highest possible result is ``READY_FOR_HUMAN_REVIEW``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import hashlib
+import json
+import math
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any, Callable
+from urllib.parse import urlparse
+
+from acc1_bundle_selector import (
+    BundleSelectionError,
+    select_bundle_finalists,
+    verify_finalists_manifest,
+)
+from acc1_daily_planner import build_daily_plan
+from acc1_episode_contract import (
+    build_intro_contract,
+    build_outro_prompt,
+    truth_disclosure_ru,
+    validate_episode_script,
+)
+from acc1_episode_images import generate_episode_images
+from acc1_episode_manifest import build_episode_manifest, canonical_hash
+from acc1_episode_packaging import generate_packaging, validate_packaging
+from acc1_narration_profiles import (
+    NARRATION_PROFILE_IDS_BY_PILLAR,
+    NarrationProfileError,
+    resolve_narration_profile,
+)
+from acc1_thread_source import collect_thread_source_candidates
+from acc1_topic_playoff import run_playoff, validate_base_candidate
+from acc1_visual_contract import (
+    CINEMATIC_STORY_MODE,
+    DEFAULT_VISUAL_MODE,
+    EDITORIAL_MOTION_MODE,
+    VISUAL_MODES,
+    adult_animation_profile_for_pilot,
+    resolve_visual_mode,
+)
+from compilation_audio_mix import (
+    CompilationAudioMixError,
+    build_pause_map,
+    mix_compilation_audio,
+)
+from compilation_qa import run_qa
+from compilation_renderer import (
+    CompilationRenderError,
+    render_compilation,
+    validate_compilation_text_layout,
+)
+from compilation_storyboard import (
+    CompilationStoryboardError,
+    build_storyboard,
+    narration_text,
+)
+from compilation_translation import (
+    DEFAULT_MAX_CHARACTER_FLOOR,
+    DEFAULT_MAX_CHARACTER_RATIO,
+    TranslationConfig,
+    _paragraph_chunks,
+    canonicalize_source_for_translation,
+    translate_and_review_story,
+)
+from compilation_tts_runner import build_tts_chunks, run_compilation_tts
+from openai_client import (
+    OPENAI_MODEL,
+    OpenAIJSONResult,
+    call_openai_json,
+)
+from scraper import fetch_best_story, get_reddit, history_posts, load_channel_config, load_history
+from source_text_quality import source_text_quality_blockers
+from source_safety import source_safety_evidence
+from scripts.build_acc1_creative_review_template import build_template
+from scripts.acc1_spend_lock import (
+    PROVIDER_CONTRACT as SPEND_LOCK_PROVIDER_CONTRACT,
+    WORKFLOW_PATH as SPEND_LOCK_WORKFLOW_PATH,
+    SpendLockError,
+    validate_lease_for_production,
+)
+from scripts.review_reddit_topics import build_review
+from thumbnail_generator import FONT_CANDIDATES, overlay_thumbnail_text, write_thumbnail_report
+from vectorengine_client import (
+    DEFAULT_GEMINI_MODEL,
+    DEFAULT_IMAGE_MODEL,
+    call_gemini_json,
+    call_image_generation,
+    gemini_source_label,
+    get_vectorengine_api_key,
+    VectorEngineError,
+)
+
+
+FACTORY_VERSION = 2
+MIN_SOURCE_REVIEW_CANDIDATES = 3
+MAX_SOURCE_REVIEW_CANDIDATES = 5
+MIN_PASSING_FINALISTS = 3
+NARRATOR_VOICE_ID = "elevenlabs_JBFqnCBsd6RMkjVDRZzb"
+COMMENT_VOICE_ID = "elevenlabs_MOgsVr0EwwxqQs5cNDhu"
+TTS_MODEL_ID = "eleven_v3"
+TTS_MAX_CHARS = 4_500
+BACKGROUND_ASSET = Path("assets/acc1/video/chonker-reading-loop-v1.mp4")
+BACKGROUND_MANIFEST = Path("assets/acc1/video/chonker-reading-loop-v1.json")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+TRUTH_MODES = {"fiction", "unverified_personal_account"}
+SOURCE_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
+MAX_SOURCE_CHARACTERS_PER_WORD = 12
+MAX_SOURCE_TOKEN_CHARACTERS = 80
+MAX_THREAD_PROMPT_CHARACTERS = 2_000
+RUNTIME_ESTIMATE_WORDS_PER_MINUTE = 130
+RUNTIME_ESTIMATE_TOLERANCE = 0.10
+WORKFLOW_TIMEOUT_MINUTES = 360
+PRODUCE_TIMEOUT_MINUTES = 300
+AI33_DEADLINE_FROM_PRODUCE_START_MINUTES = 240
+POST_AI33_RENDER_QA_RESERVE_MINUTES = (
+    PRODUCE_TIMEOUT_MINUTES - AI33_DEADLINE_FROM_PRODUCE_START_MINUTES
+)
+
+
+class EpisodeFactoryError(RuntimeError):
+    """Raised whenever the factory cannot prove a required production gate."""
+
+
+def _atomic_json(path: Path, value: dict[str, Any]) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
+def _read_object(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EpisodeFactoryError(f"cannot read JSON artifact {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise EpisodeFactoryError(f"{path} must contain a JSON object")
+    return value
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _self_hash(value: dict[str, Any], field: str) -> str:
+    unhashed = copy.deepcopy(value)
+    unhashed.pop(field, None)
+    return canonical_hash(unhashed)
+
+
+def _journal_hashable(value: Any) -> Any:
+    """Convert provider output to a secret-safe deterministic hash payload."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, bytes):
+        return {
+            "binary_sha256": hashlib.sha256(value).hexdigest(),
+            "binary_size": len(value),
+        }
+    if isinstance(value, Path):
+        return {
+            "path_name": value.name,
+            "file_sha256": _sha256_file(value) if value.is_file() else None,
+        }
+    if isinstance(value, dict):
+        return {
+            str(key): _journal_hashable(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_journal_hashable(item) for item in value]
+    return {"unsupported_response_type": type(value).__name__}
+
+
+def _verify_self_hash(value: dict[str, Any], field: str) -> bool:
+    expected = str(value.get(field) or "")
+    return bool(SHA256_RE.fullmatch(expected)) and expected == _self_hash(value, field)
+
+
+def _exact_confirmation(value: str | bool, label: str) -> None:
+    normalized = value if isinstance(value, bool) else str(value).strip().casefold() == "true"
+    if normalized is not True:
+        raise EpisodeFactoryError(f"{label} must be exactly true")
+
+
+def _positive_cap(value: int, label: str, *, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
+        raise EpisodeFactoryError(f"{label} must be an integer between 1 and {maximum}")
+    return value
+
+
+def _canonical_reddit_url(value: Any) -> str:
+    raw = str(value or "").strip()
+    if raw.startswith("/"):
+        return f"https://www.reddit.com{raw}"
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").casefold()
+    if parsed.scheme != "https" or host not in {"reddit.com", "www.reddit.com", "old.reddit.com"}:
+        raise EpisodeFactoryError(f"source URL is not canonical Reddit HTTPS: {raw or '(missing)'}")
+    return f"https://www.reddit.com{parsed.path}"
+
+
+def _channel_config(channels_path: Path) -> dict[str, Any]:
+    config = _read_object(channels_path)
+    matches = [
+        item for item in config.get("channels") or []
+        if isinstance(item, dict) and item.get("id") == "acc1"
+    ]
+    if len(matches) != 1:
+        raise EpisodeFactoryError("channels.json must contain exactly one acc1 channel")
+    return matches[0]
+
+
+def validate_daily_plan(plan: dict[str, Any], channels_path: Path) -> dict[str, Any]:
+    """Re-derive the plan from channels.json so a hand-edited plan cannot run."""
+    selection = plan.get("selection")
+    if not isinstance(selection, dict):
+        raise EpisodeFactoryError("daily plan selection contract is missing")
+    selection_mode = str(selection.get("mode") or "")
+    if selection_mode == "canonical_daily_cycle":
+        pilot_override = None
+    elif selection_mode == "exact_pilot_override":
+        pilot_override = str(plan.get("pilot_id") or "")
+    else:
+        raise EpisodeFactoryError(f"daily plan selection mode is invalid: {selection_mode or '(missing)'}")
+    try:
+        expected = build_daily_plan(
+            channels_path,
+            production_date=str(plan.get("production_date") or ""),
+            pilot_override=pilot_override,
+        )
+    except Exception as exc:
+        raise EpisodeFactoryError(f"daily plan cannot be re-derived: {exc}") from exc
+    if canonical_hash(plan) != canonical_hash(expected):
+        raise EpisodeFactoryError("daily plan does not exactly match channels.json and canonical planner")
+    if plan.get("publication_authorized") is not False:
+        raise EpisodeFactoryError("daily plan must not authorize publication")
+    if plan.get("provider_spend_authorized") is not False:
+        raise EpisodeFactoryError("daily plan must not pre-authorize provider spend")
+    if plan.get("max_release_status") != "READY_FOR_HUMAN_REVIEW":
+        raise EpisodeFactoryError("daily plan release ceiling is invalid")
+    return expected
+
+
+def _queue_lookup(queue: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(item.get("post_id") or ""): item
+        for item in queue.get("entries") or []
+        if isinstance(item, dict) and str(item.get("post_id") or "")
+    }
+
+
+def _validate_source_narratability(body: str, *, source_id: str, role: str) -> None:
+    normalized = re.sub(r"\s+", " ", str(body or "")).strip()
+    words = SOURCE_WORD_RE.findall(normalized)
+    if not words:
+        raise EpisodeFactoryError(f"source {source_id or '(missing)'} has no narration words")
+    blockers = source_text_quality_blockers(normalized)
+    if blockers:
+        raise EpisodeFactoryError(
+            f"source {source_id or '(missing)'} failed lexical narration quality: "
+            + ", ".join(blockers)
+        )
+    safety = source_safety_evidence({}, normalized)
+    if not safety["passed"]:
+        raise EpisodeFactoryError(
+            f"source {source_id or '(missing)'} failed high-confidence safety/PII gate: "
+            + ", ".join(safety["matched_blocker_ids"])
+        )
+    if role == "prompt" and len(normalized) > MAX_THREAD_PROMPT_CHARACTERS:
+        raise EpisodeFactoryError(
+            f"THREAD prompt {source_id or '(missing)'} exceeds the narration limit"
+        )
+
+
+def _story_source(
+    entry: dict[str, Any],
+    reviewed: dict[str, Any],
+    plan: dict[str, Any],
+) -> dict[str, Any]:
+    body = str(entry.get("source_body") or reviewed.get("source_body") or "")
+    source_id = str(entry.get("post_id") or reviewed.get("post_id") or "").strip()
+    body_sha = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    recorded = str(entry.get("source_body_sha256") or reviewed.get("source_body_sha256") or "")
+    if not body or recorded != body_sha:
+        raise EpisodeFactoryError(f"source {source_id or '(missing)'} body/hash is incomplete")
+    _validate_source_narratability(body, source_id=source_id, role="story")
+    truth_mode = str(reviewed.get("truth_mode") or "")
+    if truth_mode not in TRUTH_MODES:
+        raise EpisodeFactoryError(f"source {source_id} has no safe truth mode")
+    return {
+        "source_id": source_id,
+        "post_id": source_id,
+        "title": str(entry.get("title") or reviewed.get("title") or "").strip(),
+        "body": body,
+        "source_body": body,
+        "body_sha256": body_sha,
+        "source_body_sha256": body_sha,
+        "source_url": _canonical_reddit_url(entry.get("url") or reviewed.get("source_url")),
+        "author": str(entry.get("author") or reviewed.get("author") or "").strip(),
+        "subreddit": str(entry.get("subreddit") or reviewed.get("subreddit") or "").strip(),
+        "story_signature": str(entry.get("story_signature") or reviewed.get("story_signature") or "").strip(),
+        "truth_mode": truth_mode,
+        "role": "story",
+        "source_role": "story",
+        "pillar": str(plan["pillar"]),
+        "complete": reviewed.get("complete", reviewed.get("review_status") in {
+            "SAGA_SOURCE_ELIGIBLE_FOR_GREENLIGHT", "BUNDLE_COMPONENT_ELIGIBLE",
+        }) is True,
+        "payoff_complete": reviewed.get("payoff_complete") is True,
+        "depends_on_screenshot_or_link": reviewed.get("depends_on_screenshot_or_link") is False,
+        "fictional_as_real": False,
+        "score": entry.get("upvotes"),
+        "num_comments": entry.get("comments"),
+        "source_media": entry.get("source_media") if isinstance(entry.get("source_media"), list) else [],
+        "source_discovery_signals": {
+            "local_score": entry.get("local_score"),
+            "time_window": entry.get("time_window"),
+            "velocity": entry.get("velocity"),
+            "reddit_metrics_are_truth_evidence": False,
+        },
+    }
+
+
+def _saga_candidates(queue: dict[str, Any], review: dict[str, Any], plan: dict[str, Any]) -> list[dict[str, Any]]:
+    lookup = _queue_lookup(queue)
+    candidates: list[dict[str, Any]] = []
+    for item in review.get("top_topics") or []:
+        if not isinstance(item, dict):
+            continue
+        post_id = str(item.get("post_id") or "")
+        entry = lookup.get(post_id)
+        if not entry:
+            continue
+        source = _story_source(entry, item, plan)
+        candidates.append({
+            "candidate_id": f"saga-{post_id}",
+            "pilot_id": plan["pilot_id"],
+            "format": "SAGA",
+            "pillar": plan["pillar"],
+            "sources": [source],
+        })
+        if len(candidates) == MAX_SOURCE_REVIEW_CANDIDATES:
+            break
+    return candidates
+
+
+def _validate_base_candidate_pool(
+    candidates: list[dict[str, Any]], daily_plan: dict[str, Any],
+) -> None:
+    if (
+        not MIN_SOURCE_REVIEW_CANDIDATES
+        <= len(candidates)
+        <= MAX_SOURCE_REVIEW_CANDIDATES
+        or any(not isinstance(item, dict) for item in candidates)
+    ):
+        raise EpisodeFactoryError(
+            f"source pool must contain {MIN_SOURCE_REVIEW_CANDIDATES}-"
+            f"{MAX_SOURCE_REVIEW_CANDIDATES} candidate objects"
+        )
+    for candidate_index, candidate in enumerate(candidates):
+        for source in candidate.get("sources") or []:
+            if not isinstance(source, dict):
+                raise EpisodeFactoryError("episode candidate source must be an object")
+            _validate_source_narratability(
+                str(source.get("body") or source.get("source_body") or ""),
+                source_id=str(source.get("source_id") or source.get("post_id") or ""),
+                role=str(source.get("role") or source.get("source_role") or "story"),
+            )
+        base_review = validate_base_candidate(
+            candidate, plan=daily_plan, index=candidate_index,
+        )
+        if base_review.get("status") != "PASS":
+            raise EpisodeFactoryError(
+                "source finalist failed deterministic base contract before paid review: "
+                + "; ".join(base_review.get("failures") or [])
+            )
+
+
+def _required_image_calls(
+    format_id: str,
+    source_count: int,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
+) -> int:
+    if visual_mode == EDITORIAL_MOTION_MODE:
+        if format_id == "THREAD":
+            raise EpisodeFactoryError(
+                "editorial_motion_v1 does not yet support THREAD",
+            )
+        # Paid preflight only proves a safe floor. The exact narration-bound
+        # plan is calculated before the first image call and may require a
+        # higher explicitly leased cap, up to the canonical 60-call ceiling.
+        scene_count = 4 if format_id == "SAGA" else 2 * source_count
+        return scene_count * 2 + 1
+    if format_id == "SAGA":
+        scene_count = 5
+    elif format_id == "BUNDLE":
+        scene_count = 3 * source_count
+    elif format_id == "THREAD":
+        scene_count = 3
+    else:
+        raise EpisodeFactoryError(f"unsupported episode format for image budget: {format_id}")
+    return scene_count + 1  # one additional provider call for the thumbnail base
+
+
+def _translation_fallback_piece_ceiling(body: str, chunk_chars: int = 7_000) -> int:
+    """Use the exact deterministic fallback partition without provider access."""
+    working_body = canonicalize_source_for_translation(body)
+    return max(1, len(_paragraph_chunks(working_body, chunk_chars)))
+
+
+def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
+    """Conservatively budget the full accepted translation/review path."""
+    return max(
+        (
+            sum(
+                5
+                + _translation_fallback_piece_ceiling(
+                    str(source.get("body") or "")
+                )
+                for source in candidate.get("sources") or []
+                if isinstance(source, dict)
+            )
+            for candidate in candidates
+        ),
+        default=0,
+    )
+
+
+def _required_gemini_calls(candidates: list[dict[str, Any]]) -> int:
+    """Budget producer+critic playoff calls and final packaging only."""
+    return len(candidates) * 2 + 1
+
+
+def _minimum_tts_calls(format_id: str, source_count: int) -> int:
+    """Return the unavoidable task floor before translated lengths are known."""
+    if source_count < 1:
+        raise EpisodeFactoryError("episode candidate must contain at least one source")
+    if format_id == "SAGA":
+        return 3  # intro, one story, outro
+    if format_id == "BUNDLE":
+        return source_count + (source_count - 1) + 2  # stories, transitions, bookends
+    if format_id == "THREAD":
+        return source_count + 2  # visible response boundaries are not spoken
+    raise EpisodeFactoryError(f"unsupported episode format for TTS budget: {format_id}")
+
+
+def _translation_character_ceiling(source_body: str) -> int:
+    """Mirror the fail-closed translation validator without calling Gemini."""
+    source_characters = len(re.sub(r"\s+", " ", str(source_body or "")).strip())
+    return max(
+        DEFAULT_MAX_CHARACTER_FLOOR,
+        math.ceil(max(1, source_characters) * DEFAULT_MAX_CHARACTER_RATIO),
+    )
+
+
+def _tts_chunk_ceiling(character_ceiling: int, max_chars: int = TTS_MAX_CHARS) -> int:
+    """Bound the greedy sentence/word splitter for any accepted translation.
+
+    Every overflow boundary accounts for more than ``max_chars`` characters
+    across two neighboring chunks.  The extra chunk covers the final remainder;
+    the translation validator separately rejects tokens longer than 80 chars.
+    """
+    if character_ceiling < 1 or max_chars < 1:
+        raise EpisodeFactoryError("TTS character ceilings must be positive")
+    return max(1, math.ceil((2 * character_ceiling) / max_chars) + 1)
+
+
+def _required_ai33_calls(
+    candidates: list[dict[str, Any]], format_id: str,
+) -> int:
+    """Return a safe pre-Gemini task ceiling for every possible winner."""
+    if format_id not in {"SAGA", "BUNDLE", "THREAD"}:
+        raise EpisodeFactoryError(f"unsupported episode format for TTS budget: {format_id}")
+    candidate_ceilings: list[int] = []
+    for candidate in candidates:
+        sources = candidate.get("sources") or []
+        if not sources or any(not isinstance(source, dict) for source in sources):
+            raise EpisodeFactoryError("episode candidate must contain complete source objects")
+        story_chunks = sum(
+            _tts_chunk_ceiling(
+                _translation_character_ceiling(
+                    str(source.get("body") or source.get("source_body") or "")
+                )
+            )
+            for source in sources
+        )
+        transition_chunks = len(sources) - 1 if format_id == "BUNDLE" else 0
+        candidate_ceilings.append(story_chunks + transition_chunks + 2)
+    if not candidate_ceilings:
+        raise EpisodeFactoryError("source pool must contain candidate objects")
+    return max(candidate_ceilings)
+
+
+def _bundle_candidates(queue: dict[str, Any], review: dict[str, Any], plan: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    reviewed_candidates = [
+        item for item in review.get("candidate_reviews") or [] if isinstance(item, dict)
+    ]
+    finalists_manifest: dict[str, Any] | None = None
+    last_error: BundleSelectionError | None = None
+    for finalist_count in range(
+        MAX_SOURCE_REVIEW_CANDIDATES,
+        MIN_SOURCE_REVIEW_CANDIDATES - 1,
+        -1,
+    ):
+        try:
+            finalists_manifest = select_bundle_finalists(
+                reviewed_candidates,
+                source_plan=plan["source_plan"],
+                finalist_count=finalist_count,
+            )
+            break
+        except BundleSelectionError as exc:
+            last_error = exc
+    if finalists_manifest is None:
+        raise EpisodeFactoryError(
+            "BUNDLE source pool cannot supply three materially distinct complete candidates"
+        ) from last_error
+    if not verify_finalists_manifest(finalists_manifest):
+        raise EpisodeFactoryError("BUNDLE finalists manifest failed its own hash contract")
+    lookup = _queue_lookup(queue)
+    candidates: list[dict[str, Any]] = []
+    for finalist in finalists_manifest["finalists"]:
+        sources = [
+            _story_source(lookup[str(item["post_id"])], item, plan)
+            for item in finalist["stories"]
+        ]
+        candidates.append({
+            "candidate_id": finalist["finalist_id"],
+            "pilot_id": plan["pilot_id"],
+            "format": "BUNDLE",
+            "pillar": plan["pillar"],
+            "sources": sources,
+            "source_finalist_sha256": finalist["finalist_sha256"],
+        })
+    return candidates, finalists_manifest
+
+
+def _thread_source(source: dict[str, Any], *, role: str, plan: dict[str, Any], prompt: dict[str, Any]) -> dict[str, Any]:
+    if role == "prompt":
+        title = str(source.get("title") or "").strip()
+        raw_body = str(source.get("body") or "").strip()
+        body = "\n\n".join(item for item in (title, raw_body) if item)
+        source_id = str(source.get("id") or "")
+        signature = str(source.get("prompt_sha256") or hashlib.sha256(body.encode()).hexdigest())
+        subreddit = str(source.get("subreddit") or "AskReddit")
+    else:
+        body = str(source.get("body") or "")
+        source_id = str(source.get("id") or "")
+        title = f"Ответ пользователя {source.get('rank') or ''}".strip()
+        signature = hashlib.sha256(f"{prompt.get('id')}\n{source_id}\n{body}".encode("utf-8")).hexdigest()
+        subreddit = str(prompt.get("subreddit") or "AskReddit")
+    if not body.strip():
+        raise EpisodeFactoryError(f"THREAD {role} {source_id} has empty source text")
+    _validate_source_narratability(body, source_id=source_id, role=role)
+    author = str(source.get("author") or "").strip()
+    if not author:
+        raise EpisodeFactoryError(f"THREAD {role} {source_id} has no author provenance")
+    return {
+        "source_id": source_id,
+        "post_id": source_id,
+        "title": title,
+        "body": body,
+        "source_body": body,
+        "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        "source_body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        "source_url": _canonical_reddit_url(source.get("source_url")),
+        "author": author,
+        "subreddit": subreddit,
+        "story_signature": signature,
+        "truth_mode": "unverified_personal_account",
+        "role": role,
+        "source_role": role,
+        "pillar": plan["pillar"],
+        "complete": True,
+        "payoff_complete": True,
+        "depends_on_screenshot_or_link": False,
+        "fictional_as_real": False,
+        "score": source.get("score"),
+        "num_comments": None,
+        "source_media": [],
+        "source_discovery_signals": {
+            "reddit_score": source.get("score"),
+            "reddit_metrics_are_truth_evidence": False,
+        },
+    }
+
+
+def _thread_candidates(
+    results: list[tuple[dict[str, Any], dict[str, Any]]],
+    plan: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    snapshots: list[dict[str, Any]] = []
+    manifests: list[dict[str, Any]] = []
+    queue_entries: dict[str, dict[str, Any]] = {}
+    for snapshot, manifest in results:
+        prompt = manifest["prompt"]
+        sources = [_thread_source(prompt, role="prompt", plan=plan, prompt=prompt)]
+        sources.extend(
+            _thread_source(item, role="response", plan=plan, prompt=prompt)
+            for item in manifest["responses"]
+        )
+        for source in sources:
+            queue_entries[source["post_id"]] = {
+                "post_id": source["post_id"],
+                "author": source["author"],
+                "subreddit": source["subreddit"],
+                "title": source["title"],
+                "url": source["source_url"],
+                "source_body": source["body"],
+                "source_body_sha256": source["body_sha256"],
+                "source_word_count": len(source["body"].split()),
+                "story_signature": source["story_signature"],
+                "truth_mode": source["truth_mode"],
+                "source_role": source["source_role"],
+            }
+        candidates.append({
+            "candidate_id": f"thread-{prompt['id']}",
+            "pilot_id": plan["pilot_id"],
+            "format": "THREAD",
+            "pillar": plan["pillar"],
+            "sources": sources,
+            "thread_manifest_sha256": manifest["manifest_sha256"],
+        })
+        snapshots.append(snapshot)
+        manifests.append(manifest)
+    queue = {
+        "version": 1,
+        "channel_id": "acc1",
+        "format_intent": "thread",
+        "source_plan": plan["source_plan"],
+        "entries": sorted(queue_entries.values(), key=lambda item: item["post_id"]),
+        "quality_review_status": "DETERMINISTIC_THREAD_SOURCE_REVIEW",
+    }
+    review = {
+        "version": 1,
+        "status": "review_ready",
+        "review_mode": "bounded_full_thread_finalists",
+        "channel_id": "acc1",
+        "format_intent": "thread",
+        "source_plan": plan["source_plan"],
+        "candidate_count": len(candidates),
+        "snapshots": snapshots,
+        "thread_manifests": manifests,
+        "production_authorized": False,
+    }
+    return candidates, queue, review
+
+
+def _reddit_request_count(reddit: Any) -> int | None:
+    requestor = getattr(getattr(reddit, "_core", None), "_requestor", None)
+    value = getattr(requestor, "request_count", None)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def run_source_stage(
+    *,
+    daily_plan: dict[str, Any],
+    workdir: Path,
+    channels_path: Path,
+    confirm_reddit_read: str | bool,
+    reddit_request_cap: int,
+    reddit_factory: Callable[..., Any] = get_reddit,
+) -> dict[str, Any]:
+    """Perform the only network-facing source read and write immutable evidence."""
+    _exact_confirmation(confirm_reddit_read, "confirm_reddit_read")
+    workdir = Path(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    validate_daily_plan(daily_plan, channels_path)
+    # The source stage is not allowed to inherit the scraper's historical
+    # default-on AI gate.  It must be explicitly disabled before Reddit access.
+    import scraper as scraper_module
+    if scraper_module.AI_QUALITY_ENABLED:
+        raise EpisodeFactoryError(
+            "source stage requires AI_QUALITY_CHECK=0; refusing any implicit Gemini call"
+        )
+    if scraper_module.AI_QUALITY_FAIL_OPEN:
+        raise EpisodeFactoryError(
+            "source stage requires AI_QUALITY_FAIL_OPEN=0"
+        )
+    cap = _positive_cap(reddit_request_cap, "reddit_request_cap", maximum=100)
+    channel = _channel_config(channels_path)
+    reddit = reddit_factory(request_cap=cap)
+    format_id = str(daily_plan["format"])
+    finalists_manifest: dict[str, Any] | None = None
+
+    if format_id in {"SAGA", "BUNDLE"}:
+        queue_path = workdir / "source-queue.json"
+        story = fetch_best_story(
+            subreddits=list(daily_plan["source_plan"]["subreddits"]),
+            time_filter="auto",
+            min_upvotes=1000,
+            min_body_length=300,
+            comment_limit=0,
+            channel_id="acc1",
+            channel_config=channel,
+            skip_rank=0,
+            max_ai_candidates=0,
+            candidate_limit=25,
+            topic_family=daily_plan["source_plan"]["topic_family"],
+            include_source_body_in_queue=True,
+            format_intent=daily_plan["source_plan"]["format_intent"],
+            producer_queue_output=str(queue_path.resolve()),
+            pilot_id=daily_plan["pilot_id"],
+            max_time_windows_per_topic=3,
+            reddit_client=reddit,
+        )
+        if not story or not queue_path.is_file():
+            raise EpisodeFactoryError("bounded Reddit read did not produce a source queue")
+        queue = _read_object(queue_path)
+        review = build_review(queue, 30)
+        if review.get("status") != "review_ready":
+            raise EpisodeFactoryError(f"deterministic source review blocked: {review.get('status')}")
+        if format_id == "SAGA":
+            candidates = _saga_candidates(queue, review, daily_plan)
+        else:
+            candidates, finalists_manifest = _bundle_candidates(queue, review, daily_plan)
+    else:
+        source_plan = daily_plan["source_plan"]
+        results = collect_thread_source_candidates(
+            reddit,
+            subreddit_name=source_plan["subreddits"][0],
+            time_filter="year",
+            candidate_limit=10,
+            response_scan_limit=60,
+            max_responses=15,
+            truth_mode="unverified_personal_account",
+            search_query=source_plan["search_query"],
+            finalist_limit=MAX_SOURCE_REVIEW_CANDIDATES,
+            require_episode_runtime=True,
+            excluded_prompt_ids=set(history_posts(load_history()).keys()),
+        )
+        candidates, queue, review = _thread_candidates(results, daily_plan)
+
+    if not MIN_SOURCE_REVIEW_CANDIDATES <= len(candidates) <= MAX_SOURCE_REVIEW_CANDIDATES:
+        raise EpisodeFactoryError(
+            f"topic playoff requires {MIN_SOURCE_REVIEW_CANDIDATES}-"
+            f"{MAX_SOURCE_REVIEW_CANDIDATES} complete candidates before paid review; "
+            f"found {len(candidates)}"
+        )
+    _validate_base_candidate_pool(candidates, daily_plan)
+    daily_plan_sha = canonical_hash(daily_plan)
+    candidate_pool: dict[str, Any] = {
+        "version": 1,
+        "status": "SOURCE_FINALISTS_READY",
+        "channel_id": "acc1",
+        "episode_key": daily_plan["episode_key"],
+        "pilot_id": daily_plan["pilot_id"],
+        "format": format_id,
+        "pillar": daily_plan["pillar"],
+        "daily_plan_sha256": daily_plan_sha,
+        "candidates": candidates,
+        "candidate_count": len(candidates),
+        "paid_review_candidate_count": len(candidates),
+        "target_review_candidate_count": MAX_SOURCE_REVIEW_CANDIDATES,
+        "minimum_passing_finalists": MIN_PASSING_FINALISTS,
+        "source_truth_policy": "reddit_is_source_not_independent_fact_verification",
+        "production_authorized": False,
+        "publication_authorized": False,
+    }
+    candidate_pool["candidate_pool_sha256"] = _self_hash(candidate_pool, "candidate_pool_sha256")
+    review["daily_plan_sha256"] = daily_plan_sha
+    review["publication_authorized"] = False
+    queue["daily_plan_sha256"] = daily_plan_sha
+    queue["publication_authorized"] = False
+    observed_requests = _reddit_request_count(reddit)
+    if observed_requests is None or not 0 <= observed_requests <= cap:
+        raise EpisodeFactoryError(
+            "bounded Reddit requestor count is unavailable or exceeds the approved cap"
+        )
+    source_stage: dict[str, Any] = {
+        "version": 1,
+        "status": "SOURCE_READY",
+        "network_accessed": True,
+        "network_mode": "bounded_read_only_reddit",
+        "reddit_http_request_cap": cap,
+        "reddit_http_requests_observed": observed_requests,
+        "daily_plan_sha256": daily_plan_sha,
+        "source_queue_sha256": canonical_hash(queue),
+        "source_review_sha256": canonical_hash(review),
+        "candidate_pool_sha256": candidate_pool["candidate_pool_sha256"],
+        "candidate_count": len(candidates),
+        "publication_authorized": False,
+    }
+    source_stage["source_stage_sha256"] = _self_hash(source_stage, "source_stage_sha256")
+
+    _atomic_json(workdir / "daily-plan.json", daily_plan)
+    _atomic_json(workdir / "source-queue.json", queue)
+    _atomic_json(workdir / "source-review.json", review)
+    _atomic_json(workdir / "candidate-pool.json", candidate_pool)
+    if finalists_manifest is not None:
+        _atomic_json(workdir / "bundle-finalists.json", finalists_manifest)
+    _atomic_json(workdir / "source-stage.json", source_stage)
+    return source_stage
+
+
+class CallBudget:
+    """Count provider generation calls before issuing them."""
+
+    def __init__(
+        self,
+        provider: Callable[..., Any],
+        *,
+        cap: int,
+        label: str,
+        journal_path: Path | None = None,
+        token_cap: int | None = None,
+    ):
+        self.provider = provider
+        self.cap = _positive_cap(cap, f"{label}_call_cap", maximum=256)
+        self.label = label
+        self.token_cap = (
+            _positive_cap(token_cap, f"{label}_token_cap", maximum=1_000_000)
+            if token_cap is not None else None
+        )
+        self.journal_path = Path(journal_path) if journal_path is not None else None
+        self.journal: dict[str, Any] = {
+            "version": 1,
+            "provider": label,
+            "cap": self.cap,
+            "attempts": [],
+            "publication_authorized": False,
+        }
+        if self.token_cap is not None:
+            self.journal["token_cap"] = self.token_cap
+            self.journal["usage_totals"] = {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "reasoning_tokens": 0,
+            }
+        if self.journal_path is not None and self.journal_path.exists():
+            previous = _read_object(self.journal_path)
+            if (
+                previous.get("version") != 1
+                or previous.get("provider") != label
+                or previous.get("cap") != self.cap
+                or previous.get("token_cap") != self.token_cap
+                or not isinstance(previous.get("attempts"), list)
+            ):
+                raise EpisodeFactoryError(f"{label} provider attempt journal is incompatible")
+            if previous["attempts"]:
+                raise EpisodeFactoryError(
+                    f"{label} provider attempt journal is non-empty; inspect it before a new dispatch"
+                )
+        self.calls: list[dict[str, Any]] = self.journal["attempts"]
+        self._write_journal()
+
+    def _write_journal(self) -> None:
+        if self.journal_path is not None:
+            _atomic_json(self.journal_path, self.journal)
+
+    def __call__(self, **kwargs):
+        unresolved = [
+            item for item in self.calls
+            if item.get("status") != "COMPLETE"
+        ]
+        if unresolved:
+            raise EpisodeFactoryError(
+                f"{self.label} has an unresolved paid attempt; inspect the journal "
+                "before any further request"
+            )
+        if len(self.calls) >= self.cap:
+            raise EpisodeFactoryError(f"{self.label} call cap exhausted ({self.cap})")
+        if self.token_cap is not None:
+            used = int((self.journal.get("usage_totals") or {}).get("total_tokens") or 0)
+            prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
+            output_ceiling = int(kwargs.get("max_output_tokens") or 0)
+            # UTF-8 bytes are a deliberately conservative upper bound for text
+            # tokenization; reserve before transport so the cap is fail-closed.
+            reserved_ceiling = len(prompt.encode("utf-8")) + 512 + output_ceiling
+            if used + reserved_ceiling > self.token_cap:
+                raise EpisodeFactoryError(
+                    f"{self.label} token cap cannot reserve the next request "
+                    f"({used}+{reserved_ceiling}>{self.token_cap})"
+                )
+        # Keep one logical budget unit equal to one paid generation request.
+        # Automatic provider retries would otherwise multiply spend behind the
+        # explicit factory cap.
+        if self.label in {"gemini", "image", "openai_translation"}:
+            kwargs.setdefault("retries", 0)
+        prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
+        attempt = {
+            "index": len(self.calls) + 1,
+            "request_sha256": canonical_hash({
+                "prompt": prompt,
+                "model": kwargs.get("model") or kwargs.get("model_id"),
+                "max_output_tokens": kwargs.get("max_output_tokens"),
+                "voice_id": kwargs.get("voice_id"),
+            }),
+            "model": kwargs.get("model") or kwargs.get("model_id"),
+            "status": "IN_FLIGHT",
+        }
+        self.calls.append(attempt)
+        self._write_journal()
+        try:
+            raw_response = self.provider(**kwargs)
+        except Exception as exc:
+            attempt["status"] = "AMBIGUOUS_ERROR"
+            attempt["error_type"] = type(exc).__name__
+            self._write_journal()
+            raise
+        response = raw_response
+        if isinstance(raw_response, OpenAIJSONResult):
+            response = raw_response.payload
+            usage = raw_response.usage
+            attempt["usage"] = {
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "total_tokens": usage.total_tokens,
+                "reasoning_tokens": usage.reasoning_tokens,
+            }
+            totals = self.journal.get("usage_totals")
+            if not isinstance(totals, dict) or self.token_cap is None:
+                attempt["status"] = "BLOCKED_MISSING_TOKEN_CAP"
+                self._write_journal()
+                raise EpisodeFactoryError("OpenAI response cannot be accepted without token cap")
+            for key in totals:
+                totals[key] = int(totals[key]) + int(attempt["usage"][key])
+            if totals["total_tokens"] > self.token_cap:
+                attempt["status"] = "BLOCKED_TOKEN_CAP_EXCEEDED"
+                self._write_journal()
+                raise EpisodeFactoryError("OpenAI actual usage exceeded the approved token cap")
+        elif self.token_cap is not None:
+            attempt["status"] = "BLOCKED_MISSING_USAGE"
+            self._write_journal()
+            raise EpisodeFactoryError("OpenAI provider returned no validated usage envelope")
+        attempt["status"] = "COMPLETE"
+        if isinstance(response, dict):
+            attempt["response_sha256"] = canonical_hash(_journal_hashable(response))
+            task_id = str(response.get("task_id") or "").strip()
+            if task_id:
+                attempt["task_id"] = task_id
+        elif isinstance(response, Path) and response.is_file():
+            attempt["output_sha256"] = _sha256_file(response)
+        else:
+            attempt["response_sha256"] = canonical_hash(response)
+        self._write_journal()
+        return response
+
+
+def _candidate_prompt(candidate: dict[str, Any], daily_plan: dict[str, Any], role: str) -> str:
+    sources = [{
+        "source_id": item["source_id"],
+        "role": item["role"],
+        "title": item["title"],
+        "body": item["body"],
+        "truth_mode": item["truth_mode"],
+        "source_url": item["source_url"],
+        "reddit_discovery_signals": item.get("source_discovery_signals"),
+    } for item in candidate["sources"]]
+    common = f"""
+You are the {role} in a strict Russian YouTube long-form topic playoff.
+Assess this one complete Reddit candidate for the exact acc1 viewer promise.
+
+Non-negotiable rules:
+- Reddit votes/comments are discovery signals, never independent proof of truth or demand.
+- Fiction must remain fiction; personal accounts remain independently unverified.
+- Do not invent facts, chronology, outcomes, hooks, people, or visual events.
+- Any evidence field must be a short exact substring copied from a supplied source body.
+- The direction is fixed: format={daily_plan['format']}, pillar={daily_plan['pillar']}.
+- Score honestly. PASS requires total >=90 and category floors; use hard vetoes for wrong pillar,
+  incomplete payoff, screenshot/link dependency, fictional-as-real framing, viewer-promise mismatch,
+  unsafe/private-personal-data material, or advertiser-hostile treatment.
+
+Viewer promise: {daily_plan.get('viewer_promise')}
+Candidate: {json.dumps({'candidate_id': candidate['candidate_id'], 'sources': sources}, ensure_ascii=False)}
+"""
+    if role == "producer":
+        return common + """
+Return strict JSON:
+{
+  "viewer_promise_fit": true,
+  "pillar_evidence": {"source_id":"exact candidate source_id","source_quote":"meaningful exact source quote"},
+  "cold_open": {"text":"8-30 word natural Russian source-faithful cold open","source_id":"exact candidate source_id","source_quote":"meaningful exact source quote"},
+  "payoff_evidence": {"source_id":"exact candidate source_id","source_quote":"meaningful exact ending quote; required for SAGA/BUNDLE"},
+  "story_beats": [
+    {"beat":"specific source-faithful editorial beat","source_id":"exact candidate source_id","source_quote":"exact quote from that source"}
+  ],
+  "originality_plan": {
+    "editorial_frame":{"direction":"specific original framing","source_id":"exact candidate source_id","source_quote":"exact quote"},
+    "visual_direction":{"direction":"specific source-supported visual treatment","source_id":"exact candidate source_id","source_quote":"exact quote"},
+    "sound_direction":{"direction":"specific source-supported sound treatment","source_id":"exact candidate source_id","source_quote":"exact quote"}
+  },
+  "packaging_options": [
+    {"youtube_title":"<=95 Russian chars","thumbnail_text":"<=32 Russian chars","first_screen_promise":"","angle":"distinct angle","source_id":"exact candidate source_id","source_backing":"meaningful exact source quote"}
+  ],
+  "veto_flags": [],
+  "review": {
+    "verdict":"PASS|BLOCK","veto_flags":[],
+    "scorecard":{"hook_specificity":0,"stakes_clarity":0,"escalation":0,"payoff":0,"novelty":0,"russian_fit":0,"discussion_potential":0,"renderability":0,"packaging_honesty":0,"source_truth":0},
+    "decision_reason":"specific reason"
+  }
+}
+Return exactly 3-12 materially distinct story_beats and exactly three materially different packaging_options.
+"""
+    return common + f"""
+Independently audit this producer proposal; do not copy its score and do not repair it:
+{json.dumps(candidate.get('producer_proposal'), ensure_ascii=False)}
+Return strict JSON:
+{{"verdict":"PASS|BLOCK","veto_flags":[],"scorecard":{{"hook_specificity":0,"stakes_clarity":0,"escalation":0,"payoff":0,"novelty":0,"russian_fit":0,"discussion_potential":0,"renderability":0,"packaging_honesty":0,"source_truth":0}},"decision_reason":"specific independent reason"}}
+"""
+
+
+def _enrich_candidates(
+    candidates: list[dict[str, Any]],
+    daily_plan: dict[str, Any],
+    gemini: CallBudget,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    enriched: list[dict[str, Any]] = []
+    producer_reports: list[dict[str, Any]] = []
+    critic_reports: list[dict[str, Any]] = []
+    for base in candidates:
+        producer = gemini(
+            prompt=_candidate_prompt(base, daily_plan, "producer"),
+            model=DEFAULT_GEMINI_MODEL,
+            temperature=0.25,
+            max_output_tokens=8192,
+        )
+        if not isinstance(producer, dict) or not isinstance(producer.get("review"), dict):
+            producer_reports.append({
+                "candidate_id": base["candidate_id"],
+                "status": "BLOCKED_INVALID_STRUCTURED_RESPONSE",
+                "result": producer,
+            })
+            critic_reports.append({
+                "candidate_id": base["candidate_id"],
+                "status": "NOT_RUN_INVALID_PRODUCER_RESPONSE",
+                "result": None,
+            })
+            continue
+        candidate = copy.deepcopy(base)
+        for field in (
+            "viewer_promise_fit", "pillar_evidence", "cold_open", "payoff_evidence",
+            "story_beats", "originality_plan", "packaging_options", "veto_flags",
+        ):
+            candidate[field] = copy.deepcopy(producer.get(field))
+        candidate["producer_proposal"] = copy.deepcopy(producer)
+        critic = gemini(
+            prompt=_candidate_prompt(candidate, daily_plan, "critic"),
+            model=DEFAULT_GEMINI_MODEL,
+            temperature=0.0,
+            max_output_tokens=4096,
+        )
+        if not isinstance(critic, dict):
+            producer_reports.append({
+                "candidate_id": base["candidate_id"],
+                "status": "COMPLETE",
+                "result": producer,
+            })
+            critic_reports.append({
+                "candidate_id": base["candidate_id"],
+                "status": "BLOCKED_INVALID_STRUCTURED_RESPONSE",
+                "result": critic,
+            })
+            continue
+        producer_review = copy.deepcopy(producer["review"])
+        producer_review["role"] = "producer"
+        critic_review = copy.deepcopy(critic)
+        critic_review["role"] = "critic"
+        candidate["reviews"] = [producer_review, critic_review]
+        candidate.pop("producer_proposal", None)
+        enriched.append(candidate)
+        producer_reports.append({
+            "candidate_id": base["candidate_id"],
+            "status": "COMPLETE",
+            "result": producer,
+        })
+        critic_reports.append({
+            "candidate_id": base["candidate_id"],
+            "status": "COMPLETE",
+            "result": critic,
+        })
+    return enriched, producer_reports, critic_reports
+
+
+def _validate_estimated_runtime(
+    script: dict[str, Any], daily_plan: dict[str, Any],
+) -> dict[str, Any]:
+    target = (daily_plan.get("source_plan") or {}).get("target_duration_minutes")
+    if (
+        not isinstance(target, list)
+        or len(target) != 2
+        or any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            for value in target
+        )
+    ):
+        raise EpisodeFactoryError("daily plan has no exact two-value runtime target")
+    minimum, maximum = float(target[0]), float(target[1])
+    if minimum <= 0 or maximum <= minimum:
+        raise EpisodeFactoryError("daily plan runtime target is invalid")
+    try:
+        spoken = narration_text(script)
+    except CompilationStoryboardError as exc:
+        raise EpisodeFactoryError("translated narration cannot be measured") from exc
+    word_count = len(SOURCE_WORD_RE.findall(spoken))
+    estimated_minutes = word_count / RUNTIME_ESTIMATE_WORDS_PER_MINUTE
+    accepted_minimum = minimum * (1.0 - RUNTIME_ESTIMATE_TOLERANCE)
+    accepted_maximum = maximum * (1.0 + RUNTIME_ESTIMATE_TOLERANCE)
+    if not accepted_minimum <= estimated_minutes <= accepted_maximum:
+        raise EpisodeFactoryError(
+            "translated narration estimate "
+            f"{estimated_minutes:.2f} minutes is outside the pre-TTS "
+            f"{accepted_minimum:.2f}-{accepted_maximum:.2f} minute envelope"
+        )
+    return {
+        "version": 1,
+        "status": "PASS",
+        "word_count": word_count,
+        "words_per_minute": RUNTIME_ESTIMATE_WORDS_PER_MINUTE,
+        "estimated_minutes": round(estimated_minutes, 3),
+        "locked_target_minutes": [minimum, maximum],
+        "pre_tts_tolerance": RUNTIME_ESTIMATE_TOLERANCE,
+        "accepted_estimate_minutes": [
+            round(accepted_minimum, 3), round(accepted_maximum, 3),
+        ],
+        "publication_authorized": False,
+    }
+
+
+def _git_sha() -> str:
+    value = str(os.environ.get("GITHUB_SHA") or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{7,64}", value):
+        return value
+    try:
+        value = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip().lower()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise EpisodeFactoryError("cannot resolve git revision for immutable episode plan") from exc
+    if not re.fullmatch(r"[0-9a-f]{7,64}", value):
+        raise EpisodeFactoryError("git revision is invalid")
+    return value
+
+
+def _greenlight(daily_plan: dict[str, Any], winner: dict[str, Any], playoff: dict[str, Any]) -> dict[str, Any]:
+    sources = [{
+        "post_id": item["source_id"],
+        "source_body_sha256": item["body_sha256"],
+        "truth_mode": item["truth_mode"],
+    } for item in winner["sources"]]
+    return {
+        "version": 1,
+        "status": "PASS",
+        "channel_id": "acc1",
+        "episode_key": daily_plan["episode_key"],
+        "pilot_id": daily_plan["pilot_id"],
+        "format": daily_plan["format"],
+        "pillar": daily_plan["pillar"],
+        "candidate_id": winner["candidate_id"],
+        "sources": sources,
+        "playoff_sha256": playoff["playoff_sha256"],
+        "production_authorized": True,
+        "publication_authorized": False,
+    }
+
+
+def _transition_after(format_id: str, index: int, source_count: int) -> str:
+    if index >= source_count:
+        return ""
+    if format_id == "BUNDLE":
+        return "А теперь — следующая полная история."
+    # THREAD already has a visible response boundary and a distinct comment
+    # voice.  A separate spoken transition for every response wastes TTS tasks
+    # and makes the reading less natural.
+    return ""
+
+
+def _translate_script(
+    winner: dict[str, Any],
+    *,
+    daily_plan: dict[str, Any],
+    episode_plan: dict[str, Any],
+    playoff: dict[str, Any],
+    openai_translation: CallBudget,
+    checkpoint_dir: Path,
+) -> dict[str, Any]:
+    translated_stories: list[dict[str, Any]] = []
+    sources = winner["sources"]
+    for index, source in enumerate(sources, start=1):
+        translated = translate_and_review_story(
+            {"title": source["title"], "body": source["body"]},
+            provider=openai_translation,
+            reviewer=openai_translation,
+            config=TranslationConfig(
+                model=OPENAI_MODEL,
+                max_output_tokens=16_384,
+                max_story_revisions=2,
+            ),
+            chunk_checkpoint_path=checkpoint_dir / f"source-{index:02d}-translation.json",
+            review_checkpoint_path=checkpoint_dir / f"source-{index:02d}-review.json",
+        )
+        role = "comment" if source["role"] == "response" else "narrator"
+        translated_stories.append({
+            "title_ru": translated["title"],
+            "narration_ru": translated["body"],
+            "hook_ru": translated["body"].split(".", 1)[0].strip()[:500],
+            "transition_after_ru": _transition_after(
+                daily_plan["format"], index, len(sources),
+            ),
+            "narration_role": role,
+            "source_snapshot": copy.deepcopy(source),
+            "translation_audit": translated["translation_audit"],
+            "ending_preserved_evidence": source["body"][-600:].strip(),
+            "editorial_review": {"verdict": "PASS", "issues": []},
+            "invented_factual_claims": [],
+            "change_ledger": [],
+            "disclosure": "fiction" if source["truth_mode"] == "fiction" else "unverified",
+        })
+    truth_modes = {item["truth_mode"] for item in sources}
+    if len(truth_modes) != 1:
+        raise EpisodeFactoryError("one episode must not mix fiction and unverified accounts")
+    disclosure = truth_disclosure_ru(truth_modes, source_count=len(sources))
+    cold_open = str((winner.get("cold_open") or {}).get("text") or "").strip()
+    if not cold_open:
+        raise EpisodeFactoryError("winning candidate has no source-backed cold open")
+    format_label = {"SAGA": "большая история", "BUNDLE": "подборка историй", "THREAD": "ветка ответов"}[daily_plan["format"]]
+    response_count = sum(1 for item in sources if item.get("role") == "response")
+    try:
+        intro_contract = build_intro_contract(
+            cold_open=copy.deepcopy(winner.get("cold_open") or {}),
+            episode_format=daily_plan["format"],
+            pillar=daily_plan["pillar"],
+            source_count=len(sources),
+            response_count=response_count,
+            first_title_ru=translated_stories[0]["title_ru"],
+            truth_disclosure=disclosure,
+        )
+    except ValueError as exc:
+        raise EpisodeFactoryError(f"cannot build the deterministic intro: {exc}") from exc
+    script: dict[str, Any] = {
+        "version": 1,
+        "status": "ACCEPTED_FOR_ARTIFACT_PRODUCTION",
+        "channel_id": "acc1",
+        "episode_key": daily_plan["episode_key"],
+        "pilot_id": daily_plan["pilot_id"],
+        "episode_format": daily_plan["format"],
+        "pillar": daily_plan["pillar"],
+        "title_ru": f"Chonker Talks — {format_label}",
+        "intro_contract": intro_contract,
+        "intro_ru": intro_contract["intro_ru"],
+        "outro_ru": build_outro_prompt(
+            episode_format=daily_plan["format"],
+            pillar=daily_plan["pillar"],
+            first_source=sources[0],
+        ),
+        "truth_disclosure_ru": disclosure,
+        "source_story_beats": copy.deepcopy(winner.get("story_beats") or []),
+        "originality_plan": copy.deepcopy(winner.get("originality_plan") or {}),
+        "stories": translated_stories,
+        "episode_plan_sha256": episode_plan["episode_plan_sha256"],
+        "daily_plan_sha256": episode_plan["daily_plan_sha256"],
+        "playoff_sha256": playoff["playoff_sha256"],
+        "rights_mode": "test_only_not_cleared",
+        "source_mode": "reddit_exact_sources",
+        "revision_count": sum(int(item["translation_audit"].get("revisions") or 0) for item in translated_stories),
+        "editorial_review": {"verdict": "PASS", "issues": []},
+        "publication_authorized": False,
+    }
+    report = validate_episode_script(script, plan=episode_plan, playoff=playoff)
+    if report["status"] != "PASS":
+        raise EpisodeFactoryError("episode script contract blocked: " + "; ".join(report["failures"]))
+    script["episode_contract"] = report
+    return script
+
+
+def _source_artifacts(workdir: Path, daily_plan: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    queue = _read_object(workdir / "source-queue.json")
+    review = _read_object(workdir / "source-review.json")
+    pool = _read_object(workdir / "candidate-pool.json")
+    stage = _read_object(workdir / "source-stage.json")
+    daily_sha = canonical_hash(daily_plan)
+    if stage.get("status") != "SOURCE_READY" or not _verify_self_hash(stage, "source_stage_sha256"):
+        raise EpisodeFactoryError("source-stage artifact is not self-verifying SOURCE_READY")
+    if pool.get("status") != "SOURCE_FINALISTS_READY" or not _verify_self_hash(pool, "candidate_pool_sha256"):
+        raise EpisodeFactoryError("candidate-pool artifact is not self-verifying")
+    expected = {
+        "daily_plan_sha256": daily_sha,
+        "source_queue_sha256": canonical_hash(queue),
+        "source_review_sha256": canonical_hash(review),
+        "candidate_pool_sha256": pool["candidate_pool_sha256"],
+    }
+    for field, value in expected.items():
+        if stage.get(field) != value:
+            raise EpisodeFactoryError(f"source stage binding mismatch: {field}")
+    if (
+        pool.get("daily_plan_sha256") != daily_sha
+        or not MIN_SOURCE_REVIEW_CANDIDATES
+        <= len(pool.get("candidates") or [])
+        <= MAX_SOURCE_REVIEW_CANDIDATES
+        or pool.get("candidate_count") != len(pool.get("candidates") or [])
+    ):
+        raise EpisodeFactoryError("source finalists do not match the exact daily plan")
+    return queue, review, pool, stage
+
+
+def _factory_provider_contract() -> dict[str, Any]:
+    return {
+        "gemini": {
+            "provider": "vectorengine",
+            "model": DEFAULT_GEMINI_MODEL,
+            "max_output_tokens": 16_384,
+            "automatic_retries": 0,
+        },
+        "openai_translation": {
+            "provider": "openai",
+            "model": OPENAI_MODEL,
+            "reasoning_effort": "none",
+            "max_output_tokens": 16_384,
+            "automatic_retries": 0,
+        },
+        "image": {
+            "provider": "vectorengine",
+            "model": DEFAULT_IMAGE_MODEL,
+            "size": "1536x864",
+            "automatic_retries": 0,
+        },
+        "ai33": {
+            "provider": "ai33",
+            "model_id": TTS_MODEL_ID,
+            "narrator_voice_id": NARRATOR_VOICE_ID,
+            "comment_voice_id": COMMENT_VOICE_ID,
+            "speed": 1.0,
+            "emotion_tags": False,
+        },
+    }
+
+
+def _paid_candidate_cap_contract(
+    candidates: list[dict[str, Any]],
+    *,
+    daily_plan: dict[str, Any],
+    gemini_call_cap: int,
+    openai_call_cap: int,
+    openai_token_cap: int,
+    image_call_cap: int,
+    ai33_call_cap: int,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
+) -> dict[str, int]:
+    gemini_cap = _positive_cap(gemini_call_cap, "gemini_call_cap", maximum=256)
+    openai_cap = _positive_cap(openai_call_cap, "openai_call_cap", maximum=256)
+    openai_tokens = _positive_cap(openai_token_cap, "openai_token_cap", maximum=1_000_000)
+    image_cap = _positive_cap(image_call_cap, "image_call_cap", maximum=256)
+    ai33_cap = _positive_cap(ai33_call_cap, "ai33_call_cap", maximum=256)
+    _validate_base_candidate_pool(candidates, daily_plan)
+    source_counts = [len(item.get("sources") or []) for item in candidates]
+    format_id = str(daily_plan["format"])
+    if visual_mode == EDITORIAL_MOTION_MODE and image_cap > 60:
+        raise EpisodeFactoryError(
+            "editorial_motion_v1 image_call_cap cannot exceed the approved maximum of 60",
+        )
+    image_floor = max(
+        _required_image_calls(format_id, count, visual_mode)
+        for count in source_counts
+    )
+    tts_ceiling = _required_ai33_calls(candidates, format_id)
+    required_gemini_calls = _required_gemini_calls(candidates)
+    required_openai_calls = _required_openai_calls(candidates)
+    if gemini_cap < required_gemini_calls:
+        raise EpisodeFactoryError(
+            f"source finalists require Gemini cap {required_gemini_calls} before the first "
+            f"paid request; configured cap is {gemini_cap}"
+        )
+    if openai_cap < required_openai_calls:
+        raise EpisodeFactoryError(
+            f"source finalists require OpenAI cap {required_openai_calls} before the first "
+            f"translation request; configured cap is {openai_cap}"
+        )
+    if image_cap < image_floor:
+        raise EpisodeFactoryError(
+            f"source finalists require at least {image_floor} image calls including thumbnail"
+        )
+    if ai33_cap < tts_ceiling:
+        raise EpisodeFactoryError(
+            f"source finalists require AI33 cap {tts_ceiling} before the first "
+            f"paid text request; configured cap is {ai33_cap}"
+        )
+    return {
+        "gemini_call_cap": gemini_cap,
+        "openai_call_cap": openai_cap,
+        "openai_token_cap": openai_tokens,
+        "image_call_cap": image_cap,
+        "ai33_call_cap": ai33_cap,
+        "required_gemini_calls": required_gemini_calls,
+        "required_openai_calls": required_openai_calls,
+        "required_image_calls": image_floor,
+        "required_ai33_calls": tts_ceiling,
+    }
+
+
+def _paid_preflight_contract(
+    *,
+    daily_plan: dict[str, Any],
+    workdir: Path,
+    channels_path: Path,
+    confirm_gemini_spend: str | bool,
+    gemini_call_cap: int,
+    confirm_openai_spend: str | bool,
+    openai_call_cap: int,
+    openai_token_cap: int,
+    confirm_image_spend: str | bool,
+    image_call_cap: int,
+    confirm_ai33_spend: str | bool,
+    ai33_call_cap: int,
+    visual_mode: str,
+    write_report: bool,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    try:
+        resolved_visual_mode = resolve_visual_mode(visual_mode)
+    except ValueError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
+    if (
+        resolved_visual_mode in {CINEMATIC_STORY_MODE, EDITORIAL_MOTION_MODE}
+        and str(daily_plan.get("format") or "").upper() == "THREAD"
+    ):
+        raise EpisodeFactoryError(
+            f"{resolved_visual_mode} supports SAGA/BUNDLE; THREAD requires its "
+            "separate response-card hybrid contract",
+        )
+    style_profile: str | None = None
+    if resolved_visual_mode == EDITORIAL_MOTION_MODE:
+        try:
+            expected_profile = adult_animation_profile_for_pilot(daily_plan["pilot_id"])
+        except (KeyError, ValueError) as exc:
+            raise EpisodeFactoryError("daily plan has no approved adult-animation profile") from exc
+        style_profile = str(daily_plan.get("editorial_motion_style_profile") or "").strip()
+        if style_profile != expected_profile:
+            raise EpisodeFactoryError(
+                "daily plan editorial_motion_style_profile does not match its canonical pilot",
+            )
+
+    pillar_id = str(daily_plan.get("pillar") or "").strip()
+    try:
+        narration_profile = resolve_narration_profile(
+            NARRATION_PROFILE_IDS_BY_PILLAR.get(pillar_id, ""),
+            pillar_id=pillar_id,
+        )
+    except NarrationProfileError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
+    _exact_confirmation(confirm_gemini_spend, "confirm_gemini_spend")
+    _exact_confirmation(confirm_openai_spend, "confirm_openai_spend")
+    _exact_confirmation(confirm_image_spend, "confirm_image_spend")
+    _exact_confirmation(confirm_ai33_spend, "confirm_ai33_spend")
+    workdir = Path(workdir)
+    validate_daily_plan(daily_plan, channels_path)
+    queue, source_review, pool, source_stage = _source_artifacts(workdir, daily_plan)
+    candidates = pool.get("candidates") or []
+    cap_contract = _paid_candidate_cap_contract(
+        candidates,
+        daily_plan=daily_plan,
+        gemini_call_cap=gemini_call_cap,
+        openai_call_cap=openai_call_cap,
+        openai_token_cap=openai_token_cap,
+        image_call_cap=image_call_cap,
+        ai33_call_cap=ai33_call_cap,
+        visual_mode=resolved_visual_mode,
+    )
+    try:
+        resolved_gemini_source = gemini_source_label()
+        get_vectorengine_api_key()
+    except VectorEngineError as exc:
+        raise EpisodeFactoryError("paid preflight could not resolve Gemini/image credentials") from exc
+    if resolved_gemini_source != "vectorengine-gemini":
+        raise EpisodeFactoryError(
+            "paid preflight requires GEMINI_PROVIDER=vectorengine to match the spend lease"
+        )
+    if not str(os.environ.get("OPENAI_API_KEY") or "").strip():
+        raise EpisodeFactoryError("OPENAI_API_KEY is required before creating the paid spend lease")
+    api_key = str(os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY") or "")
+    if not api_key:
+        raise EpisodeFactoryError("AI33_API_KEY is required before creating the paid spend lease")
+    provider_contract = _factory_provider_contract()
+    if provider_contract != SPEND_LOCK_PROVIDER_CONTRACT:
+        raise EpisodeFactoryError("factory provider/model contract drifted from spend-lock schema")
+    report = {
+        "version": FACTORY_VERSION,
+        "status": "PAID_PREFLIGHT_PASS",
+        "visual_mode": resolved_visual_mode,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
+        "daily_plan_sha256": canonical_hash(daily_plan),
+        "source_stage_sha256": source_stage["source_stage_sha256"],
+        "candidate_pool_sha256": pool["candidate_pool_sha256"],
+        "candidate_count": len(candidates),
+        "caps": cap_contract,
+        "provider_contract": provider_contract,
+        "runtime_budget": {
+            "workflow_timeout_minutes": WORKFLOW_TIMEOUT_MINUTES,
+            "produce_timeout_minutes": PRODUCE_TIMEOUT_MINUTES,
+            "ai33_deadline_from_produce_start_minutes": (
+                AI33_DEADLINE_FROM_PRODUCE_START_MINUTES
+            ),
+            "post_ai33_render_qa_reserve_minutes": POST_AI33_RENDER_QA_RESERVE_MINUTES,
+            "required_gemini_calls": cap_contract["required_gemini_calls"],
+            "required_openai_calls": cap_contract["required_openai_calls"],
+            "openai_token_cap": cap_contract["openai_token_cap"],
+            "required_ai33_calls": cap_contract["required_ai33_calls"],
+            "timeout_is_a_ceiling_not_an_sla": True,
+            "automatic_paid_resume": False,
+        },
+        "would_call_gemini": False,
+        "would_call_openai": False,
+        "would_call_image_provider": False,
+        "would_call_ai33": False,
+        "publication_authorized": False,
+    }
+    if write_report:
+        _atomic_json(workdir / "paid-preflight.json", report)
+    return queue, source_review, pool, source_stage, report
+
+
+def run_paid_preflight(
+    *,
+    daily_plan: dict[str, Any],
+    workdir: Path,
+    channels_path: Path,
+    confirm_gemini_spend: str | bool,
+    gemini_call_cap: int,
+    confirm_openai_spend: str | bool,
+    openai_call_cap: int,
+    openai_token_cap: int,
+    confirm_image_spend: str | bool,
+    image_call_cap: int,
+    confirm_ai33_spend: str | bool,
+    ai33_call_cap: int,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
+) -> dict[str, Any]:
+    """Prove paid readiness without issuing any provider generation request."""
+    *_, report = _paid_preflight_contract(
+        daily_plan=daily_plan,
+        workdir=workdir,
+        channels_path=channels_path,
+        confirm_gemini_spend=confirm_gemini_spend,
+        gemini_call_cap=gemini_call_cap,
+        confirm_openai_spend=confirm_openai_spend,
+        openai_call_cap=openai_call_cap,
+        openai_token_cap=openai_token_cap,
+        confirm_image_spend=confirm_image_spend,
+        image_call_cap=image_call_cap,
+        confirm_ai33_spend=confirm_ai33_spend,
+        ai33_call_cap=ai33_call_cap,
+        visual_mode=visual_mode,
+        write_report=True,
+    )
+    return report
+
+
+def _github_lease_identity(lease: dict[str, Any]) -> tuple[str, int | None, int | None, str | None]:
+    repository = str(os.environ.get("GITHUB_REPOSITORY") or lease.get("repository") or "")
+    if str(os.environ.get("GITHUB_ACTIONS") or "").lower() != "true":
+        return repository, None, None, None
+    required = {
+        "GITHUB_REPOSITORY": os.environ.get("GITHUB_REPOSITORY"),
+        "GITHUB_RUN_ID": os.environ.get("GITHUB_RUN_ID"),
+        "GITHUB_RUN_ATTEMPT": os.environ.get("GITHUB_RUN_ATTEMPT"),
+        "GITHUB_SHA": os.environ.get("GITHUB_SHA"),
+    }
+    missing = [name for name, value in required.items() if not str(value or "").strip()]
+    if missing:
+        raise EpisodeFactoryError(
+            "GitHub spend-lease identity is incomplete: " + ", ".join(sorted(missing))
+        )
+    try:
+        run_id = int(str(required["GITHUB_RUN_ID"]))
+        run_attempt = int(str(required["GITHUB_RUN_ATTEMPT"]))
+    except ValueError as exc:
+        raise EpisodeFactoryError("GitHub spend-lease run identity is invalid") from exc
+    return repository, run_id, run_attempt, str(required["GITHUB_SHA"])
+
+
+def _validate_spend_lease_contract(
+    spend_lease_path: Path | None,
+    *,
+    daily_plan: dict[str, Any],
+    workdir: Path,
+    queue: dict[str, Any],
+    source_review: dict[str, Any],
+    pool: dict[str, Any],
+    source_stage: dict[str, Any],
+    reddit_request_cap: int,
+    gemini_call_cap: int,
+    openai_call_cap: int,
+    openai_token_cap: int,
+    image_call_cap: int,
+    ai33_call_cap: int,
+) -> dict[str, Any]:
+    expected_path = (Path(workdir) / "spend-lease.json").resolve()
+    if spend_lease_path is None or Path(spend_lease_path).resolve() != expected_path:
+        raise EpisodeFactoryError("produce requires the exact workdir spend-lease.json")
+    lease = _read_object(expected_path)
+    repository, run_id, run_attempt, head_sha = _github_lease_identity(lease)
+    try:
+        validate_lease_for_production(
+            lease,
+            plan=daily_plan,
+            source_stage=source_stage,
+            candidate_pool=pool,
+            source_queue=queue,
+            source_review=source_review,
+            repository=repository,
+            workflow_path=SPEND_LOCK_WORKFLOW_PATH,
+            requested_caps={
+                "reddit_request_cap": _positive_cap(
+                    reddit_request_cap, "reddit_request_cap", maximum=100,
+                ),
+                "gemini_call_cap": gemini_call_cap,
+                "openai_call_cap": openai_call_cap,
+                "openai_token_cap": openai_token_cap,
+                "image_call_cap": image_call_cap,
+                "ai33_call_cap": ai33_call_cap,
+            },
+            confirmations={
+                "reddit_read": True,
+                "gemini_spend": True,
+                "openai_spend": True,
+                "image_spend": True,
+                "ai33_spend": True,
+            },
+            provider_contract=_factory_provider_contract(),
+            run_id=run_id,
+            run_attempt=run_attempt,
+            head_sha=head_sha,
+        )
+    except SpendLockError as exc:
+        raise EpisodeFactoryError(f"paid spend lease blocked: {exc}") from exc
+    return lease
+
+
+def run_produce_stage(
+    *,
+    daily_plan: dict[str, Any],
+    workdir: Path,
+    channels_path: Path,
+    confirm_gemini_spend: str | bool,
+    gemini_call_cap: int,
+    confirm_openai_spend: str | bool,
+    openai_call_cap: int,
+    openai_token_cap: int,
+    confirm_image_spend: str | bool,
+    image_call_cap: int,
+    confirm_ai33_spend: str | bool,
+    ai33_call_cap: int,
+    reddit_request_cap: int = 24,
+    spend_lease_path: Path | None = None,
+    gemini_provider: Callable[..., dict[str, Any]] = call_gemini_json,
+    openai_provider: Callable[..., OpenAIJSONResult] = call_openai_json,
+    image_provider: Callable[..., Path] = call_image_generation,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
+) -> dict[str, Any]:
+    """Create the review artifact after source and all spend gates have passed."""
+    workdir = Path(workdir)
+    try:
+        resolved_visual_mode = resolve_visual_mode(visual_mode)
+    except ValueError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
+    if (
+        resolved_visual_mode in {CINEMATIC_STORY_MODE, EDITORIAL_MOTION_MODE}
+        and str(daily_plan.get("format") or "").upper() == "THREAD"
+    ):
+        raise EpisodeFactoryError(
+            f"{resolved_visual_mode} supports SAGA/BUNDLE; THREAD requires its "
+            "separate response-card hybrid contract",
+        )
+    style_profile: str | None = None
+    if resolved_visual_mode == EDITORIAL_MOTION_MODE:
+        try:
+            expected_profile = adult_animation_profile_for_pilot(daily_plan["pilot_id"])
+        except (KeyError, ValueError) as exc:
+            raise EpisodeFactoryError("daily plan has no approved adult-animation profile") from exc
+        style_profile = str(daily_plan.get("editorial_motion_style_profile") or "").strip()
+        if style_profile != expected_profile:
+            raise EpisodeFactoryError(
+                "daily plan editorial_motion_style_profile does not match its canonical pilot",
+            )
+    pillar_id = str(daily_plan.get("pillar") or "").strip()
+    narration_profile_id = NARRATION_PROFILE_IDS_BY_PILLAR.get(pillar_id, "")
+    try:
+        narration_profile = resolve_narration_profile(
+            narration_profile_id,
+            pillar_id=pillar_id,
+        )
+    except NarrationProfileError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
+    queue, source_review, pool, source_stage, paid_preflight = _paid_preflight_contract(
+        daily_plan=daily_plan,
+        workdir=workdir,
+        channels_path=channels_path,
+        confirm_gemini_spend=confirm_gemini_spend,
+        gemini_call_cap=gemini_call_cap,
+        confirm_openai_spend=confirm_openai_spend,
+        openai_call_cap=openai_call_cap,
+        openai_token_cap=openai_token_cap,
+        confirm_image_spend=confirm_image_spend,
+        image_call_cap=image_call_cap,
+        confirm_ai33_spend=confirm_ai33_spend,
+        ai33_call_cap=ai33_call_cap,
+        visual_mode=resolved_visual_mode,
+        write_report=True,
+    )
+    gemini_cap = int(paid_preflight["caps"]["gemini_call_cap"])
+    openai_cap = int(paid_preflight["caps"]["openai_call_cap"])
+    openai_tokens = int(paid_preflight["caps"]["openai_token_cap"])
+    image_cap = int(paid_preflight["caps"]["image_call_cap"])
+    ai33_cap = int(paid_preflight["caps"]["ai33_call_cap"])
+    _validate_spend_lease_contract(
+        spend_lease_path,
+        daily_plan=daily_plan,
+        workdir=workdir,
+        queue=queue,
+        source_review=source_review,
+        pool=pool,
+        source_stage=source_stage,
+        reddit_request_cap=reddit_request_cap,
+        gemini_call_cap=gemini_cap,
+        openai_call_cap=openai_cap,
+        openai_token_cap=openai_tokens,
+        image_call_cap=image_cap,
+        ai33_call_cap=ai33_cap,
+    )
+    resolved_gemini_source = "vectorengine-gemini"
+    api_key = str(os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY") or "")
+    channel = _channel_config(channels_path)
+    provider_journal_dir = workdir / "provider-attempts"
+    candidates = pool.get("candidates") or []
+
+    gemini = CallBudget(
+        gemini_provider,
+        cap=gemini_cap,
+        label="gemini",
+        journal_path=provider_journal_dir / "gemini.json",
+    )
+    openai_translation = CallBudget(
+        openai_provider,
+        cap=openai_cap,
+        token_cap=openai_tokens,
+        label="openai_translation",
+        journal_path=provider_journal_dir / "openai-translation.json",
+    )
+    images = CallBudget(
+        image_provider,
+        cap=image_cap,
+        label="image",
+        journal_path=provider_journal_dir / "image.json",
+    )
+
+    enriched, producer_reports, critic_reports = _enrich_candidates(
+        candidates, daily_plan, gemini,
+    )
+    playoff_input = {
+        "daily_plan": daily_plan,
+        "daily_plan_sha256": canonical_hash(daily_plan),
+        "candidates": enriched,
+    }
+    playoff = run_playoff(playoff_input)
+    if playoff.get("status") != "READY_FOR_SCRIPTING":
+        raise EpisodeFactoryError("S-tier topic playoff blocked: " + "; ".join(playoff.get("failures") or []))
+    if not _verify_self_hash(playoff, "playoff_sha256"):
+        raise EpisodeFactoryError("topic playoff output failed its self-hash contract")
+    if playoff.get("playoff_input_sha256") != canonical_hash(playoff_input):
+        raise EpisodeFactoryError("topic playoff is not bound to the exact finalist input")
+    winner_id = str(playoff["winner"]["candidate_id"])
+    winner = next((item for item in enriched if item["candidate_id"] == winner_id), None)
+    if winner is None:
+        raise EpisodeFactoryError("topic playoff winner is absent from bound finalists")
+    if playoff["winner"].get("candidate_contract_sha256") != canonical_hash(winner):
+        raise EpisodeFactoryError("topic playoff winner contract does not match the exact finalist")
+    required_image_calls = _required_image_calls(
+        str(daily_plan["format"]), len(winner["sources"]), resolved_visual_mode,
+    )
+    if images.cap < required_image_calls:
+        raise EpisodeFactoryError(
+            f"episode requires {required_image_calls} image calls including thumbnail "
+            f"but image_call_cap is {images.cap}"
+        )
+
+    greenlight = _greenlight(daily_plan, winner, playoff)
+    provider_settings = {
+        "gemini": {"provider": resolved_gemini_source, "model": DEFAULT_GEMINI_MODEL, "max_output_tokens": 16_384},
+        "translation": {
+            "provider": "openai",
+            "model": OPENAI_MODEL,
+            "reviewer_provider": "openai",
+            "reviewer_model": OPENAI_MODEL,
+            "reasoning_effort": "none",
+            "max_output_tokens": 16_384,
+        },
+        "image": {"provider": "vectorengine", "model": DEFAULT_IMAGE_MODEL, "size": "1536x864"},
+        "tts": {
+            "provider": "ai33", "model_id": TTS_MODEL_ID,
+            "narrator_voice_id": NARRATOR_VOICE_ID,
+            "comment_voice_id": COMMENT_VOICE_ID,
+            "narration_profile_id": narration_profile["profile_id"],
+            "narration_profile_sha256": narration_profile["profile_sha256"],
+            "speed": narration_profile["speed"],
+            "voice_settings_json": narration_profile["voice_settings_json"],
+            "emotion_tags": False,
+        },
+    }
+    episode_plan = build_episode_manifest(
+        episode_key=daily_plan["episode_key"],
+        episode_date=daily_plan["production_date"],
+        pilot_id=daily_plan["pilot_id"],
+        format_id=daily_plan["format"],
+        pillar=daily_plan["pillar"],
+        source_queue=queue,
+        topic_review=playoff,
+        greenlight=greenlight,
+        config=channel,
+        daily_plan=daily_plan,
+        git_sha=_git_sha(),
+        provider_settings=provider_settings,
+        sources=[{
+            "post_id": item["source_id"],
+            "body_sha256": item["body_sha256"],
+            "truth_mode": item["truth_mode"],
+        } for item in winner["sources"]],
+        visual_mode=resolved_visual_mode,
+        narration_profile_id=narration_profile["profile_id"],
+    )
+
+    _atomic_json(workdir / "producer-review.json", {
+        "version": 1, "results": producer_reports,
+        "daily_plan_sha256": canonical_hash(daily_plan), "publication_authorized": False,
+    })
+    _atomic_json(workdir / "critic-review.json", {
+        "version": 1, "results": critic_reports,
+        "daily_plan_sha256": canonical_hash(daily_plan), "publication_authorized": False,
+    })
+    _atomic_json(workdir / "topic-playoff-input.json", playoff_input)
+    _atomic_json(workdir / "topic-playoff.json", playoff)
+    _atomic_json(workdir / "episode-greenlight.json", greenlight)
+    _atomic_json(workdir / "episode-plan.json", episode_plan)
+
+    script = _translate_script(
+        winner,
+        daily_plan=daily_plan,
+        episode_plan=episode_plan,
+        playoff=playoff,
+        openai_translation=openai_translation,
+        checkpoint_dir=workdir / "translation-checkpoints",
+    )
+    script["visual_mode"] = resolved_visual_mode
+    if style_profile:
+        script["style_profile"] = style_profile
+    script["narration_profile_id"] = narration_profile["profile_id"]
+    script["narration_profile_sha256"] = narration_profile["profile_sha256"]
+    script["pillar"] = pillar_id
+    if resolved_visual_mode == DEFAULT_VISUAL_MODE:
+        try:
+            text_layout_report = validate_compilation_text_layout(script)
+        except CompilationRenderError as exc:
+            raise EpisodeFactoryError(
+                "translated episode cannot fit the production Reddit-card "
+                f"layout: {exc}"
+            ) from exc
+    else:
+        text_layout_report = {
+            "version": 1,
+            "status": "PASS",
+            "visual_mode": resolved_visual_mode,
+            "check": "reddit_page_text_layout_not_applicable",
+            "full_screen_scene_contract_required": True,
+            "publication_authorized": False,
+        }
+    text_layout_report["episode_plan_sha256"] = episode_plan["episode_plan_sha256"]
+    text_layout_report["daily_plan_sha256"] = episode_plan["daily_plan_sha256"]
+    _atomic_json(workdir / "text-layout-report.json", text_layout_report)
+    runtime_estimate_report = _validate_estimated_runtime(script, daily_plan)
+    runtime_estimate_report["episode_plan_sha256"] = episode_plan["episode_plan_sha256"]
+    runtime_estimate_report["daily_plan_sha256"] = episode_plan["daily_plan_sha256"]
+    _atomic_json(workdir / "runtime-estimate-report.json", runtime_estimate_report)
+    # Packaging may select among the three producer angles, but it must not
+    # silently rewrite them after the deterministic playoff has passed.
+    winner_packaging_options = winner.get("packaging_options")
+    if not isinstance(winner_packaging_options, list) or len(winner_packaging_options) != 3:
+        raise EpisodeFactoryError("playoff winner is missing the three locked packaging options")
+    if (
+        playoff["winner"].get("packaging_options_sha256")
+        != canonical_hash(winner_packaging_options)
+    ):
+        raise EpisodeFactoryError("winning packaging options do not match the topic playoff hash")
+    packaging_playoff = copy.deepcopy(playoff)
+    packaging_playoff["winner_packaging_options"] = copy.deepcopy(winner_packaging_options)
+    packaging = generate_packaging(
+        script,
+        packaging_playoff,
+        provider=gemini,
+        model=DEFAULT_GEMINI_MODEL,
+    )
+    packaging["daily_plan_sha256"] = episode_plan["daily_plan_sha256"]
+    selected_option = packaging["packaging_options"][packaging["selected_option_index"]]
+    packaging["youtube_title"] = selected_option["youtube_title"]
+    packaging["thumbnail_text"] = selected_option["thumbnail_text"]
+    packaging["first_screen_promise"] = selected_option["first_screen_promise"]
+    if validate_packaging(packaging, script, packaging_playoff):
+        raise EpisodeFactoryError("packaging changed after provider validation")
+
+    planned_chunks = build_tts_chunks(
+        script,
+        voice_id=NARRATOR_VOICE_ID,
+        comment_voice_id=COMMENT_VOICE_ID,
+        narration_profile_id=narration_profile["profile_id"],
+        model_id=TTS_MODEL_ID,
+    )
+    if len(planned_chunks) > ai33_cap:
+        raise EpisodeFactoryError(
+            f"AI33 requires {len(planned_chunks)} task submissions but cap is {ai33_cap}"
+        )
+
+    # Keep one image-generation call reserved for the thumbnail base.
+    script, scene_assets = generate_episode_images(
+        script,
+        workdir / "scene-images",
+        max_images=images.cap - 1,
+        generator=images,
+        model=DEFAULT_IMAGE_MODEL,
+        artifact_root=workdir,
+        visual_mode=resolved_visual_mode,
+        style_profile=style_profile,
+    )
+    _atomic_json(workdir / "episode-script.json", script)
+    _atomic_json(workdir / "youtube-metadata.json", packaging)
+    _atomic_json(workdir / "scene-images-manifest.json", {
+        "version": 2,
+        "status": "PASS",
+        "episode_plan_sha256": episode_plan["episode_plan_sha256"],
+        "daily_plan_sha256": episode_plan["daily_plan_sha256"],
+        "visual_mode": resolved_visual_mode,
+        "style_profile": style_profile,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
+        "assets": scene_assets,
+        "publication_authorized": False,
+    })
+
+    thumbnail_base = workdir / "thumbnail-base.png"
+    images(
+        prompt=str(packaging["thumbnail_prompt"]),
+        output_path=thumbnail_base,
+        model=DEFAULT_IMAGE_MODEL,
+        size="1536x864",
+    )
+    thumbnail_path = overlay_thumbnail_text(
+        thumbnail_base,
+        workdir / "youtube-thumbnail.png",
+        str(packaging["thumbnail_text"]),
+    )
+    thumbnail_report = write_thumbnail_report(
+        workdir / "thumbnail-manifest.json",
+        thumbnail_path,
+        mode="provider-base-plus-local-overlay",
+        provider_called=True,
+    )
+    thumbnail_report["episode_plan_sha256"] = episode_plan["episode_plan_sha256"]
+    thumbnail_report["daily_plan_sha256"] = episode_plan["daily_plan_sha256"]
+    thumbnail_report["publication_authorized"] = False
+    thumbnail_report["output"] = "youtube-thumbnail.png"
+    _atomic_json(workdir / "thumbnail-manifest.json", thumbnail_report)
+
+    from translator_tts import post_tts_task
+    ai33 = CallBudget(
+        post_tts_task,
+        cap=ai33_cap,
+        label="ai33",
+        journal_path=provider_journal_dir / "ai33.json",
+    )
+    tts_state = run_compilation_tts(
+        script,
+        output_dir=workdir / "tts",
+        artifact_root=workdir,
+        api_key=api_key,
+        voice_id=NARRATOR_VOICE_ID,
+        comment_voice_id=COMMENT_VOICE_ID,
+        narration_profile_id=narration_profile["profile_id"],
+        model_id=TTS_MODEL_ID,
+        post_task=ai33,
+    )
+    pause_map_path = workdir / "tts" / "narration-pause-map.json"
+    try:
+        pause_map = build_pause_map(tts_state, output_path=pause_map_path)
+        audio_mix_report = mix_compilation_audio(
+            tts_state,
+            artifact_root=workdir,
+            pause_map=pause_map,
+            pause_map_path=pause_map_path,
+            output_path=workdir / "tts" / "compilation_voice_mix.wav",
+            report_path=workdir / "tts" / "audio-mix-report.json",
+        )
+    except CompilationAudioMixError as exc:
+        raise EpisodeFactoryError(f"voice-only audio mix blocked: {exc}") from exc
+    audio_path = workdir / str(audio_mix_report["output_path"])
+
+    background_path: Path | None = None
+    if resolved_visual_mode == DEFAULT_VISUAL_MODE:
+        background_source = BACKGROUND_ASSET.resolve()
+        if not background_source.is_file():
+            raise EpisodeFactoryError(
+                f"verified background asset is missing: {BACKGROUND_ASSET}",
+            )
+        background_path = workdir / "assets" / BACKGROUND_ASSET.name
+        background_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(background_source, background_path)
+    storyboard = build_storyboard(
+        script,
+        workdir,
+        background_video=background_path,
+        tts_state=tts_state,
+        visual_mode=resolved_visual_mode,
+        pause_map=pause_map,
+        audio_mix_report=audio_mix_report,
+    )
+    storyboard_path = workdir / "storyboard.json"
+    _atomic_json(storyboard_path, storyboard)
+    shot_plan_path: Path | None = None
+    motion_plan_path: Path | None = None
+    caption_track_path: Path | None = None
+    if resolved_visual_mode == CINEMATIC_STORY_MODE:
+        shot_plan_path = workdir / "shot-plan.json"
+        caption_track_path = workdir / "caption-track.json"
+        _atomic_json(shot_plan_path, storyboard["shot_plan"])
+        _atomic_json(caption_track_path, storyboard["caption_track"])
+    elif resolved_visual_mode == EDITORIAL_MOTION_MODE:
+        motion_plan_path = workdir / "motion-plan.json"
+        caption_track_path = workdir / "caption-track.json"
+        _atomic_json(motion_plan_path, storyboard["motion_plan"])
+        _atomic_json(caption_track_path, storyboard["caption_track"])
+
+    video_path = workdir / "final-output.mp4"
+    render_report = render_compilation(
+        storyboard,
+        workdir,
+        video_path,
+        audio=audio_path,
+    )
+    render_report["output"] = "final-output.mp4"
+    if render_report.get("caption_srt"):
+        render_report["caption_srt"] = Path(
+            render_report["caption_srt"],
+        ).resolve().relative_to(workdir.resolve()).as_posix()
+    _atomic_json(workdir / "render-report.json", render_report)
+
+    artifact_paths = {
+        "script_sha256": workdir / "episode-script.json",
+        "audio_sha256": audio_path,
+        "metadata_sha256": workdir / "youtube-metadata.json",
+        "storyboard_sha256": storyboard_path,
+        "video_sha256": video_path,
+        "thumbnail_sha256": thumbnail_path,
+    }
+    artifact_hashes = {field: _sha256_file(path) for field, path in artifact_paths.items()}
+    media_qa = run_qa(
+        script,
+        packaging,
+        tts_state,
+        storyboard,
+        render_report,
+        artifact_root=workdir,
+        video_path=video_path,
+        thumbnail_path=thumbnail_path,
+        creative_manifest=storyboard.get("creative_manifest"),
+        expected_voice_id=NARRATOR_VOICE_ID,
+        expected_comment_voice_id=COMMENT_VOICE_ID,
+        episode_plan=episode_plan,
+        topic_playoff=playoff,
+        artifact_hashes=artifact_hashes,
+        audio_path=audio_path,
+        pause_map=pause_map,
+        audio_mix_report=audio_mix_report,
+        target_duration_minutes=daily_plan["source_plan"]["target_duration_minutes"],
+    )
+    _atomic_json(workdir / "media-qa.json", media_qa)
+    if media_qa.get("status") != "PASS":
+        raise EpisodeFactoryError("media QA blocked: " + "; ".join(media_qa.get("failures") or []))
+
+    creative_review = build_template(
+        video_path,
+        thumbnail_path,
+        visual_mode=resolved_visual_mode,
+    )
+    creative_review["episode_plan_sha256"] = episode_plan["episode_plan_sha256"]
+    creative_review["daily_plan_sha256"] = episode_plan["daily_plan_sha256"]
+    creative_review["visual_mode"] = resolved_visual_mode
+    creative_review["narration_profile_id"] = narration_profile["profile_id"]
+    creative_review["narration_profile_sha256"] = narration_profile[
+        "profile_sha256"
+    ]
+    creative_review["audio_sha256"] = audio_mix_report["output_sha256"]
+    creative_review["pause_map_sha256"] = pause_map["pause_map_sha256"]
+    creative_review["audio_mix_report_sha256"] = audio_mix_report[
+        "audio_mix_report_sha256"
+    ]
+    creative_review["shot_plan_sha256"] = storyboard.get("shot_plan_sha256")
+    creative_review["motion_plan_sha256"] = storyboard.get("motion_plan_sha256")
+    creative_review["caption_track_sha256"] = storyboard.get(
+        "caption_track_sha256"
+    )
+    _atomic_json(workdir / "creative-review.json", creative_review)
+
+    evidence_paths = {
+        "daily_plan": workdir / "daily-plan.json",
+        "source_queue": workdir / "source-queue.json",
+        "source_review": workdir / "source-review.json",
+        "candidate_pool": workdir / "candidate-pool.json",
+        "source_stage": workdir / "source-stage.json",
+        "spend_lease": workdir / "spend-lease.json",
+        "paid_preflight": workdir / "paid-preflight.json",
+        "producer_review": workdir / "producer-review.json",
+        "critic_review": workdir / "critic-review.json",
+        "topic_playoff_input": workdir / "topic-playoff-input.json",
+        "topic_playoff": workdir / "topic-playoff.json",
+        "episode_greenlight": workdir / "episode-greenlight.json",
+        "episode_plan": workdir / "episode-plan.json",
+        "text_layout_report": workdir / "text-layout-report.json",
+        "runtime_estimate_report": workdir / "runtime-estimate-report.json",
+        "scene_images_manifest": workdir / "scene-images-manifest.json",
+        "thumbnail_manifest": workdir / "thumbnail-manifest.json",
+        "tts_state": workdir / "tts" / "compilation_tts_state.json",
+        "pause_map": pause_map_path,
+        "audio_mix_report": workdir / "tts" / "audio-mix-report.json",
+        "render_report": workdir / "render-report.json",
+        "media_qa": workdir / "media-qa.json",
+        "creative_review": workdir / "creative-review.json",
+        "gemini_attempts": provider_journal_dir / "gemini.json",
+        "openai_translation_attempts": provider_journal_dir / "openai-translation.json",
+        "image_attempts": provider_journal_dir / "image.json",
+        "ai33_attempts": provider_journal_dir / "ai33.json",
+    }
+    if resolved_visual_mode == CINEMATIC_STORY_MODE:
+        evidence_paths.update({
+            "shot_plan": shot_plan_path,
+            "caption_track": caption_track_path,
+            "caption_srt": video_path.with_suffix(".srt"),
+        })
+    elif resolved_visual_mode == EDITORIAL_MOTION_MODE:
+        evidence_paths.update({
+            "motion_plan": motion_plan_path,
+            "caption_track": caption_track_path,
+            "caption_srt": workdir / str(render_report.get("caption_srt") or ""),
+        })
+    missing_evidence = [name for name, path in evidence_paths.items() if not path.is_file()]
+    if missing_evidence:
+        raise EpisodeFactoryError(
+            "release evidence is incomplete: " + ", ".join(sorted(missing_evidence))
+        )
+    evidence_hashes = {
+        name: _sha256_file(path) for name, path in evidence_paths.items()
+    }
+
+    release_manifest: dict[str, Any] = {
+        "version": FACTORY_VERSION,
+        "status": "READY_FOR_HUMAN_REVIEW",
+        "publication_authorized": False,
+        "performance_outcome_guaranteed": False,
+        "episode_key": daily_plan["episode_key"],
+        "pilot_id": daily_plan["pilot_id"],
+        "format": daily_plan["format"],
+        "pillar": daily_plan["pillar"],
+        "visual_mode": resolved_visual_mode,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
+        "winner_candidate_id": winner_id,
+        "episode_plan_sha256": episode_plan["episode_plan_sha256"],
+        "daily_plan_sha256": episode_plan["daily_plan_sha256"],
+        "topic_playoff_sha256": playoff["playoff_sha256"],
+        "topic_playoff_input_sha256": playoff["playoff_input_sha256"],
+        "winner_candidate_contract_sha256": playoff["winner"]["candidate_contract_sha256"],
+        "winner_packaging_options_sha256": playoff["winner"]["packaging_options_sha256"],
+        "winner_creative_plan_sha256": playoff["winner"]["creative_plan_sha256"],
+        "source_stage_sha256": source_stage["source_stage_sha256"],
+        "artifact_sha256": artifact_hashes,
+        "evidence_sha256": evidence_hashes,
+        "pause_map_sha256": pause_map["pause_map_sha256"],
+        "audio_mix_report_sha256": audio_mix_report[
+            "audio_mix_report_sha256"
+        ],
+        "shot_plan_sha256": storyboard.get("shot_plan_sha256"),
+        "motion_plan_sha256": storyboard.get("motion_plan_sha256"),
+        "caption_track_sha256": storyboard.get("caption_track_sha256"),
+        "caption_srt_sha256": render_report.get("caption_srt_sha256"),
+        "timing_contract_sha256": tts_state.get("timing_contract_sha256"),
+        "audio_sha256": audio_mix_report["output_sha256"],
+        "media_qa_status": "PASS",
+        "creative_review_status": "BLOCKED_PENDING_HUMAN",
+        "provider_usage": {
+            "gemini_calls": len(gemini.calls),
+            "gemini_call_cap": gemini.cap,
+            "openai_translation_calls": len(openai_translation.calls),
+            "openai_translation_call_cap": openai_translation.cap,
+            "openai_translation_token_cap": openai_translation.token_cap,
+            "openai_translation_usage": copy.deepcopy(
+                openai_translation.journal.get("usage_totals") or {}
+            ),
+            "image_calls": len(images.calls),
+            "image_call_cap": images.cap,
+            "ai33_task_submissions": len(ai33.calls),
+            "ai33_task_cap": ai33.cap,
+        },
+        "next_gate": "human creative review; no uploader is present in this workflow",
+    }
+    release_manifest["release_candidate_manifest_sha256"] = _self_hash(
+        release_manifest, "release_candidate_manifest_sha256",
+    )
+    _atomic_json(workdir / "release-candidate-manifest.json", release_manifest)
+    result = {
+        "version": FACTORY_VERSION,
+        "status": "READY_FOR_HUMAN_REVIEW",
+        "publication_authorized": False,
+        "performance_outcome_guaranteed": False,
+        "episode_key": daily_plan["episode_key"],
+        "visual_mode": resolved_visual_mode,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
+        "episode_plan_sha256": episode_plan["episode_plan_sha256"],
+        "release_candidate_manifest_sha256": release_manifest["release_candidate_manifest_sha256"],
+        "pause_map_sha256": pause_map["pause_map_sha256"],
+        "audio_mix_report_sha256": audio_mix_report[
+            "audio_mix_report_sha256"
+        ],
+        "shot_plan_sha256": storyboard.get("shot_plan_sha256"),
+        "motion_plan_sha256": storyboard.get("motion_plan_sha256"),
+        "caption_track_sha256": storyboard.get("caption_track_sha256"),
+        "caption_srt_sha256": render_report.get("caption_srt_sha256"),
+        "timing_contract_sha256": tts_state.get("timing_contract_sha256"),
+        "audio_sha256": audio_mix_report["output_sha256"],
+        "artifact_directory": ".",
+    }
+    _atomic_json(workdir / "factory-result.json", result)
+    return result
+
+
+def run_preflight(
+    *,
+    daily_plan: dict[str, Any],
+    workdir: Path,
+    channels_path: Path,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
+) -> dict[str, Any]:
+    validate_daily_plan(daily_plan, channels_path)
+    try:
+        resolved_visual_mode = resolve_visual_mode(visual_mode)
+    except ValueError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
+    if (
+        resolved_visual_mode in {CINEMATIC_STORY_MODE, EDITORIAL_MOTION_MODE}
+        and str(daily_plan.get("format") or "").upper() == "THREAD"
+    ):
+        raise EpisodeFactoryError(
+            f"{resolved_visual_mode} supports SAGA/BUNDLE; THREAD requires its "
+            "separate response-card hybrid contract",
+        )
+
+    pillar_id = str(daily_plan.get("pillar") or "").strip()
+    try:
+        narration_profile = resolve_narration_profile(
+            NARRATION_PROFILE_IDS_BY_PILLAR.get(pillar_id, ""),
+            pillar_id=pillar_id,
+        )
+    except NarrationProfileError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
+
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if not ffmpeg or not ffprobe:
+        raise EpisodeFactoryError(
+            "ffmpeg and ffprobe are required before any live source or provider call",
+        )
+    font = next((path for path in FONT_CANDIDATES if path.is_file()), None)
+    if font is None:
+        raise EpisodeFactoryError(
+            "a Cyrillic-capable production font is required before provider calls",
+        )
+
+    background_sha256: str | None = None
+    background_manifest_sha256: str | None = None
+    duration: float | None = None
+    if resolved_visual_mode == DEFAULT_VISUAL_MODE:
+        background = BACKGROUND_ASSET.resolve()
+        if not background.is_file():
+            raise EpisodeFactoryError(
+                f"background asset is missing: {BACKGROUND_ASSET}",
+            )
+        background_manifest = _read_object(BACKGROUND_MANIFEST)
+        background_sha256 = _sha256_file(background)
+        background_manifest_sha256 = _sha256_file(BACKGROUND_MANIFEST)
+        if background_manifest.get("asset") != str(BACKGROUND_ASSET):
+            raise EpisodeFactoryError(
+                "background manifest does not name the canonical acc1 asset",
+            )
+        if background_manifest.get("sha256") != background_sha256:
+            raise EpisodeFactoryError(
+                "background asset checksum does not match its approved manifest",
+            )
+        if (
+            background_manifest.get("audio_policy") != "discard"
+            or background_manifest.get("loop") is not True
+        ):
+            raise EpisodeFactoryError(
+                "background manifest must require looping video with discarded audio",
+            )
+        try:
+            probe_result = subprocess.run(
+                [
+                    ffprobe, "-v", "error", "-select_streams", "v:0",
+                    "-show_entries",
+                    "stream=codec_name,width,height:format=duration",
+                    "-of", "json", str(background),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            probe = json.loads(probe_result.stdout)
+            stream = (probe.get("streams") or [])[0]
+            duration = float((probe.get("format") or {}).get("duration") or 0)
+        except (
+            OSError,
+            subprocess.CalledProcessError,
+            ValueError,
+            json.JSONDecodeError,
+            IndexError,
+        ) as exc:
+            raise EpisodeFactoryError(
+                "approved background asset is not decodable by ffprobe",
+            ) from exc
+        if [stream.get("width"), stream.get("height")] != background_manifest.get(
+            "resolution",
+        ):
+            raise EpisodeFactoryError(
+                "background video resolution does not match its manifest",
+            )
+        if stream.get("codec_name") != background_manifest.get("video_codec"):
+            raise EpisodeFactoryError(
+                "background video codec does not match its manifest",
+            )
+        if abs(duration - float(background_manifest.get("duration_sec") or 0)) > 0.25:
+            raise EpisodeFactoryError(
+                "background video duration does not match its manifest",
+            )
+
+    report = {
+        "version": FACTORY_VERSION,
+        "status": "PREFLIGHT_PASS",
+        "visual_mode": resolved_visual_mode,
+        "narration_profile_id": narration_profile["profile_id"],
+        "narration_profile_sha256": narration_profile["profile_sha256"],
+        "would_call_reddit": False,
+        "would_call_gemini": False,
+        "would_call_image_provider": False,
+        "would_call_ai33": False,
+        "would_upload_youtube": False,
+        "daily_plan_sha256": canonical_hash(daily_plan),
+        "background_required": resolved_visual_mode == DEFAULT_VISUAL_MODE,
+        "background_sha256": background_sha256,
+        "background_manifest_sha256": background_manifest_sha256,
+        "background_duration_sec": duration,
+        "ffmpeg_preflight": True,
+        "font_preflight": True,
+        "publication_authorized": False,
+    }
+    _atomic_json(Path(workdir) / "factory-preflight.json", report)
+    return report
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--plan", required=True)
+    parser.add_argument("--workdir", required=True)
+    parser.add_argument("--channels", default="channels.json")
+    parser.add_argument(
+        "--stage",
+        choices=("preflight", "source", "paid-preflight", "produce"),
+        required=True,
+    )
+    parser.add_argument("--confirm-reddit-read", default="false")
+    parser.add_argument("--reddit-request-cap", type=int, default=24)
+    parser.add_argument("--confirm-gemini-spend", default="false")
+    parser.add_argument("--gemini-call-cap", type=int, default=64)
+    parser.add_argument("--confirm-openai-spend", default="false")
+    parser.add_argument("--openai-call-cap", type=int, default=96)
+    parser.add_argument("--openai-token-cap", type=int, default=500_000)
+    parser.add_argument("--confirm-image-spend", default="false")
+    parser.add_argument("--image-call-cap", type=int, default=16)
+    parser.add_argument("--confirm-ai33-spend", default="false")
+    parser.add_argument("--ai33-call-cap", type=int, default=24)
+    parser.add_argument("--spend-lease")
+    parser.add_argument(
+        "--visual-mode",
+        choices=tuple(sorted(VISUAL_MODES)),
+        default=DEFAULT_VISUAL_MODE,
+        help="Explicit renderer contract; never selected by fallback.",
+    )
+    args = parser.parse_args(argv)
+    plan = _read_object(Path(args.plan))
+    workdir = Path(args.workdir)
+    channels = Path(args.channels)
+    if args.stage == "preflight":
+        result = run_preflight(
+            daily_plan=plan,
+            workdir=workdir,
+            channels_path=channels,
+            visual_mode=args.visual_mode,
+        )
+    elif args.stage == "source":
+        result = run_source_stage(
+            daily_plan=plan,
+            workdir=workdir,
+            channels_path=channels,
+            confirm_reddit_read=args.confirm_reddit_read,
+            reddit_request_cap=args.reddit_request_cap,
+        )
+    elif args.stage == "paid-preflight":
+        result = run_paid_preflight(
+            daily_plan=plan,
+            workdir=workdir,
+            channels_path=channels,
+            confirm_gemini_spend=args.confirm_gemini_spend,
+            gemini_call_cap=args.gemini_call_cap,
+            confirm_openai_spend=args.confirm_openai_spend,
+            openai_call_cap=args.openai_call_cap,
+            openai_token_cap=args.openai_token_cap,
+            confirm_image_spend=args.confirm_image_spend,
+            image_call_cap=args.image_call_cap,
+            confirm_ai33_spend=args.confirm_ai33_spend,
+            ai33_call_cap=args.ai33_call_cap,
+            visual_mode=args.visual_mode,
+        )
+    else:
+        result = run_produce_stage(
+            daily_plan=plan,
+            workdir=workdir,
+            channels_path=channels,
+            confirm_gemini_spend=args.confirm_gemini_spend,
+            gemini_call_cap=args.gemini_call_cap,
+            confirm_openai_spend=args.confirm_openai_spend,
+            openai_call_cap=args.openai_call_cap,
+            openai_token_cap=args.openai_token_cap,
+            confirm_image_spend=args.confirm_image_spend,
+            image_call_cap=args.image_call_cap,
+            confirm_ai33_spend=args.confirm_ai33_spend,
+            ai33_call_cap=args.ai33_call_cap,
+            reddit_request_cap=args.reddit_request_cap,
+            spend_lease_path=Path(args.spend_lease) if args.spend_lease else None,
+            visual_mode=args.visual_mode,
+        )
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except EpisodeFactoryError as exc:
+        print(json.dumps({"status": "BLOCKED", "error": str(exc)}, ensure_ascii=False))
+        raise SystemExit(1)

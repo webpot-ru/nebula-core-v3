@@ -10,6 +10,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from source_text_quality import source_text_quality_blockers
+from source_safety import source_safety_evidence
+
 
 # Keep source-runtime accounting byte-for-byte compatible with
 # ``scraper.source_word_count``. Reddit stories often contain dates, ages, or
@@ -31,6 +34,8 @@ CLOSURE_RE = re.compile(
 SAGA_WORDS_PER_MINUTE = 130
 SAGA_MIN_WORDS = 18 * SAGA_WORDS_PER_MINUTE
 SAGA_MAX_WORDS = 30 * SAGA_WORDS_PER_MINUTE
+MAX_SOURCE_CHARACTERS_PER_WORD = 12
+MAX_SOURCE_TOKEN_CHARACTERS = 80
 SAGA_PILLAR_SOURCE_FAMILY = {
     "relationships_family": "human_drama",
     "work_money_justice": "human_drama",
@@ -40,6 +45,10 @@ SAGA_PILOT_PILLAR = {
     "pilot_01": "relationships_family",
     "pilot_02": "work_money_justice",
     "pilot_03": "strange_dark_unexplained",
+}
+BUNDLE_PILOT_PILLAR = {
+    "pilot_01": "relationships_family",
+    "pilot_02": "work_money_justice",
 }
 SAGA_PILLARS: dict[str, tuple[str, ...]] = {
     "relationships_family": (
@@ -146,6 +155,11 @@ def load_queue(path: Path, allow_missing: bool) -> dict[str, Any]:
 
 def normalized_text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "").casefold()).strip()
+
+
+def source_narration_blockers(body: str) -> list[str]:
+    """Reject source text whose spoken-cost envelope is not naturally bounded."""
+    return source_text_quality_blockers(body)
 
 
 def term_hits(text: str, terms: tuple[str, ...]) -> int:
@@ -300,6 +314,9 @@ def analyze_saga_entry(
         blocking_reasons.append("subreddit_not_in_source_plan")
     if not SAGA_MIN_WORDS <= word_count <= SAGA_MAX_WORDS:
         blocking_reasons.append("outside_saga_runtime")
+    blocking_reasons.extend(source_narration_blockers(body))
+    if not source_safety_evidence(entry, body)["passed"]:
+        blocking_reasons.append("unsafe_or_pii_source")
     if depends_on_external:
         blocking_reasons.append("screenshot_or_link_dependent")
     if mode not in {"fiction", "unverified_personal_account"}:
@@ -342,6 +359,163 @@ def analyze_saga_entry(
             else "BLOCKED"
         ),
     }
+
+
+def analyze_bundle_entry(
+    entry: dict[str, Any],
+    *,
+    pillar_id: str,
+    expected_family: str,
+    allowed_subreddits: set[str],
+) -> dict[str, Any]:
+    """Review one complete component without applying the aggregate episode runtime."""
+    body = str(entry.get("source_body") or "")
+    if not body.strip():
+        raise ValueError(f"candidate {entry.get('post_id') or '(unknown)'} has no source_body")
+    title = str(entry.get("title") or "").strip()
+    author = str(entry.get("author") or "").strip()
+    word_count = len(WORD_RE.findall(body))
+    mode = truth_mode(str(entry.get("subreddit") or ""))
+    topic_family = str(entry.get("topic_family") or "").strip()
+    normalized_subreddit = str(entry.get("subreddit") or "").strip().casefold().removeprefix("r/")
+    pillar_fit = _pillar_fit(title, body, pillar_id, topic_family)
+    payoff = _payoff_evidence(title, body)
+    source_media = entry.get("source_media")
+    has_native_media = bool(
+        isinstance(source_media, list)
+        and any(isinstance(item, dict) for item in source_media)
+    )
+    depends_on_external = bool(
+        entry.get("source_has_url")
+        or entry.get("source_has_markdown_link")
+        or entry.get("source_has_markdown_image")
+        or has_native_media
+    )
+    blocking_reasons: list[str] = []
+    if topic_family != expected_family:
+        blocking_reasons.append("wrong_source_family")
+    if normalized_subreddit not in allowed_subreddits:
+        blocking_reasons.append("subreddit_not_in_source_plan")
+    if not 300 <= word_count <= 1800:
+        blocking_reasons.append("outside_bundle_component_runtime")
+    blocking_reasons.extend(source_narration_blockers(body))
+    if not source_safety_evidence(entry, body)["passed"]:
+        blocking_reasons.append("unsafe_or_pii_source")
+    if not author:
+        blocking_reasons.append("missing_author_provenance")
+    if depends_on_external:
+        blocking_reasons.append("screenshot_or_link_dependent")
+    if mode not in {"fiction", "unverified_personal_account"}:
+        blocking_reasons.append("truth_mode_not_publishable")
+    if not pillar_fit["passes"]:
+        blocking_reasons.append("pillar_fit_not_proven")
+    if not payoff["complete"]:
+        blocking_reasons.append(payoff["reason"])
+
+    body_sha256 = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    recorded_hash = str(entry.get("source_body_sha256") or "").strip()
+    if recorded_hash and recorded_hash != body_sha256:
+        blocking_reasons.append("source_body_hash_mismatch")
+    local_score = int(entry.get("local_score") or 0)
+    shortlist_score = local_score + (pillar_fit["score"] * 4) - (12 * len(blocking_reasons))
+    eligible = not blocking_reasons
+    return {
+        "post_id": entry.get("post_id"),
+        "title": title,
+        "subreddit": entry.get("subreddit"),
+        "author": author,
+        "source_url": entry.get("url") or entry.get("source_url"),
+        "story_signature": entry.get("story_signature"),
+        "source_body": body,
+        "source_body_chars": len(body),
+        "source_body_sha256": body_sha256,
+        "source_word_count": word_count,
+        "estimated_minutes_at_130_wpm": round(word_count / SAGA_WORDS_PER_MINUTE, 2),
+        "truth_mode": mode,
+        "complete": eligible,
+        "self_contained": eligible,
+        "depends_on_screenshot_or_link": depends_on_external,
+        "payoff_complete": payoff["complete"],
+        "payoff_evidence": payoff["evidence"],
+        "pillar_id": pillar_id,
+        "pillar_fit_score": pillar_fit["score"],
+        "pillar_fit_evidence": pillar_fit["matches"],
+        "source_family": topic_family,
+        "blocking_reasons": blocking_reasons,
+        "shortlist_score": shortlist_score,
+        "review_status": "BUNDLE_COMPONENT_ELIGIBLE" if eligible else "BLOCKED",
+    }
+
+
+def build_bundle_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
+    source_plan = queue.get("source_plan")
+    failures: list[str] = []
+    if not isinstance(source_plan, dict):
+        failures.append("source_plan must be an object for BUNDLE review")
+        source_plan = {}
+    pillar_id = _text(source_plan.get("pillar"))
+    pilot_id = _text(source_plan.get("pilot_id"))
+    expected_pillar = BUNDLE_PILOT_PILLAR.get(pilot_id)
+    expected_family = "human_drama" if expected_pillar else None
+    if source_plan.get("format") != "BUNDLE":
+        failures.append("source_plan.format must be BUNDLE")
+    if expected_pillar != pillar_id:
+        failures.append(
+            f"source_plan pilot/pillar pair is not canonical: {pilot_id or '(missing)'}/{pillar_id or '(missing)'}"
+        )
+    if source_plan.get("format_intent") != "bundle":
+        failures.append("source_plan.format_intent must be bundle")
+    if source_plan.get("aggregate_source_word_count") != [2340, 3900]:
+        failures.append("source_plan.aggregate_source_word_count must be [2340, 3900]")
+    if expected_family and source_plan.get("topic_family") != expected_family:
+        failures.append("BUNDLE source_plan.topic_family must be human_drama")
+    raw_subreddits = source_plan.get("subreddits")
+    if not isinstance(raw_subreddits, list) or not raw_subreddits:
+        failures.append("source_plan.subreddits must contain configured subreddits")
+        raw_subreddits = []
+    allowed_subreddits = {
+        str(item).strip().casefold().removeprefix("r/") for item in raw_subreddits
+    }
+    raw_entries = queue.get("entries") or []
+    base = {
+        "version": 1,
+        "review_mode": "deterministic_full_body_bundle_components",
+        "channel_id": queue.get("channel_id"),
+        "format_intent": queue.get("format_intent"),
+        "source_plan": source_plan,
+        "candidate_count": len(raw_entries),
+        "production_authorized": False,
+    }
+    if failures:
+        return bind_artifact_hashes({
+            **base,
+            "status": "blocked_invalid_source_plan",
+            "eligible_candidate_count": 0,
+            "failures": failures,
+            "candidate_reviews": [],
+            "top_topics": [],
+        }, queue)
+    candidates = [
+        analyze_bundle_entry(
+            entry,
+            pillar_id=pillar_id,
+            expected_family=str(expected_family),
+            allowed_subreddits=allowed_subreddits,
+        )
+        for entry in raw_entries
+        if isinstance(entry, dict)
+    ]
+    eligible = [item for item in candidates if not item["blocking_reasons"]]
+    eligible.sort(key=lambda item: (-item["shortlist_score"], str(item.get("post_id") or "")))
+    chosen = eligible[:top_n]
+    return bind_artifact_hashes({
+        **base,
+        "status": "review_ready" if chosen else "no_eligible_bundle_components",
+        "eligible_candidate_count": len(eligible),
+        "failures": [],
+        "candidate_reviews": candidates,
+        "top_topics": chosen,
+    }, queue)
 
 
 def build_saga_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
@@ -462,9 +636,12 @@ def build_saga_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
 
 def build_review(queue: dict[str, Any], top_n: int) -> dict[str, Any]:
     source_plan = queue.get("source_plan")
+    format_intent = str(queue.get("format_intent") or "").strip().casefold()
+    source_format = str((source_plan or {}).get("format") or "").strip().upper() if isinstance(source_plan, dict) else ""
+    if queue.get("channel_id") == "acc1" and (format_intent == "bundle" or source_format == "BUNDLE"):
+        return build_bundle_review(queue, top_n)
     if queue.get("channel_id") == "acc1" and (
-        str(queue.get("format_intent") or "").strip().casefold() == "saga"
-        or isinstance(source_plan, dict)
+        format_intent == "saga" or source_format == "SAGA"
     ):
         return build_saga_review(queue, top_n)
 

@@ -16,7 +16,14 @@ class Acc1GreenlightTemplateTests(unittest.TestCase):
     @staticmethod
     def _entry(post_id: str = "candidate-1", *, link_dependent: bool = False) -> dict:
         sentence = "My husband argued with my family and our relationship changed forever. "
-        body = (sentence * 280) + "Finally, we broke up and I blocked him."
+        body = " ".join([
+            *(
+                f"{sentence} Detail{index} changed consequence{index} before event{index} "
+                "and the next decision."
+                for index in range(180)
+            ),
+            "Finally, we broke up and I blocked him.",
+        ])
         return {
             "post_id": post_id,
             "title": "My husband and my family forced me to choose",

@@ -7,6 +7,12 @@ import json
 import re
 from typing import Any
 
+from acc1_narration_profiles import (
+    NarrationProfileError,
+    resolve_narration_profile,
+)
+from acc1_episode_contract import truth_disclosure_ru
+from acc1_episode_manifest import EpisodeManifestError, disclosure_for_truth_mode
 from translator_tts import (
     clean_text_for_narration_and_karaoke, ru_int_to_words, ru_plural_form,
 )
@@ -23,6 +29,91 @@ RISKY_NUMBER_PATTERNS = (
 
 class NarrationPreflightError(RuntimeError):
     pass
+
+
+def resolve_compilation_narration_profile(
+    compilation: dict[str, Any],
+    narration_profile_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Resolve an explicit/declared profile without changing the legacy path."""
+
+    declared = str(compilation.get("narration_profile_id") or "").strip()
+    explicit = str(narration_profile_id or "").strip()
+    if declared and explicit and declared != explicit:
+        raise NarrationPreflightError(
+            "narration_profile_id argument does not match the compilation declaration"
+        )
+    selected = explicit or declared
+    if not selected:
+        return None
+    try:
+        return resolve_narration_profile(
+            selected,
+            pillar_id=compilation.get("pillar"),
+        )
+    except NarrationProfileError as exc:
+        raise NarrationPreflightError(str(exc)) from exc
+
+
+def truth_disclosure_text(story: dict[str, Any]) -> str:
+    """Return the exact audible/metadata disclosure for one Reddit source."""
+
+    snapshot = story.get("source_snapshot") if isinstance(story, dict) else None
+    if not isinstance(snapshot, dict):
+        raise NarrationPreflightError("story source_snapshot is required for truth disclosure")
+    post_id = str(snapshot.get("source_id") or snapshot.get("post_id") or "").strip()
+    if not post_id:
+        raise NarrationPreflightError("story source_snapshot.post_id is required")
+    try:
+        return disclosure_for_truth_mode(str(snapshot.get("truth_mode") or ""))
+    except EpisodeManifestError as exc:
+        raise NarrationPreflightError(f"story {post_id} has no valid truth_mode") from exc
+
+
+def episode_truth_disclosure(compilation: dict[str, Any]) -> dict[str, str]:
+    """Validate one exact truth mode and one intro disclosure per episode."""
+
+    stories = compilation.get("stories")
+    if not isinstance(stories, list) or not stories:
+        raise NarrationPreflightError("episode requires at least one source for truth disclosure")
+    modes: set[str] = set()
+    for story in stories:
+        snapshot = story.get("source_snapshot") if isinstance(story, dict) else None
+        if not isinstance(snapshot, dict):
+            raise NarrationPreflightError("story source_snapshot is required for truth disclosure")
+        mode = str(snapshot.get("truth_mode") or "").strip()
+        try:
+            disclosure_for_truth_mode(mode)
+        except EpisodeManifestError as exc:
+            post_id = str(snapshot.get("source_id") or snapshot.get("post_id") or "unknown")
+            raise NarrationPreflightError(f"story {post_id} has no valid truth_mode") from exc
+        modes.add(mode)
+    if len(modes) != 1:
+        raise NarrationPreflightError(
+            "one episode must not mix fiction and unverified personal accounts"
+        )
+    truth_mode = next(iter(modes))
+    expected = truth_disclosure_ru(modes, source_count=len(stories))
+    declared = " ".join(str(compilation.get("truth_disclosure_ru") or "").split())
+    if declared != expected:
+        raise NarrationPreflightError(
+            "truth_disclosure_ru must exactly match the episode truth_mode"
+        )
+    intro = " ".join(str(compilation.get("intro_ru") or "").split())
+    all_parts = [intro]
+    for story in stories:
+        all_parts.append(" ".join(str(story.get("narration_ru") or "").split()))
+        all_parts.append(" ".join(str(story.get("transition_after_ru") or "").split()))
+    all_parts.append(" ".join(str(compilation.get("outro_ru") or "").split()))
+    if intro.count(expected) != 1:
+        raise NarrationPreflightError(
+            "truth disclosure must appear exactly once in intro_ru"
+        )
+    if " ".join(all_parts).count(expected) != 1:
+        raise NarrationPreflightError(
+            "truth disclosure must appear exactly once per episode"
+        )
+    return {"truth_mode": truth_mode, "text": expected}
 
 
 def normalize_ru_clock_times(text: str) -> tuple[str, int]:
@@ -46,11 +137,21 @@ def normalize_ru_clock_times(text: str) -> tuple[str, int]:
     return pattern.sub(replace, str(text or "")), changes
 
 
+def normalize_ru_emergency_numbers(text: str) -> tuple[str, int]:
+    """Make the Russian emergency number unambiguous for TTS."""
+
+    normalized, count = re.subn(
+        r"(?<!\d)911(?!\d)", "девять один один", str(text or ""),
+    )
+    return normalized, count
+
+
 def narration_preflight(text: str) -> dict[str, Any]:
     original = str(text or "")
     clock_safe, clock_changes = normalize_ru_clock_times(original)
-    cleaned, changes = clean_text_for_narration_and_karaoke(clock_safe, "ru")
-    changes += clock_changes
+    emergency_safe, emergency_changes = normalize_ru_emergency_numbers(clock_safe)
+    cleaned, changes = clean_text_for_narration_and_karaoke(emergency_safe, "ru")
+    changes += clock_changes + emergency_changes
     issues: list[dict[str, str]] = []
     if re.search(r"(?i)https?://|www\.", cleaned):
         issues.append({"kind": "raw_url", "token": "URL"})
@@ -65,19 +166,124 @@ def narration_preflight(text: str) -> dict[str, Any]:
     }
 
 
-def build_compilation_segments(compilation: dict[str, Any]) -> list[dict[str, Any]]:
-    ordered: list[tuple[str, str]] = [("intro", str(compilation.get("intro_ru") or ""))]
+def _canonical_text(value: object) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _semantic_units(
+    *,
+    segment_id: str,
+    sanitized_text: str,
+    explicit_beats: Any = None,
+) -> list[dict[str, Any]]:
+    units: list[str] = []
+    boundary_source = "whole_segment"
+    if explicit_beats:
+        if not isinstance(explicit_beats, list):
+            raise NarrationPreflightError(
+                f"{segment_id} explicit story beats must be a list"
+            )
+        for index, item in enumerate(explicit_beats, start=1):
+            if isinstance(item, str):
+                raw_text = item
+            elif isinstance(item, dict):
+                raw_text = str(
+                    item.get("narration_text")
+                    or item.get("text")
+                    or item.get("body")
+                    or ""
+                )
+            else:
+                raise NarrationPreflightError(
+                    f"{segment_id} story beat {index} must contain narration text"
+                )
+            result = narration_preflight(raw_text)
+            if result["status"] != "PASS" or not result["narration_text"].strip():
+                raise NarrationPreflightError(
+                    f"{segment_id} story beat {index} is not narration-safe"
+                )
+            units.append(result["narration_text"].strip())
+        if _canonical_text(" ".join(units)) != _canonical_text(sanitized_text):
+            raise NarrationPreflightError(
+                f"{segment_id} explicit story beats must preserve exact sanitized narration"
+            )
+        boundary_source = "explicit_story_beat"
+    else:
+        units = [
+            value.strip()
+            for value in re.split(r"\n\s*\n+", sanitized_text)
+            if value.strip()
+        ]
+        if len(units) > 1:
+            boundary_source = "paragraph"
+        if not units:
+            units = [sanitized_text.strip()]
+
+    return [
+        {
+            "semantic_beat_id": f"{segment_id}__beat_{index:03d}",
+            "semantic_beat_index": index,
+            "boundary_source": boundary_source,
+            "text": text,
+            "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        }
+        for index, text in enumerate(units, start=1)
+    ]
+
+
+def build_compilation_segments(
+    compilation: dict[str, Any],
+    narration_profile_id: str | None = None,
+) -> list[dict[str, Any]]:
+    profile = resolve_compilation_narration_profile(
+        compilation, narration_profile_id,
+    )
+    disclosure = episode_truth_disclosure(compilation)
+    ordered: list[dict[str, Any]] = [{
+        "segment_id": "intro",
+        "kind": "intro",
+        "voice_role": "narrator",
+        "truth_mode": disclosure["truth_mode"],
+        "truth_disclosure_text": disclosure["text"],
+        "text": str(compilation.get("intro_ru") or ""),
+    }]
     stories = compilation.get("stories") or []
     for index, story in enumerate(stories, start=1):
         snapshot = story.get("source_snapshot") if isinstance(story, dict) else {}
-        post_id = str((snapshot or {}).get("post_id") or index)
-        ordered.append((f"story_{post_id}", str(story.get("narration_ru") or "")))
+        post_id = str(
+            (snapshot or {}).get("source_id") or (snapshot or {}).get("post_id") or index
+        )
+        voice_role = str(story.get("narration_role") or "narrator").strip().lower()
+        if voice_role not in {"narrator", "comment"}:
+            raise NarrationPreflightError(
+                f"story {post_id} narration_role must be narrator or comment"
+            )
+        ordered.append({
+            "segment_id": f"story_{post_id}",
+            "kind": "story",
+            "voice_role": voice_role,
+            "source_post_id": post_id,
+            "text": str(story.get("narration_ru") or ""),
+            "_explicit_beats": story.get("story_beats") or story.get("beats"),
+        })
         if index < len(stories):
-            ordered.append((f"transition_{index:02d}", str(story.get("transition_after_ru") or "")))
-    ordered.append(("outro", str(compilation.get("outro_ru") or "")))
+            ordered.append({
+                "segment_id": f"transition_{index:02d}",
+                "kind": "transition",
+                "voice_role": "narrator",
+                "text": str(story.get("transition_after_ru") or ""),
+            })
+    ordered.append({
+        "segment_id": "outro",
+        "kind": "outro",
+        "voice_role": "narrator",
+        "text": str(compilation.get("outro_ru") or ""),
+    })
 
     segments: list[dict[str, Any]] = []
-    for segment_id, text in ordered:
+    for item in ordered:
+        segment_id = item["segment_id"]
+        text = item["text"]
         if not text.strip():
             if segment_id.startswith("transition_"):
                 continue
@@ -87,13 +293,28 @@ def build_compilation_segments(compilation: dict[str, Any]) -> list[dict[str, An
             kinds = ", ".join(item["kind"] for item in result["issues"])
             raise NarrationPreflightError(f"{segment_id} narration needs explicit spoken forms: {kinds}")
         sanitized = result["narration_text"]
-        segments.append({
+        segment = {
             "segment_id": segment_id,
+            "kind": item["kind"],
+            "voice_role": item["voice_role"],
             "text": sanitized,
             "text_sha256": hashlib.sha256(sanitized.encode("utf-8")).hexdigest(),
             "required_model_id": "eleven_v3",
             "status": "READY_FOR_TTS",
-        })
+        }
+        for field in ("source_post_id", "truth_mode", "truth_disclosure_text"):
+            if field in item:
+                segment[field] = item[field]
+        if profile is not None:
+            segment["narration_profile_id"] = profile["profile_id"]
+            segment["narration_profile_sha256"] = profile["profile_sha256"]
+            segment["semantic_chunk_policy"] = profile["semantic_chunk_policy"]
+            segment["semantic_units"] = _semantic_units(
+                segment_id=segment_id,
+                sanitized_text=sanitized,
+                explicit_beats=item.get("_explicit_beats"),
+            )
+        segments.append(segment)
     return segments
 
 

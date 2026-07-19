@@ -55,6 +55,35 @@ class CompilationImageTests(unittest.TestCase):
                 resume_compilation=resume)
         self.assertEqual(len(assets), 3)
 
+    def test_generates_four_distinct_source_backed_scene_visuals_per_story(self):
+        compilation = {"stories": [{
+            "title_ru": f"История {index}", "hook_ru": "Ночной коридор",
+            "narration_ru": " ".join(
+                f"Сцена {scene} содержит подтвержденное событие истории."
+                for scene in range(1, 13)
+            ),
+            "editorial_review": {"verdict": "PASS"},
+            "source_snapshot": {"post_id": str(index)},
+        } for index in range(1, 4)]}
+        calls = []
+
+        def generator(**kwargs):
+            calls.append(kwargs)
+            path = Path(kwargs["output_path"])
+            path.write_bytes(kwargs["prompt"].encode("utf-8"))
+            return path
+
+        with tempfile.TemporaryDirectory() as temp:
+            assets = generate_story_images(
+                compilation, Path(temp), generator=generator, images_per_story=4,
+            )
+        self.assertEqual(len(assets), 12)
+        self.assertEqual(len(calls), 12)
+        self.assertEqual({asset["scene_count"] for asset in assets}, {4})
+        self.assertEqual({asset["scene_index"] for asset in assets}, {1, 2, 3, 4})
+        self.assertEqual(len({call["prompt"] for call in calls[:4]}), 4)
+        self.assertTrue(all("do not add a new plot event" in call["prompt"] for call in calls))
+
 
 if __name__ == "__main__":
     unittest.main()

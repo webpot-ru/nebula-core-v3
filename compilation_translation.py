@@ -9,14 +9,21 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from acc1_language_gate import is_russian_text
+from compilation_narration import narration_preflight
+
 
 DEFAULT_MODEL = "gemini-3.5-flash"
 DEFAULT_MAX_OUTPUT_TOKENS = 16_384
+DEFAULT_MAX_CHARACTER_RATIO = 2.0
+DEFAULT_MAX_CHARACTER_FLOOR = 512
+DEFAULT_MAX_TOKEN_CHARACTERS = 80
 Provider = Callable[..., dict[str, Any]]
 
 
@@ -35,6 +42,9 @@ class TranslationConfig:
     temperature: float = 0.2
     min_length_ratio: float = 0.65
     max_length_ratio: float = 1.45
+    max_character_ratio: float = DEFAULT_MAX_CHARACTER_RATIO
+    max_character_floor: int = DEFAULT_MAX_CHARACTER_FLOOR
+    max_token_characters: int = DEFAULT_MAX_TOKEN_CHARACTERS
     chunk_chars: int = 7_000
     max_story_revisions: int = 2
 
@@ -43,10 +53,31 @@ class TranslationConfig:
             raise ValueError("max_output_tokens must be at least 1024")
         if self.max_story_revisions not in (0, 1, 2):
             raise ValueError("max_story_revisions must be between 0 and 2")
+        if not 1.0 <= self.max_character_ratio <= 3.0:
+            raise ValueError("max_character_ratio must be between 1.0 and 3.0")
+        if self.max_character_floor < 128:
+            raise ValueError("max_character_floor must be at least 128")
+        if not 20 <= self.max_token_characters <= 160:
+            raise ValueError("max_token_characters must be between 20 and 160")
 
 
 def _sentences(text: str) -> list[str]:
     return [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", text) if part.strip()]
+
+
+def canonicalize_source_for_translation(value: Any) -> str:
+    """Collapse non-semantic whitespace while preserving paragraph boundaries.
+
+    The exact Reddit body and its hash remain in source evidence.  This working
+    copy prevents tabs or very long space runs from inflating provider prompts
+    and fallback chunk counts without changing words, punctuation, or order.
+    """
+    raw = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    paragraphs = [
+        re.sub(r"\s+", " ", paragraph).strip()
+        for paragraph in re.split(r"\n\s*\n", raw)
+    ]
+    return "\n\n".join(paragraph for paragraph in paragraphs if paragraph)
 
 
 def source_anchors(text: str) -> dict[str, str]:
@@ -61,7 +92,7 @@ def source_anchors(text: str) -> dict[str, str]:
 
 
 def _translation_prompt(title: str, body: str, anchors: dict[str, str]) -> str:
-    return f"""Translate this complete Reddit horror story into natural narrated Russian.
+    return f"""Translate this complete Reddit story into natural narrated Russian.
 Preserve every event, uncertainty, point of view, name, number, order, and the ending.
 Do not summarize, expand, explain, censor, or invent. Return strict JSON:
 {{"title":"...","body":"...","complete":true,"ending_preserved":true}}
@@ -126,9 +157,22 @@ def _looks_like_truncated_json_error(exc: Exception) -> bool:
 
 
 def _validate_translation(source_body: str, payload: dict[str, Any], config: TranslationConfig) -> None:
+    title = str(payload.get("title") or "").strip()
     body = str(payload.get("body") or "").strip()
-    if not str(payload.get("title") or "").strip() or not body:
+    if not title or not body:
         raise IncompleteTranslation("translation is missing title or body")
+    if not is_russian_text(
+        title,
+        minimum_cyrillic_words=1,
+        minimum_cyrillic_letter_ratio=0.50,
+    ):
+        raise IncompleteTranslation("translated title is not demonstrably Russian")
+    if not is_russian_text(
+        body,
+        minimum_cyrillic_words=3,
+        minimum_cyrillic_letter_ratio=0.65,
+    ):
+        raise IncompleteTranslation("translated body is not demonstrably Russian")
     if payload.get("complete") is not True:
         raise IncompleteTranslation("provider did not attest complete translation")
     if payload.get("ending_preserved") is not True:
@@ -139,6 +183,34 @@ def _validate_translation(source_body: str, payload: dict[str, Any], config: Tra
         raise IncompleteTranslation("translation is implausibly short")
     if translated_words / source_words > config.max_length_ratio:
         raise IncompleteTranslation("translation expanded beyond the source-preserving limit")
+    narration = narration_preflight(body)
+    if narration.get("status") != "PASS":
+        issue_kinds = ", ".join(
+            sorted({str(item.get("kind") or "unknown") for item in narration.get("issues") or []})
+        )
+        raise IncompleteTranslation(
+            f"translation is not safe for deterministic narration: {issue_kinds}"
+        )
+    narration_body = str(narration.get("narration_text") or "").strip()
+    if not narration_body:
+        raise IncompleteTranslation("translation produced empty spoken narration")
+    source_characters = len(re.sub(r"\s+", " ", source_body).strip())
+    translated_characters = len(re.sub(r"\s+", " ", narration_body).strip())
+    character_ceiling = max(
+        config.max_character_floor,
+        math.ceil(max(1, source_characters) * config.max_character_ratio),
+    )
+    if translated_characters > character_ceiling:
+        raise IncompleteTranslation(
+            "spoken narration character expansion exceeds the source-bound limit"
+        )
+    if any(
+        len(token) > config.max_token_characters
+        for token in (body.split() + narration_body.split())
+    ):
+        raise IncompleteTranslation(
+            "translation contains an overlong narration token"
+        )
 
 
 def _paragraph_chunks(body: str, limit: int) -> list[str]:
@@ -221,7 +293,9 @@ def translate_and_review_story(
 ) -> dict[str, Any]:
     """Translate full-story-first, fallback only on incomplete output, then review."""
     config = config or TranslationConfig()
-    title, body = str(story.get("title") or ""), str(story.get("body") or "")
+    title = str(story.get("title") or "")
+    raw_body = str(story.get("body") or "")
+    body = canonicalize_source_for_translation(raw_body)
     anchors = source_anchors(body)
     used_chunk_fallback = False
     saved_review: dict[str, Any] | None = None
@@ -287,11 +361,19 @@ def translate_and_review_story(
         "title": str(translated["title"]).strip(),
         "body": str(translated["body"]).strip(),
         "source_title": title,
-        "source_body": body,
+        "source_body": raw_body,
         "translation_audit": {
             "model": config.model, "max_output_tokens": config.max_output_tokens,
             "full_story_first": True, "chunk_fallback": used_chunk_fallback,
             "revisions": revisions, "review": review, "source_anchors": anchors,
+            "source_text_normalization": {
+                "mode": "collapse_whitespace_preserve_paragraphs_v1",
+                "applied": raw_body != body,
+                "raw_sha256": hashlib.sha256(raw_body.encode()).hexdigest(),
+                "working_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                "raw_character_count": len(raw_body),
+                "working_character_count": len(body),
+            },
         },
     }
 

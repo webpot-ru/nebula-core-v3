@@ -56,7 +56,11 @@ class RedditTopicReviewTests(unittest.TestCase):
 
     @staticmethod
     def saga_body(sentence, ending):
-        return (sentence + " ") * 280 + ending
+        passages = [
+            f"{sentence} Detail{index} changed consequence{index} before event{index} and the next decision."
+            for index in range(180)
+        ]
+        return " ".join(passages + [ending])
 
     def test_full_body_review_returns_diverse_top_topics(self):
         queue = {
@@ -179,6 +183,48 @@ class RedditTopicReviewTests(unittest.TestCase):
         self.assertEqual(review["status"], "no_eligible_saga_candidate")
         self.assertIn(
             "screenshot_or_link_dependent", review["candidate_reviews"][0]["blocking_reasons"],
+        )
+
+    def test_saga_machine_like_character_density_is_a_hard_block(self):
+        body = " ".join(
+            ["machinegeneratednarrationtoken"] * 2330
+            + ["Finally", "we", "broke", "up", "and", "I", "blocked", "him."]
+        )
+        entry = self.entry(
+            "dense",
+            "My husband and my family forced me to choose",
+            body,
+            subreddit="r/relationship_advice",
+        )
+        entry["topic_family"] = "human_drama"
+        review = review_reddit_topics.build_review(
+            self.saga_queue("relationships_family", "human_drama", [entry]), 3,
+        )
+        self.assertEqual(review["status"], "no_eligible_saga_candidate")
+        self.assertIn(
+            "unnatural_source_character_density",
+            review["candidate_reviews"][0]["blocking_reasons"],
+        )
+
+    def test_saga_high_confidence_pii_is_a_hard_block(self):
+        body = self.saga_body(
+            "My husband argued with my family and our relationship changed forever.",
+            "Finally, we broke up and I blocked him. Contact me at private.person@example.com.",
+        )
+        entry = self.entry(
+            "pii",
+            "My husband and my family forced me to choose",
+            body,
+            subreddit="r/relationship_advice",
+        )
+        entry["topic_family"] = "human_drama"
+        review = review_reddit_topics.build_review(
+            self.saga_queue("relationships_family", "human_drama", [entry]), 3,
+        )
+        self.assertEqual(review["status"], "no_eligible_saga_candidate")
+        self.assertIn(
+            "unsafe_or_pii_source",
+            review["candidate_reviews"][0]["blocking_reasons"],
         )
 
     def test_saga_native_reddit_media_is_a_hard_block(self):
