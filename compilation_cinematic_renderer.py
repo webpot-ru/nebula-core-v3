@@ -249,7 +249,7 @@ def preflight_cinematic_storyboard(
             ):
                 raise CinematicRenderError(f"{shot_id} violates story-shot duration bounds")
         elif (
-            presentation not in {"intro", "transition", "outro"}
+            presentation not in {"intro", "transition", "mid_story_cta", "outro"}
             or not 0.5 <= duration <= CINEMATIC_SERVICE_SHOT_MAX_SECONDS + 0.002
         ):
             raise CinematicRenderError(f"{shot_id} has unsupported presentation/duration")
@@ -422,13 +422,14 @@ def _draw_service_overlay(
     canvas: Image.Image, slide: dict[str, Any],
 ) -> None:
     presentation = str(slide.get("presentation") or "")
-    if presentation not in {"intro", "transition", "outro"}:
+    if presentation not in {"intro", "transition", "mid_story_cta", "outro"}:
         return
     draw = ImageDraw.Draw(canvas, "RGBA")
     draw.rectangle((0, 0, WIDTH, HEIGHT), fill=(0, 0, 0, 48))
     label = {
         "intro": "CHONKER TALKS",
         "transition": "СЛЕДУЮЩАЯ ИСТОРИЯ",
+        "mid_story_cta": "ВАШЕ МНЕНИЕ",
         "outro": "ОБСУДИМ В КОММЕНТАРИЯХ",
     }[presentation]
     draw.text((72, 72), label, font=_font(34), fill=(255, 255, 255, 225))
@@ -581,7 +582,7 @@ def render_cinematic_compilation(
             render_input = Path(slide["verified_image_path"])
             presentation = str(slide.get("presentation") or "")
             overlay_input: Path | None = None
-            if presentation in {"intro", "transition", "outro"}:
+            if presentation in {"intro", "transition", "mid_story_cta", "outro"}:
                 overlay_slide = _service_overlay_slide(slides, index)
                 overlay_input = work / f"service-overlay-{index:04d}.png"
                 _render_service_overlay(overlay_slide, overlay_input)

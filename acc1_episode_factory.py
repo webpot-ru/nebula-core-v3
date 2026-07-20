@@ -30,6 +30,7 @@ from acc1_bundle_selector import (
 from acc1_daily_planner import build_daily_plan
 from acc1_episode_contract import (
     build_intro_contract,
+    build_mid_story_cta_contract,
     build_outro_prompt,
     truth_disclosure_ru,
     validate_episode_script,
@@ -1613,6 +1614,17 @@ def _translate_script(
         )
     except ValueError as exc:
         raise EpisodeFactoryError(f"cannot build the deterministic intro: {exc}") from exc
+    cta_anchor_index = max(1, len(sources) // 2)
+    try:
+        mid_story_cta_contract = build_mid_story_cta_contract(
+            episode_format=daily_plan["format"],
+            pillar=daily_plan["pillar"],
+            anchor_source=sources[cta_anchor_index - 1],
+            anchor_index=cta_anchor_index,
+            source_count=len(sources),
+        )
+    except ValueError as exc:
+        raise EpisodeFactoryError(f"cannot build the deterministic mid-story CTA: {exc}") from exc
     script: dict[str, Any] = {
         "version": 1,
         "status": "ACCEPTED_FOR_ARTIFACT_PRODUCTION",
@@ -1624,6 +1636,8 @@ def _translate_script(
         "title_ru": f"Chonker Talks — {format_label}",
         "intro_contract": intro_contract,
         "intro_ru": intro_contract["intro_ru"],
+        "mid_story_cta_contract": mid_story_cta_contract,
+        "mid_story_cta_ru": mid_story_cta_contract["cta_ru"],
         "outro_ru": build_outro_prompt(
             episode_format=daily_plan["format"],
             pillar=daily_plan["pillar"],

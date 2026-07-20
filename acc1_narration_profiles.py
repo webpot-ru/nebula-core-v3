@@ -116,7 +116,8 @@ _PROFILE_PAYLOADS = {
         intra_beat_seconds=0.14,
         beat_seconds=0.48,
         segment_seconds={
-            "intro": 0.65, "story": 0.72, "transition": 1.05, "outro": 0.0,
+            "intro": 0.65, "story": 0.72, "mid_story_cta": 0.72,
+            "transition": 1.05, "outro": 0.0,
         },
     ),
     WORK_MONEY_JUSTICE_PROFILE_ID: _profile(
@@ -129,7 +130,8 @@ _PROFILE_PAYLOADS = {
         intra_beat_seconds=0.11,
         beat_seconds=0.38,
         segment_seconds={
-            "intro": 0.55, "story": 0.60, "transition": 0.90, "outro": 0.0,
+            "intro": 0.55, "story": 0.60, "mid_story_cta": 0.60,
+            "transition": 0.90, "outro": 0.0,
         },
     ),
     CONFESSIONS_AWKWARD_TABOO_PROFILE_ID: _profile(
@@ -142,7 +144,8 @@ _PROFILE_PAYLOADS = {
         intra_beat_seconds=0.16,
         beat_seconds=0.56,
         segment_seconds={
-            "intro": 0.70, "story": 0.78, "transition": 1.00, "outro": 0.0,
+            "intro": 0.70, "story": 0.78, "mid_story_cta": 0.78,
+            "transition": 1.00, "outro": 0.0,
         },
     ),
     PROFESSIONS_HUMAN_EXPERIENCE_PROFILE_ID: _profile(
@@ -155,7 +158,8 @@ _PROFILE_PAYLOADS = {
         intra_beat_seconds=0.13,
         beat_seconds=0.50,
         segment_seconds={
-            "intro": 0.62, "story": 0.68, "transition": 0.95, "outro": 0.0,
+            "intro": 0.62, "story": 0.68, "mid_story_cta": 0.68,
+            "transition": 0.95, "outro": 0.0,
         },
     ),
     STRANGE_DARK_UNEXPLAINED_PROFILE_ID: _profile(
@@ -168,7 +172,8 @@ _PROFILE_PAYLOADS = {
         intra_beat_seconds=0.20,
         beat_seconds=0.76,
         segment_seconds={
-            "intro": 0.85, "story": 0.96, "transition": 1.30, "outro": 0.0,
+            "intro": 0.85, "story": 0.96, "mid_story_cta": 0.96,
+            "transition": 1.30, "outro": 0.0,
         },
     ),
 }

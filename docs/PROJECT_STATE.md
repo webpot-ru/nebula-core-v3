@@ -17,6 +17,18 @@ GitHub workflow dispatch, YouTube action, OAuth change, channel mapping change,
 or publication occurred. Generated MP4 previews remain local artifacts and are
 not committed.
 
+Follow-up local work adds a deterministic source-bound engagement layer for
+acc1 scripts and render timelines: the cold open remains bound to the
+topic-playoff evidence, a short CTA is generated from an exact source anchor at
+a deterministic source break, and the question-led outro remains grounded in
+the first source/pillar. The CTA is inserted into narration and supported by
+the editorial-motion and cinematic service-scene contracts. The local
+deterministic suite passes all 512 tests; production defaults, provider spend,
+workflows, YouTube upload and publication authorization remain unchanged. For a
+single-source SAGA, the current source-break policy places the CTA after that
+source and before the outro; beat-level placement inside one story is follow-up
+work rather than a verified capability.
+
 ## Current Shape
 
 `/Users/lali/Projects/reddit` is a multilingual YouTube story-entertainment pipeline for the ChonkerTalks channel network.

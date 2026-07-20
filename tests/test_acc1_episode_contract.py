@@ -3,6 +3,7 @@ import unittest
 
 from acc1_episode_contract import (
     build_intro_contract,
+    build_mid_story_cta_contract,
     build_outro_prompt,
     canonical_hash,
     truth_disclosure_ru,
@@ -122,6 +123,13 @@ def fixtures():
         first_title_ru="История",
         truth_disclosure=disclosure,
     )
+    mid_story_cta_contract = build_mid_story_cta_contract(
+        episode_format="SAGA",
+        pillar="strange_dark_unexplained",
+        anchor_source=snap,
+        anchor_index=1,
+        source_count=1,
+    )
     script = {
         "episode_plan_sha256": plan["episode_plan_sha256"],
         "playoff_sha256": playoff["playoff_sha256"],
@@ -133,6 +141,8 @@ def fixtures():
         "truth_disclosure_ru": disclosure,
         "intro_contract": intro_contract,
         "intro_ru": intro_contract["intro_ru"],
+        "mid_story_cta_contract": mid_story_cta_contract,
+        "mid_story_cta_ru": mid_story_cta_contract["cta_ru"],
         "outro_ru": "Обсудим в комментариях.",
         "source_story_beats": story_beats,
         "originality_plan": originality_plan,
@@ -241,6 +251,31 @@ class EpisodeContractTests(unittest.TestCase):
         self.assertEqual(
             result,
             "Вы бы ответили на такой звонок? А если у вас есть история, от которой до сих пор не по себе, расскажите её в комментариях.",
+        )
+
+    def test_mid_story_cta_is_source_bound_and_deterministic(self):
+        snap = snapshot(source_id="work", words=20)
+        contract = build_mid_story_cta_contract(
+            episode_format="BUNDLE",
+            pillar="work_money_justice",
+            anchor_source=snap,
+            anchor_index=1,
+            source_count=2,
+        )
+        self.assertEqual(contract["source_anchor"]["source_id"], "work")
+        self.assertIn(contract["source_anchor"]["source_quote"], snap["body"])
+        self.assertEqual(
+            contract["cta_ru"],
+            "Вы бы уже вмешались или сначала собрали доказательства? Напишите в комментариях. Если нравятся полные истории без выдуманных продолжений — подписывайтесь. Продолжаем.",
+        )
+
+    def test_mid_story_cta_tamper_blocks(self):
+        plan, playoff, script = fixtures()
+        script["mid_story_cta_ru"] = "Поставьте лайк и продолжим."
+        result = validate_episode_script(script, plan=plan, playoff=playoff)
+        self.assertIn(
+            "mid_story_cta_ru must exactly match the deterministic CTA contract",
+            result["failures"],
         )
 
     def test_spoken_title_says_911_digit_by_digit_and_avoids_repeating_payoff(self):
