@@ -287,14 +287,23 @@ jobs:
       - name: Build fail-closed acc1 SAGA greenlight draft
         if: >-
           always() && inputs.channel == 'acc1' &&
-          (inputs.acc1_pilot_id == 'pilot_01' ||
-           inputs.acc1_pilot_id == 'pilot_02' ||
-           inputs.acc1_pilot_id == 'pilot_03')
+          inputs.acc1_pilot_id == 'pilot_03'
         run: |
           python scripts/build_acc1_greenlight_template.py \
             --queue /tmp/reddit-source-smoke/queue.json \
             --review /tmp/reddit-source-smoke/topic-review.json \
             --output /tmp/reddit-source-smoke/greenlight-draft.json
+
+      - name: Build fail-closed acc1 BUNDLE source manifest
+        if: >-
+          always() && inputs.channel == 'acc1' &&
+          (inputs.acc1_pilot_id == 'pilot_01' ||
+           inputs.acc1_pilot_id == 'pilot_02')
+        run: |
+          python acc1_bundle_selector.py \
+            --pilot-id "${{ inputs.acc1_pilot_id }}" \
+            --input /tmp/reddit-source-smoke/topic-review.json \
+            --output /tmp/reddit-source-smoke/bundle-source-manifest.json
 
       - name: Require compatible acc1 horror compilation scope
         if: inputs.run_compilation_pilot

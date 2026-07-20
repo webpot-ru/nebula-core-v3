@@ -661,6 +661,8 @@ def main(argv: list[str] | None = None) -> int:
             candidates = raw.get("candidates")
             if candidates is None:
                 candidates = raw.get("entries")
+            if candidates is None:
+                candidates = raw.get("candidate_reviews")
         else:
             candidates = None
         if not isinstance(candidates, list):

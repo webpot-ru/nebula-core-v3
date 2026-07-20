@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -239,6 +240,30 @@ class Acc1BundleSelectorTests(unittest.TestCase):
                 [source_candidate(index, 1200) for index in range(1, 5)],
                 source_plan=forged,
             )
+
+    def test_cli_accepts_topic_review_candidate_reviews(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            input_path = root / "topic-review.json"
+            output_path = root / "bundle-source-manifest.json"
+            input_path.write_text(
+                json.dumps({
+                    "candidate_reviews": [
+                        source_candidate(1, 1500),
+                        source_candidate(2, 1600),
+                    ],
+                }),
+                encoding="utf-8",
+            )
+            result = acc1_bundle_selector.main([
+                "--channels", str(ROOT / "channels.json"),
+                "--pilot-id", "pilot_01",
+                "--input", str(input_path),
+                "--output", str(output_path),
+            ])
+            manifest = json.loads(output_path.read_text(encoding="utf-8"))
+        self.assertEqual(result, 0)
+        self.assertEqual(manifest["status"], "BUNDLE_SOURCE_SELECTED_UNREVIEWED")
 
 
 if __name__ == "__main__":
