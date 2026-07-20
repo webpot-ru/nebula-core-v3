@@ -1362,6 +1362,39 @@ def _validate_creative_contract(
             creative_manifest,
             slides,
         ))
+    for field in ("brand_sting", "brand_cta", "brand_outro"):
+        contract = storyboard.get(field)
+        if not isinstance(contract, dict):
+            continue
+        expected = str(contract.get("sha256") or "").strip().lower()
+        manifest_contract = (
+            creative_manifest.get(field)
+            if isinstance(creative_manifest, dict) else None
+        )
+        if not isinstance(manifest_contract, dict):
+            failures.append(f"creative manifest is missing {field}")
+            continue
+        if manifest_contract.get("sha256") != expected:
+            failures.append(f"creative manifest {field} checksum mismatch")
+        if render_report.get(f"{field}_used") is not True:
+            failures.append(f"render report must confirm {field} compositing")
+        if render_report.get(f"{field}_sha256") != expected:
+            failures.append(f"render report {field} checksum mismatch")
+        if render_report.get(f"{field}_audio_discarded") is not True:
+            failures.append(f"render report must confirm {field} audio discard")
+        if field == "brand_cta" and render_report.get(
+            "brand_cta_alpha_decoder",
+        ) != "libvpx-vp9":
+            failures.append("render report must confirm alpha-safe CTA decoding")
+        for timing_field in ("start_sec", "duration_sec"):
+            try:
+                actual = float(render_report.get(f"{field}_{timing_field}"))
+                declared = float(contract.get(timing_field))
+            except (TypeError, ValueError):
+                failures.append(f"render report {field} timing is malformed")
+                break
+            if abs(actual - declared) > 0.001:
+                failures.append(f"render report {field} {timing_field} mismatch")
     return failures
 
 

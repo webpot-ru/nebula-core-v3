@@ -90,6 +90,137 @@ def _normalized_text(text: str) -> str:
     return " ".join(str(text or "").split())
 
 
+def _attach_brand_sting(
+    storyboard: dict[str, Any], compilation: dict[str, Any], artifact_root: Path,
+) -> dict[str, Any]:
+    raw = compilation.get("brand_sting")
+    if not isinstance(raw, dict):
+        return storyboard
+    asset = _verified_background_video(str(raw.get("local_path") or ""), artifact_root)
+    expected = str(raw.get("sha256") or "").strip().lower()
+    if not SHA256_RE.fullmatch(expected) or asset["sha256"] != expected:
+        raise CompilationStoryboardError("brand sting checksum does not match the local asset")
+    intro_contract = compilation.get("intro_contract")
+    cold_open = (
+        str((intro_contract.get("cold_open") or {}).get("text") or "").strip()
+        if isinstance(intro_contract, dict) else ""
+    )
+    intro_slides = [
+        slide for slide in storyboard.get("slides") or []
+        if str(slide.get("segment_id") or "") == "intro"
+    ]
+    if not cold_open or not intro_slides:
+        raise CompilationStoryboardError("brand sting requires a timed source-bound cold open")
+    accumulated: list[str] = []
+    start_sec: float | None = None
+    normalized_cold_open = _normalized_text(cold_open)
+    for slide in intro_slides:
+        accumulated.append(str(slide.get("narration_text") or ""))
+        if _normalized_text(" ".join(accumulated)).startswith(normalized_cold_open):
+            start_sec = float(slide["end_sec"])
+            break
+    if start_sec is None:
+        raise CompilationStoryboardError("cold open timing cannot be resolved for brand sting")
+    duration_sec = float(raw.get("duration_sec") or 0)
+    if not 0.5 <= duration_sec <= 3.0:
+        raise CompilationStoryboardError("brand sting duration must be between 0.5 and 3 seconds")
+    storyboard["brand_sting"] = {
+        "version": 1,
+        "local_path": asset["local_path"],
+        "sha256": expected,
+        "start_sec": round(start_sec, 3),
+        "duration_sec": round(duration_sec, 3),
+        "audio_policy": "discard",
+        "placement": "after_cold_open",
+    }
+    storyboard.setdefault("creative_manifest", {})["brand_sting"] = {
+        "placement": "after_cold_open",
+        "duration_sec": round(duration_sec, 3),
+        "sha256": expected,
+    }
+    return storyboard
+
+
+def _attach_brand_overlays(
+    storyboard: dict[str, Any], compilation: dict[str, Any], artifact_root: Path,
+) -> dict[str, Any]:
+    slides = list(storyboard.get("slides") or [])
+    if not slides:
+        return storyboard
+    timeline_end = max(float(slide.get("end_sec") or 0) for slide in slides)
+    first_story_id = next(
+        (
+            str(slide.get("segment_id") or "")
+            for slide in slides
+            if str(slide.get("segment_id") or "").startswith("story_")
+        ),
+        "",
+    )
+    first_story_slides = [
+        slide for slide in slides
+        if str(slide.get("segment_id") or "") == first_story_id
+    ]
+    definitions = {
+        "brand_cta": (0.5, 4.0, "first_story_midpoint"),
+        "brand_outro": (3.0, 15.0, "timeline_end"),
+    }
+    for field, (minimum, maximum, placement) in definitions.items():
+        raw = compilation.get(field)
+        if not isinstance(raw, dict):
+            continue
+        asset = _verified_background_video(
+            str(raw.get("local_path") or ""), artifact_root,
+        )
+        expected = str(raw.get("sha256") or "").strip().lower()
+        if not SHA256_RE.fullmatch(expected) or asset["sha256"] != expected:
+            raise CompilationStoryboardError(
+                f"{field} checksum does not match the local asset",
+            )
+        duration_sec = float(raw.get("duration_sec") or 0)
+        if not minimum <= duration_sec <= maximum:
+            raise CompilationStoryboardError(f"{field} duration is invalid")
+        if field == "brand_cta":
+            if not first_story_slides:
+                raise CompilationStoryboardError(
+                    "brand CTA requires a timed first story",
+                )
+            story_start = min(
+                float(slide.get("start_sec") or 0)
+                for slide in first_story_slides
+            )
+            story_end = max(
+                float(slide.get("end_sec") or 0)
+                for slide in first_story_slides
+            )
+            start_sec = max(
+                story_start,
+                min((story_start + story_end - duration_sec) / 2, story_end - duration_sec),
+            )
+        else:
+            if timeline_end < duration_sec:
+                raise CompilationStoryboardError(
+                    "brand outro is longer than the narration timeline",
+                )
+            start_sec = timeline_end - duration_sec
+        contract = {
+            "version": 1,
+            "local_path": asset["local_path"],
+            "sha256": expected,
+            "start_sec": round(start_sec, 3),
+            "duration_sec": round(duration_sec, 3),
+            "audio_policy": "discard",
+            "placement": placement,
+        }
+        storyboard[field] = contract
+        storyboard.setdefault("creative_manifest", {})[field] = {
+            "placement": placement,
+            "start_sec": contract["start_sec"],
+            "duration_sec": contract["duration_sec"],
+            "sha256": expected,
+        }
+    return storyboard
+
+
 def _canonical_hash(value: Any) -> str:
     encoded = json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
@@ -1119,6 +1250,29 @@ def _build_reddit_storyboard(
             segment_timing=segment_timings.get(story_segment_id),
         )
         if index == 1:
+            cta_text = str(compilation.get("mid_story_cta_ru") or "").strip()
+            story_slides = [
+                slide for slide in slides
+                if slide.get("segment_id") == story_segment_id
+            ]
+            if cta_text and story_slides:
+                midpoint = (
+                    float(story_slides[0]["start_sec"])
+                    + float(story_slides[-1]["end_sec"])
+                ) / 2
+                cta_slide = min(
+                    story_slides,
+                    key=lambda slide: abs(
+                        (float(slide["start_sec"]) + float(slide["end_sec"])) / 2
+                        - midpoint
+                    ),
+                )
+                cta_slide["mid_story_cta"] = {
+                    "version": 1,
+                    "text": cta_text,
+                    "placement": "story_midpoint",
+                }
+        if index == 1:
             for slide in slides:
                 if slide.get("segment_id") == story_segment_id:
                     slide["show_title"] = False
@@ -1194,6 +1348,9 @@ def _build_reddit_storyboard(
                 "max_visual_scenes": MAX_VISUAL_SCENES,
             },
             "story_visual_schedules": _story_visual_schedules(slides),
+            "mid_story_cta_count": sum(
+                bool(slide.get("mid_story_cta")) for slide in slides
+            ),
         },
     }
     if background_video:
@@ -1499,7 +1656,7 @@ def build_storyboard(
     except ValueError as exc:
         raise CompilationStoryboardError(str(exc)) from exc
     if mode == CINEMATIC_STORY_MODE:
-        return _build_cinematic_storyboard(
+        result = _build_cinematic_storyboard(
             compilation,
             Path(artifact_root),
             background_video=background_video,
@@ -1507,8 +1664,8 @@ def build_storyboard(
             pause_map=pause_map,
             audio_mix_report=audio_mix_report,
         )
-    if mode == EDITORIAL_MOTION_MODE:
-        return _build_editorial_motion_storyboard(
+    elif mode == EDITORIAL_MOTION_MODE:
+        result = _build_editorial_motion_storyboard(
             compilation,
             Path(artifact_root),
             background_video=background_video,
@@ -1516,14 +1673,17 @@ def build_storyboard(
             pause_map=pause_map,
             audio_mix_report=audio_mix_report,
         )
-    return _build_reddit_storyboard(
-        compilation,
-        Path(artifact_root),
-        background_video=background_video,
-        tts_state=tts_state,
-        pause_map=pause_map,
-        audio_mix_report=audio_mix_report,
-    )
+    else:
+        result = _build_reddit_storyboard(
+            compilation,
+            Path(artifact_root),
+            background_video=background_video,
+            tts_state=tts_state,
+            pause_map=pause_map,
+            audio_mix_report=audio_mix_report,
+        )
+    result = _attach_brand_sting(result, compilation, Path(artifact_root))
+    return _attach_brand_overlays(result, compilation, Path(artifact_root))
 
 
 def main() -> int:

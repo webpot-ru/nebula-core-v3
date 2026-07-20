@@ -1,0 +1,11 @@
+{
+  "duration": 1.5,
+  "maxStaticSec": 0.45,
+  "assertions": [
+    {"kind": "appearsBy", "selector": "#seal", "bySec": 0.58},
+    {"kind": "appearsBy", "selector": "#title", "bySec": 0.74},
+    {"kind": "before", "a": "#seal", "b": "#subtitle"},
+    {"kind": "staysInFrame", "selector": "#brand-lockup"},
+    {"kind": "keepsMoving", "withinSelector": "#sting"}
+  ]
+}

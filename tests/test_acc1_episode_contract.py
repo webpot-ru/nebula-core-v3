@@ -3,6 +3,7 @@ import unittest
 
 from acc1_episode_contract import (
     build_intro_contract,
+    build_mid_story_cta,
     build_outro_prompt,
     canonical_hash,
     truth_disclosure_ru,
@@ -242,6 +243,24 @@ class EpisodeContractTests(unittest.TestCase):
             result,
             "Вы бы ответили на такой звонок? А если у вас есть история, от которой до сих пор не по себе, расскажите её в комментариях.",
         )
+
+    def test_mid_story_cta_is_short_and_source_aware(self):
+        call_cta = build_mid_story_cta(
+            episode_format="SAGA",
+            pillar="strange_dark_unexplained",
+            first_source={"title": "A dispatcher call", "body": "The phone rang."},
+        )
+        generic_dark_cta = build_mid_story_cta(
+            episode_format="SAGA",
+            pillar="strange_dark_unexplained",
+            first_source={"title": "Footsteps upstairs", "body": "Nobody was home."},
+        )
+        self.assertEqual(
+            call_cta,
+            "Ответили бы на этот звонок? Напишите в комментариях",
+        )
+        self.assertNotEqual(call_cta, generic_dark_cta)
+        self.assertLessEqual(len(call_cta.split()), 8)
 
     def test_spoken_title_says_911_digit_by_digit_and_avoids_repeating_payoff(self):
         contract = build_intro_contract(

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ru" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Chonker Talks — Editorial Paper Sting</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <style>
+    @font-face {
+      font-family: "Impact";
+      src: local("Impact");
+      font-style: normal;
+      font-weight: 400 900;
+    }
+
+    @font-face {
+      font-family: "Arial Narrow";
+      src: local("Arial Narrow");
+      font-style: normal;
+      font-weight: 400 900;
+    }
+
+      :root {
+        --paper: #f0dfbd;
+        --paper-dark: #d6bd92;
+        --aubergine: #211724;
+        --oxblood: #a8232f;
+        --cobalt: #294d85;
+        --acid: #e8c31c;
+      }
+
+      * { box-sizing: border-box; }
+      html, body {
+        width: 1920px;
+        height: 1080px;
+        margin: 0;
+        overflow: hidden;
+        background: var(--aubergine);
+      }
+
+      body { font-family: Impact, "Arial Narrow", sans-serif; }
+
+      #sting {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+
+      .stage {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 50% 46%, rgba(255,255,255,.2), transparent 34%),
+          repeating-linear-gradient(7deg, rgba(33,23,36,.035) 0 1px, transparent 1px 8px),
+          var(--paper);
+      }
+
+      .scrap {
+        position: absolute;
+        width: 820px;
+        height: 420px;
+        opacity: .98;
+        filter: drop-shadow(0 18px 20px rgba(33,23,36,.14));
+      }
+
+      .scrap-a {
+        left: -180px;
+        top: -116px;
+        background: var(--oxblood);
+        clip-path: polygon(0 0, 100% 0, 91% 72%, 70% 65%, 51% 83%, 22% 70%, 0 82%);
+      }
+
+      .scrap-b {
+        right: -190px;
+        top: -88px;
+        background: var(--cobalt);
+        clip-path: polygon(0 0, 100% 0, 100% 83%, 75% 70%, 48% 89%, 21% 69%, 4% 77%);
+      }
+
+      .scrap-c {
+        left: -120px;
+        bottom: -164px;
+        background: var(--cobalt);
+        clip-path: polygon(0 22%, 25% 35%, 48% 17%, 74% 32%, 100% 14%, 100% 100%, 0 100%);
+      }
+
+      .scrap-d {
+        right: -170px;
+        bottom: -150px;
+        background: var(--oxblood);
+        clip-path: polygon(0 18%, 21% 34%, 44% 19%, 72% 38%, 100% 24%, 100% 100%, 0 100%);
+      }
+
+      .halftone {
+        position: absolute;
+        inset: 0;
+        opacity: .2;
+        background-image: radial-gradient(var(--aubergine) 1.8px, transparent 1.8px);
+        background-size: 16px 16px;
+      }
+
+      .lockup {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 54px;
+      }
+
+      .seal {
+        width: 304px;
+        height: 304px;
+        flex: 0 0 304px;
+        object-fit: contain;
+        filter: drop-shadow(12px 14px 0 rgba(33,23,36,.18));
+      }
+
+      .copy {
+        width: 930px;
+        overflow: hidden;
+        padding: 18px 0 28px;
+      }
+
+      .title {
+        margin: 0;
+        color: var(--aubergine);
+        font-size: 146px;
+        line-height: .84;
+        font-weight: 900;
+        letter-spacing: -.035em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .subtitle {
+        display: inline-block;
+        margin-top: 30px;
+        padding: 7px 18px 9px;
+        color: var(--aubergine);
+        background: var(--acid);
+        font-family: "Arial Narrow", sans-serif;
+        font-size: 40px;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: .05em;
+        white-space: nowrap;
+        transform-origin: left center;
+      }
+
+      .tear-exit {
+        position: absolute;
+        left: 0;
+        width: 1920px;
+        height: 560px;
+        z-index: 8;
+        background: var(--aubergine);
+      }
+
+      .tear-exit.top {
+        top: -28px;
+        clip-path: polygon(0 0, 100% 0, 100% 91%, 87% 96%, 73% 89%, 58% 97%, 41% 91%, 26% 98%, 12% 90%, 0 96%);
+      }
+
+      .tear-exit.bottom {
+        bottom: -28px;
+        clip-path: polygon(0 9%, 13% 2%, 27% 10%, 42% 3%, 58% 11%, 73% 4%, 88% 12%, 100% 5%, 100% 100%, 0 100%);
+      }
+    </style>
+  </head>
+  <body>
+    <main
+      id="sting"
+      data-composition-id="chonker-talks-intro"
+      data-start="0"
+      data-duration="1.5"
+      data-fps="30"
+      data-width="1920"
+      data-height="1080"
+    >
+      <audio
+        id="sting-audio"
+        class="clip"
+        data-start="0"
+        data-duration="1.5"
+        data-track-index="0"
+        data-volume="0.72"
+        src="assets/intro-sting.wav"
+      ></audio>
+      <section id="paper-sting-scene" class="clip" data-start="0" data-duration="1.5" data-track-index="1">
+        <div class="stage">
+          <div class="scrap scrap-a"><div class="halftone"></div></div>
+          <div class="scrap scrap-b"><div class="halftone"></div></div>
+          <div class="scrap scrap-c"><div class="halftone"></div></div>
+          <div class="scrap scrap-d"><div class="halftone"></div></div>
+          <div id="brand-lockup" class="lockup">
+            <img id="seal" class="seal" src="assets/channel-logo-editorial-v11.png" alt="Круглый знак CT" />
+            <div class="copy">
+              <h1 id="title" class="title" data-layout-allow-occlusion>Chonker Talks</h1>
+              <div id="subtitle" class="subtitle" data-layout-allow-occlusion>Истории Reddit на русском</div>
+            </div>
+          </div>
+          <div id="tear-top" class="tear-exit top" data-layout-allow-overflow></div>
+          <div id="tear-bottom" class="tear-exit bottom" data-layout-allow-overflow></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      tl.fromTo(".scrap-a", { x: -520, y: -120, rotation: -8 }, { x: 0, y: 0, rotation: 0, duration: .42, ease: "power4.out" }, 0);
+      tl.fromTo(".scrap-b", { x: 540, y: -100, rotation: 7 }, { x: 0, y: 0, rotation: 0, duration: .42, ease: "power4.out" }, 0);
+      tl.fromTo(".scrap-c", { x: -500, y: 160, rotation: 6 }, { x: 0, y: 0, rotation: 0, duration: .44, ease: "power4.out" }, .04);
+      tl.fromTo(".scrap-d", { x: 520, y: 150, rotation: -7 }, { x: 0, y: 0, rotation: 0, duration: .44, ease: "power4.out" }, .04);
+      tl.fromTo("#seal", { autoAlpha: 0, scale: .45, rotation: -9 }, { autoAlpha: 1, scale: 1, rotation: 0, duration: .34, ease: "back.out(2.1)" }, .24);
+      tl.fromTo("#title", { autoAlpha: 0, y: 112 }, { autoAlpha: 1, y: 0, duration: .34, ease: "power4.out" }, .38);
+      tl.fromTo("#subtitle", { autoAlpha: 0, scaleX: 0 }, { autoAlpha: 1, scaleX: 1, duration: .3, ease: "power3.out" }, .56);
+      tl.to("#seal, #title, #subtitle", { y: -4, duration: .17, ease: "sine.out" }, .82);
+      tl.to("#seal, #title, #subtitle", { y: 0, duration: .17, ease: "sine.in" }, .99);
+      tl.fromTo("#tear-top", { y: -570 }, { y: 0, duration: .28, ease: "power4.inOut" }, 1.18);
+      tl.fromTo("#tear-bottom", { y: 570 }, { y: 0, duration: .28, ease: "power4.inOut" }, 1.18);
+
+      window.__timelines["chonker-talks-intro"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

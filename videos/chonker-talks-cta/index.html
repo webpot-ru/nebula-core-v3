@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="ru" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Chonker Talks — Editorial Subscribe CTA</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Impact";
+        src: local("Impact");
+        font-style: normal;
+        font-weight: 400 900;
+      }
+
+      @font-face {
+        font-family: "Arial Narrow";
+        src: local("Arial Narrow");
+        font-style: normal;
+        font-weight: 400 900;
+      }
+
+      :root {
+        --paper: #f0dfbd;
+        --ink: #211724;
+        --oxblood: #a8232f;
+        --cobalt: #294d85;
+        --acid: #e8c31c;
+      }
+
+      * { box-sizing: border-box; }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+
+      body { font-family: Impact, "Arial Narrow", sans-serif; }
+
+      #chonker-talks-cta {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+
+      .cta-stage {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      .cta-wrap {
+        position: absolute;
+        left: 50%;
+        bottom: 74px;
+        width: 1300px;
+        height: 224px;
+        transform: translateX(-50%);
+        transform-origin: center bottom;
+        filter: drop-shadow(0 22px 24px rgba(20, 12, 22, .3));
+      }
+
+      .paper-strip {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        background:
+          repeating-linear-gradient(7deg, rgba(33, 23, 36, .035) 0 1px, transparent 1px 9px),
+          var(--paper);
+        clip-path: polygon(1% 8%, 16% 3%, 32% 8%, 49% 2%, 67% 7%, 84% 3%, 99% 8%, 100% 90%, 84% 96%, 68% 90%, 51% 97%, 34% 91%, 17% 96%, 0 90%);
+      }
+
+      .paper-strip::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 310px;
+        height: 100%;
+        background: var(--cobalt);
+        clip-path: polygon(0 0, 87% 0, 100% 51%, 86% 100%, 0 100%);
+      }
+
+      .paper-strip::after {
+        content: "";
+        position: absolute;
+        right: -14px;
+        top: -20px;
+        width: 260px;
+        height: 112px;
+        opacity: .95;
+        background: var(--oxblood);
+        transform: rotate(-4deg);
+      }
+
+      .logo {
+        position: absolute;
+        z-index: 2;
+        left: 78px;
+        top: 40px;
+        width: 144px;
+        height: 144px;
+        object-fit: contain;
+        filter: drop-shadow(7px 8px 0 rgba(33, 23, 36, .2));
+      }
+
+      .copy {
+        position: absolute;
+        z-index: 2;
+        left: 350px;
+        top: 38px;
+        width: 850px;
+        height: 150px;
+        overflow: hidden;
+      }
+
+      .headline {
+        margin: 0;
+        color: var(--ink);
+        font-size: 86px;
+        font-weight: 900;
+        line-height: .9;
+        letter-spacing: -.025em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .support {
+        display: inline-block;
+        margin-top: 17px;
+        padding: 7px 15px 8px;
+        color: var(--ink);
+        background: var(--acid);
+        font-family: "Arial Narrow", sans-serif;
+        font-size: 29px;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: .045em;
+        white-space: nowrap;
+        transform-origin: left center;
+      }
+
+      .click-stamp {
+        position: absolute;
+        z-index: 3;
+        right: 54px;
+        bottom: 31px;
+        padding: 12px 21px 13px;
+        color: var(--paper);
+        background: var(--oxblood);
+        border: 4px solid var(--ink);
+        font-family: "Arial Narrow", sans-serif;
+        font-size: 30px;
+        font-weight: 900;
+        line-height: 1;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        transform: rotate(-3deg);
+        box-shadow: 6px 7px 0 rgba(33, 23, 36, .18);
+      }
+    </style>
+  </head>
+  <body>
+    <main
+      id="chonker-talks-cta"
+      data-composition-id="chonker-talks-cta"
+      data-start="0"
+      data-duration="3"
+      data-fps="30"
+      data-width="1920"
+      data-height="1080"
+    >
+      <section id="cta-scene" class="clip" data-start="0" data-duration="3" data-track-index="0">
+        <div class="cta-stage">
+          <div id="cta-wrap" class="cta-wrap" data-layout-allow-overflow>
+            <div class="paper-strip"></div>
+            <img id="cta-logo" class="logo" src="assets/channel-logo-editorial-v11.png" alt="Логотип Chonker Talks" />
+            <div class="copy">
+              <h1 id="cta-headline" class="headline" data-layout-allow-occlusion>Подпишись</h1>
+              <div id="cta-support" class="support" data-layout-allow-occlusion>Новая история уже близко</div>
+            </div>
+            <div id="cta-stamp" class="click-stamp" data-layout-allow-occlusion>Жми кнопку</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      tl.fromTo("#cta-wrap", { x: -960, y: 22, rotation: -2 }, { x: 0, y: 0, rotation: 0, duration: .46, ease: "power4.out" }, 0);
+      tl.fromTo("#cta-logo", { autoAlpha: 0, scale: .5, rotation: -10 }, { autoAlpha: 1, scale: 1, rotation: 0, duration: .34, ease: "back.out(2)" }, .2);
+      tl.fromTo("#cta-headline", { autoAlpha: 0, y: 78 }, { autoAlpha: 1, y: 0, duration: .32, ease: "power4.out" }, .3);
+      tl.fromTo("#cta-support", { autoAlpha: 0, scaleX: .05 }, { autoAlpha: 1, scaleX: 1, duration: .3, ease: "power3.out" }, .43);
+      tl.fromTo("#cta-stamp", { autoAlpha: 0, scale: 1.7, rotation: 7 }, { autoAlpha: 1, scale: 1, rotation: -3, duration: .26, ease: "back.out(2.4)" }, .58);
+      tl.to("#cta-stamp", { scale: 1.06, duration: .11, ease: "power2.out" }, .94);
+      tl.to("#cta-stamp", { scale: 1, duration: .12, ease: "power2.in" }, 1.05);
+      tl.to("#cta-stamp", { y: -2, duration: .28, ease: "sine.out" }, 1.42);
+      tl.to("#cta-stamp", { y: 0, duration: .28, ease: "sine.in" }, 1.7);
+      tl.to("#cta-wrap", { x: 980, y: 16, rotation: 1.5, duration: .44, ease: "power4.in" }, 2.56);
+
+      window.__timelines["chonker-talks-cta"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

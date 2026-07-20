@@ -255,6 +255,28 @@ def build_outro_prompt(
     return "Что в этой истории вы бы сделали иначе? Расскажите в комментариях."
 
 
+def build_mid_story_cta(
+    *, episode_format: str, pillar: str, first_source: dict[str, Any],
+) -> str:
+    """Return a short source-aware on-screen prompt for the story midpoint."""
+
+    source_text = " ".join((
+        _text(first_source.get("title")),
+        _source_body(first_source),
+    )).lower()
+    if _text(pillar) == "strange_dark_unexplained":
+        if re.search(r"звон|телефон|диспетчер|911|call|phone|dispatch", source_text):
+            return "Ответили бы на этот звонок? Напишите в комментариях"
+        return "Верите, что этому есть объяснение? Напишите свою версию"
+    if _text(episode_format).upper() == "THREAD":
+        return "Какой ответ поддержали бы вы? Напишите в комментариях"
+    if _text(pillar) == "relationships_family":
+        return "На чьей вы стороне? Напишите в комментариях"
+    if _text(pillar) == "work_money_consumer":
+        return "Вы бы согласились на это? Напишите в комментариях"
+    return "Что бы вы сделали сейчас? Напишите в комментариях"
+
+
 def _source_id(snapshot: dict[str, Any]) -> str:
     return _text(snapshot.get("source_id") or snapshot.get("post_id") or snapshot.get("id"))
 

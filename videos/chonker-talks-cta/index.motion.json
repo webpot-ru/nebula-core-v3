@@ -1,0 +1,11 @@
+{
+  "duration": 3,
+  "maxStaticSec": 1.6,
+  "assertions": [
+    {"kind": "appearsBy", "selector": "#cta-logo", "bySec": 0.62},
+    {"kind": "appearsBy", "selector": "#cta-headline", "bySec": 0.74},
+    {"kind": "appearsBy", "selector": "#cta-stamp", "bySec": 0.98},
+    {"kind": "before", "a": "#cta-headline", "b": "#cta-stamp"},
+    {"kind": "keepsMoving", "withinSelector": "#chonker-talks-cta"}
+  ]
+}

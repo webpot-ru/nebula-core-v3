@@ -34,6 +34,7 @@ class CompilationStoryboardTests(unittest.TestCase):
             "title_ru": "Истории с Reddit",
             "truth_disclosure_ru": disclosure,
             "intro_ru": f"Сегодня читаем одну законченную историю. {disclosure}",
+            "mid_story_cta_ru": "Верите, что этому есть объяснение? Напишите свою версию",
             "outro_ru": "Как бы вы поступили? Напишите в комментариях.",
             "stories": [{
                 "title_ru": "Сосед постучал ночью",
@@ -184,6 +185,12 @@ class CompilationStoryboardTests(unittest.TestCase):
         if len(same_page) > 1:
             self.assertTrue(same_page[1]["display_text"].startswith(same_page[0]["display_text"]))
         self.assertTrue(story_pages[-1]["show_actions"])
+        cta_pages = [slide for slide in story_pages if slide.get("mid_story_cta")]
+        self.assertEqual(len(cta_pages), 1)
+        self.assertEqual(
+            cta_pages[0]["mid_story_cta"]["placement"], "story_midpoint",
+        )
+        self.assertEqual(storyboard["creative_manifest"]["mid_story_cta_count"], 1)
         self.assertGreaterEqual(story_pages[-1]["duration_sec"], 0.5)
         self.assertFalse(any(slide["show_actions"] for slide in story_pages[:-1]))
         self.assertFalse(any(
@@ -206,6 +213,85 @@ class CompilationStoryboardTests(unittest.TestCase):
         self.assertTrue(all(slide["screen_mode"] == "story_title" for slide in intro_slides))
         self.assertTrue(all(slide["screen_title"] == "Сосед постучал ночью" for slide in intro_slides))
         self.assertTrue(all(not slide["show_title"] for slide in story_pages))
+
+    def test_brand_sting_is_checksum_bound_after_cold_open(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sting = root / "brand-sting.mp4"
+            sting.write_bytes(b"local deterministic sting fixture")
+            compilation = self._complete_compilation()
+            compilation["intro_contract"] = {
+                "cold_open": {
+                    "text": "Сегодня читаем одну законченную историю.",
+                    "source_id": "abc",
+                    "source_quote": "A knock",
+                },
+            }
+            compilation["brand_sting"] = {
+                "local_path": sting.name,
+                "sha256": hashlib.sha256(sting.read_bytes()).hexdigest(),
+                "duration_sec": 1.5,
+            }
+            storyboard = build_storyboard(
+                compilation, root, tts_state=self._tts_state(compilation),
+            )
+        contract = storyboard["brand_sting"]
+        self.assertEqual(contract["placement"], "after_cold_open")
+        self.assertEqual(contract["audio_policy"], "discard")
+        self.assertEqual(contract["duration_sec"], 1.5)
+        self.assertGreater(contract["start_sec"], 0)
+        self.assertEqual(
+            storyboard["creative_manifest"]["brand_sting"]["sha256"],
+            contract["sha256"],
+        )
+
+    def test_brand_cta_and_outro_are_checksum_bound_to_timeline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cta = root / "brand-cta.webm"
+            outro = root / "brand-outro.mp4"
+            cta.write_bytes(b"local transparent CTA fixture")
+            outro.write_bytes(b"local outro fixture")
+            compilation = self._complete_compilation()
+            compilation["brand_cta"] = {
+                "local_path": cta.name,
+                "sha256": hashlib.sha256(cta.read_bytes()).hexdigest(),
+                "duration_sec": 2.0,
+            }
+            compilation["brand_outro"] = {
+                "local_path": outro.name,
+                "sha256": hashlib.sha256(outro.read_bytes()).hexdigest(),
+                "duration_sec": 6.0,
+            }
+            storyboard = build_storyboard(
+                compilation, root, tts_state=self._tts_state(compilation),
+            )
+
+        cta_contract = storyboard["brand_cta"]
+        outro_contract = storyboard["brand_outro"]
+        first_story = [
+            slide for slide in storyboard["slides"]
+            if slide["segment_id"] == "story_abc"
+        ]
+        timeline_end = max(slide["end_sec"] for slide in storyboard["slides"])
+        self.assertEqual(cta_contract["placement"], "first_story_midpoint")
+        self.assertGreaterEqual(cta_contract["start_sec"], first_story[0]["start_sec"])
+        self.assertLessEqual(
+            cta_contract["start_sec"] + cta_contract["duration_sec"],
+            first_story[-1]["end_sec"],
+        )
+        self.assertEqual(outro_contract["placement"], "timeline_end")
+        self.assertAlmostEqual(
+            outro_contract["start_sec"] + outro_contract["duration_sec"],
+            timeline_end,
+            places=3,
+        )
+        self.assertEqual(cta_contract["audio_policy"], "discard")
+        self.assertEqual(outro_contract["audio_policy"], "discard")
+        self.assertEqual(
+            storyboard["creative_manifest"]["brand_cta"]["sha256"],
+            cta_contract["sha256"],
+        )
 
     def test_cinematic_storyboard_is_full_screen_continuous_and_hash_bound(self):
         with tempfile.TemporaryDirectory() as temp:

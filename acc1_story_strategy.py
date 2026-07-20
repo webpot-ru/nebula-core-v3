@@ -535,8 +535,13 @@ def validate_channel_strategy(channel: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(branding, dict):
         failures.append("channel_branding must be an object")
     else:
-        if branding.get("status") != "local_proposal_not_applied_to_youtube":
-            failures.append("channel_branding.status must remain local_proposal_not_applied_to_youtube")
+        if branding.get("status") not in {
+            "local_proposal_not_applied_to_youtube",
+            "youtube_verified_brand_assets_applied_2026-07-20",
+        }:
+            failures.append(
+                "channel_branding.status must be a local proposal or the verified YouTube state"
+            )
         _require_text(branding, "proposed_name", failures, "channel_branding.")
         _require_text(branding, "proposed_description", failures, "channel_branding.")
 

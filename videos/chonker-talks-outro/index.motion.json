@@ -1,0 +1,7 @@
+{
+  "assertions": [
+    { "kind": "staysInFrame", "selector": "#outro-lockup" },
+    { "kind": "before", "a": "#outro-title", "b": "#outro-left-card" },
+    { "kind": "before", "a": "#outro-left-card", "b": "#outro-subscribe" }
+  ]
+}

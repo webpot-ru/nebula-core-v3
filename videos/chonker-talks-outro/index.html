@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Chonker Talks — YouTube End Screen</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "Impact"; src: local("Impact"); font-weight: 400 900; }
+      @font-face { font-family: "Arial Narrow"; src: local("Arial Narrow"); font-weight: 400 900; }
+      :root { --paper:#f0dfbd; --paper-dark:#d6bd92; --ink:#211724; --red:#a8232f; --blue:#294d85; --acid:#e8c31c; }
+      * { box-sizing: border-box; }
+      html, body { width:1920px; height:1080px; margin:0; overflow:hidden; background:var(--ink); }
+      body { font-family:Impact,"Arial Narrow",sans-serif; }
+      #chonker-talks-outro { position:relative; width:1920px; height:1080px; overflow:hidden; }
+      .stage { position:absolute; inset:0; overflow:hidden; background:radial-gradient(circle at 50% 34%,rgba(255,255,255,.28),transparent 38%),repeating-linear-gradient(7deg,rgba(33,23,36,.035) 0 1px,transparent 1px 8px),var(--paper); }
+      .scrap { position:absolute; width:630px; height:270px; filter:drop-shadow(0 16px 18px rgba(33,23,36,.14)); }
+      .scrap::after { content:""; position:absolute; inset:0; opacity:.18; background-image:radial-gradient(var(--ink) 1.7px,transparent 1.7px); background-size:16px 16px; }
+      .s1 { left:-120px; top:-96px; background:var(--red); clip-path:polygon(0 0,100% 0,91% 69%,72% 62%,51% 82%,22% 68%,0 83%); }
+      .s2 { right:-120px; top:-76px; background:var(--blue); clip-path:polygon(0 0,100% 0,100% 82%,76% 67%,49% 88%,21% 68%,4% 76%); }
+      .s3 { left:-130px; bottom:-132px; background:var(--blue); clip-path:polygon(0 25%,24% 38%,49% 18%,73% 35%,100% 15%,100% 100%,0 100%); }
+      .s4 { right:-130px; bottom:-126px; background:var(--red); clip-path:polygon(0 18%,22% 35%,45% 18%,72% 39%,100% 23%,100% 100%,0 100%); }
+      .header { position:absolute; left:150px; top:94px; display:flex; align-items:center; gap:42px; z-index:3; }
+      .logo { width:154px; height:154px; object-fit:contain; filter:drop-shadow(8px 9px 0 rgba(33,23,36,.18)); }
+      .head-copy { width:1100px; overflow:hidden; padding:10px 0 18px; }
+      h1 { margin:0; color:var(--ink); font-size:78px; line-height:.95; letter-spacing:-.025em; text-transform:uppercase; white-space:nowrap; }
+      .tag { display:inline-block; margin-top:17px; padding:7px 18px 9px; color:var(--ink); background:var(--acid); font-family:"Arial Narrow",sans-serif; font-size:31px; font-weight:800; letter-spacing:.055em; transform-origin:left center; }
+      .card { position:absolute; top:430px; width:640px; height:360px; padding:14px; background:rgba(255,248,231,.76); box-shadow:13px 15px 0 rgba(33,23,36,.22); }
+      .card::before { content:""; position:absolute; inset:14px; border:4px dashed rgba(33,23,36,.38); }
+      .left-card { left:120px; transform-origin:right center; }
+      .right-card { right:120px; transform-origin:left center; }
+      .card-label { position:absolute; left:32px; bottom:29px; padding:5px 10px 7px; color:var(--ink); background:var(--paper); font-family:"Arial Narrow",sans-serif; font-size:22px; font-weight:800; letter-spacing:.04em; }
+      .subscribe { position:absolute; left:830px; top:486px; width:260px; text-align:center; z-index:4; }
+      .subscribe-ring { width:198px; height:198px; margin:0 auto; padding:10px; border:6px solid var(--red); border-radius:50%; background:var(--paper); box-shadow:9px 11px 0 rgba(33,23,36,.2); }
+      .subscribe-monogram { display:flex; width:100%; height:100%; align-items:center; justify-content:center; border-radius:50%; color:var(--paper); background:var(--red); font-size:83px; line-height:1; letter-spacing:-.06em; text-shadow:5px 5px 0 var(--ink); }
+      .subscribe-label { display:inline-block; margin-top:19px; padding:7px 14px 9px; color:var(--paper); background:var(--ink); font-family:"Arial Narrow",sans-serif; font-size:29px; font-weight:900; letter-spacing:.055em; }
+      .footer { position:absolute; left:0; bottom:86px; width:100%; color:var(--ink); font-family:"Arial Narrow",sans-serif; font-size:29px; font-weight:900; letter-spacing:.1em; text-align:center; text-transform:uppercase; }
+      .fade { position:absolute; inset:0; z-index:10; pointer-events:none; background:var(--ink); opacity:0; }
+    </style>
+  </head>
+  <body>
+    <main id="chonker-talks-outro" data-composition-id="chonker-talks-outro" data-start="0" data-duration="6" data-fps="30" data-width="1920" data-height="1080">
+      <audio id="outro-audio" class="clip" data-start="0" data-duration="2.62" data-track-index="0" data-volume="0.64" src="assets/intro-sting.wav"></audio>
+      <section id="outro-scene" class="clip" data-start="0" data-duration="6" data-track-index="1">
+        <div class="stage">
+          <div class="scrap s1" data-layout-allow-overflow></div><div class="scrap s2" data-layout-allow-overflow></div><div class="scrap s3" data-layout-allow-overflow></div><div class="scrap s4" data-layout-allow-overflow></div>
+          <div id="outro-lockup" class="header">
+            <img id="outro-logo" class="logo" src="assets/channel-logo-editorial-v11.png" alt="Знак CT" />
+            <div class="head-copy"><h1 id="outro-title">Спасибо, что смотришь</h1><div id="outro-tag" class="tag">Ещё две истории — выбирай</div></div>
+          </div>
+          <div id="outro-left-card" class="card left-card" aria-label="Зона первого рекомендованного видео"><span class="card-label">СЛЕДУЮЩАЯ ИСТОРИЯ</span></div>
+          <div id="outro-right-card" class="card right-card" aria-label="Зона второго рекомендованного видео"><span class="card-label">ЕЩЁ ОДНА ИСТОРИЯ</span></div>
+          <div id="outro-subscribe" class="subscribe"><div class="subscribe-ring"><div class="subscribe-monogram">CT</div></div><div class="subscribe-label">ПОДПИСАТЬСЯ</div></div>
+          <div id="outro-footer" class="footer">Новые истории на русском</div>
+          <div id="outro-fade" class="fade"></div>
+        </div>
+      </section>
+    </main>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused:true });
+      tl.fromTo(".s1",{x:-430,y:-90,rotation:-7},{x:0,y:0,rotation:0,duration:.45,ease:"power4.out"},0);
+      tl.fromTo(".s2",{x:450,y:-80,rotation:7},{x:0,y:0,rotation:0,duration:.45,ease:"power4.out"},0);
+      tl.fromTo(".s3",{x:-430,y:120,rotation:6},{x:0,y:0,rotation:0,duration:.45,ease:"power4.out"},0);
+      tl.fromTo(".s4",{x:450,y:120,rotation:-6},{x:0,y:0,rotation:0,duration:.45,ease:"power4.out"},0);
+      tl.fromTo("#outro-logo",{autoAlpha:0,scale:.55,rotation:-8},{autoAlpha:1,scale:1,rotation:0,duration:.42,ease:"back.out(1.9)"},.2);
+      tl.fromTo("#outro-title",{autoAlpha:0,y:76},{autoAlpha:1,y:0,duration:.42,ease:"power4.out"},.32);
+      tl.fromTo("#outro-tag",{autoAlpha:0,scaleX:0},{autoAlpha:1,scaleX:1,duration:.38,ease:"power3.out"},.55);
+      tl.fromTo("#outro-left-card",{autoAlpha:0,scale:.92,x:-35},{autoAlpha:1,scale:1,x:0,duration:.48,ease:"power3.out"},.58);
+      tl.fromTo("#outro-right-card",{autoAlpha:0,scale:.92,x:35},{autoAlpha:1,scale:1,x:0,duration:.48,ease:"power3.out"},.68);
+      tl.fromTo("#outro-subscribe",{autoAlpha:0,scale:.7,rotation:-6},{autoAlpha:1,scale:1,rotation:0,duration:.43,ease:"back.out(1.8)"},.82);
+      tl.fromTo("#outro-footer",{autoAlpha:0,y:25},{autoAlpha:1,y:0,duration:.36,ease:"power3.out"},1.02);
+      tl.to("#outro-subscribe",{y:-3,duration:.4,ease:"sine.out"},1.36);
+      tl.to("#outro-subscribe",{y:0,duration:.39,ease:"sine.in"},1.77);
+      tl.to("#outro-fade",{opacity:1,duration:.55,ease:"power2.inOut"},5.45);
+      window.__timelines["chonker-talks-outro"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

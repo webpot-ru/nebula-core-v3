@@ -516,6 +516,57 @@ class CompilationRendererTests(unittest.TestCase):
             self.assertEqual(probe.stdout.strip(), "1920,1080")
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+    def test_composites_checksum_bound_brand_sequence_without_extending_video(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard, _ = self._fixture(root)
+            storyboard["slides"][0]["duration_sec"] = 3.5
+            storyboard["slides"][1]["duration_sec"] = 3.5
+            base_report = render_compilation(
+                storyboard, root, root / "unbranded.mp4",
+            )
+            assets = []
+            for name, color, duration in (
+                ("sting.mp4", "red", 1.0),
+                ("cta.webm", "blue", 2.0),
+                ("outro.mp4", "green", 3.0),
+            ):
+                path = root / name
+                subprocess.run([
+                    "ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                    f"color=c={color}:s=320x180:d={duration}", "-r", "30",
+                    str(path),
+                ], check=True)
+                assets.append(path)
+            for field, path, start, duration in (
+                ("brand_sting", assets[0], 0.2, 1.0),
+                ("brand_cta", assets[1], 0.8, 2.0),
+                ("brand_outro", assets[2], 0.5, 3.0),
+            ):
+                storyboard[field] = {
+                    "local_path": path.name,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "start_sec": start,
+                    "duration_sec": duration,
+                    "audio_policy": "discard",
+                }
+            output = root / "branded.mp4"
+            report = render_compilation(storyboard, root, output)
+
+            self.assertAlmostEqual(
+                report["duration_sec"], base_report["duration_sec"], delta=0.1,
+            )
+            for field in ("brand_sting", "brand_cta", "brand_outro"):
+                self.assertTrue(report[f"{field}_used"])
+                self.assertTrue(report[f"{field}_audio_discarded"])
+                self.assertEqual(
+                    report[f"{field}_sha256"], storyboard[field]["sha256"],
+                )
+            self.assertEqual(
+                report["brand_cta_alpha_decoder"], "libvpx-vp9",
+            )
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
     def test_renders_bound_cinematic_mp4_and_caption_sidecar(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
