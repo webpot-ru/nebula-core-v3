@@ -91,7 +91,7 @@ The detailed owned bets, forbidden bets, cadence gates, and 90-day rollout are i
 
 ### Production Lanes
 
-1. **`acc1_bundle`** - 2-3 complete relationship/family stories or 3-5 complete work/money/justice stories, 18-30 minutes aggregate, with no unrelated comment coda.
+1. **`acc1_bundle`** - 4-5 complete relationship/family stories or 3-5 complete work/money/justice stories, 18-30 minutes aggregate, with no unrelated comment coda.
 2. **`acc1_saga`** - one complete strange/dark/unexplained Reddit story with available authored updates, 18-30 minutes, source-preserving Russian treatment, original framing, scene direction, and three packaging concepts.
 3. **`acc1_thread`** - one prompt plus 8-15 complete diverse responses, 15-25 minutes. `acc1_thread_collector.py` implements the deterministic manifest and `acc1_thread_source.py` provides the bounded read-only PRAW adapter with exact pillar-specific search queries.
 4. **`reddit_horror_compilation`** - retained specialized dark-series lane: 3-6 complete stories and 45-60 minutes. `r/nosleep` and `r/LetsNotMeet` remain separate truth modes.

@@ -153,7 +153,7 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
         fourth = acc1_story_strategy.resolve_pilot_source_plan(self.channel, "pilot_04")
         self.assertEqual(first["format"], "BUNDLE")
         self.assertEqual(first["topic_family"], "human_drama")
-        self.assertEqual(first["story_count"], [2, 3])
+        self.assertEqual(first["story_count"], [4, 5])
         self.assertEqual(first["aggregate_source_word_count"], [2340, 3900])
         self.assertEqual(first["subreddits"][:2], ["relationship_advice", "AmItheAsshole"])
         self.assertFalse(first["production_ready"])

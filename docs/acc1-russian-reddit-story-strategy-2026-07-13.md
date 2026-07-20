@@ -64,7 +64,7 @@ These are channel pillars, not permanent `topic_mix` weights. No audience weight
 
 ### `BUNDLE`
 
-- `pilot_01`: 2-3 complete relationships/family stories;
+- `pilot_01`: 4-5 complete relationships/family stories;
 - `pilot_02`: 3-5 complete work/money/justice stories;
 - 2,340-3,900 aggregate source words and an 18-30 minute target;
 - every component must have a full body, complete payoff, unique author/source/signature, one shared truth mode, and no screenshot/link dependence;

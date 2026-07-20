@@ -27,7 +27,7 @@ BUNDLE_REVIEW_STATUS = "BUNDLE_COMPONENT_ELIGIBLE"
 MIN_FINALISTS = 3
 MAX_FINALISTS = 10
 BUNDLE_PILOT_CONTRACTS = {
-    "pilot_01": {"pillar": "relationships_family", "story_count": [2, 3]},
+    "pilot_01": {"pillar": "relationships_family", "story_count": [4, 5]},
     "pilot_02": {"pillar": "work_money_justice", "story_count": [3, 5]},
 }
 

@@ -51,25 +51,31 @@ class Acc1BundleSelectorTests(unittest.TestCase):
         cls.pilot_01 = acc1_story_strategy.resolve_pilot_source_plan(cls.channel, "pilot_01")
         cls.pilot_02 = acc1_story_strategy.resolve_pilot_source_plan(cls.channel, "pilot_02")
 
-    def test_selects_complete_pair_nearest_runtime_midpoint(self):
-        candidates = [source_candidate(1, 1400), source_candidate(2, 1700), source_candidate(3, 900)]
+    def test_selects_complete_group_nearest_runtime_midpoint(self):
+        candidates = [
+            source_candidate(1, 500),
+            source_candidate(2, 600),
+            source_candidate(3, 700),
+            source_candidate(4, 800),
+            source_candidate(5, 900),
+        ]
         manifest = acc1_bundle_selector.select_bundle(candidates, source_plan=self.pilot_01)
         self.assertEqual(manifest["status"], "BUNDLE_SOURCE_SELECTED_UNREVIEWED")
-        self.assertEqual([item["post_id"] for item in manifest["stories"]], ["p1", "p2"])
-        self.assertEqual(manifest["aggregate_source_word_count"], 3100)
-        self.assertEqual(manifest["story_count"], 2)
+        self.assertEqual([item["post_id"] for item in manifest["stories"]], ["p2", "p3", "p4", "p5"])
+        self.assertEqual(manifest["aggregate_source_word_count"], 3000)
+        self.assertEqual(manifest["story_count"], 4)
         self.assertFalse(manifest["production_authorized"])
         self.assertFalse(manifest["publication_authorized"])
         self.assertTrue(acc1_bundle_selector.verify_manifest(manifest))
 
     def test_selection_and_hash_are_input_order_invariant(self):
-        candidates = [source_candidate(1, 1400), source_candidate(2, 1700), source_candidate(3, 900)]
+        candidates = [source_candidate(index, 600) for index in range(1, 7)]
         forward = acc1_bundle_selector.select_bundle(candidates, source_plan=self.pilot_01)
         reverse = acc1_bundle_selector.select_bundle(list(reversed(candidates)), source_plan=self.pilot_01)
         self.assertEqual(forward, reverse)
 
     def test_pilot_01_builds_three_materially_distinct_reviewed_finalists(self):
-        candidates = [source_candidate(index, 1200) for index in range(1, 5)]
+        candidates = [source_candidate(index, 600) for index in range(1, 7)]
         forward = acc1_bundle_selector.select_bundle_finalists(
             candidates,
             source_plan=self.pilot_01,
@@ -118,11 +124,11 @@ class Acc1BundleSelectorTests(unittest.TestCase):
     def test_finalists_require_three_alternatives_from_reviewed_sources(self):
         with self.assertRaises(acc1_bundle_selector.BundleSelectionError):
             acc1_bundle_selector.select_bundle_finalists(
-                [source_candidate(1, 1200), source_candidate(2, 1200)],
+                [source_candidate(index, 600) for index in range(1, 5)],
                 source_plan=self.pilot_01,
             )
 
-        unreviewed = [source_candidate(index, 1200) for index in range(1, 5)]
+        unreviewed = [source_candidate(index, 600) for index in range(1, 7)]
         for candidate in unreviewed:
             candidate["review_status"] = "UNREVIEWED"
         with self.assertRaises(acc1_bundle_selector.BundleSelectionError):
@@ -133,7 +139,7 @@ class Acc1BundleSelectorTests(unittest.TestCase):
 
     def test_nested_finalist_hash_binding_detects_rehashed_outer_tamper(self):
         manifest = acc1_bundle_selector.select_bundle_finalists(
-            [source_candidate(index, 1200) for index in range(1, 5)],
+            [source_candidate(index, 600) for index in range(1, 7)],
             source_plan=self.pilot_01,
         )
         tampered = copy.deepcopy(manifest)
@@ -155,41 +161,49 @@ class Acc1BundleSelectorTests(unittest.TestCase):
         self.assertEqual(manifest["aggregate_source_word_count"], 3120)
 
     def test_incomplete_candidate_is_rejected_even_when_it_would_fit(self):
-        incomplete = source_candidate(1, 1600)
+        incomplete = source_candidate(1, 700)
         incomplete["complete"] = False
-        candidates = [incomplete, source_candidate(2, 1400), source_candidate(3, 1700)]
+        candidates = [incomplete] + [source_candidate(index, 700) for index in range(2, 6)]
         manifest = acc1_bundle_selector.select_bundle(candidates, source_plan=self.pilot_01)
-        self.assertEqual([item["post_id"] for item in manifest["stories"]], ["p2", "p3"])
+        self.assertEqual([item["post_id"] for item in manifest["stories"]], ["p2", "p3", "p4", "p5"])
         rejection = manifest["selection_contract"]["rejections"][0]
         self.assertIn("source_not_complete", rejection["reasons"])
 
     def test_each_duplicate_identity_dimension_blocks_the_only_pair(self):
         for field in ("post_id", "source_url", "source_body", "story_signature", "author"):
             with self.subTest(field=field):
-                first = source_candidate(1, 1500)
-                second = source_candidate(2, 1600)
+                first = source_candidate(1, 700)
+                second = source_candidate(2, 700)
                 second[field] = first[field]
                 if field == "source_body":
                     second["source_body_sha256"] = hashlib.sha256(
                         second["source_body"].encode("utf-8")
                     ).hexdigest()
-                    second["source_word_count"] = 1500
+                    second["source_word_count"] = 700
                     second["payoff_evidence"] = first["payoff_evidence"]
                 with self.assertRaises(acc1_bundle_selector.BundleSelectionError):
-                    acc1_bundle_selector.select_bundle([first, second], source_plan=self.pilot_01)
+                    acc1_bundle_selector.select_bundle(
+                        [first, second, source_candidate(3, 700), source_candidate(4, 700)],
+                        source_plan=self.pilot_01,
+                    )
 
     def test_mixed_truth_modes_cannot_form_a_bundle(self):
         candidates = [
-            source_candidate(1, 1500),
-            source_candidate(2, 1600, truth_mode="fiction"),
+            source_candidate(1, 700),
+            source_candidate(2, 700),
+            source_candidate(3, 700),
+            source_candidate(4, 700, truth_mode="fiction"),
         ]
         with self.assertRaises(acc1_bundle_selector.BundleSelectionError):
             acc1_bundle_selector.select_bundle(candidates, source_plan=self.pilot_01)
 
     def test_aggregate_runtime_envelope_is_fail_closed(self):
-        for counts in ((500, 600), (2100, 2100)):
+        for counts in ((400, 400, 400, 400), (1100, 1100, 1100, 1100)):
             with self.subTest(counts=counts):
-                candidates = [source_candidate(1, counts[0]), source_candidate(2, counts[1])]
+                candidates = [
+                    source_candidate(index, count)
+                    for index, count in enumerate(counts, start=1)
+                ]
                 with self.assertRaises(acc1_bundle_selector.BundleSelectionError):
                     acc1_bundle_selector.select_bundle(candidates, source_plan=self.pilot_01)
 
@@ -208,7 +222,7 @@ class Acc1BundleSelectorTests(unittest.TestCase):
 
     def test_manifest_tamper_is_detected(self):
         manifest = acc1_bundle_selector.select_bundle(
-            [source_candidate(1, 1500), source_candidate(2, 1600)],
+            [source_candidate(index, 700) for index in range(1, 5)],
             source_plan=self.pilot_01,
         )
         tampered = copy.deepcopy(manifest)
@@ -217,7 +231,7 @@ class Acc1BundleSelectorTests(unittest.TestCase):
 
     def test_manifest_verifier_fails_closed_for_malformed_hash_or_payload(self):
         manifest = acc1_bundle_selector.select_bundle(
-            [source_candidate(1, 1500), source_candidate(2, 1600)],
+            [source_candidate(index, 700) for index in range(1, 5)],
             source_plan=self.pilot_01,
         )
         malformed_hash = copy.deepcopy(manifest)
@@ -249,8 +263,10 @@ class Acc1BundleSelectorTests(unittest.TestCase):
             input_path.write_text(
                 json.dumps({
                     "candidate_reviews": [
-                        source_candidate(1, 1500),
-                        source_candidate(2, 1600),
+                        source_candidate(1, 700),
+                        source_candidate(2, 700),
+                        source_candidate(3, 700),
+                        source_candidate(4, 700),
                     ],
                 }),
                 encoding="utf-8",

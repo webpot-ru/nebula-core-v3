@@ -79,7 +79,7 @@ FORMAT_PILLAR_SUBREDDITS = {
     },
 }
 BUNDLE_PILOT_STORY_COUNTS = {
-    "pilot_01": [2, 3],
+    "pilot_01": [4, 5],
     "pilot_02": [3, 5],
 }
 THREAD_PILOT_SEARCH_QUERIES = {
