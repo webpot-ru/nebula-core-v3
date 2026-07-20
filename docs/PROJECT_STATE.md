@@ -1,6 +1,28 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-19
+Last updated: 2026-07-20
+
+## Current visual candidate — Cinematic Ink Webtoon (local only)
+
+On 2026-07-20 the newly drawn `cinematic_ink_webtoon_v1` direction was recorded
+in root [`frame.md`](../frame.md) and
+[`acc1-cinematic-ink-webtoon-v1.md`](acc1-cinematic-ink-webtoon-v1.md), with the
+current styleframe at
+[`assets/acc1-cinematic-ink-webtoon-styleframe-v1.png`](assets/acc1-cinematic-ink-webtoon-styleframe-v1.png).
+It combines adult modern colour webtoon staging with ink/gouache/paper texture,
+alternates full-screen scenes with unequal two-to-three-panel pages, keeps
+story text in narration and deterministic HTML/SVG, targets 16–20 unique
+illustrations per story, and uses narration-driven page overview → panel
+push-in → pull-back camera choreography. The five story pillars keep one shared
+channel grammar but receive distinct palettes and pacing; BUNDLE, SAGA and
+THREAD have separate layout rhythms.
+
+This is a **local style candidate**, not a verified rendered pilot and not a
+production-default change. The implemented six-series adult-animation system
+below remains the active code path until an actual MP4 passes identity, motion,
+text and visual QA and the user explicitly promotes the new candidate. No
+provider call, GitHub workflow, configuration change, upload or publication
+was made by documenting it.
 
 ## Current visual decision — acc1 six-series adult animation
 

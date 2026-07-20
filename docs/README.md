@@ -20,6 +20,8 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Acc1 editorial motion implementation and visual history**: [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md) is the source of truth for the HyperFrames renderer, the six pilot-bound adult-animated-comic profiles, their deterministic anti-template layout repertoires, provider spend ceiling and local proof. The locked reference is [`assets/acc1-adult-animation-six-series-v1.png`](assets/acc1-adult-animation-six-series-v1.png). Earlier collage and Ink & Gouache work remains technical history only, not the future art direction.
 
+**Acc1 current web-comic candidate**: root [`../frame.md`](../frame.md) and [`acc1-cinematic-ink-webtoon-v1.md`](acc1-cinematic-ink-webtoon-v1.md) record the new `cinematic_ink_webtoon_v1` style, exact palette, text rules, image density and guided panel-camera language. It is a local candidate pending an actual pilot review; it does not yet replace the implemented six-series profile or production default.
+
 **Russian dark-series references**: [`russian-longform-competitor-analysis-2026-07-11.md`](russian-longform-competitor-analysis-2026-07-11.md) and [`russian-horror-editorial-system.md`](russian-horror-editorial-system.md) remain the specialized evidence/editorial contracts for the horror series; they no longer define the whole `acc1` channel.
 
 **Automated acc1 pilot implementation**: [`../specs/acc1-automated-reddit-pilot/README.md`](../specs/acc1-automated-reddit-pilot/README.md) defines the isolated artifact-only slice graph, fail-closed contracts, provider boundaries, and two-pilot GitHub target.
