@@ -94,6 +94,15 @@ The detailed owned bets, forbidden bets, cadence gates, and 90-day rollout are i
 5. **`reddit_story_card`** - only complete first-person moral conflict or complete social absurdity for the channels that own those treatments. The current renderer supports this lane.
 6. **`evidence_dossier`** - required for facts, science/tech, scams, real mysteries, public-person allegations, internet timelines, and football. It needs independent evidence, an original script, and timeline/evidence visuals; one Reddit card is not sufficient.
 
+For `acc1` long episodes, script packaging is source-bound rather than a
+repeated channel bumper: the intro uses the topic-playoff cold open, the
+CTA is generated from an exact source anchor at a deterministic source break,
+and the outro asks a pillar/source-grounded discussion question. In a
+single-source SAGA this currently means after the source and before the outro;
+it does not yet split narration at an internal story beat.
+These engagement lines are narration/render contracts only; they do not grant
+publication approval or change the `reddit_pages` production default.
+
 ### Evidence Basis
 
 - Official YouTube reviews support creator-driven franchises and audience participation in [Hispanic America](https://blog.youtube/intl/es-419/culture-and-trends/listas-eoy/), scripted-reality/family and football demand in [Brazil](https://blog.youtube/intl/pt-br/culture-and-trends/listas-fim-de-ano-2025/), and strong edutainment/explainer demand in [Germany](https://blog.youtube/intl/de-de/creator-and-artist-stories/die-erfolgreichsten-videos-creatorinnen-und-trends-des-jahres-2025/).
@@ -806,6 +815,19 @@ must show the new scopes and then match every authenticated channel against
 ---
 
 ## 9. GitHub Actions Automation
+
+### Cloud-first execution policy
+
+Keep heavy production work off the operator's local computer. GitHub Actions is
+the default execution environment for provider-backed generation, full pipeline
+runs, long video renders and final MP4 assembly. Use local Codex for code edits,
+targeted deterministic tests, authenticated workflow dispatch, artifact
+download/readback and visual review. Codex Cloud is useful for isolated coding
+tasks and PR preparation, but a cloud-task diff is not a verified render. Do not
+describe a video as GitHub-verified until the intended workflow succeeds, or as
+artifact-verified until the exact produced MP4 has been retrieved and reviewed.
+Paid/provider runs, retries and YouTube actions keep their separate explicit
+approval requirements.
 
 ### acc1 Daily Review-Ready Episode Factory
 

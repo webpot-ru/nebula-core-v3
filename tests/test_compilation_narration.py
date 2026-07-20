@@ -68,6 +68,26 @@ class CompilationNarrationTests(unittest.TestCase):
         self.assertEqual(" ".join(item["text"] for item in segments).count(disclosure), 1)
         self.assertTrue(all(item["required_model_id"] == "eleven_v3" for item in segments))
 
+    def test_mid_story_cta_is_inserted_after_natural_break(self):
+        disclosure = "Это художественные истории с Reddit."
+        compilation = {
+            "truth_disclosure_ru": disclosure,
+            "intro_ru": f"Три истории на ночь. {disclosure}",
+            "mid_story_cta_ru": "На чьей стороне вы сейчас? Напишите в комментариях. Продолжаем.",
+            "stories": [
+                {"source_snapshot": {"post_id": "a", "truth_mode": "fiction"}, "narration_ru": "Первая история.", "transition_after_ru": "Следующая история."},
+                {"source_snapshot": {"post_id": "b", "truth_mode": "fiction"}, "narration_ru": "Вторая история.", "transition_after_ru": "Финальная история."},
+                {"source_snapshot": {"post_id": "c", "truth_mode": "fiction"}, "narration_ru": "Третья история."},
+            ],
+            "outro_ru": "Какая история напугала вас сильнее?",
+        }
+        segments = build_compilation_segments(compilation)
+        self.assertEqual(
+            [item["segment_id"] for item in segments],
+            ["intro", "story_a", "transition_01", "mid_story_cta", "story_b", "transition_02", "story_c", "outro"],
+        )
+        self.assertEqual(segments[3]["kind"], "mid_story_cta")
+
     def test_empty_story_blocks(self):
         with self.assertRaises(NarrationPreflightError):
             build_compilation_segments({

@@ -1022,6 +1022,12 @@ def _build_reddit_storyboard(
         segment_timing=segment_timings.get("intro"),
     )
     stories = compilation.get("stories") or []
+    mid_story_cta_segment = segment_by_id.get("mid_story_cta")
+    mid_story_cta_after = (
+        max(1, len(stories) // 2)
+        if mid_story_cta_segment and stories
+        else 0
+    )
     if stories:
         first_story = stories[0]
         first_snapshot = first_story.get("source_snapshot") or {}
@@ -1085,6 +1091,18 @@ def _build_reddit_storyboard(
                 presentation="transition",
                 voice_role=transition_segment["voice_role"],
                 segment_timing=segment_timings.get(transition_id),
+            )
+        if index == mid_story_cta_after:
+            cursor = _append_reddit_pages(
+                slides,
+                segment_id="mid_story_cta",
+                text=mid_story_cta_segment["text"],
+                title="Ваше мнение",
+                timeline_cursor=cursor,
+                story_index=index,
+                presentation="mid_story_cta",
+                voice_role=mid_story_cta_segment["voice_role"],
+                segment_timing=segment_timings.get("mid_story_cta"),
             )
     outro_segment = segment_by_id.get("outro")
     if not outro_segment:

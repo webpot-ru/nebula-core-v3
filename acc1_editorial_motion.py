@@ -273,7 +273,7 @@ def build_editorial_motion_contract(
             scene_count = 1
             if segment_kind == "intro":
                 packs = [story_packs[story_ids[0]][0]]
-            elif segment_kind == "outro":
+            elif segment_kind in {"mid_story_cta", "outro"}:
                 packs = [story_packs[story_ids[-1]][-1]]
             elif segment_kind == "transition":
                 position = min(completed_story_count, len(story_ids) - 1)
@@ -308,6 +308,8 @@ def build_editorial_motion_contract(
             module = str(pack["motion_module"])
             if segment_kind == "intro":
                 module = "nested_collage_zoom"
+            elif segment_kind == "mid_story_cta":
+                module = "evidence_transform"
             elif segment_kind == "outro":
                 module = "dark_semantic_reveal"
             scene_id = f"{segment_id}-motion-{index + 1:03d}"

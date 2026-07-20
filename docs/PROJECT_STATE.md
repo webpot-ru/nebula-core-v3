@@ -1,6 +1,18 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-19
+Last updated: 2026-07-20
+
+## Locked execution policy — cloud first
+
+The user wants to keep heavy work off the local computer. Production video
+generation, provider-backed stages, long renders, full pipeline runs and final
+MP4 assembly therefore run in GitHub Actions by default. The local Codex is for
+code changes, lightweight deterministic tests, authenticated workflow dispatch,
+artifact download/readback and visual review. Codex Cloud can prepare code and
+PRs, but its task result is not a verified video. A video is GitHub-verified
+only after the intended workflow succeeds and artifact-verified only after the
+exact MP4 is downloaded/read back and visually reviewed. Any paid/provider run
+or upload still requires explicit approval of its exact scope.
 
 ## Cloud integration — adult-animation editorial motion
 
@@ -16,6 +28,18 @@ Local verification on this branch is 508 unit tests. No provider request,
 GitHub workflow dispatch, YouTube action, OAuth change, channel mapping change,
 or publication occurred. Generated MP4 previews remain local artifacts and are
 not committed.
+
+Follow-up local work adds a deterministic source-bound engagement layer for
+acc1 scripts and render timelines: the cold open remains bound to the
+topic-playoff evidence, a short CTA is generated from an exact source anchor at
+a deterministic source break, and the question-led outro remains grounded in
+the first source/pillar. The CTA is inserted into narration and supported by
+the editorial-motion and cinematic service-scene contracts. The local
+deterministic suite passes all 512 tests; production defaults, provider spend,
+workflows, YouTube upload and publication authorization remain unchanged. For a
+single-source SAGA, the current source-break policy places the CTA after that
+source and before the outro; beat-level placement inside one story is follow-up
+work rather than a verified capability.
 
 ## Current Shape
 

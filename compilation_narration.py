@@ -251,6 +251,8 @@ def build_compilation_segments(
         "text": str(compilation.get("intro_ru") or ""),
     }]
     stories = compilation.get("stories") or []
+    mid_story_cta = str(compilation.get("mid_story_cta_ru") or "").strip()
+    mid_story_cta_after = max(1, len(stories) // 2) if mid_story_cta and stories else 0
     for index, story in enumerate(stories, start=1):
         snapshot = story.get("source_snapshot") if isinstance(story, dict) else {}
         post_id = str(
@@ -275,6 +277,13 @@ def build_compilation_segments(
                 "kind": "transition",
                 "voice_role": "narrator",
                 "text": str(story.get("transition_after_ru") or ""),
+            })
+        if index == mid_story_cta_after:
+            ordered.append({
+                "segment_id": "mid_story_cta",
+                "kind": "mid_story_cta",
+                "voice_role": "narrator",
+                "text": mid_story_cta,
             })
     ordered.append({
         "segment_id": "outro",

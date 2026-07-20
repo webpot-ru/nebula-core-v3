@@ -29,6 +29,7 @@ if str(ROOT) not in sys.path:
 
 from acc1_episode_contract import (
     build_intro_contract,
+    build_mid_story_cta_contract,
     canonical_hash,
     truth_disclosure_ru,
     validate_episode_script,
@@ -305,6 +306,13 @@ def _shared_contracts() -> dict[str, Any]:
         first_title_ru="Ключ у двери",
         truth_disclosure=disclosure,
     )
+    mid_story_cta = build_mid_story_cta_contract(
+        episode_format=daily_plan["format"],
+        pillar=daily_plan["pillar"],
+        anchor_source=source,
+        anchor_index=1,
+        source_count=1,
+    )
     base_script = {
         "playoff_sha256": playoff["playoff_sha256"],
         "publication_authorized": False,
@@ -315,6 +323,8 @@ def _shared_contracts() -> dict[str, Any]:
         "truth_disclosure_ru": disclosure,
         "intro_contract": intro,
         "intro_ru": intro["intro_ru"],
+        "mid_story_cta_contract": mid_story_cta,
+        "mid_story_cta_ru": mid_story_cta["cta_ru"],
         "outro_ru": "Что бы вы сделали, если бы нашли такой ключ у двери?",
         "source_story_beats": beats,
         "originality_plan": originality_plan,
@@ -455,7 +465,12 @@ def _shared_audio_contract(
     artifact_root: Path,
 ) -> dict[str, Any]:
     segments = build_compilation_segments(base_script)
-    duration_by_kind = {"intro": 2.2, "story": 24.0, "outro": 2.1}
+    duration_by_kind = {
+        "intro": 2.2,
+        "story": 24.0,
+        "mid_story_cta": 2.5,
+        "outro": 2.1,
+    }
     chunks: list[dict[str, Any]] = []
     chunk_paths: list[Path] = []
     for index, segment in enumerate(segments):

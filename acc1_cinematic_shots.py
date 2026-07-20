@@ -236,6 +236,9 @@ def build_cinematic_contract(
             elif segment_kind == "transition":
                 next_story_position = min(completed_story_count, len(story_ids) - 1)
                 visuals = [story_visuals[story_ids[next_story_position]][0]]
+            elif segment_kind == "mid_story_cta":
+                anchor_story_position = max(0, completed_story_count - 1)
+                visuals = [story_visuals[story_ids[anchor_story_position]][-1]]
             else:
                 raise CinematicShotError(f"unsupported narration segment kind {segment_kind}")
 

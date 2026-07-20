@@ -83,6 +83,18 @@ is exact and can be substituted from an approved episode script. No new image,
 AI33, GitHub, upload or YouTube operation occurred. Its JPEG scratch frames and
 Chrome profile were moved to project Trash after visual inspection.
 
+The production script contract now mirrors that shape without using the demo
+copy verbatim. `intro_contract` remains a topic-playoff-bound cold open plus
+truth disclosure and first-source cue. `mid_story_cta_contract` selects one
+exact source anchor at the deterministic source break and produces a short
+discussion/subscription line from the episode format and pillar. `outro_ru`
+stays question-led and grounded in the first source/pillar. The narration
+builder emits the CTA as a separate `mid_story_cta` service segment, and the
+editorial-motion contract renders it as a short HTML/SVG factual-text scene
+using the existing verified story asset pack. This is still artifact-only:
+production defaults, provider spend, GitHub workflows, YouTube upload and
+publication authorization are not changed by the CTA contract.
+
 ## Decision
 
 `editorial_motion_v1` is the opt-in SAGA/BUNDLE motion-design mode for the

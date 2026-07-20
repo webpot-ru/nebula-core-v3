@@ -117,13 +117,25 @@ class CompilationAudioMixTests(unittest.TestCase):
                 last_in_segment=False,
             ),
             chunk(
+                "mid_story_cta__001",
+                segment_id="mid_story_cta",
+                segment_kind="mid_story_cta",
+                beat_id="mid_story_cta__beat_001",
+                beat_index=1,
+                audio_path="segments/cta.wav",
+                audio_sha256="d" * 64,
+                duration=1.0,
+                last_in_beat=True,
+                last_in_segment=True,
+            ),
+            chunk(
                 "outro__001",
                 segment_id="outro",
                 segment_kind="outro",
                 beat_id="outro__beat_001",
                 beat_index=1,
                 audio_path="segments/outro.wav",
-                audio_sha256="d" * 64,
+                audio_sha256="e" * 64,
                 duration=1.0,
                 last_in_beat=True,
                 last_in_segment=True,
@@ -136,7 +148,12 @@ class CompilationAudioMixTests(unittest.TestCase):
         self.assertTrue(verify_self_hash(first, "pause_map_sha256"))
         self.assertEqual(
             [entry["pause_kind"] for entry in first["entries"]],
-            ["segment", "beat", "intra_beat", "none"],
+            ["segment", "beat", "intra_beat", "segment", "none"],
+        )
+        self.assertEqual(
+            first["entries"][3]["pause_after_sec"],
+            NARRATION_PROFILES[STRANGE_DARK_UNEXPLAINED_PROFILE_ID]
+            ["pause_after"]["segment_seconds"]["mid_story_cta"],
         )
         self.assertEqual(first["entries"][-1]["pause_after_sec"], 0.0)
         self.assertAlmostEqual(

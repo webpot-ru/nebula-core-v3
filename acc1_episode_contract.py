@@ -16,6 +16,7 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 TRUTH_MODES = {"fiction", "unverified_personal_account"}
 INTRO_CONTRACT_VERSION = 2
+MID_STORY_CTA_CONTRACT_VERSION = 1
 INTRO_PART_ORDER = (
     "cold_open",
     "truth_disclosure",
@@ -30,6 +31,7 @@ DARK_BRAND_STING_RU = (
     "Вы слушаете Chonker Talks. Свет можно оставить включённым. Мы начинаем."
 )
 MAX_INTRO_WORDS = 60
+MAX_MID_STORY_CTA_WORDS = 34
 
 _STORY_COUNT_PHRASES = {
     1: "одна законченная история",
@@ -255,6 +257,127 @@ def build_outro_prompt(
     return "Что в этой истории вы бы сделали иначе? Расскажите в комментариях."
 
 
+def build_mid_story_cta_contract(
+    *,
+    episode_format: str,
+    pillar: str,
+    anchor_source: dict[str, Any],
+    anchor_index: int,
+    source_count: int,
+) -> dict[str, Any]:
+    """Build one source-bound mid-story discussion CTA.
+
+    The CTA is deliberately framed as a viewer decision at a natural break,
+    not as a generic like/subscribe interruption.  Its evidence quote must
+    exist verbatim in the exact source snapshot used by the episode.
+    """
+
+    source_id = _source_id(anchor_source)
+    body = _source_body(anchor_source)
+    if not source_id or not body:
+        raise ValueError("mid-story CTA requires an exact anchor source")
+    words = body.split()
+    quote = " ".join(words[: min(10, len(words))]).strip()
+    if len(WORD_RE.findall(quote)) < 3:
+        raise ValueError("mid-story CTA source quote is too short")
+    if quote not in body:
+        raise ValueError("mid-story CTA source quote must be exact source evidence")
+
+    format_id = _text(episode_format).upper()
+    pillar_id = _text(pillar)
+    if format_id == "THREAD":
+        question = "Какой ответ вы бы написали на месте автора этой темы?"
+    elif pillar_id == "relationships_family":
+        question = "На чьей стороне вы сейчас — и почему?"
+    elif pillar_id in {"work_money_justice", "work_money_consumer"}:
+        question = "Вы бы уже вмешались или сначала собрали доказательства?"
+    elif pillar_id == "strange_dark_unexplained":
+        question = "В какой момент вы бы поняли, что это уже не совпадение?"
+    else:
+        question = "Что бы вы сделали на этом месте?"
+    cta_ru = (
+        f"{question} Напишите в комментариях. "
+        "Если нравятся полные истории без выдуманных продолжений — подписывайтесь. Продолжаем."
+    )
+    return {
+        "version": MID_STORY_CTA_CONTRACT_VERSION,
+        "placement": {
+            "after_source_index": int(anchor_index),
+            "source_count": int(source_count),
+            "policy": "natural_break_after_anchor_source",
+        },
+        "source_anchor": {
+            "source_id": source_id,
+            "source_quote": quote,
+            "source_quote_sha256": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
+        },
+        "cta_ru": cta_ru,
+        "spoken_word_count": len(WORD_RE.findall(cta_ru)),
+    }
+
+
+def validate_mid_story_cta_contract(
+    contract: Any,
+    *,
+    mid_story_cta_ru: str,
+    episode_format: str,
+    pillar: str,
+    sources: list[dict[str, Any]],
+) -> list[str]:
+    failures: list[str] = []
+    if not isinstance(contract, dict):
+        return ["mid_story_cta_contract must be an object"]
+    placement = contract.get("placement")
+    anchor = contract.get("source_anchor")
+    if not isinstance(placement, dict):
+        return ["mid_story_cta_contract.placement must be an object"]
+    if not isinstance(anchor, dict):
+        return ["mid_story_cta_contract.source_anchor must be an object"]
+    try:
+        anchor_index = int(placement.get("after_source_index"))
+    except (TypeError, ValueError):
+        failures.append("mid-story CTA placement index is invalid")
+        anchor_index = 0
+    if anchor_index < 1 or anchor_index > len(sources):
+        failures.append("mid-story CTA placement must reference an episode source")
+        anchor_source = sources[0] if sources else {}
+    else:
+        anchor_source = sources[anchor_index - 1]
+    if int(placement.get("source_count") or 0) != len(sources):
+        failures.append("mid-story CTA source count drifted")
+    source_id = _text(anchor.get("source_id"))
+    source_quote = _text(anchor.get("source_quote"))
+    if source_id != _source_id(anchor_source):
+        failures.append("mid-story CTA source_id must match its placement source")
+    if not source_quote or source_quote not in _source_body(anchor_source):
+        failures.append("mid-story CTA source_quote must be exact source evidence")
+    expected_quote_sha = hashlib.sha256(source_quote.encode("utf-8")).hexdigest()
+    if _text(anchor.get("source_quote_sha256")) != expected_quote_sha:
+        failures.append("mid-story CTA source quote checksum is invalid")
+    try:
+        expected = build_mid_story_cta_contract(
+            episode_format=episode_format,
+            pillar=pillar,
+            anchor_source=anchor_source,
+            anchor_index=anchor_index,
+            source_count=len(sources),
+        )
+    except ValueError as exc:
+        failures.append(str(exc))
+        return failures
+    if contract != expected:
+        failures.append("mid_story_cta_contract must exactly match the approved deterministic structure")
+    if _text(mid_story_cta_ru) != expected["cta_ru"]:
+        failures.append("mid_story_cta_ru must exactly match the deterministic CTA contract")
+    if expected["spoken_word_count"] > MAX_MID_STORY_CTA_WORDS:
+        failures.append(f"mid-story CTA must contain at most {MAX_MID_STORY_CTA_WORDS} spoken words")
+    if not is_russian_text(
+        expected["cta_ru"], minimum_cyrillic_words=4, minimum_cyrillic_letter_ratio=0.55,
+    ):
+        failures.append("mid_story_cta_ru must be demonstrably Russian")
+    return failures
+
+
 def _source_id(snapshot: dict[str, Any]) -> str:
     return _text(snapshot.get("source_id") or snapshot.get("post_id") or snapshot.get("id"))
 
@@ -385,7 +508,7 @@ def validate_episode_script(
         failures.append("pilot_id does not match plan")
     if pillar != _text(plan.get("pillar")):
         failures.append("pillar does not match plan")
-    for field in ("title_ru", "intro_ru", "outro_ru", "truth_disclosure_ru"):
+    for field in ("title_ru", "intro_ru", "mid_story_cta_ru", "outro_ru", "truth_disclosure_ru"):
         value = _text(script.get(field))
         if not value:
             failures.append(f"{field} is required")
@@ -539,6 +662,13 @@ def validate_episode_script(
         ],
         expected_disclosure=expected_disclosure,
         expected_cold_open_sha256=_text(winner.get("cold_open_sha256")),
+    ))
+    failures.extend(validate_mid_story_cta_contract(
+        script.get("mid_story_cta_contract"),
+        mid_story_cta_ru=_text(script.get("mid_story_cta_ru")),
+        episode_format=format_id,
+        pillar=pillar,
+        sources=normalized_sources,
     ))
 
     for field in ("source_id", "body_sha256", "source_url", "author"):

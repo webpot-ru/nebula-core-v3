@@ -30,6 +30,18 @@ def asset(
 
 
 class EditorialMotionContractTests(unittest.TestCase):
+    @staticmethod
+    def _timing(text: str, duration: float) -> dict:
+        words = text.split()
+        return {
+            "duration_sec": duration,
+            "timing_source": "local",
+            "words": [
+                {"word": word, "start": round(index * duration / len(words), 3), "end": round((index + 1) * duration / len(words), 3)}
+                for index, word in enumerate(words)
+            ],
+        }
+
     def test_builds_exact_bound_seek_safe_scenes(self):
         words = [f"слово{index}" for index in range(80)]
         text = " ".join(words)
@@ -182,6 +194,31 @@ class EditorialMotionContractTests(unittest.TestCase):
                 story_metadata={"story_one": {"story_index": 1}},
                 final_audio_duration_sec=20.0,
             )
+
+    def test_mid_story_cta_is_short_service_scene(self):
+        story_text = " ".join(f"слово{index}" for index in range(40))
+        cta_text = "На чьей стороне вы сейчас? Напишите в комментариях. Продолжаем."
+        assets = [
+            asset("pack-a", "hero_plate", "living_photo_depth", "a"),
+            asset("pack-a", "detail_plate", "living_photo_depth", "b"),
+        ]
+        result = build_editorial_motion_contract(
+            narration_segments=[
+                {"segment_id": "story_one", "kind": "story", "voice_role": "narrator", "text": story_text},
+                {"segment_id": "mid_story_cta", "kind": "mid_story_cta", "voice_role": "narrator", "text": cta_text},
+            ],
+            segment_timings={
+                "story_one": self._timing(story_text, 20.0),
+                "mid_story_cta": self._timing(cta_text, 6.0),
+            },
+            story_assets={"story_one": assets},
+            story_metadata={"story_one": {"story_index": 1}},
+            final_audio_duration_sec=26.0,
+        )
+        self.assertEqual([scene["presentation"] for scene in result["scenes"]], [
+            "story", "mid_story_cta",
+        ])
+        self.assertEqual(result["scenes"][1]["motion"]["module"], "evidence_transform")
 
 
 if __name__ == "__main__":
