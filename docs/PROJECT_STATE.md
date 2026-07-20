@@ -1,6 +1,21 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-17
+Last updated: 2026-07-19
+
+## Cloud integration — adult-animation editorial motion
+
+The conflict-free cloud integration branch is based on `origin/main@017934e`.
+It adds the approved six-profile original adult 2D animation contract, the
+standalone Chrome/editorial-motion render tools, deterministic profile/layout
+tests, repository guidance, and the approved visual reference assets. The
+no-spend daily planner binds each exact pilot to one approved animation
+profile. The existing `reddit_pages` production default is unchanged; the
+Chrome/editorial renderer is not yet wired as a production factory default.
+
+Local verification on this branch is 508 unit tests. No provider request,
+GitHub workflow dispatch, YouTube action, OAuth change, channel mapping change,
+or publication occurred. Generated MP4 previews remain local artifacts and are
+not committed.
 
 ## Current Shape
 

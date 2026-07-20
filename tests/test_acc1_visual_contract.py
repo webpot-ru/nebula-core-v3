@@ -8,10 +8,15 @@ from acc1_cinematic_shots import (
     write_caption_srt,
 )
 from acc1_visual_contract import (
+    ADULT_ANIMATION_FAMILY_STYLE_PROFILE,
+    ADULT_ANIMATION_STYLE_PROFILES,
     CINEMATIC_STORY_MODE,
     DEFAULT_VISUAL_MODE,
+    EDITORIAL_MOTION_MODE,
     REDDIT_PAGES_MODE,
+    adult_animation_profile_for_pilot,
     resolve_visual_mode,
+    select_adult_animation_layouts,
 )
 
 
@@ -27,6 +32,28 @@ class VisualModeContractTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "visual_mode"):
             resolve_visual_mode("cinematic-ish")
+
+    def test_editorial_motion_mode_is_explicit(self):
+        self.assertEqual(resolve_visual_mode(EDITORIAL_MOTION_MODE), EDITORIAL_MOTION_MODE)
+
+    def test_six_adult_animation_profiles_are_pilot_bound_and_layouts_vary_by_source(self):
+        self.assertEqual(len(ADULT_ANIMATION_STYLE_PROFILES), 6)
+        self.assertEqual(
+            adult_animation_profile_for_pilot("pilot_01"),
+            ADULT_ANIMATION_FAMILY_STYLE_PROFILE,
+        )
+        first = select_adult_animation_layouts(
+            ADULT_ANIMATION_FAMILY_STYLE_PROFILE, "reddit-source-a", 4,
+        )
+        repeat = select_adult_animation_layouts(
+            ADULT_ANIMATION_FAMILY_STYLE_PROFILE, "reddit-source-a", 4,
+        )
+        second = select_adult_animation_layouts(
+            ADULT_ANIMATION_FAMILY_STYLE_PROFILE, "reddit-source-b", 4,
+        )
+        self.assertEqual(first, repeat)
+        self.assertEqual(len(first), len(set(first)))
+        self.assertNotEqual(first, second)
 
     def test_caption_sidecar_normalizes_alignment_overlap_deterministically(self):
         text = "один два три четыре пять шесть семь восемь девять"
