@@ -1,6 +1,18 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-19
+Last updated: 2026-07-20
+
+## Locked execution policy — cloud first
+
+The user wants to keep heavy work off the local computer. Production video
+generation, provider-backed stages, long renders, full pipeline runs and final
+MP4 assembly therefore run in GitHub Actions by default. The local Codex is for
+code changes, lightweight deterministic tests, authenticated workflow dispatch,
+artifact download/readback and visual review. Codex Cloud can prepare code and
+PRs, but its task result is not a verified video. A video is GitHub-verified
+only after the intended workflow succeeds and artifact-verified only after the
+exact MP4 is downloaded/read back and visually reviewed. Any paid/provider run
+or upload still requires explicit approval of its exact scope.
 
 ## Cloud integration — adult-animation editorial motion
 

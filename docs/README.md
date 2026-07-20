@@ -816,6 +816,19 @@ must show the new scopes and then match every authenticated channel against
 
 ## 9. GitHub Actions Automation
 
+### Cloud-first execution policy
+
+Keep heavy production work off the operator's local computer. GitHub Actions is
+the default execution environment for provider-backed generation, full pipeline
+runs, long video renders and final MP4 assembly. Use local Codex for code edits,
+targeted deterministic tests, authenticated workflow dispatch, artifact
+download/readback and visual review. Codex Cloud is useful for isolated coding
+tasks and PR preparation, but a cloud-task diff is not a verified render. Do not
+describe a video as GitHub-verified until the intended workflow succeeds, or as
+artifact-verified until the exact produced MP4 has been retrieved and reviewed.
+Paid/provider runs, retries and YouTube actions keep their separate explicit
+approval requirements.
+
 ### acc1 Daily Review-Ready Episode Factory
 
 `.github/workflows/acc1_daily_episode.yml` is the one-dispatch, artifact-only long-form factory for `acc1`. Its OpenAI-capable revision is active on GitHub `main` as workflow `312924313`; GPT-5.4 Flex transport has been live-verified, but no review-ready artifact exists because later source/editorial gates blocked fail-closed. The merged factory includes the PRAW lazy-fetch fix and never invokes `uploader.py`; its maximum result is `READY_FOR_HUMAN_REVIEW`. The current integration branch adds an explicit `visual_mode` input without changing the default: `reddit_pages` remains the existing Reddit/Chonker renderer, while `cinematic_story_v1` is opt-in and accepts SAGA/BUNDLE only. Unknown modes and cinematic THREAD fail before provider calls.

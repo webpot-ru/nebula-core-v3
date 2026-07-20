@@ -21,6 +21,9 @@ Do not infer current publication, OAuth, artifact or workflow state from chat me
 
 ## Safe Project Workflow
 
+- Default to cloud-first execution to protect the user's computer: production video generation, long renders, provider-backed generation, full pipeline runs and final MP4 assembly belong in GitHub Actions. Do not run those workloads locally unless the user explicitly requests the exact local run.
+- Use the local machine for code edits, lightweight deterministic tests, authenticated `gh workflow run ...` dispatch, artifact download/readback and human review of the resulting browser/MP4 output. Prefer targeted tests locally; move unusually heavy verification to a no-provider GitHub workflow when one exists.
+- Codex Cloud may prepare code changes, tests and PRs, but it is not the source of a verified video. A video becomes GitHub-verified only after the intended workflow succeeds, and artifact-verified only after the exact produced MP4 is downloaded/read back and visually reviewed.
 - Use `scripts/move-to-trash.sh` for approved removal of generated previews or scratch artifacts. Never delete them directly.
 - Preserve the existing dirty worktree and keep edits narrowly scoped; do not revert or overwrite unrelated pipeline, workflow, channel or artifact changes.
 - Use the existing deterministic storyboard, renderer and `pre_publish_qa.py` path before any upload claim.
