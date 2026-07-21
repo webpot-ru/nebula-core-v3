@@ -351,7 +351,7 @@ def _ink_gouache_scene_tweens(scene: dict[str, Any]) -> list[str]:
             f"tl.fromTo('#portal-{sid}', {{opacity:0,scale:.70,x:220,rotation:4}}, {{opacity:1,scale:1,x:0,rotation:0,duration:1.18,ease:'expo.out'}}, {start + .52:.3f});",
             f"tl.fromTo('#object-{sid}', {{opacity:0,scale:.32,y:130}}, {{opacity:1,scale:1,y:0,duration:.76,ease:'back.out(1.2)'}}, {start + .94:.3f});",
             f"tl.to('#cutout-{sid}', {{x:72,y:-22,scale:1.08,duration:{duration * .72:.3f},ease:'sine.inOut'}}, {start + duration * .18:.3f});",
-            f"tl.to('#portal-{sid}', {{x:-85,y:30,scale:1.12,duration:{duration * .68:.3f},ease:'sine.inOut'}}, {start + duration * .22:.3f});",
+            f"tl.to('#portal-{sid}', {{x:-85,y:30,scale:1.12,duration:{duration * .68:.3f},ease:'sine.inOut',overwrite:'auto'}}, {start + duration * .22:.3f});",
         ]
     if layout == "phone_portal_insets":
         return lines + [
@@ -688,7 +688,7 @@ def _composition_html(scenes: list[dict[str, Any]], duration: float, *, style_pr
 #root.profile-ink_gouache_story_pages_v1 .layout-empty_desk_release .hero-cutout{{left:405px;top:-25px;width:1540px;height:1120px}}#root.profile-ink_gouache_story_pages_v1 .layout-empty_desk_release .portal-shell{{left:-90px;right:auto;top:235px;width:720px;height:700px}}#root.profile-ink_gouache_story_pages_v1 .layout-empty_desk_release .object-fragment{{display:none}}#root.profile-ink_gouache_story_pages_v1 .layout-empty_desk_release .story-copy{{left:88px;top:auto;bottom:98px;width:650px}}
 </style></head><body>
 <main id="root" class="profile-{html.escape(style_profile, quote=True)}" data-composition-id="editorial-motion" data-start="0" data-width="1920" data-height="1080" data-fps="30" data-duration="{duration:.3f}">
-<div id="root-fill"></div>
+<section id="root-fill" class="clip" data-start="0" data-duration="{duration:.3f}" data-track-index="0"></section>
 {scene_html}
 </main><script>{timeline}</script></body></html>"""
 
