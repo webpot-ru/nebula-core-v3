@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -18,7 +19,7 @@ from compilation_tts_runner import (
     _validate_completed_chunk_timing,
     build_tts_chunks,
 )
-from translator_tts import poll_for_audio, post_tts_task
+from translator_tts import Ai33Error, poll_for_audio, post_tts_task
 
 
 class SingleAudioTtsError(RuntimeError):
@@ -72,6 +73,9 @@ def run_single_audio_tts(
     poll_task: Callable[..., dict[str, Any]] = poll_for_audio,
     slice_audio: Callable[[Path, Path, float, float], None] = _slice_audio,
     probe_duration: Callable[[Path], float] = _probe_duration,
+    resume_only: bool = False,
+    poll_busy_retries: int = 20,
+    sleeper: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     output_dir = Path(output_dir)
     root = Path(artifact_root).resolve()
@@ -108,26 +112,54 @@ def run_single_audio_tts(
         "publication_authorized": False,
     }
     request_path = output_dir / "single-audio-request.json"
-    _atomic_json(request_path, request)
     master_audio = output_dir / "narration-master.mp3"
-    request["status"] = "SUBMITTING"
-    _atomic_json(request_path, request)
-    payload = post_task(
-        api_key=api_key, text=master_text, voice_id=voice_id,
-        model_id=REQUIRED_MODEL_ID, voice_settings_json=voice_settings_json,
-        speed=speed, file_name=master_audio.name, with_transcript=True,
-        context_chaining=False, receive_url=None,
-        pronunciation_dictionary_id=pronunciation_dictionary_id,
-    )
-    task_id = str(payload.get("task_id") or "").strip()
-    if not task_id:
-        raise SingleAudioTtsError("single AI33 request returned no task_id")
-    request.update({"status": "SUBMITTED", "task_id": task_id})
-    _atomic_json(request_path, request)
-    payload = poll_task(
-        api_key=api_key, task_id=task_id, output_path=master_audio,
-        poll_interval=5, timeout_seconds=14_400,
-    )
+    if resume_only:
+        try:
+            saved = json.loads(request_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SingleAudioTtsError("saved single-audio request is unreadable") from exc
+        for field in (
+            "text_sha256", "character_count", "voice_id", "model_id", "speed",
+            "voice_settings_json", "with_transcript", "pronunciation_dictionary_id",
+            "pronunciation_dictionary_sha256", "provider_task_cap",
+        ):
+            if saved.get(field) != request.get(field):
+                raise SingleAudioTtsError(f"saved single-audio request changed: {field}")
+        if saved.get("status") != "SUBMITTED" or not str(saved.get("task_id") or "").strip():
+            raise SingleAudioTtsError("resume requires one durable SUBMITTED task")
+        request = saved
+        task_id = str(saved["task_id"])
+    else:
+        _atomic_json(request_path, request)
+        request["status"] = "SUBMITTING"
+        _atomic_json(request_path, request)
+        payload = post_task(
+            api_key=api_key, text=master_text, voice_id=voice_id,
+            model_id=REQUIRED_MODEL_ID, voice_settings_json=voice_settings_json,
+            speed=speed, file_name=master_audio.name, with_transcript=True,
+            context_chaining=False, receive_url=None,
+            pronunciation_dictionary_id=pronunciation_dictionary_id,
+        )
+        task_id = str(payload.get("task_id") or "").strip()
+        if not task_id:
+            raise SingleAudioTtsError("single AI33 request returned no task_id")
+        request.update({"status": "SUBMITTED", "task_id": task_id})
+        _atomic_json(request_path, request)
+    payload = None
+    for attempt in range(poll_busy_retries + 1):
+        try:
+            payload = poll_task(
+                api_key=api_key, task_id=task_id, output_path=master_audio,
+                poll_interval=15, timeout_seconds=14_400,
+            )
+            break
+        except Ai33Error as exc:
+            message = str(exc).casefold()
+            if attempt >= poll_busy_retries or "429" not in message or "temporarily busy" not in message:
+                raise
+            sleeper(min(120, 30 * (attempt + 1)))
+    if payload is None:
+        raise SingleAudioTtsError("saved AI33 task polling did not return a payload")
     duration = float(probe_duration(master_audio))
     timing_source, master_words = _build_chunk_timing(master_text, payload, duration)
     if timing_source != "ai33":
