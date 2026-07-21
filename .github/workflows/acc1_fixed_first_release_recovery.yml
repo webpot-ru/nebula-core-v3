@@ -40,6 +40,8 @@ jobs:
           test "$CONFIRM_POLL" = "true"
           test "$RUN_ATTEMPT" = "1"
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

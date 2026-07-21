@@ -21,6 +21,9 @@ preflight but stopped before AI33 because current `main` had a different
 narration-profile hash. The workflow now restores only the exact profile file
 from source commit `1b84fab` inside the ephemeral runner and verifies its file
 SHA before polling. No provider request occurred in that failed recovery run.
+Recovery run `29822140709` also stopped before AI33 because the default shallow
+checkout could not read the pinned source commit. The workflow now requests full
+git history (`fetch-depth: 0`) before restoring and hashing that single file.
 
 ## Fixed first release
 
