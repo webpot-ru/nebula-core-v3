@@ -2,7 +2,24 @@
 
 Last updated: 2026-07-20
 
-## Fixed first release (pending GitHub run)
+## Fixed first-release recovery (local implementation, GitHub run failed)
+
+GitHub run `29813098711` on commit `1b84fab` passed the no-provider preflight
+and completed all 69 image calls plus all 61 AI33 task submissions. Its saved
+artifact contains 68 final scene images, the generated thumbnail and 60 of 61
+audio segments. Rendering did not start because polling the already-submitted
+task `1d554c37-8bc8-414d-9a6f-900c66a72bd0` returned transient HTTP 429
+`Task polling temporarily busy`. YouTube was not called.
+
+`scripts/recover_acc1_fixed_first_release.py` and
+`.github/workflows/acc1_fixed_first_release_recovery.yml` implement a
+fail-closed recovery path. The exact saved artifact passes local preflight; the
+path authorizes zero new image calls and zero new AI33 submissions, permits only
+polling the durable task ID, then resumes deterministic storyboard and
+Chrome/HyperFrames rendering. The recovery code is local-only until separately
+committed and pushed; no recovery workflow has been dispatched yet.
+
+## Fixed first release
 
 The fixed-input lane `.github/workflows/acc1_fixed_first_release.yml` consumes
 the committed four-story Russian script and does not call Reddit, Gemini,

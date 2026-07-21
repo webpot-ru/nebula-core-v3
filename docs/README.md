@@ -28,7 +28,62 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Current Russian channel decision**: [`acc1-russian-reddit-story-strategy-2026-07-13.md`](acc1-russian-reddit-story-strategy-2026-07-13.md) is the canonical viewer promise, SAGA/BUNDLE/THREAD contract, six-slot daily pilot matrix, S-tier target gates, brand package, and visual/thumbnail system for `acc1`.
 
-**Current acc1 cinematic implementation**: [`acc1-cinematic-production-plan-2026-07-16.md`](acc1-cinematic-production-plan-2026-07-16.md) defines the opt-in `cinematic_story_v1` migration, narration/mix contract and promotion gates. [`acc1-visual-qa-checklist.md`](acc1-visual-qa-checklist.md) is the mandatory human-facing MP4 review gate. `reddit_pages` remains the default.
+**Acc1 production-candidate review**: [`acc1-visual-qa-checklist.md`](acc1-visual-qa-checklist.md) is the human-facing visual and editorial gate for a rendered MP4; it complements technical media QA and never authorizes publication.
+
+**Acc1 cinematic implementation plan**: [`acc1-cinematic-production-plan-2026-07-16.md`](acc1-cinematic-production-plan-2026-07-16.md) defines the staged full-screen scene-motion and narration/mix migration, the compatibility boundary with the current Reddit/Chonker renderer, and the evidence required before cinematic can become a default.
+
+**Acc1 editorial motion implementation and visual history**: [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md) is the source of truth for the HyperFrames renderer, the six pilot-bound adult-animated-comic profiles, their deterministic anti-template layout repertoires, provider spend ceiling and local proof. The locked reference is [`assets/acc1-adult-animation-six-series-v1.png`](assets/acc1-adult-animation-six-series-v1.png). Earlier collage and Ink & Gouache work remains technical history only, not the future art direction.
+
+**Acc1 webtoon v2 production contract**: [`../specs/acc1-video-style-v2.json`](../specs/acc1-video-style-v2.json) is the fail-closed source of truth for the `chrome_guided_webtoon_v2` renderer, meaning-led panel camera, centered one-line subtitle band, Russian-market character rules, Imagen-baked Russian thumbnail text, and checksum-bound intro/CTA/outro. The approved semantic preview SHA is recorded and the fixed-release entrypoint uses the Chrome/HyperFrames renderer; provider execution still requires the workflow's exact explicit spend confirmations. Root [`../frame.md`](../frame.md) and [`acc1-cinematic-ink-webtoon-v1.md`](acc1-cinematic-ink-webtoon-v1.md) remain the creative reference.
+
+Generate the current no-provider visual approval MP4 with:
+
+```bash
+python scripts/render_acc1_style_v2_preview.py \
+  --output-dir build/acc1-style-v2-semantic-preview \
+  --output build/acc1-style-v2-semantic-preview/acc1-style-v2-semantic-preview.mp4
+```
+
+Validate the static contract and inspect its blockers with:
+
+```bash
+python scripts/validate_acc1_video_style_v2.py
+```
+
+Resume the exact failed fixed-release artifact without new image or AI33 task
+submissions with `scripts/recover_acc1_fixed_first_release.py`. The dedicated
+`acc1_fixed_first_release_recovery.yml` workflow first proves 69 completed image
+attempts, 61 completed AI33 submissions and exactly one durable `SUBMITTED` TTS
+chunk before the AI33 key is exposed. Its POST callback always fails closed;
+only the saved task may be polled before Chrome/HyperFrames rendering continues.
+
+Production uses the stricter `--require-production-ready` flag. The migrated
+entrypoint and exact human-approved preview SHA now satisfy that static gate;
+provider execution still requires the separate workflow confirmations. Neither
+validation command calls providers or YouTube.
+
+**Acc1 first-release preparation**: [`acc1-first-release-preproduction-v1.md`](acc1-first-release-preproduction-v1.md) records the no-spend human source review, four-story order, source-faithful Russian treatment, character locks and 68-image plan derived from the successful source-only artifact of run `29757914575`. It is not a production or publication authorization.
+
+The local first-release image contract registers `cinematic_ink_webtoon_v1`
+under `editorial_motion_v1` and accepts explicit even per-story image targets.
+The locked allocation is `18 / 18 / 16 / 16` scene plates, with one separately
+budgeted thumbnail: 69 maximum image calls, no automatic retry. This enlarged
+ceiling is not provider-spend approval.
+
+The dedicated fixed-input command is:
+
+```bash
+python scripts/run_acc1_fixed_first_release.py \
+  --output-dir build/acc1-fixed-first-release
+```
+
+Without `--produce` this performs a no-network preflight and proves the exact
+provider envelope: 68 scene images, one thumbnail, zero automatic image
+retries and 61 AI33 narration tasks. The corresponding manual workflow is
+`.github/workflows/acc1_fixed_first_release.yml`. Its production step requires
+three explicit confirmations and contains no Reddit, Gemini, OpenAI or YouTube
+credentials or calls. `--produce --confirm-image-ai33-spend` is spend-enabled
+and must not be run locally or in GitHub without exact authorization.
 
 **Russian dark-series references**: [`russian-longform-competitor-analysis-2026-07-11.md`](russian-longform-competitor-analysis-2026-07-11.md) and [`russian-horror-editorial-system.md`](russian-horror-editorial-system.md) remain the specialized evidence/editorial contracts for the horror series; they no longer define the whole `acc1` channel.
 
