@@ -16,8 +16,11 @@ task `1d554c37-8bc8-414d-9a6f-900c66a72bd0` returned transient HTTP 429
 fail-closed recovery path. The exact saved artifact passes local preflight; the
 path authorizes zero new image calls and zero new AI33 submissions, permits only
 polling the durable task ID, then resumes deterministic storyboard and
-Chrome/HyperFrames rendering. The recovery code is local-only until separately
-committed and pushed; no recovery workflow has been dispatched yet.
+Chrome/HyperFrames rendering. Recovery run `29821455541` passed the zero-call
+preflight but stopped before AI33 because current `main` had a different
+narration-profile hash. The workflow now restores only the exact profile file
+from source commit `1b84fab` inside the ephemeral runner and verifies its file
+SHA before polling. No provider request occurred in that failed recovery run.
 
 ## Fixed first release
 
