@@ -2,6 +2,18 @@
 
 Last updated: 2026-07-20
 
+## Acc1 single-audio + SRT migration (local, approved scope)
+
+The new canonical audio contract is `specs/acc1-audio-contract-v2.json`: one
+AI33 `eleven_v3` provider task for the full narrator text, one master MP3 and
+one SRT generated from real AI33 transcript timings. Local audio slices are
+derived only to feed the existing semantic storyboard scheduler and do not
+consume provider tasks. The exact first-release preflight reuses the verified
+69-image artifact, plans 12,991 characters / 2,081 words, allows exactly one
+AI33 task with zero automatic retries, and forbids image and YouTube calls.
+The implementation and GitHub workflow are local until committed and merged;
+the authorized live one-task run has not yet been dispatched.
+
 ## Acc1 pronunciation dictionary (local implementation)
 
 Future acc1 AI33 submissions use the versioned Russian rules in
