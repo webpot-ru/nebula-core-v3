@@ -490,9 +490,11 @@ def _adult_animation_scene_tweens(scene: dict[str, Any]) -> list[str]:
 
 
 def _timeline_script(scenes: list[dict[str, Any]], *, style_profile: str) -> str:
+    full_duration = max(float(scene["end_sec"]) for scene in scenes)
     lines = [
         "window.__timelines = window.__timelines || {};",
         "const tl = gsap.timeline({paused:true});",
+        f"tl.fromTo('#root-fill', {{x:-4}}, {{x:4,duration:{full_duration:.3f},ease:'none'}}, 0);",
     ]
     for scene in scenes:
         sid = _safe_id(str(scene["scene_id"]))
@@ -574,7 +576,7 @@ def _composition_html(scenes: list[dict[str, Any]], duration: float, *, style_pr
 <style>
 :root{{--ink:#111820;--cream:#efe5cf;--paper:#f7efdf;--cobalt:#164fa3;--coral:#ef6549;--butter:#f2bd2f;--white:#fffaf0}}
 *{{box-sizing:border-box;margin:0;padding:0}}html,body{{width:1920px;height:1080px;overflow:hidden;background:var(--ink);font-family:Arial,sans-serif;color:var(--ink)}}
-#root{{position:relative;width:1920px;height:1080px;overflow:hidden}}#root-fill{{position:absolute;inset:0;background:var(--cream)}}
+#root{{position:relative;width:1920px;height:1080px;overflow:hidden}}#root-fill{{position:absolute;left:-8px;right:-8px;top:0;bottom:0;background:var(--cream);will-change:transform}}
 .clip,.scene-inner{{position:absolute;inset:0;width:1920px;height:1080px;overflow:hidden}}.scene-inner{{opacity:0;will-change:transform,opacity,clip-path;background:var(--cream)}}
 .hero-plate{{position:absolute;inset:-4%;width:108%;height:108%;object-fit:cover;filter:saturate(.78) contrast(1.03) brightness(.78);will-change:transform}}
 .scene-grade{{position:absolute;inset:0;background:linear-gradient(90deg,rgba(239,229,207,.78) 0 17%,transparent 48%),linear-gradient(0deg,rgba(17,24,32,.12),transparent 50%)}}
@@ -724,7 +726,7 @@ def _write_workspace(
         "duration": round(duration, 3),
         "maxStaticSec": 5,
         "assertions": [
-            {"kind": "keepsMoving", "withinSelector": "#root"},
+            {"kind": "keepsMoving", "withinSelector": "#root-fill"},
         ],
     }, indent=2) + "\n", encoding="utf-8")
     return workspace
