@@ -13,7 +13,12 @@ from acc1_narration_profiles import (
     NARRATION_PROFILES,
     STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
 )
-from compilation_tts_runner import CompilationTtsError, build_tts_chunks, run_compilation_tts
+from compilation_tts_runner import (
+    CompilationTtsError,
+    build_tts_chunks,
+    resume_compilation_tts_from_saved_state,
+    run_compilation_tts,
+)
 from compilation_storyboard import build_storyboard
 from translator_tts import Ai33Error
 
@@ -54,6 +59,66 @@ def sample_role_compilation():
 
 
 class CompilationTtsRunnerTests(unittest.TestCase):
+    def test_direct_saved_state_resume_polls_without_rebuilding_or_posting(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "segments").mkdir()
+            (root / "compilation_tts_state.json").write_text(json.dumps({
+                "version": 3,
+                "required_model_id": "eleven_v3",
+                "publication_authorized": False,
+                "narration_plan_sha256": "a" * 64,
+                "status": "IN_PROGRESS",
+                "chunks": [{
+                    "chunk_id": "story_saved__001",
+                    "logical_segment_id": "story_saved",
+                    "text": "Сохранённая задача",
+                    "text_sha256": "b" * 64,
+                    "status": "SUBMITTED",
+                    "task_id": "saved-task-id",
+                }],
+            }), encoding="utf-8")
+            polls = []
+
+            def poll(**kwargs):
+                polls.append(kwargs["task_id"])
+                kwargs["output_path"].write_bytes(b"saved-audio")
+                return {"success": True, "model_id": "eleven_v3"}
+
+            def concat(paths, output):
+                output.write_bytes(b"|".join(path.read_bytes() for path in paths))
+
+            state = resume_compilation_tts_from_saved_state(
+                output_dir=root,
+                artifact_root=root,
+                api_key="secret",
+                expected_task_id="saved-task-id",
+                poll_task=poll,
+                concat=concat,
+                probe_duration=fake_probe_duration,
+            )
+        self.assertEqual(polls, ["saved-task-id"])
+        self.assertEqual(state["status"], "COMPLETE")
+        self.assertEqual(state["chunks"][0]["status"], "COMPLETE")
+
+    def test_direct_saved_state_resume_refuses_ready_chunk_before_poll(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "compilation_tts_state.json").write_text(json.dumps({
+                "version": 3,
+                "required_model_id": "eleven_v3",
+                "publication_authorized": False,
+                "chunks": [{"chunk_id": "unsafe", "status": "READY"}],
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(CompilationTtsError, "exactly one SUBMITTED"):
+                resume_compilation_tts_from_saved_state(
+                    output_dir=root,
+                    artifact_root=root,
+                    api_key="secret",
+                    expected_task_id="saved-task-id",
+                    poll_task=lambda **kwargs: self.fail("must not poll"),
+                )
+
     def test_always_chunks_single_narrator_in_order(self):
         body = " ".join(["Длинное предложение."] * 100)
         chunks = build_tts_chunks(sample_compilation(body), voice_id="voice", max_chars=500)

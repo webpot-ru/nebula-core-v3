@@ -7,14 +7,15 @@ from scripts.recover_acc1_fixed_first_release import RecoveryError, validate_rec
 
 
 class FixedFirstReleaseRecoveryTests(unittest.TestCase):
-    def test_workflow_pins_source_run_profile_before_polling(self):
+    def test_workflow_uses_direct_saved_task_polling_without_profile_restore(self):
         workflow = Path(
             ".github/workflows/acc1_fixed_first_release_recovery.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("Restore exact source-run narration profile", workflow)
-        self.assertIn("fetch-depth: 0", workflow)
-        self.assertIn("git checkout 1b84fabb3c99c01d503f805b7a019c37e291a060", workflow)
-        self.assertIn("8a522785976e5785bad69d8f33ec87dd57c8a416ddfc1a6b2b9be180d406532a", workflow)
+        recovery = Path("scripts/recover_acc1_fixed_first_release.py").read_text(encoding="utf-8")
+        self.assertIn("resume_compilation_tts_from_saved_state", recovery)
+        self.assertNotIn("run_compilation_tts(", recovery)
+        self.assertNotIn("Restore exact source-run narration profile", workflow)
+        self.assertNotIn("git checkout 1b84fabb3c99c01d503f805b7a019c37e291a060", workflow)
 
     def _fixture(self, root: Path) -> None:
         (root / "provider-attempts").mkdir(parents=True)

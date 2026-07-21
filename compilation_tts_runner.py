@@ -695,6 +695,134 @@ def _complete_chunk(
     _atomic_json(state_path, state)
 
 
+def resume_compilation_tts_from_saved_state(
+    *,
+    output_dir: Path,
+    artifact_root: Path | None = None,
+    api_key: str,
+    expected_task_id: str,
+    timeout_seconds: int = 1_800,
+    overall_timeout_seconds: int | None = None,
+    poll_interval: int = 5,
+    poll_task: Callable[..., dict[str, Any]] = poll_for_audio,
+    poll_error_retries: int = 4,
+    sleeper: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+    wall_clock: Callable[[], float] = time.time,
+    concat: Callable[[list[Path], Path], None] = concat_audio_segments,
+    probe_duration: Callable[[Path], float] = _probe_duration,
+) -> dict[str, Any]:
+    """Poll saved provider identities without rebuilding or submitting a plan."""
+    deadline = _resolve_shared_deadline(
+        timeout_seconds=timeout_seconds,
+        overall_timeout_seconds=overall_timeout_seconds,
+        overall_deadline_epoch=None,
+        monotonic=monotonic,
+        wall_clock=wall_clock,
+    )
+    output_dir = Path(output_dir)
+    root = Path(artifact_root).resolve() if artifact_root is not None else output_dir.resolve()
+    resolved_output_dir = output_dir.resolve()
+    if resolved_output_dir != root and root not in resolved_output_dir.parents:
+        raise CompilationTtsError("TTS output_dir must remain under artifact_root")
+    state_path = output_dir / "compilation_tts_state.json"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CompilationTtsError("saved TTS state is unreadable; refusing recovery") from exc
+    if not isinstance(state, dict):
+        raise CompilationTtsError("saved TTS state must be an object")
+    if state.get("version") != STATE_VERSION or state.get("required_model_id") != REQUIRED_MODEL_ID:
+        raise CompilationTtsError("saved TTS state contract is incompatible")
+    if state.get("publication_authorized") is not False:
+        raise CompilationTtsError("saved TTS state cannot authorize publication")
+    chunks = state.get("chunks")
+    if not isinstance(chunks, list) or not chunks:
+        raise CompilationTtsError("saved TTS state has no chunks")
+    expected = _validated_task_id(expected_task_id, chunk_id="recovery")
+    submitted = [item for item in chunks if item.get("status") == "SUBMITTED"]
+    if len(submitted) != 1:
+        raise CompilationTtsError("direct recovery requires exactly one SUBMITTED chunk")
+    item_to_poll = submitted[0]
+    chunk_id_to_poll = str(item_to_poll.get("chunk_id") or "")
+    saved_task_id = _validated_task_id(item_to_poll.get("task_id"), chunk_id=chunk_id_to_poll)
+    if saved_task_id != expected:
+        raise CompilationTtsError("saved AI33 task id does not match the recovery preflight")
+
+    audio_paths: list[Path] = []
+    submitted_audio_path: Path | None = None
+    for item in chunks:
+        chunk_id = str(item.get("chunk_id") or "")
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", chunk_id):
+            raise CompilationTtsError("saved TTS chunk_id is unsafe")
+        audio_path = output_dir / "segments" / f"{chunk_id}.mp3"
+        audio_paths.append(audio_path)
+        if item.get("status") == "COMPLETE":
+            if not audio_path.is_file() or _sha256_file(audio_path) != item.get("audio_sha256"):
+                raise CompilationTtsError(f"{chunk_id} COMPLETE audio checksum mismatch")
+            _validate_completed_chunk_timing(item)
+        elif item is item_to_poll:
+            submitted_audio_path = audio_path
+        else:
+            raise CompilationTtsError(
+                f"{chunk_id} has status {item.get('status')!r}; direct recovery cannot submit"
+            )
+    if submitted_audio_path is None:
+        raise CompilationTtsError("saved SUBMITTED chunk has no audio destination")
+    submitted_audio_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = _poll_with_retries(
+        poll_task,
+        retries=poll_error_retries,
+        sleeper=sleeper,
+        deadline=deadline,
+        monotonic=monotonic,
+        poll_kwargs={
+            "api_key": api_key,
+            "task_id": saved_task_id,
+            "output_path": submitted_audio_path,
+            "poll_interval": poll_interval,
+        },
+    )
+    _complete_chunk(
+        item=item_to_poll,
+        payload=payload,
+        audio_path=submitted_audio_path,
+        root=root,
+        state=state,
+        state_path=state_path,
+        probe_duration=probe_duration,
+    )
+    if deadline - monotonic() <= 0:
+        raise CompilationTtsError("shared AI33 TTS deadline expired before final concatenation")
+    final_path = output_dir / "compilation_narration.mp3"
+    concat(audio_paths, final_path)
+    if not final_path.is_file() or final_path.stat().st_size <= 0:
+        raise CompilationTtsError("concatenation did not create final audio")
+    final_duration = float(probe_duration(final_path))
+    raw_chunk_duration = sum(float(item["audio_duration_sec"]) for item in chunks)
+    if final_duration <= 0 or raw_chunk_duration <= 0:
+        raise CompilationTtsError("final narration timing contract must have positive duration")
+    state["final_audio_path"] = final_path.resolve().relative_to(root).as_posix()
+    state["final_audio_sha256"] = _sha256_file(final_path)
+    state["timing_contract_version"] = TIMING_CONTRACT_VERSION
+    state["final_audio_duration_sec"] = round(final_duration, 6)
+    state["raw_chunk_duration_sec"] = round(raw_chunk_duration, 6)
+    state["timeline_scale"] = round(final_duration / raw_chunk_duration, 12)
+    state["timing_contract_sha256"] = _canonical_hash(_state_timing_contract(state))
+    state["status"] = "COMPLETE"
+    _atomic_json(state_path, state)
+    if state.get("narration_profile_id"):
+        from compilation_audio_mix import build_pause_map
+
+        pause_map_path = output_dir / "narration-pause-map.json"
+        pause_map = build_pause_map(state, output_path=pause_map_path)
+        state["pause_map_path"] = pause_map_path.resolve().relative_to(root).as_posix()
+        state["pause_map_sha256"] = pause_map["pause_map_sha256"]
+        state["pause_map_duration_sec"] = pause_map["timeline_duration_sec"]
+        _atomic_json(state_path, state)
+    return state
+
+
 def run_compilation_tts(
     compilation: dict[str, Any],
     *,
