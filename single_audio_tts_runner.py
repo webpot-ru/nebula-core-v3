@@ -161,7 +161,9 @@ def run_single_audio_tts(
     if payload is None:
         raise SingleAudioTtsError("saved AI33 task polling did not return a payload")
     duration = float(probe_duration(master_audio))
-    timing_source, master_words = _build_chunk_timing(master_text, payload, duration)
+    timing_source, master_words = _build_chunk_timing(
+        master_text, payload, duration, api_key=api_key,
+    )
     if timing_source != "ai33":
         raise SingleAudioTtsError("single-audio production requires real AI33 transcript timing")
     srt_path = output_dir / "narration.srt"

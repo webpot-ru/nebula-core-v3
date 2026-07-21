@@ -195,11 +195,11 @@ def _token_identity(value: Any) -> str:
 
 
 def _validated_provider_words(
-    text: str, payload: dict[str, Any], duration: float,
+    text: str, payload: dict[str, Any], duration: float, *, api_key: str | None = None,
 ) -> list[dict[str, Any]]:
     """Accept provider alignment only when it maps one-to-one to exact TTS text."""
     expected = text.split()
-    raw_words = collect_transcript_words(payload, api_key=None)
+    raw_words = collect_transcript_words(payload, api_key=api_key)
     if len(raw_words) != len(expected):
         return []
     normalized: list[dict[str, Any]] = []
@@ -225,9 +225,9 @@ def _validated_provider_words(
 
 
 def _build_chunk_timing(
-    text: str, payload: dict[str, Any], duration: float,
+    text: str, payload: dict[str, Any], duration: float, *, api_key: str | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    words = _validated_provider_words(text, payload, duration)
+    words = _validated_provider_words(text, payload, duration, api_key=api_key)
     if words:
         return "ai33", words
     estimated = estimate_transcript_words(text, duration)
