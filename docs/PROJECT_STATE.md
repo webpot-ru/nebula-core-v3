@@ -2,6 +2,47 @@
 
 Last updated: 2026-07-21
 
+## Acc1 webtoon v2 production lock (local only)
+
+The approved direction is now recorded as a fail-closed machine contract in
+`specs/acc1-video-style-v2.json`. It requires the `chrome_guided_webtoon_v2`
+renderer and meaning-led guided reading: establish the page, then select the
+character, interaction or story detail named by the narration instead of
+repeating a fixed push-in/pull-back cycle,
+a fixed 130 px bottom subtitle band with one centered Russian line, Russian or
+European contemporary character defaults, Imagen-baked Russian thumbnail text,
+and checksum-bound intro, subscribe CTA and outro assets. Large narration
+paragraphs, the old dark side panel, the empty host/cat slot and static
+single-image story rendering are explicitly forbidden.
+
+`scripts/validate_acc1_video_style_v2.py` checks the contract and all three
+brand-asset hashes. The existing paid fixed-release workflow runs this gate
+before provider credentials are exposed. After human approval on 2026-07-21,
+the preview SHA is recorded and `scripts/run_acc1_fixed_first_release.py` now
+uses `chrome_guided_webtoon_renderer.render_chrome_guided_webtoon`. The static
+gate reports `PRODUCTION_READY`; this does not itself authorize a provider run,
+retry, publication, upload, commit or push.
+
+The reproducible no-provider approval render is produced by
+`scripts/render_acc1_style_v2_preview.py`. The current local MP4 is
+`build/acc1-style-v2-semantic-preview/acc1-style-v2-semantic-preview.mp4`:
+H.264, 1920x1080, 30 fps, 21.5 seconds, silent, SHA-256
+`61c037374b3972da149296de3b72de58359579f9ca783aba86da0c144962ac3f`.
+It uses existing comic art plus the real intro, CTA and outro, with the CTA
+keyed over the continuing comic and subtitles hidden during the insert. Its
+guided-reading proof is page overview -> interaction two-shot -> clock detail ->
+character reaction -> settle. Chrome captures fractional CSS transforms, so the
+camera moves continuously without FFmpeg zoompan's integer stepping. There is no
+mandatory return to the full page between details; the subtitle band is a
+separate fixed browser layer and remains stationary. The earlier mechanical
+push/pull preview is superseded and is not approval evidence. This is
+visual evidence for human approval only; it authorizes no provider call,
+publication, upload, commit or push.
+
+The fixed-release thumbnail request now asks Imagen to bake the exact Russian
+headline `СЕМЬЯ ТРЕБУЕТ ПРОСТИТЬ` into the generated artwork. The old
+post-generation text overlay is no longer used by this entrypoint.
+
 ## First-release no-spend pre-production (local only)
 
 On 2026-07-21 the existing successful source-only artifact from GitHub run

@@ -31,10 +31,9 @@ from acc1_visual_contract import (
     EDITORIAL_MOTION_MODE,
 )
 from compilation_narration import build_compilation_segments
-from compilation_renderer import render_compilation
+from chrome_guided_webtoon_renderer import render_chrome_guided_webtoon
 from compilation_storyboard import build_storyboard
 from compilation_tts_runner import build_tts_chunks, run_compilation_tts
-from thumbnail_generator import overlay_thumbnail_text
 from translator_tts import post_tts_task
 from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
 
@@ -215,17 +214,16 @@ def produce(output_dir: Path) -> dict:
         visual_mode=EDITORIAL_MOTION_MODE,
         style_profile=CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     )
-    thumbnail_base = output_dir / "thumbnail-base.png"
+    thumbnail = output_dir / "youtube-thumbnail.png"
     images(
         prompt=(
             "premium adult cinematic ink webtoon, tense modern family group divided by torn paper, "
             "one woman isolated in the foreground, burgundy, indigo, amber and ivory, expressive ink and "
-            "matte gouache, YouTube 16:9 thumbnail, strong central safe area, no text, no letters, no logo"
+            "matte gouache, YouTube 16:9 thumbnail, strong central safe area. "
+            "Bake exactly this large, legible Russian headline into the artwork: «СЕМЬЯ ТРЕБУЕТ ПРОСТИТЬ». "
+            "Correct Cyrillic spelling is mandatory; no other words, letters, subtitles, watermark or logo."
         ),
-        output_path=thumbnail_base, model=DEFAULT_IMAGE_MODEL, size="1536x864",
-    )
-    thumbnail = overlay_thumbnail_text(
-        thumbnail_base, output_dir / "youtube-thumbnail.png", "СЕМЬЯ ТРЕБУЕТ ПРОСТИТЬ",
+        output_path=thumbnail, model=DEFAULT_IMAGE_MODEL, size="1536x864",
     )
     write_json(output_dir / "episode-script.json", script)
     write_json(output_dir / "scene-images-manifest.json", {
@@ -265,7 +263,9 @@ def produce(output_dir: Path) -> dict:
     )
     write_json(output_dir / "storyboard.json", storyboard)
     video = output_dir / "final-output.mp4"
-    render_report = render_compilation(storyboard, output_dir, video, audio=audio)
+    render_report = render_chrome_guided_webtoon(
+        storyboard, output_dir, video, audio=audio,
+    )
     write_json(output_dir / "render-report.json", render_report)
     result = {
         **preflight,

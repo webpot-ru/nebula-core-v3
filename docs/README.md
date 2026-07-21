@@ -6,7 +6,7 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 **GitHub**: [github.com/webpot-ru/nebula-core-v3](https://github.com/webpot-ru/nebula-core-v3) *(private)*
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-07-18
+**Last updated**: 2026-07-21
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 
@@ -20,7 +20,26 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Acc1 editorial motion implementation and visual history**: [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md) is the source of truth for the HyperFrames renderer, the six pilot-bound adult-animated-comic profiles, their deterministic anti-template layout repertoires, provider spend ceiling and local proof. The locked reference is [`assets/acc1-adult-animation-six-series-v1.png`](assets/acc1-adult-animation-six-series-v1.png). Earlier collage and Ink & Gouache work remains technical history only, not the future art direction.
 
-**Acc1 current web-comic candidate**: root [`../frame.md`](../frame.md) and [`acc1-cinematic-ink-webtoon-v1.md`](acc1-cinematic-ink-webtoon-v1.md) record the new `cinematic_ink_webtoon_v1` style, exact palette, text rules, image density and guided panel-camera language. It is a local candidate pending an actual pilot review; it does not yet replace the implemented six-series profile or production default.
+**Acc1 webtoon v2 production contract**: [`../specs/acc1-video-style-v2.json`](../specs/acc1-video-style-v2.json) is the fail-closed source of truth for the `chrome_guided_webtoon_v2` renderer, meaning-led panel camera, centered one-line subtitle band, Russian-market character rules, Imagen-baked Russian thumbnail text, and checksum-bound intro/CTA/outro. The approved semantic preview SHA is recorded and the fixed-release entrypoint uses the Chrome/HyperFrames renderer; provider execution still requires the workflow's exact explicit spend confirmations. Root [`../frame.md`](../frame.md) and [`acc1-cinematic-ink-webtoon-v1.md`](acc1-cinematic-ink-webtoon-v1.md) remain the creative reference.
+
+Generate the current no-provider visual approval MP4 with:
+
+```bash
+python scripts/render_acc1_style_v2_preview.py \
+  --output-dir build/acc1-style-v2-semantic-preview \
+  --output build/acc1-style-v2-semantic-preview/acc1-style-v2-semantic-preview.mp4
+```
+
+Validate the static contract and inspect its blockers with:
+
+```bash
+python scripts/validate_acc1_video_style_v2.py
+```
+
+Production uses the stricter `--require-production-ready` flag. The migrated
+entrypoint and exact human-approved preview SHA now satisfy that static gate;
+provider execution still requires the separate workflow confirmations. Neither
+validation command calls providers or YouTube.
 
 **Acc1 first-release preparation**: [`acc1-first-release-preproduction-v1.md`](acc1-first-release-preproduction-v1.md) records the no-spend human source review, four-story order, source-faithful Russian treatment, character locks and 68-image plan derived from the successful source-only artifact of run `29757914575`. It is not a production or publication authorization.
 
