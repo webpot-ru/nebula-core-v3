@@ -726,7 +726,7 @@ def _write_workspace(
         "duration": round(duration, 3),
         "maxStaticSec": 5,
         "assertions": [
-            {"kind": "keepsMoving", "withinSelector": "#root-fill"},
+            {"kind": "keepsMoving", "withinSelector": ".scene-inner"},
         ],
     }, indent=2) + "\n", encoding="utf-8")
     return workspace
