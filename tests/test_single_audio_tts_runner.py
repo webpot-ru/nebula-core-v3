@@ -2,9 +2,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from acc1_narration_profiles import RELATIONSHIPS_FAMILY_PROFILE_ID, resolve_narration_profile
 from single_audio_tts_runner import run_single_audio_tts
+from translator_tts import fetch_subtitle_words
 
 
 def compilation():
@@ -27,6 +29,24 @@ def compilation():
 
 
 class SingleAudioTtsRunnerTests(unittest.TestCase):
+    def test_fetches_json_alignment_from_described_output_asset(self):
+        class Response:
+            ok = True
+            content = json.dumps({
+                "words": [{"word": "Готово", "start": 0.0, "end": 0.7}],
+            }).encode()
+
+        payload = {
+            "outputs": [{
+                "type": "transcript json",
+                "url": "https://cdn.example.test/task-output",
+            }],
+        }
+        with patch("translator_tts.requests.get", return_value=Response()) as get:
+            words = fetch_subtitle_words(payload, api_key="secret")
+        self.assertEqual(words[0]["word"], "Готово")
+        self.assertEqual(get.call_count, 1)
+
     def test_resume_polls_saved_task_without_posting_again(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
