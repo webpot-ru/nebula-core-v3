@@ -22,6 +22,14 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Acc1 current web-comic candidate**: root [`../frame.md`](../frame.md) and [`acc1-cinematic-ink-webtoon-v1.md`](acc1-cinematic-ink-webtoon-v1.md) record the new `cinematic_ink_webtoon_v1` style, exact palette, text rules, image density and guided panel-camera language. It is a local candidate pending an actual pilot review; it does not yet replace the implemented six-series profile or production default.
 
+**Acc1 first-release preparation**: [`acc1-first-release-preproduction-v1.md`](acc1-first-release-preproduction-v1.md) records the no-spend human source review, four-story order, source-faithful Russian treatment, character locks and 68-image plan derived from the successful source-only artifact of run `29757914575`. It is not a production or publication authorization.
+
+The local first-release image contract registers `cinematic_ink_webtoon_v1`
+under `editorial_motion_v1` and accepts explicit even per-story image targets.
+The locked allocation is `18 / 18 / 16 / 16` scene plates, with one separately
+budgeted thumbnail: 69 maximum image calls, no automatic retry. This enlarged
+ceiling is not provider-spend approval.
+
 **Russian dark-series references**: [`russian-longform-competitor-analysis-2026-07-11.md`](russian-longform-competitor-analysis-2026-07-11.md) and [`russian-horror-editorial-system.md`](russian-horror-editorial-system.md) remain the specialized evidence/editorial contracts for the horror series; they no longer define the whole `acc1` channel.
 
 **Automated acc1 pilot implementation**: [`../specs/acc1-automated-reddit-pilot/README.md`](../specs/acc1-automated-reddit-pilot/README.md) defines the isolated artifact-only slice graph, fail-closed contracts, provider boundaries, and two-pilot GitHub target.
@@ -828,6 +836,17 @@ must show the new scopes and then match every authenticated channel against
 ## 9. GitHub Actions Automation
 
 ### acc1 Daily Review-Ready Episode Factory
+
+The current local first-release editorial packet is documented in
+[`acc1-first-release-preproduction-v1.md`](acc1-first-release-preproduction-v1.md).
+Its unsent author-permission template and exact outreach queue are in
+[`acc1-first-release-rights-outreach-v1.md`](acc1-first-release-rights-outreach-v1.md).
+The first Russian narration draft is stored at
+`../specs/acc1-first-release-v1/narration-draft-ru.md`; it covers all four
+retained stories but is not independently source-reviewed, provider-reviewed or
+approved for TTS. Author outreach is deliberately not being pursued for this
+release by owner decision; missing permission evidence remains explicit and
+does not imply upload or publication authorization.
 
 `.github/workflows/acc1_daily_episode.yml` is the one-dispatch, artifact-only long-form factory for `acc1`. Its base revision is active on GitHub `main` as workflow `312924313` at commit `bbfe22d`; its latest run failed before paid providers and produced no review-ready artifact. The richer local revision described below has not yet been merged: it adds the OpenAI translation/review lane, the PRAW lazy-fetch fix, and the separate private-upload workflow. Neither revision can guarantee views or invoke `uploader.py` from the factory; its maximum result is `READY_FOR_HUMAN_REVIEW`.
 

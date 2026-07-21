@@ -88,7 +88,7 @@ on:
         required: true
         default: "16"
         type: choice
-        options: ["8", "12", "16", "20", "32", "40", "48", "60"]
+        options: ["8", "12", "16", "20", "32", "40", "48", "60", "69"]
       ai33_call_cap:
         description: Hard cap for AI33 task submissions in this episode run
         required: true

@@ -14,6 +14,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from acc1_visual_contract import (
     ADULT_ANIMATION_SERIES,
+    CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     CINEMATIC_STORY_MODE,
     EDITORIAL_MOTION_ASSETS_PER_PACK,
     EDITORIAL_MOTION_MAX_PACKS,
@@ -67,6 +68,16 @@ INK_GOUACHE_STORY_PAGES_STYLE = (
     "superhero style, no neon, no generic scrapbook, no dossier board, no newspaper columns, no text, "
     "no letters, no numbers, no UI, no logo, no watermark, no gore. Preserve broad safe margins and "
     "clear layers for deterministic HTML camera motion"
+)
+CINEMATIC_INK_WEBTOON_STYLE = (
+    "premium adult cinematic ink webtoon for a source-bound Russian storytelling film, "
+    "believable contemporary adults, expressive restrained acting, confident ink contours, "
+    "matte gouache color, dry-brush shadows and tactile uncoated paper; sophisticated editorial "
+    "graphic-novel staging for Gen Z and adult viewers, never childish, never superhero pop-art. "
+    "Use one to three unequal panels inside a continuous full-screen 16:9 page, with one dominant "
+    "emotional scene and smaller object or evidence details. No speech balloons, no generated text, "
+    "no letters, no numbers, no UI, no logo, no watermark, no gore. Preserve safe margins and clear "
+    "depth layers for page overview, guided panel push-in and pull-back camera motion"
 )
 INK_GOUACHE_FAMILY_DIRECTIONS = {
     "relationships": (
@@ -211,7 +222,25 @@ def _scene_excerpt(story: dict[str, Any], index: int, count: int) -> str:
 
 
 def _editorial_pack_allocations(stories: list[dict[str, Any]]) -> dict[int, int]:
-    """Allocate approximately one 36-second pack while respecting the 60-call ceiling."""
+    """Allocate packs while respecting the canonical image-call ceiling."""
+
+    explicit_targets = [story.get("image_target") for story in stories]
+    if any(target is not None for target in explicit_targets):
+        if not all(
+            isinstance(target, int) and not isinstance(target, bool) and target >= 2
+            and target % EDITORIAL_MOTION_ASSETS_PER_PACK == 0
+            for target in explicit_targets
+        ):
+            raise EpisodeImageError(
+                "explicit image_target must be an even positive integer for every story",
+            )
+        allocations = {
+            index: target // EDITORIAL_MOTION_ASSETS_PER_PACK
+            for index, target in enumerate(explicit_targets)
+        }
+        if sum(allocations.values()) > EDITORIAL_MOTION_MAX_PACKS:
+            raise EpisodeImageError("explicit image targets exceed the image-call ceiling")
+        return allocations
 
     allocations: dict[int, int] = {}
     for index, story in enumerate(stories):
@@ -304,7 +333,10 @@ def image_plan(
         visual_identity_contract = " ".join(
             str(story.get("visual_identity_contract") or "").split(),
         )
-        if mode == EDITORIAL_MOTION_MODE and active_style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE:
+        if mode == EDITORIAL_MOTION_MODE and active_style_profile in {
+            INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+            CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+        }:
             if len(visual_identity_contract) < 80:
                 raise EpisodeImageError(
                     f"stories[{story_index}].visual_identity_contract is required for episode continuity",
@@ -366,7 +398,10 @@ def image_plan(
                 story_family = (
                     str(editorial_families[scene_index - 1])
                     if (
-                        active_style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE
+                        active_style_profile in {
+                            INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+                            CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                        }
                         or is_adult_animation_style_profile(active_style_profile)
                     )
                     else ""
@@ -374,7 +409,10 @@ def image_plan(
                 page_layout = (
                     str(editorial_layouts[scene_index - 1])
                     if (
-                        active_style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE
+                        active_style_profile in {
+                            INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+                            CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                        }
                         or is_adult_animation_style_profile(active_style_profile)
                     )
                     else ""
@@ -390,10 +428,10 @@ def image_plan(
                         "and semantic reveal."
                     )
                     prompt = (
-                        f"{INK_GOUACHE_STORY_PAGES_STYLE if active_style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE else ADULT_ANIMATION_SERIES[active_style_profile]['art_direction'] if is_adult_animation_style_profile(active_style_profile) else EDITORIAL_MOTION_STYLE}. "
+                        f"{CINEMATIC_INK_WEBTOON_STYLE if active_style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE else INK_GOUACHE_STORY_PAGES_STYLE if active_style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE else ADULT_ANIMATION_SERIES[active_style_profile]['art_direction'] if is_adult_animation_style_profile(active_style_profile) else EDITORIAL_MOTION_STYLE}. "
                         f"Style profile {active_style_profile}; "
                         f"asset family {family_id}; motion role {module}. "
-                        f"{INK_GOUACHE_FAMILY_DIRECTIONS.get(story_family, '') if active_style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE else ADULT_ANIMATION_SERIES[active_style_profile]['motion_direction'] if is_adult_animation_style_profile(active_style_profile) else ''}. "
+                        f"{INK_GOUACHE_FAMILY_DIRECTIONS.get(story_family, '') if active_style_profile in {INK_GOUACHE_STORY_PAGES_STYLE_PROFILE, CINEMATIC_INK_WEBTOON_STYLE_PROFILE} else ADULT_ANIMATION_SERIES[active_style_profile]['motion_direction'] if is_adult_animation_style_profile(active_style_profile) else ''}. "
                         f"Page-layout intent {page_layout or 'continuous_cutup'}; vary panel count, scale, "
                         "crop and dominant focal position from adjacent beats. "
                         f"Episode-wide identity contract: {visual_identity_contract}. Preserve these exact "

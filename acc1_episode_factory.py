@@ -421,7 +421,7 @@ def _required_image_calls(
             )
         # Paid preflight only proves a safe floor. The exact narration-bound
         # plan is calculated before the first image call and may require a
-        # higher explicitly leased cap, up to the canonical 60-call ceiling.
+        # higher explicitly leased cap, up to the canonical 69-call ceiling.
         scene_count = 4 if format_id == "SAGA" else 2 * source_count
         return scene_count * 2 + 1
     if format_id == "SAGA":
@@ -1387,9 +1387,9 @@ def _paid_candidate_cap_contract(
     _validate_base_candidate_pool(candidates, daily_plan)
     source_counts = [len(item.get("sources") or []) for item in candidates]
     format_id = str(daily_plan["format"])
-    if visual_mode == EDITORIAL_MOTION_MODE and image_cap > 60:
+    if visual_mode == EDITORIAL_MOTION_MODE and image_cap > 69:
         raise EpisodeFactoryError(
-            "editorial_motion_v1 image_call_cap cannot exceed the approved maximum of 60",
+            "editorial_motion_v1 image_call_cap cannot exceed the approved maximum of 69",
         )
     image_floor = max(
         _required_image_calls(format_id, count, visual_mode)

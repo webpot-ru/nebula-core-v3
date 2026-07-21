@@ -6,6 +6,7 @@ from PIL import Image
 
 from acc1_visual_contract import (
     ADULT_ANIMATION_WORK_STYLE_PROFILE,
+    CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     CINEMATIC_STORY_MODE,
     EDITORIAL_MOTION_MODE,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
@@ -136,6 +137,49 @@ class EpisodeImageTests(unittest.TestCase):
                 "episode_format": "SAGA",
                 "visual_mode": EDITORIAL_MOTION_MODE,
                 "style_profile": INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+                "stories": [source_story],
+            })
+
+    def test_cinematic_ink_webtoon_accepts_exact_68_image_release_plan(self):
+        targets = (18, 18, 16, 16)
+        stories = []
+        for index, target in enumerate(targets, start=1):
+            source_story = story(f"release-{index}", words=120)
+            source_story["image_target"] = target
+            source_story["visual_identity_contract"] = (
+                f"Story {index} recurring adult cast keeps identical age, face, hair, body shape, "
+                "wardrobe and props across every scene, without reusing identities from another story."
+            )
+            packs = target // 2
+            source_story["editorial_motion_families"] = ["relationships"] * packs
+            source_story["editorial_page_layouts"] = [
+                "hero_left_details_right", "phone_portal_insets",
+                "message_cascade", "vertical_routine_triptych",
+                "evidence_slits", "rumor_table_wide",
+                "corridor_false_claim", "empty_desk_release",
+                "hero_left_details_right",
+            ][:packs]
+            stories.append(source_story)
+        plan = image_plan({
+            "episode_format": "BUNDLE",
+            "visual_mode": EDITORIAL_MOTION_MODE,
+            "style_profile": CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+            "stories": stories,
+        })
+        self.assertEqual(len(plan), 68)
+        self.assertEqual(
+            [sum(item["story_index"] == index for item in plan) for index in range(4)],
+            list(targets),
+        )
+        self.assertIn("premium adult cinematic ink webtoon", plan[0]["prompt"])
+
+    def test_explicit_release_image_targets_must_be_even(self):
+        source_story = story("odd-target", words=120)
+        source_story["image_target"] = 17
+        with self.assertRaisesRegex(EpisodeImageError, "even positive integer"):
+            image_plan({
+                "episode_format": "BUNDLE",
+                "visual_mode": EDITORIAL_MOTION_MODE,
                 "stories": [source_story],
             })
 
