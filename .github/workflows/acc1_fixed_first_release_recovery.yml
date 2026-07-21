@@ -67,6 +67,15 @@ jobs:
           python scripts/recover_acc1_fixed_first_release.py \
             --artifact-root "$WORKDIR" \
             --preflight-only
+      - name: Restore exact source-run narration profile
+        run: |
+          set -euo pipefail
+          # The saved TTS state is hash-bound to the profile at its source
+          # commit. Restore that one file only in this ephemeral runner so the
+          # resume cannot silently adopt today's profile or resubmit anything.
+          git checkout 1b84fabb3c99c01d503f805b7a019c37e291a060 -- acc1_narration_profiles.py
+          test "$(sha256sum acc1_narration_profiles.py | cut -d' ' -f1)" = \
+            "8a522785976e5785bad69d8f33ec87dd57c8a416ddfc1a6b2b9be180d406532a"
       - name: Poll saved task and render review artifact
         env:
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
