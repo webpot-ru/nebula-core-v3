@@ -331,6 +331,8 @@ def build_tts_chunks(
     voice_settings_json: str | None = None,
     with_transcript: bool = True,
     context_chaining: bool = False,
+    pronunciation_dictionary_id: int | None = None,
+    pronunciation_dictionary_sha256: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build stable role-aware chunks bound to one immutable episode plan."""
     if model_id != REQUIRED_MODEL_ID:
@@ -339,6 +341,13 @@ def build_tts_chunks(
         raise CompilationTtsError("max_chars must be at least 500")
     if not str(voice_id or "").strip():
         raise CompilationTtsError("voice_id is required")
+    if (pronunciation_dictionary_id is None) != (pronunciation_dictionary_sha256 is None):
+        raise CompilationTtsError("pronunciation dictionary id and SHA-256 must be supplied together")
+    if pronunciation_dictionary_id is not None:
+        if isinstance(pronunciation_dictionary_id, bool) or pronunciation_dictionary_id <= 0:
+            raise CompilationTtsError("pronunciation_dictionary_id must be a positive integer")
+        if not SHA256_RE.fullmatch(str(pronunciation_dictionary_sha256 or "").lower()):
+            raise CompilationTtsError("pronunciation_dictionary_sha256 must be a SHA-256 digest")
 
     bindings = _plan_bindings(compilation)
     try:
@@ -445,6 +454,11 @@ def build_tts_chunks(
                 "with_transcript": with_transcript,
                 "context_chaining": context_chaining,
             }
+            if pronunciation_dictionary_id is not None:
+                request_contract.update({
+                    "pronunciation_dictionary_id": pronunciation_dictionary_id,
+                    "pronunciation_dictionary_sha256": str(pronunciation_dictionary_sha256).lower(),
+                })
             chunk = {
                 "chunk_id": chunk_id,
                 "logical_segment_id": logical["segment_id"],
@@ -459,6 +473,11 @@ def build_tts_chunks(
                 **bindings,
                 "status": "READY",
             }
+            if pronunciation_dictionary_id is not None:
+                chunk.update({
+                    "pronunciation_dictionary_id": pronunciation_dictionary_id,
+                    "pronunciation_dictionary_sha256": str(pronunciation_dictionary_sha256).lower(),
+                })
             if profile is not None:
                 request_contract["narration_profile_sha256"] = profile[
                     "profile_sha256"
@@ -691,6 +710,8 @@ def run_compilation_tts(
     voice_settings_json: str | None = None,
     with_transcript: bool = True,
     context_chaining: bool = False,
+    pronunciation_dictionary_id: int | None = None,
+    pronunciation_dictionary_sha256: str | None = None,
     timeout_seconds: int = 1_800,
     overall_timeout_seconds: int | None = None,
     overall_deadline_epoch: float | None = None,
@@ -749,6 +770,8 @@ def run_compilation_tts(
         voice_settings_json=voice_settings_json,
         with_transcript=with_transcript,
         context_chaining=context_chaining,
+        pronunciation_dictionary_id=pronunciation_dictionary_id,
+        pronunciation_dictionary_sha256=pronunciation_dictionary_sha256,
     )
     state = _load_or_create_state(state_path, planned, bindings)
 
@@ -817,7 +840,7 @@ def run_compilation_tts(
                 "effective_context_chaining", context_chaining,
             ),
             receive_url=None,
-            pronunciation_dictionary_id=None,
+            pronunciation_dictionary_id=item.get("pronunciation_dictionary_id"),
         )
         if not isinstance(payload, dict):
             raise CompilationTtsError(
@@ -960,6 +983,8 @@ def main() -> int:
     parser.add_argument("--overall-timeout-seconds", type=int)
     parser.add_argument("--overall-deadline-epoch", type=float)
     parser.add_argument("--poll-concurrency", type=int, default=DEFAULT_POLL_CONCURRENCY)
+    parser.add_argument("--pronunciation-dictionary-id", type=int)
+    parser.add_argument("--pronunciation-dictionary-sha256")
     parser.add_argument("--confirm-spend", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -971,6 +996,8 @@ def main() -> int:
         narration_profile_id=args.narration_profile_id,
         model_id=args.model_id,
         max_chars=args.max_chars,
+        pronunciation_dictionary_id=args.pronunciation_dictionary_id,
+        pronunciation_dictionary_sha256=args.pronunciation_dictionary_sha256,
     )
     if args.dry_run:
         print(json.dumps({"status": "dry_run", "would_call_ai33": False, "chunk_count": len(chunks), "model_id": args.model_id}))
@@ -985,6 +1012,8 @@ def main() -> int:
         voice_id=args.voice_id, comment_voice_id=args.comment_voice_id,
         narration_profile_id=args.narration_profile_id,
         model_id=args.model_id, max_chars=args.max_chars,
+        pronunciation_dictionary_id=args.pronunciation_dictionary_id,
+        pronunciation_dictionary_sha256=args.pronunciation_dictionary_sha256,
         overall_timeout_seconds=args.overall_timeout_seconds,
         overall_deadline_epoch=args.overall_deadline_epoch,
         poll_concurrency=args.poll_concurrency,

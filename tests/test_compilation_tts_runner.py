@@ -69,6 +69,20 @@ class CompilationTtsRunnerTests(unittest.TestCase):
         changed = build_tts_chunks(sample_compilation(), voice_id="other")[0]["request_sha256"]
         self.assertNotEqual(first, changed)
 
+    def test_pronunciation_dictionary_is_hash_bound_and_forwarded(self):
+        digest = "a" * 64
+        first = build_tts_chunks(
+            sample_compilation(), voice_id="voice",
+            pronunciation_dictionary_id=17,
+            pronunciation_dictionary_sha256=digest,
+        )[0]
+        self.assertEqual(first["pronunciation_dictionary_id"], 17)
+        with self.assertRaisesRegex(CompilationTtsError, "supplied together"):
+            build_tts_chunks(
+                sample_compilation(), voice_id="voice",
+                pronunciation_dictionary_id=17,
+            )
+
     def test_comment_role_requires_distinct_voice_and_is_routed(self):
         compilation = sample_role_compilation()
         with self.assertRaisesRegex(CompilationTtsError, "comment_voice_id is required"):

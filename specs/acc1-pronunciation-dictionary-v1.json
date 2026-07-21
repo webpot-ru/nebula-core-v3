@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "name": "Chonker Talks RU v1",
+  "channel": "acc1",
+  "language": "ru-RU",
+  "rules": [
+    {
+      "from": "Chonker Talks",
+      "to": "Чонкер Толкс",
+      "matchType": "contains",
+      "caseSensitive": false
+    },
+    {
+      "from": "Reddit",
+      "to": "Реддит",
+      "matchType": "word",
+      "caseSensitive": false
+    },
+    {
+      "from": "AITA",
+      "to": "эй ай ти эй",
+      "matchType": "word",
+      "caseSensitive": false
+    },
+    {
+      "from": "AMA",
+      "to": "эй эм эй",
+      "matchType": "word",
+      "caseSensitive": false
+    }
+  ]
+}
