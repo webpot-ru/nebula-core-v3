@@ -36,6 +36,13 @@ Validate the static contract and inspect its blockers with:
 python scripts/validate_acc1_video_style_v2.py
 ```
 
+Resume the exact failed fixed-release artifact without new image or AI33 task
+submissions with `scripts/recover_acc1_fixed_first_release.py`. The dedicated
+`acc1_fixed_first_release_recovery.yml` workflow first proves 69 completed image
+attempts, 61 completed AI33 submissions and exactly one durable `SUBMITTED` TTS
+chunk before the AI33 key is exposed. Its POST callback always fails closed;
+only the saved task may be polled before Chrome/HyperFrames rendering continues.
+
 Production uses the stricter `--require-production-ready` flag. The migrated
 entrypoint and exact human-approved preview SHA now satisfy that static gate;
 provider execution still requires the separate workflow confirmations. Neither
