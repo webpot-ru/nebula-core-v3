@@ -178,6 +178,10 @@ SUBTITLE_URL_KEYS = {
     "srt_url",
     "vtt_url",
     "transcript_url",
+    "json_url",
+    "transcript_json_url",
+    "alignment_url",
+    "timestamps_url",
 }
 
 SUBTITLE_TEXT_KEYS = {
@@ -1488,11 +1492,22 @@ def collect_subtitle_urls(value: Any, found: list[str] | None = None) -> list[st
     if found is None:
         found = []
     if isinstance(value, dict):
+        descriptor = " ".join(
+            str(value.get(key) or "").casefold()
+            for key in ("type", "format", "kind", "name", "file_name", "filename")
+        )
         for key, item in value.items():
             key_name = str(key)
             if isinstance(item, str) and item.startswith(("http://", "https://")):
                 lowered = item.lower().split("?", 1)[0]
-                if key_name in SUBTITLE_URL_KEYS or lowered.endswith((".srt", ".vtt")):
+                described_transcript = any(
+                    marker in descriptor for marker in ("srt", "vtt", "subtitle", "transcript", "alignment", "json")
+                )
+                if (
+                    key_name in SUBTITLE_URL_KEYS
+                    or lowered.endswith((".srt", ".vtt", ".json"))
+                    or (key_name in {"url", "download", "file"} and described_transcript)
+                ):
                     found.append(item)
             else:
                 collect_subtitle_urls(item, found)
@@ -1528,7 +1543,14 @@ def fetch_subtitle_words(payload: Any, api_key: str | None) -> list[dict[str, An
         if not response.ok:
             continue
         fetched = response.content.decode("utf-8", errors="replace")
-        words.extend(words_from_subtitle_text(fetched))
+        try:
+            parsed = json.loads(fetched)
+        except json.JSONDecodeError:
+            parsed = None
+        if parsed is not None:
+            words.extend(collect_transcript_words(parsed, api_key=None))
+        else:
+            words.extend(words_from_subtitle_text(fetched))
         if words:
             break
     return words
