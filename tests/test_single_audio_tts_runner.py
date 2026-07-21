@@ -109,6 +109,14 @@ class SingleAudioTtsRunnerTests(unittest.TestCase):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(b"slice")
 
+            def concat_with_pauses(_segments, logical_ids, destination, *, pause_sec):
+                destination.write_bytes(b"paused")
+                self.assertEqual(pause_sec, 0.9)
+                return [
+                    index for index in range(len(logical_ids) - 1)
+                    if logical_ids[index] != logical_ids[index + 1]
+                ]
+
             state = run_single_audio_tts(
                 compilation(), output_dir=output, artifact_root=root,
                 api_key="secret", voice_id="elevenlabs_voice",
@@ -117,6 +125,7 @@ class SingleAudioTtsRunnerTests(unittest.TestCase):
                 pronunciation_dictionary_sha256="a" * 64,
                 speed=profile["speed"], voice_settings_json=profile["voice_settings_json"],
                 post_task=forbidden_post, poll_task=poll, slice_audio=slice_audio,
+                concat_with_pauses=concat_with_pauses,
                 probe_duration=lambda _path: 100.0, resume_only=True, sleeper=lambda _seconds: None,
             )
 
@@ -148,6 +157,13 @@ class SingleAudioTtsRunnerTests(unittest.TestCase):
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_bytes(b"slice")
 
+            def concat_with_pauses(_segments, logical_ids, output, *, pause_sec):
+                output.write_bytes(b"paused")
+                return [
+                    index for index in range(len(logical_ids) - 1)
+                    if logical_ids[index] != logical_ids[index + 1]
+                ]
+
             profile = resolve_narration_profile(
                 RELATIONSHIPS_FAMILY_PROFILE_ID, pillar_id="relationships_family",
             )
@@ -159,6 +175,7 @@ class SingleAudioTtsRunnerTests(unittest.TestCase):
                 pronunciation_dictionary_sha256="a" * 64,
                 speed=profile["speed"], voice_settings_json=profile["voice_settings_json"],
                 post_task=post, poll_task=poll, slice_audio=slice_audio,
+                concat_with_pauses=concat_with_pauses,
                 probe_duration=lambda _path: 100.0,
             )
             request = json.loads((root / "tts/single-audio-request.json").read_text())
@@ -169,6 +186,8 @@ class SingleAudioTtsRunnerTests(unittest.TestCase):
         self.assertEqual(posts[0]["pronunciation_dictionary_id"], 72)
         self.assertEqual(state["provider_task_count"], 1)
         self.assertTrue(state["single_provider_task"])
+        self.assertEqual(state["section_pause_sec"], 0.9)
+        self.assertGreater(state["section_pause_count"], 0)
         self.assertEqual(request["status"], "COMPLETE")
         self.assertTrue(srt_exists)
 
