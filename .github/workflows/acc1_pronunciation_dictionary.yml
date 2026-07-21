@@ -1,0 +1,53 @@
+name: acc1 Configure Pronunciation Dictionary
+run-name: acc1 configure pronunciation dictionary at ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_create_or_reuse:
+        description: Create once or reuse the exact checksum-bound AI33 dictionary
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: acc1-pronunciation-dictionary
+      cancel-in-progress: false
+    steps:
+      - name: Require exact one-time scope
+        env:
+          CONFIRM: ${{ inputs.confirm_create_or_reuse }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM" = "true"
+          test "$RUN_ATTEMPT" = "1"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install existing project dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Create or reuse exact AI33 dictionary
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+        run: |
+          set -euo pipefail
+          python scripts/configure_ai33_pronunciation_dictionary.py \
+            --output build/acc1-pronunciation-dictionary/result.json \
+            --apply \
+            --confirm-create
+      - name: Upload sanitized dictionary binding
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-pronunciation-dictionary-${{ github.run_id }}
+          path: build/acc1-pronunciation-dictionary/result.json
+          if-no-files-found: error
+          retention-days: 30

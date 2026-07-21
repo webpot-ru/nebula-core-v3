@@ -315,6 +315,7 @@ jobs:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          AI33_PRONUNCIATION_DICTIONARY_ID: ${{ secrets.AI33_PRONUNCIATION_DICTIONARY_ID }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
           CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
@@ -466,6 +467,7 @@ jobs:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          AI33_PRONUNCIATION_DICTIONARY_ID: ${{ secrets.AI33_PRONUNCIATION_DICTIONARY_ID }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
           CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}

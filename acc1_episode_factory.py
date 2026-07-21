@@ -47,6 +47,11 @@ from acc1_narration_profiles import (
     NarrationProfileError,
     resolve_narration_profile,
 )
+from acc1_pronunciation_dictionary import (
+    PronunciationDictionaryError,
+    load_acc1_pronunciation_dictionary,
+    resolve_acc1_pronunciation_dictionary_id,
+)
 from acc1_thread_source import collect_thread_source_candidates
 from acc1_topic_playoff import (
     HARD_VETOES,
@@ -2333,6 +2338,11 @@ def run_produce_stage(
         )
 
     greenlight = _greenlight(daily_plan, winner, playoff)
+    try:
+        pronunciation_dictionary = load_acc1_pronunciation_dictionary()
+        pronunciation_dictionary_id = resolve_acc1_pronunciation_dictionary_id(required=True)
+    except PronunciationDictionaryError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
     provider_settings = {
         "creative": {
             "provider": "openai",
@@ -2364,6 +2374,8 @@ def run_produce_stage(
             "speed": narration_profile["speed"],
             "voice_settings_json": narration_profile["voice_settings_json"],
             "emotion_tags": False,
+            "pronunciation_dictionary_id": pronunciation_dictionary_id,
+            "pronunciation_dictionary_sha256": pronunciation_dictionary["sha256"],
         },
     }
     episode_plan_path = workdir / "episode-plan.json"
@@ -2452,6 +2464,8 @@ def run_produce_stage(
         comment_voice_id=COMMENT_VOICE_ID,
         narration_profile_id=narration_profile["profile_id"],
         model_id=TTS_MODEL_ID,
+        pronunciation_dictionary_id=pronunciation_dictionary_id,
+        pronunciation_dictionary_sha256=pronunciation_dictionary["sha256"],
     )
     if len(planned_chunks) > ai33_cap:
         raise EpisodeFactoryError(
@@ -2526,6 +2540,8 @@ def run_produce_stage(
         comment_voice_id=COMMENT_VOICE_ID,
         narration_profile_id=narration_profile["profile_id"],
         model_id=TTS_MODEL_ID,
+        pronunciation_dictionary_id=pronunciation_dictionary_id,
+        pronunciation_dictionary_sha256=pronunciation_dictionary["sha256"],
         post_task=ai33,
     )
     pause_map_path = workdir / "tts" / "narration-pause-map.json"
