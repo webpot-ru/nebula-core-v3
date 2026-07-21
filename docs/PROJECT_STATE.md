@@ -2,7 +2,10 @@
 
 Last updated: 2026-07-20
 
-## Acc1 single-audio + SRT migration (local, approved scope)
+## Acc1 single-audio + SRT migration (GitHub task submitted; recovery pending)
+
+- GitHub run `29828099086` submitted exactly one AI33 v3 task, `a7ac4460-dd83-4493-86f5-fa850b2995da`, with transcript output enabled. Its first status read hit the provider's transient HTTP 429 `Task polling temporarily busy`; no replacement task is authorized or required.
+- The saved run artifact contains the durable `SUBMITTED` request. The recovery workflow is constrained to that exact run and task ID, performs zero new AI33 submissions, exposes no image or YouTube credentials, and allows up to four hours per provider polling session plus bounded repeated checks for transient polling 429 responses.
 
 The new canonical audio contract is `specs/acc1-audio-contract-v2.json`: one
 AI33 `eleven_v3` provider task for the full narrator text, one master MP3 and

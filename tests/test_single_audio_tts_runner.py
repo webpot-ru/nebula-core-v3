@@ -27,6 +27,84 @@ def compilation():
 
 
 class SingleAudioTtsRunnerTests(unittest.TestCase):
+    def test_resume_polls_saved_task_without_posting_again(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / "tts"
+            output.mkdir()
+            profile = resolve_narration_profile(
+                RELATIONSHIPS_FAMILY_PROFILE_ID, pillar_id="relationships_family",
+            )
+            posts = []
+            polls = []
+
+            def forbidden_post(**kwargs):
+                posts.append(kwargs)
+                raise AssertionError("resume-only recovery must not submit a new task")
+
+            def poll(**kwargs):
+                polls.append(kwargs)
+                kwargs["output_path"].write_bytes(b"master")
+                text = " ".join([
+                    "Начало выпуска. Это художественная история с Reddit.",
+                    "Первая история закончилась хорошо.",
+                    "Конец выпуска.",
+                ])
+                return {"success": True, "model_id": "eleven_v3", "words": [
+                    {"word": token.rstrip(".!?,"), "start": index, "end": index + 0.8}
+                    for index, token in enumerate(text.split())
+                ]}
+
+            request = {
+                "version": 1,
+                "status": "SUBMITTED",
+                "text_sha256": "9e8bfe696313894338977a7738f4c329a811bc30575c1987825495b20d280912",
+                "character_count": 118,
+                "voice_id": "elevenlabs_voice",
+                "model_id": "eleven_v3",
+                "speed": profile["speed"],
+                "voice_settings_json": profile["voice_settings_json"],
+                "with_transcript": True,
+                "pronunciation_dictionary_id": 72,
+                "pronunciation_dictionary_sha256": "a" * 64,
+                "provider_task_cap": 1,
+                "publication_authorized": False,
+                "task_id": "saved-task",
+            }
+            # Derive the exact immutable request fields from the same narration plan.
+            from compilation_tts_runner import _canonical_hash, build_tts_chunks
+            planned = build_tts_chunks(
+                compilation(), voice_id="elevenlabs_voice",
+                narration_profile_id=RELATIONSHIPS_FAMILY_PROFILE_ID,
+                speed=profile["speed"], voice_settings_json=profile["voice_settings_json"],
+                with_transcript=True, pronunciation_dictionary_id=72,
+                pronunciation_dictionary_sha256="a" * 64,
+            )
+            master_text = " ".join(item["text"].strip() for item in planned)
+            request["text_sha256"] = _canonical_hash(master_text)
+            request["character_count"] = len(master_text)
+            (output / "single-audio-request.json").write_text(json.dumps(request))
+
+            def slice_audio(_source, destination, _start, _end):
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(b"slice")
+
+            state = run_single_audio_tts(
+                compilation(), output_dir=output, artifact_root=root,
+                api_key="secret", voice_id="elevenlabs_voice",
+                narration_profile_id=RELATIONSHIPS_FAMILY_PROFILE_ID,
+                pronunciation_dictionary_id=72,
+                pronunciation_dictionary_sha256="a" * 64,
+                speed=profile["speed"], voice_settings_json=profile["voice_settings_json"],
+                post_task=forbidden_post, poll_task=poll, slice_audio=slice_audio,
+                probe_duration=lambda _path: 100.0, resume_only=True, sleeper=lambda _seconds: None,
+            )
+
+        self.assertEqual(posts, [])
+        self.assertEqual([item["task_id"] for item in polls], ["saved-task"])
+        self.assertEqual(polls[0]["timeout_seconds"], 14_400)
+        self.assertEqual(state["provider_task_count"], 1)
+
     def test_one_provider_task_creates_master_srt_and_virtual_chunks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -84,7 +84,7 @@ def preflight(root: Path) -> dict:
     }
 
 
-def produce(root: Path) -> dict:
+def produce(root: Path, *, resume_only: bool = False) -> dict:
     report = preflight(root)
     script = json.loads((root / "episode-script.json").read_text(encoding="utf-8"))
     profile = resolve_narration_profile(PROFILE_ID, pillar_id="relationships_family")
@@ -102,7 +102,7 @@ def produce(root: Path) -> dict:
         pronunciation_dictionary_id=dictionary_id,
         pronunciation_dictionary_sha256=dictionary["sha256"],
         speed=profile["speed"], voice_settings_json=profile["voice_settings_json"],
-        post_task=ai33,
+        post_task=ai33, resume_only=resume_only,
     )
     for field, source, duration, placement in (
         ("brand_sting", BRAND_STING_ASSET, 1.5, "after_cold_open"),
@@ -128,7 +128,8 @@ def produce(root: Path) -> dict:
     write_json(root / "render-report-single-audio.json", render_report)
     result = {
         **report, "status": "READY_FOR_HUMAN_REVIEW",
-        "ai33_task_submissions": len(ai33.calls),
+        "ai33_task_submissions": 0 if resume_only else len(ai33.calls),
+        "existing_ai33_task_polled": bool(resume_only),
         "master_audio": state["final_audio_path"],
         "master_audio_sha256": state["final_audio_sha256"],
         "srt": state["master_srt_path"], "srt_sha256": state["master_srt_sha256"],
@@ -144,11 +145,14 @@ def main() -> int:
     parser.add_argument("--artifact-root", required=True)
     parser.add_argument("--produce", action="store_true")
     parser.add_argument("--confirm-one-ai33-task", action="store_true")
+    parser.add_argument("--resume-existing-task-only", action="store_true")
     args = parser.parse_args()
     root = Path(args.artifact_root).resolve()
-    if args.produce and not args.confirm_one_ai33_task:
+    if args.produce and not (args.confirm_one_ai33_task or args.resume_existing_task_only):
         raise RuntimeError("--produce requires --confirm-one-ai33-task")
-    result = produce(root) if args.produce else preflight(root)
+    if args.confirm_one_ai33_task and args.resume_existing_task_only:
+        raise RuntimeError("new-task and resume-only confirmations are mutually exclusive")
+    result = produce(root, resume_only=args.resume_existing_task_only) if args.produce else preflight(root)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
