@@ -91,10 +91,14 @@ def produce(root: Path, *, resume_only: bool = False) -> dict:
     dictionary = load_acc1_pronunciation_dictionary()
     dictionary_id = resolve_acc1_pronunciation_dictionary_id(required=True)
     provider_dir = root / "provider-attempts"
-    ai33 = CallBudget(
-        post_tts_task, cap=1, label="ai33_single_audio",
-        journal_path=provider_dir / "ai33-single-audio.json",
-    )
+    if resume_only:
+        def ai33(**_kwargs):
+            raise RuntimeError("resume-only recovery forbids new AI33 submissions")
+    else:
+        ai33 = CallBudget(
+            post_tts_task, cap=1, label="ai33_single_audio",
+            journal_path=provider_dir / "ai33-single-audio.json",
+        )
     state = run_single_audio_tts(
         script, output_dir=root / "tts-single", artifact_root=root,
         api_key=str(os.environ.get("AI33_API_KEY") or ""),
