@@ -2,6 +2,17 @@
 
 Last updated: 2026-07-20
 
+## Fixed first release (pending GitHub run)
+
+The fixed-input lane `.github/workflows/acc1_fixed_first_release.yml` consumes
+the committed four-story Russian script and does not call Reddit, Gemini,
+OpenAI or YouTube. Its verified no-network preflight plans exactly 68 scene
+images, one thumbnail, zero automatic image retries and 61 one-time AI33 task
+submissions. `cinematic_ink_webtoon_v1` uses every paid two-image asset pack in
+the rendered comic timeline. The current fixed script SHA-256 is
+`20ef3790626275cb0f32d1101dfc5a8610ce881bda27817180566edc40c2531a`.
+No paid call or upload has run from this lane yet.
+
 ## Locked execution policy — cloud first
 
 The user wants to keep heavy work off the local computer. Production video

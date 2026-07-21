@@ -1,5 +1,19 @@
 # 🚀 nebula-core-v3 — Project Documentation
 
+## Fixed acc1 first release
+
+Run the no-provider preflight with:
+
+```bash
+python scripts/run_acc1_fixed_first_release.py \
+  --output-dir build/acc1-fixed-first-release
+```
+
+The manual GitHub workflow `.github/workflows/acc1_fixed_first_release.yml`
+requires exact confirmations for 68 scene images plus one thumbnail and 61
+AI33 tasks. It has no Reddit, Gemini, OpenAI or YouTube credential surface and
+does not authorize publication.
+
 Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJECT_STATE.md`](PROJECT_STATE.md) before non-trivial work.
 
 **Internal project name**: `nebula-core-v3`  

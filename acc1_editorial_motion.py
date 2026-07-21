@@ -14,6 +14,7 @@ from typing import Any
 
 from acc1_visual_contract import (
     ADULT_ANIMATION_SERIES,
+    CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     CANVAS_FPS,
     CANVAS_HEIGHT,
     CANVAS_WIDTH,
@@ -263,7 +264,19 @@ def build_editorial_motion_contract(
 
         if segment_kind == "story":
             packs = story_packs[segment_id]
-            scene_count = _scene_count(duration, len(packs))
+            scene_count = (
+                len(packs)
+                if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE
+                else _scene_count(duration, len(packs))
+            )
+            if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE and not (
+                EDITORIAL_MOTION_MIN_SCENE_SECONDS
+                <= duration / scene_count
+                <= EDITORIAL_MOTION_MAX_SCENE_SECONDS
+            ):
+                raise EditorialMotionError(
+                    "cinematic ink webtoon image targets do not fit the narration duration",
+                )
             completed_story_count += 1
         else:
             if duration > EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS + 0.001:
@@ -288,7 +301,10 @@ def build_editorial_motion_contract(
             pack = packs[index]
             story_family = str(pack.get("story_family") or "")
             page_layout = str(pack.get("page_layout") or "")
-            if style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE:
+            if style_profile in {
+                INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+                CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+            }:
                 if (
                     story_family not in INK_GOUACHE_STORY_FAMILIES
                     or page_layout not in INK_GOUACHE_PAGE_LAYOUTS
