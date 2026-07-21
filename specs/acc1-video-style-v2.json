@@ -1,0 +1,100 @@
+{
+  "contract_version": 2,
+  "style_id": "chonker_cinematic_webtoon_v2",
+  "audience": {
+    "language": "ru",
+    "market": "russian_speaking",
+    "character_default": "contemporary_russian_or_european",
+    "forbid_unrequested_regional_cast_default": true
+  },
+  "renderer": {
+    "required_id": "chrome_guided_webtoon_v2",
+    "production_entrypoint": "scripts/run_acc1_fixed_first_release.py",
+    "forbidden_imports": [
+      "from compilation_renderer import",
+      "render_compilation("
+    ],
+    "forbidden_visual_patterns": [
+      "large_narration_paragraph",
+      "dark_side_text_panel",
+      "empty_right_host_slot",
+      "static_single_image_story"
+    ]
+  },
+  "comic": {
+    "page_panel_count_min": 2,
+    "page_panel_count_max": 4,
+    "camera_sequence_required": [
+      "page_overview",
+      "narration_selected_character_or_detail",
+      "semantic_hold_or_pan",
+      "optional_settle_without_mandatory_pull_back"
+    ],
+    "forbid_repeated_identical_zoom_cycle": true,
+    "visual_change_target_sec": [3, 7],
+    "generated_narration_paragraphs": false,
+    "important_content_bottom_exclusion_px": 130
+  },
+  "subtitles": {
+    "mode": "burned_in_fixed_bottom_band",
+    "canvas": [1920, 1080],
+    "band": {
+      "x": 0,
+      "y": 950,
+      "width": 1920,
+      "height": 130,
+      "color": "#090b0f",
+      "opacity": 0.94
+    },
+    "line_count": 1,
+    "horizontal_alignment": "center",
+    "vertical_alignment": "center",
+    "max_characters": 60,
+    "font_family": "Arial",
+    "font_size_px": 46,
+    "font_weight": 700,
+    "text_color": "#f5f2ea",
+    "outline_color": "#101010",
+    "outline_px": 2,
+    "hide_during_brand_insert": true,
+    "youtube_srt_required": true
+  },
+  "brand_inserts": {
+    "intro": {
+      "path": "videos/chonker-talks-intro/renders/chonker-talks-editorial-intro-preview-v2.mp4",
+      "sha256": "8d31b170199a20365b2a3797029c0d709d915364f0ba82c571356942db862065",
+      "placement": "after_cold_open"
+    },
+    "subscribe_cta": {
+      "path": "videos/chonker-talks-cta/renders/chonker-talks-midroll-cta-v2.webm",
+      "sha256": "8c0ee52d5eff3ebb8ef5648f8d1265e1c19574b853ef8f52b714f0d62e7927da",
+      "placement_fraction": [0.35, 0.45]
+    },
+    "outro": {
+      "path": "videos/chonker-talks-outro/renders/chonker-talks-youtube-outro-v1.mp4",
+      "sha256": "0528f09432c1ecfeb2afdfbea0a4900cf6bac1424bbd2ca78e27e775d6d3dee9",
+      "placement": "timeline_end"
+    }
+  },
+  "thumbnail": {
+    "text_mode": "imagen_baked_in",
+    "language": "ru",
+    "character_default": "contemporary_russian_or_european",
+    "forbid_post_render_title_overlay": true
+  },
+  "approval_gate": {
+    "preview_duration_sec": [20, 30],
+    "preview_must_include": [
+      "cold_open",
+      "intro",
+      "page_overview",
+      "meaning_led_character_and_detail_focus",
+      "centered_subtitle_band",
+      "subscribe_cta",
+      "outro_excerpt"
+    ],
+    "approved_preview_sha256": "61c037374b3972da149296de3b72de58359579f9ca783aba86da0c144962ac3f",
+    "provider_calls_before_approval": false,
+    "publication_authorized": false
+  }
+}

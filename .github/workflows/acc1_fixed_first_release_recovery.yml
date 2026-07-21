@@ -1,0 +1,99 @@
+name: acc1 Fixed First Release Recovery
+run-name: acc1 recover fixed release from run ${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Exact failed source run whose artifact will be reused
+        required: true
+        default: "29813098711"
+        type: string
+      confirm_poll_existing_ai33_task_only:
+        description: Allow GET/poll of the saved AI33 task; no provider POSTs
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    concurrency:
+      group: acc1-fixed-first-release-recovery
+      cancel-in-progress: false
+    env:
+      WORKDIR: build/acc1-fixed-first-release-recovery
+    steps:
+      - name: Require exact one-time recovery scope
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIRM_POLL: ${{ inputs.confirm_poll_existing_ai33_task_only }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_RUN_ID" = "29813098711"
+          test "$CONFIRM_POLL" = "true"
+          test "$RUN_ATTEMPT" = "1"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install deterministic render dependencies
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          npx --yes hyperframes@0.7.61 info
+      - name: Download exact saved artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-fixed-first-release-29813098711
+          path: ${{ env.WORKDIR }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 29813098711
+      - name: Prove zero-new-call recovery before exposing AI33 key
+        run: |
+          set -euo pipefail
+          python scripts/recover_acc1_fixed_first_release.py \
+            --artifact-root "$WORKDIR" \
+            --preflight-only
+      - name: Poll saved task and render review artifact
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=60s 12600s \
+            python scripts/recover_acc1_fixed_first_release.py \
+              --artifact-root "$WORKDIR"
+      - name: Verify no new provider submissions and no publication
+        run: |
+          set -euo pipefail
+          python - "$WORKDIR/fixed-release-recovery-result.json" <<'PY'
+          import json, sys
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert result["status"] == "READY_FOR_HUMAN_REVIEW"
+          assert result["new_image_calls"] == 0
+          assert result["new_ai33_task_submissions"] == 0
+          assert result["youtube_called"] is False
+          assert result["publication_authorized"] is False
+          PY
+          test -s "$WORKDIR/final-output.mp4"
+          test -s "$WORKDIR/youtube-thumbnail.png"
+      - name: Upload recovered review artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-fixed-first-release-recovered-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+          if-no-files-found: error
+          retention-days: 30

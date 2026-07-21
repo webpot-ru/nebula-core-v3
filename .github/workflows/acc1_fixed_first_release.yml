@@ -63,6 +63,9 @@ jobs:
       - name: Run no-provider fixed-input preflight
         run: |
           set -euo pipefail
+          # Fail before any provider credentials are exposed unless the exact
+          # approved webtoon renderer and preview hash are committed.
+          python scripts/validate_acc1_video_style_v2.py --require-production-ready
           python scripts/run_acc1_fixed_first_release.py --output-dir "$WORKDIR"
           python - "$WORKDIR/fixed-input-preflight.json" <<'PY'
           import json
