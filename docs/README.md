@@ -20,7 +20,7 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 **GitHub**: [github.com/webpot-ru/nebula-core-v3](https://github.com/webpot-ru/nebula-core-v3) *(private)*
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-07-17
+**Last updated**: 2026-07-21
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 

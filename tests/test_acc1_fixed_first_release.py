@@ -10,6 +10,14 @@ WORKFLOW = ROOT / ".github/workflows/acc1_fixed_first_release.yml"
 
 
 class FixedFirstReleaseTests(unittest.TestCase):
+    def test_entrypoint_uses_approved_renderer_and_baked_thumbnail_text(self):
+        source = (ROOT / "scripts/run_acc1_fixed_first_release.py").read_text(encoding="utf-8")
+        self.assertIn("from chrome_guided_webtoon_renderer import", source)
+        self.assertIn("render_chrome_guided_webtoon(", source)
+        self.assertNotIn("from compilation_renderer import", source)
+        self.assertNotIn("overlay_thumbnail_text", source)
+        self.assertIn("СЕМЬЯ ТРЕБУЕТ ПРОСТИТЬ", source)
+
     def test_workflow_has_exact_spend_and_no_publish_surface(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("confirm_69_image_calls", workflow)
