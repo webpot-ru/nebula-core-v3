@@ -4,17 +4,17 @@ Last updated: 2026-07-20
 
 ## Acc1 pronunciation dictionary (local implementation)
 
-Future acc1 AI33 submissions are now designed to use the versioned Russian
-rules in `specs/acc1-pronunciation-dictionary-v1.json`. The remote numeric ID
-must be supplied through `AI33_PRONUNCIATION_DICTIONARY_ID`; new paid acc1 TTS
-fails closed before submission when it is missing. The local rules checksum and
-remote ID are bound into each new request identity. No dictionary was created
-or changed at AI33, no provider preview/TTS request was made, and GitHub still
-needs the secret after the remote dictionary is created. Existing saved-task
-recovery remains dictionary-free. The local manual configuration workflow
-performs exact-name/rules reuse or one create call plus readback; it refuses to
-overwrite a same-name mismatch. It has not yet been run in GitHub at the time
-of this implementation note.
+Future acc1 AI33 submissions use the versioned Russian rules in
+`specs/acc1-pronunciation-dictionary-v1.json`. GitHub run `29825303169` on
+`main@d4e3d6d` created AI33 dictionary `Chonker Talks RU v1` with numeric ID
+`72`; provider readback matched the exact local rules SHA-256
+`077b7ebace8aa014d5fe2ebc029f9f86fb445cee74d9736d5dbaddf6cf777d14`.
+The ID is stored in repository secret `AI33_PRONUNCIATION_DICTIONARY_ID`.
+New paid acc1 TTS fails closed before submission when the ID is missing, and
+the local rules checksum plus remote ID are bound into every new request
+identity. The configuration workflow reuses only an exact match and refuses to
+overwrite a same-name mismatch. No TTS, image or YouTube call was made by the
+dictionary setup. Existing saved-task recovery remains dictionary-free.
 
 ## Fixed first-release recovery (local implementation, GitHub run failed)
 
