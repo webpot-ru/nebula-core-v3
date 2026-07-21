@@ -722,13 +722,6 @@ def _write_workspace(
     (workspace / "meta.json").write_text(json.dumps({
         "id": "editorial-motion", "name": "ChonkerTalks Editorial Motion",
     }, indent=2) + "\n", encoding="utf-8")
-    (workspace / "index.motion.json").write_text(json.dumps({
-        "duration": round(duration, 3),
-        "maxStaticSec": 5,
-        "assertions": [
-            {"kind": "keepsMoving", "withinSelector": ".scene-inner"},
-        ],
-    }, indent=2) + "\n", encoding="utf-8")
     return workspace
 
 
