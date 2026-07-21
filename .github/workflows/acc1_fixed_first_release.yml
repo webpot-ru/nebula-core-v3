@@ -1,0 +1,121 @@
+name: acc1 Fixed First Release
+run-name: acc1 fixed first release at ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_fixed_inputs:
+        description: Use the committed four-story script and exact source hashes
+        required: true
+        default: false
+        type: boolean
+      confirm_69_image_calls:
+        description: Allow exactly 68 scene images plus one thumbnail, with zero retries
+        required: true
+        default: false
+        type: boolean
+      confirm_61_ai33_tasks:
+        description: Allow exactly 61 one-time AI33 narration task submissions
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    concurrency:
+      group: acc1-fixed-first-release-paid
+      cancel-in-progress: false
+    env:
+      WORKDIR: build/acc1-fixed-first-release
+    steps:
+      - name: Refuse reruns and require exact confirmations
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          CONFIRM_FIXED: ${{ inputs.confirm_fixed_inputs }}
+          CONFIRM_IMAGES: ${{ inputs.confirm_69_image_calls }}
+          CONFIRM_AI33: ${{ inputs.confirm_61_ai33_tasks }}
+        run: |
+          set -euo pipefail
+          test "$RUN_ATTEMPT" = "1"
+          test "$CONFIRM_FIXED" = "true"
+          test "$CONFIRM_IMAGES" = "true"
+          test "$CONFIRM_AI33" = "true"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install deterministic render dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          npx --yes hyperframes@0.7.61 info
+      - name: Run no-provider fixed-input preflight
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_fixed_first_release.py --output-dir "$WORKDIR"
+          python - "$WORKDIR/fixed-input-preflight.json" <<'PY'
+          import json
+          import sys
+
+          report = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert report["status"] == "FIXED_INPUT_PREFLIGHT_PASS"
+          assert report["provider_allowlist"] == ["image", "ai33"]
+          assert report["forbidden_providers"] == ["reddit", "gemini", "openai", "youtube"]
+          assert report["scene_image_calls"] == 68
+          assert report["thumbnail_calls"] == 1
+          assert report["image_call_cap"] == 69
+          assert report["automatic_image_retries"] == 0
+          assert report["ai33_task_submissions"] == 61
+          assert report["ai33_task_cap"] == 61
+          assert report["publication_authorized"] is False
+          PY
+      - name: Produce image-and-voice artifact
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+        run: |
+          set -euo pipefail
+          export AI33_TTS_DEADLINE_EPOCH
+          AI33_TTS_DEADLINE_EPOCH="$(python -c 'import time; print(int(time.time()) + 14400)')"
+          timeout --signal=TERM --kill-after=60s 18000s \
+            python scripts/run_acc1_fixed_first_release.py \
+              --output-dir "$WORKDIR" \
+              --produce \
+              --confirm-image-ai33-spend
+      - name: Verify non-publishing result
+        run: |
+          set -euo pipefail
+          python - "$WORKDIR/fixed-release-result.json" <<'PY'
+          import json
+          import sys
+
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert result["status"] == "READY_FOR_HUMAN_REVIEW"
+          assert result["image_calls"] == 69
+          assert result["ai33_task_submissions"] == 61
+          assert result["publication_authorized"] is False
+          assert result["youtube_called"] is False
+          PY
+          test -s "$WORKDIR/final-output.mp4"
+          test -s "$WORKDIR/youtube-thumbnail.png"
+          ffprobe -v error -show_entries stream=codec_name,width,height \
+            -of json "$WORKDIR/final-output.mp4"
+      - name: Upload review artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-fixed-first-release-${{ github.run_id }}
+          path: build/acc1-fixed-first-release
+          if-no-files-found: error
+          retention-days: 30

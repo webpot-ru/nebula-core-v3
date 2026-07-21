@@ -25,6 +25,15 @@ decision, author outreach will not be pursued for this release. Missing rights
 evidence remains recorded rather than being represented as permission, and
 this editorial decision is not an upload or publication authorization.
 
+The local fixed-input production lane is `.github/workflows/acc1_fixed_first_release.yml`
+plus `scripts/run_acc1_fixed_first_release.py`. Its no-provider preflight binds
+the committed script SHA `2537b928afb22bbae74caa1ffa5ecd7c885fbbc3735f914b43be7ee79c947191`,
+plans exactly 68 scene-image calls plus one thumbnail with zero automatic image
+retries, and plans exactly 61 one-time AI33 task submissions. Its provider
+allowlist is only `image` and `ai33`; Reddit, Gemini, OpenAI and YouTube are not
+configured. The workflow is local-only until committed, pushed and registered
+on the default branch, and no paid call or render has run.
+
 ## Current visual candidate — Cinematic Ink Webtoon (local only)
 
 On 2026-07-20 the newly drawn `cinematic_ink_webtoon_v1` direction was recorded

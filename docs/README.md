@@ -30,6 +30,21 @@ The locked allocation is `18 / 18 / 16 / 16` scene plates, with one separately
 budgeted thumbnail: 69 maximum image calls, no automatic retry. This enlarged
 ceiling is not provider-spend approval.
 
+The dedicated fixed-input command is:
+
+```bash
+python scripts/run_acc1_fixed_first_release.py \
+  --output-dir build/acc1-fixed-first-release
+```
+
+Without `--produce` this performs a no-network preflight and proves the exact
+provider envelope: 68 scene images, one thumbnail, zero automatic image
+retries and 61 AI33 narration tasks. The corresponding manual workflow is
+`.github/workflows/acc1_fixed_first_release.yml`. Its production step requires
+three explicit confirmations and contains no Reddit, Gemini, OpenAI or YouTube
+credentials or calls. `--produce --confirm-image-ai33-spend` is spend-enabled
+and must not be run locally or in GitHub without exact authorization.
+
 **Russian dark-series references**: [`russian-longform-competitor-analysis-2026-07-11.md`](russian-longform-competitor-analysis-2026-07-11.md) and [`russian-horror-editorial-system.md`](russian-horror-editorial-system.md) remain the specialized evidence/editorial contracts for the horror series; they no longer define the whole `acc1` channel.
 
 **Automated acc1 pilot implementation**: [`../specs/acc1-automated-reddit-pilot/README.md`](../specs/acc1-automated-reddit-pilot/README.md) defines the isolated artifact-only slice graph, fail-closed contracts, provider boundaries, and two-pilot GitHub target.
