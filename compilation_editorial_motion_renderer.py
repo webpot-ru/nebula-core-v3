@@ -18,6 +18,7 @@ from acc1_cinematic_shots import write_caption_srt
 from acc1_editorial_motion import canonical_hash, verify_bound_payload
 from acc1_visual_contract import (
     ADULT_ANIMATION_SERIES,
+    CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     CANVAS_FPS,
     CANVAS_HEIGHT,
     CANVAS_WIDTH,
@@ -159,7 +160,10 @@ def preflight_editorial_motion_storyboard(
             raise EditorialMotionRenderError(f"{scene_id} asset roles are invalid")
         story_family = str(scene.get("story_family") or "")
         page_layout = str(scene.get("page_layout") or "")
-        if profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE:
+        if profile in {
+            INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+            CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+        }:
             if (
                 story_family not in INK_GOUACHE_STORY_FAMILIES
                 or page_layout not in INK_GOUACHE_PAGE_LAYOUTS
@@ -496,7 +500,10 @@ def _timeline_script(scenes: list[dict[str, Any]], *, style_profile: str) -> str
         duration = float(scene["duration_sec"])
         module = str(scene["motion"]["module"])
         tail = max(start + 0.2, start + duration - 0.8)
-        if style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE:
+        if style_profile in {
+            INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+            CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+        }:
             lines.extend(_ink_gouache_scene_tweens(scene))
             continue
         if is_adult_animation_style_profile(style_profile):

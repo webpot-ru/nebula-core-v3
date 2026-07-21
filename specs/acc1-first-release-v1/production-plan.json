@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "status": "LOCAL_NO_SPEND_PREPRODUCTION",
+  "channel_id": "acc1",
+  "pilot_id": "pilot_01",
+  "format": "BUNDLE",
+  "pillar": "relationships_family",
+  "source_run_id": 29757914575,
+  "source_artifact": "reddit-source-smoke-acc1-29757914575",
+  "source_manifest_sha256": "b20f8a30c1ad06dd6cfd577f65cdd05ed85473d7762bc1619e625d37477e7b12",
+  "truth_mode": "unverified_personal_account",
+  "story_count": 4,
+  "aggregate_source_word_count": 2377,
+  "estimated_source_minutes_at_130_wpm": 18.28,
+  "visual_profile": "cinematic_ink_webtoon_v1",
+  "image_target": 68,
+  "stories": [
+    {
+      "order": 1,
+      "post_id": "1uw7804",
+      "author": "ThrowRAMPerspective",
+      "source_body_sha256": "c895b8117633b5192c1ce9f16c539c93bbc069f31bb34df5b80460ab0a5a85d6",
+      "source_word_count": 611,
+      "image_target": 18,
+      "manual_readiness_score": 94,
+      "rights_status": "MISSING_PERMISSION_EVIDENCE"
+    },
+    {
+      "order": 2,
+      "post_id": "1v0l1ei",
+      "author": "isnt_THIS_crazy",
+      "source_body_sha256": "fe5d2c7d646a9db6ea12995067814da5b34e3fb67d5dfbfed3da9b2d4996c566",
+      "source_word_count": 626,
+      "image_target": 18,
+      "manual_readiness_score": 92,
+      "rights_status": "MISSING_PERMISSION_EVIDENCE"
+    },
+    {
+      "order": 3,
+      "post_id": "1uy2j23",
+      "author": "ThrowRATempturesangs",
+      "source_body_sha256": "ea722be82d35425968885a25e6ce47414eb60dbcbb942bf7ae3ed5d3ec0a02de",
+      "source_word_count": 568,
+      "image_target": 16,
+      "manual_readiness_score": 91,
+      "rights_status": "MISSING_PERMISSION_EVIDENCE"
+    },
+    {
+      "order": 4,
+      "post_id": "1uviexk",
+      "author": "Opposite-Meringue610",
+      "source_body_sha256": "e1d05f200d4f84db3be4b50a900d67f44b798b34649a496d5842e254f9340f60",
+      "source_word_count": 572,
+      "image_target": 16,
+      "manual_readiness_score": 90,
+      "rights_status": "MISSING_PERMISSION_EVIDENCE"
+    }
+  ],
+  "rejected_sources": [
+    {
+      "post_id": "1uxqltp",
+      "source_body_sha256": "468e6f8fb1832111553f0590baa566f5e061450d3ae1c4d67ba9f07cbc6eeac1",
+      "reason": "HYPOTHETICAL_PAYOFF_NOT_STRONG_ENOUGH_FOR_FIRST_RELEASE"
+    }
+  ],
+  "production_authorized": false,
+  "publication_authorized": false
+}

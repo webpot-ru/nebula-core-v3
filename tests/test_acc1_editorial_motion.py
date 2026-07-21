@@ -6,6 +6,7 @@ from acc1_editorial_motion import (
     verify_bound_payload,
 )
 from acc1_visual_contract import (
+    CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     EDITORIAL_MOTION_STYLE_PROFILE,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
 )
@@ -194,6 +195,42 @@ class EditorialMotionContractTests(unittest.TestCase):
                 story_metadata={"story_one": {"story_index": 1}},
                 final_audio_duration_sec=20.0,
             )
+
+    def test_cinematic_ink_webtoon_uses_every_paid_asset_pack(self):
+        words = [f"слово{index}" for index in range(60)]
+        text = " ".join(words)
+        layouts = (
+            "hero_left_details_right", "phone_portal_insets", "message_cascade",
+        )
+        assets = []
+        for index, layout in enumerate(layouts):
+            for role in ("hero_plate", "detail_plate"):
+                assets.append(asset(
+                    f"pack-{index}", role, "living_photo_depth", str(index + 1),
+                    story_family="relationships", page_layout=layout,
+                ))
+        result = build_editorial_motion_contract(
+            narration_segments=[{
+                "segment_id": "story_one", "kind": "story",
+                "voice_role": "narrator", "text": text,
+            }],
+            segment_timings={"story_one": {
+                "duration_sec": 60.0, "timing_source": "local",
+                "words": [
+                    {"word": word, "start": index, "end": index + 1}
+                    for index, word in enumerate(words)
+                ],
+            }},
+            story_assets={"story_one": assets},
+            story_metadata={"story_one": {"story_index": 1}},
+            final_audio_duration_sec=60.0,
+            style_profile=CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+        )
+        self.assertEqual(len(result["scenes"]), 3)
+        self.assertEqual(
+            [scene["asset_family_id"] for scene in result["scenes"]],
+            ["pack-0", "pack-1", "pack-2"],
+        )
 
     def test_mid_story_cta_is_short_service_scene(self):
         story_text = " ".join(f"слово{index}" for index in range(40))
