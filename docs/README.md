@@ -724,6 +724,17 @@ Production and dry-run workflows pass both `--model-id eleven_v3` and `--require
 
 ### AI33 Task Handling
 
+The acc1 audio v2 contract is `specs/acc1-audio-contract-v2.json`: one AI33
+`eleven_v3` task for the complete narrator text, `with_transcript=true`, one
+checksum-bound master MP3 and one SRT sidecar. Storyboard timing comes from the
+master transcript. Local FFmpeg slices may be derived only as compatibility
+cache for the existing semantic scene scheduler; they are not provider tasks or
+canonical deliverables. `single_audio_tts_runner.py` implements this path and
+`.github/workflows/acc1_single_audio_rerender.yml` is the bounded first-release
+migration: one AI33 task, zero image calls, zero YouTube calls and no automatic
+TTS retry. The historical 61-task state remains recovery evidence, not the
+future audio architecture.
+
 For future `acc1` submissions, the canonical Russian pronunciation rules live
 in `specs/acc1-pronunciation-dictionary-v1.json`. The numeric provider ID is
 injected from the `AI33_PRONUNCIATION_DICTIONARY_ID` GitHub Secret and recorded

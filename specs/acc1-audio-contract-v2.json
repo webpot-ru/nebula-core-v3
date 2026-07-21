@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "channel": "acc1",
+  "provider": "ai33",
+  "model_id": "eleven_v3",
+  "provider_task_cap": 1,
+  "automatic_tts_retries": 0,
+  "with_transcript": true,
+  "master_audio": "narration-master.mp3",
+  "subtitle_sidecar": "narration.srt",
+  "timing_source": "ai33",
+  "storyboard_timing": "master_transcript_word_timestamps",
+  "derived_audio_slices": "local_only_compatibility_cache",
+  "publication_authorized": false
+}
