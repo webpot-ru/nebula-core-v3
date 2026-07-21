@@ -15,17 +15,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from acc1_episode_factory import NARRATOR_VOICE_ID
-from acc1_narration_profiles import resolve_narration_profile
 from acc1_visual_contract import EDITORIAL_MOTION_MODE
 from chrome_guided_webtoon_renderer import render_chrome_guided_webtoon
 from compilation_storyboard import build_storyboard
-from compilation_tts_runner import run_compilation_tts
+from compilation_tts_runner import resume_compilation_tts_from_saved_state
 from scripts.run_acc1_fixed_first_release import (
     BRAND_CTA_ASSET,
     BRAND_OUTRO_ASSET,
     BRAND_STING_ASSET,
-    PROFILE_ID,
     sha256_file,
     write_json,
 )
@@ -85,25 +82,15 @@ def validate_recovery_artifact(root: Path) -> dict[str, Any]:
     }
 
 
-def _refuse_post(**_: Any) -> dict[str, Any]:
-    raise RecoveryError("recovery is forbidden from creating a new AI33 task")
-
-
 def recover(root: Path) -> dict[str, Any]:
     root = root.resolve()
     preflight = validate_recovery_artifact(root)
     script = _read(root / "episode-script.json")
-    profile = resolve_narration_profile(PROFILE_ID, pillar_id="relationships_family")
-    tts_state = run_compilation_tts(
-        script,
+    tts_state = resume_compilation_tts_from_saved_state(
         output_dir=root / "tts",
         artifact_root=root,
         api_key=str(os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY") or ""),
-        voice_id=NARRATOR_VOICE_ID,
-        narration_profile_id=PROFILE_ID,
-        speed=profile["speed"],
-        voice_settings_json=profile["voice_settings_json"],
-        post_task=_refuse_post,
+        expected_task_id=preflight["existing_task_to_poll"],
         poll_error_retries=12,
         overall_timeout_seconds=7_200,
     )

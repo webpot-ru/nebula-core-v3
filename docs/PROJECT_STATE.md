@@ -28,16 +28,19 @@ task `1d554c37-8bc8-414d-9a6f-900c66a72bd0` returned transient HTTP 429
 `scripts/recover_acc1_fixed_first_release.py` and
 `.github/workflows/acc1_fixed_first_release_recovery.yml` implement a
 fail-closed recovery path. The exact saved artifact passes local preflight; the
-path authorizes zero new image calls and zero new AI33 submissions, permits only
-polling the durable task ID, then resumes deterministic storyboard and
-Chrome/HyperFrames rendering. Recovery run `29821455541` passed the zero-call
+path authorizes zero new image calls and zero new AI33 submissions. Recovery
+run `29821455541` passed the zero-call
 preflight but stopped before AI33 because current `main` had a different
-narration-profile hash. The workflow now restores only the exact profile file
-from source commit `1b84fab` inside the ephemeral runner and verifies its file
-SHA before polling. No provider request occurred in that failed recovery run.
-Recovery run `29822140709` also stopped before AI33 because the default shallow
-checkout could not read the pinned source commit. The workflow now requests full
-git history (`fetch-depth: 0`) before restoring and hashing that single file.
+narration-profile hash. No provider request occurred in that failed recovery
+run. Recovery run `29822140709` also stopped before AI33 because its attempted
+historical-profile restore used a shallow checkout. Recovery run `29822449156`
+then reached the TTS step but stopped locally because rebuilding the historical
+request plan produced a different checksum; it made no provider call. The new
+local correction removes request-plan reconstruction entirely: it verifies the
+saved state plus 60 completed audio checksums and directly polls only the
+preflight-bound durable task ID before deterministic storyboard and
+Chrome/HyperFrames rendering. It is locally implemented and not yet committed
+or GitHub-run.
 
 ## Fixed first release
 

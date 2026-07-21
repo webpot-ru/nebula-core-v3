@@ -54,8 +54,11 @@ Resume the exact failed fixed-release artifact without new image or AI33 task
 submissions with `scripts/recover_acc1_fixed_first_release.py`. The dedicated
 `acc1_fixed_first_release_recovery.yml` workflow first proves 69 completed image
 attempts, 61 completed AI33 submissions and exactly one durable `SUBMITTED` TTS
-chunk before the AI33 key is exposed. Its POST callback always fails closed;
-only the saved task may be polled before Chrome/HyperFrames rendering continues.
+chunk before the AI33 key is exposed. Recovery enters through
+`resume_compilation_tts_from_saved_state`, which has no submission callback and
+does not accept or rebuild the episode script or TTS request plan. It verifies
+the saved state and 60 completed audio checksums, polls only the preflight-bound
+task ID, finalizes timing/audio, then continues Chrome/HyperFrames rendering.
 
 Production uses the stricter `--require-production-ready` flag. The migrated
 entrypoint and exact human-approved preview SHA now satisfy that static gate;
