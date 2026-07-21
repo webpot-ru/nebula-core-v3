@@ -1247,8 +1247,11 @@ def normalize_transcript_word(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
 
+    if str(value.get("type") or "").casefold() in {"spacing", "space", "whitespace"}:
+        return None
     word = first_present(value, ("word", "text", "punctuated_word", "token", "value"))
-    if not word:
+    normalized_word = str(word or "").strip()
+    if not normalized_word:
         return None
 
     start_key = ""
@@ -1279,7 +1282,7 @@ def normalize_transcript_word(value: Any) -> dict[str, Any] | None:
         return None
 
     return {
-        "word": str(word),
+        "word": normalized_word,
         "start": round(start, 3),
         "end": round(end, 3),
     }

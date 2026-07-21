@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import argparse
+import difflib
 import math
 import time
 import re
@@ -191,26 +192,56 @@ def _probe_duration(path: Path) -> float:
 
 
 def _token_identity(value: Any) -> str:
-    return re.sub(r"[^\w]+", "", str(value or "").casefold(), flags=re.UNICODE)
+    return re.sub(
+        r"[^\w]+", "", str(value or "").casefold().replace("ё", "е"),
+        flags=re.UNICODE,
+    )
 
 
 def _validated_provider_words(
     text: str, payload: dict[str, Any], duration: float, *, api_key: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Accept provider alignment only when it maps one-to-one to exact TTS text."""
+    """Bind provider transcription back to every exact script token."""
     expected = text.split()
     raw_words = collect_transcript_words(payload, api_key=api_key)
-    if len(raw_words) != len(expected):
+    if not raw_words:
         return []
+    matcher = difflib.SequenceMatcher(
+        None,
+        [_token_identity(item) for item in expected],
+        [_token_identity(item.get("word")) for item in raw_words],
+        autojunk=False,
+    )
+    if matcher.ratio() < 0.9:
+        return []
+    mapping: list[tuple[int, int] | None] = [None] * len(expected)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for offset in range(i2 - i1):
+                mapping[i1 + offset] = (j1 + offset, j1 + offset + 1)
+        elif tag == "replace" and i2 > i1 and j2 > j1:
+            for offset in range(i2 - i1):
+                start = j1 + ((j2 - j1) * offset) // (i2 - i1)
+                end = j1 + ((j2 - j1) * (offset + 1)) // (i2 - i1)
+                mapping[i1 + offset] = (min(start, j2 - 1), max(start + 1, end))
+        elif tag == "delete":
+            mapping[i1:i2] = [(j1, j1)] * (i2 - i1)
     normalized: list[dict[str, Any]] = []
     previous_start = 0.0
-    for expected_word, raw in zip(expected, raw_words):
-        if _token_identity(expected_word) != _token_identity(raw.get("word")):
+    for index, expected_word in enumerate(expected):
+        span = mapping[index]
+        if span is None:
             return []
+        start_index, end_index = span
         try:
-            start = float(raw["start"])
-            end = float(raw["end"])
-        except (KeyError, TypeError, ValueError):
+            if start_index == end_index:
+                start = end = previous_start
+                if start_index < len(raw_words):
+                    start = end = max(start, float(raw_words[start_index]["start"]))
+            else:
+                start = float(raw_words[start_index]["start"])
+                end = float(raw_words[end_index - 1]["end"])
+        except (KeyError, IndexError, TypeError, ValueError):
             return []
         if start < 0 or end < start or start + 0.001 < previous_start or end > duration + 0.25:
             return []

@@ -47,6 +47,18 @@ class SingleAudioTtsRunnerTests(unittest.TestCase):
         self.assertEqual(words[0]["word"], "Готово")
         self.assertEqual(get.call_count, 1)
 
+    def test_ai33_json_spacing_entries_are_not_counted_as_words(self):
+        payload = [{"words": [
+            {"text": "Новая", "start": 0.0, "end": 0.4, "type": "word"},
+            {"text": " ", "start": 0.4, "end": 0.5, "type": "spacing"},
+            {"text": "история", "start": 0.5, "end": 1.0, "type": "word"},
+        ]}]
+        from translator_tts import collect_transcript_words
+        self.assertEqual(
+            [item["word"] for item in collect_transcript_words(payload)],
+            ["Новая", "история"],
+        )
+
     def test_resume_polls_saved_task_without_posting_again(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
