@@ -283,6 +283,7 @@ jobs:
           GEMINI_PROVIDER: vectorengine
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          AI33_PRONUNCIATION_DICTIONARY_ID: ${{ secrets.AI33_PRONUNCIATION_DICTIONARY_ID }}
           CONFIRM_GEMINI_SPEND: ${{ inputs.confirm_gemini_spend }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
@@ -359,6 +360,7 @@ jobs:
           GEMINI_PROVIDER: vectorengine
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          AI33_PRONUNCIATION_DICTIONARY_ID: ${{ secrets.AI33_PRONUNCIATION_DICTIONARY_ID }}
           CONFIRM_GEMINI_SPEND: ${{ inputs.confirm_gemini_spend }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}

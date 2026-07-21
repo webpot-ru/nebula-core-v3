@@ -26,6 +26,10 @@ from acc1_episode_factory import (
 )
 from acc1_episode_images import generate_episode_images, image_plan
 from acc1_narration_profiles import resolve_narration_profile
+from acc1_pronunciation_dictionary import (
+    load_acc1_pronunciation_dictionary,
+    resolve_acc1_pronunciation_dictionary_id,
+)
 from acc1_visual_contract import (
     CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     EDITORIAL_MOTION_MODE,
@@ -176,6 +180,7 @@ def build_script() -> dict:
 
 def dry_run(output_dir: Path) -> dict:
     script = build_script()
+    dictionary = load_acc1_pronunciation_dictionary()
     plan = image_plan(script, visual_mode=EDITORIAL_MOTION_MODE, style_profile=CINEMATIC_INK_WEBTOON_STYLE_PROFILE)
     chunks = build_tts_chunks(
         script, voice_id=NARRATOR_VOICE_ID, narration_profile_id=PROFILE_ID,
@@ -192,6 +197,7 @@ def dry_run(output_dir: Path) -> dict:
         "scene_image_calls": len(plan), "thumbnail_calls": 1,
         "image_call_cap": IMAGE_CAP, "automatic_image_retries": 0,
         "ai33_task_submissions": len(chunks), "ai33_task_cap": TTS_CAP,
+        "pronunciation_dictionary_sha256": dictionary["sha256"],
         "script_sha256": canonical_hash(script),
     }
     write_json(output_dir / "episode-script.json", script)
@@ -232,6 +238,8 @@ def produce(output_dir: Path) -> dict:
     })
 
     profile = resolve_narration_profile(PROFILE_ID, pillar_id="relationships_family")
+    dictionary = load_acc1_pronunciation_dictionary()
+    dictionary_id = resolve_acc1_pronunciation_dictionary_id(required=True)
     ai33 = CallBudget(
         post_tts_task, cap=TTS_CAP, label="ai33",
         journal_path=provider_dir / "ai33.json",
@@ -241,6 +249,8 @@ def produce(output_dir: Path) -> dict:
         api_key=str(os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY") or ""),
         voice_id=NARRATOR_VOICE_ID, narration_profile_id=PROFILE_ID,
         speed=profile["speed"], voice_settings_json=profile["voice_settings_json"],
+        pronunciation_dictionary_id=dictionary_id,
+        pronunciation_dictionary_sha256=dictionary["sha256"],
         post_task=ai33, overall_timeout_seconds=14_400,
     )
     audio = output_dir / str(tts_state["final_audio_path"])

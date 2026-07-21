@@ -122,11 +122,15 @@ jobs:
       - name: Generate resumable Eleven v3 narration
         env:
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          AI33_PRONUNCIATION_DICTIONARY_ID: ${{ secrets.AI33_PRONUNCIATION_DICTIONARY_ID }}
         run: |
           VOICE_ID=$(python -c "import json; print(next(c['tts_voice'] for c in json.load(open('channels.json'))['channels'] if c['id']=='acc1'))")
+          DICTIONARY_SHA=$(python -c "from acc1_pronunciation_dictionary import load_acc1_pronunciation_dictionary as load; print(load()['sha256'])")
           python compilation_tts_runner.py \
             --compilation build/acc1-pilot/compilation-script-with-images.json \
             --output-dir build/acc1-pilot/tts --voice-id "$VOICE_ID" \
+            --pronunciation-dictionary-id "$AI33_PRONUNCIATION_DICTIONARY_ID" \
+            --pronunciation-dictionary-sha256 "$DICTIONARY_SHA" \
             --model-id eleven_v3 --confirm-spend
       - name: Render 16x9 compilation
         run: |

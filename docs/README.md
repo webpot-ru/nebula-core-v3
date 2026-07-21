@@ -712,6 +712,21 @@ Production and dry-run workflows pass both `--model-id eleven_v3` and `--require
 
 ### AI33 Task Handling
 
+For future `acc1` submissions, the canonical Russian pronunciation rules live
+in `specs/acc1-pronunciation-dictionary-v1.json`. The numeric provider ID is
+injected from the `AI33_PRONUNCIATION_DICTIONARY_ID` GitHub Secret and recorded
+in the run manifest for reproducibility. New acc1
+production calls fail before TTS submission when that ID is absent or invalid.
+Both the ID and the canonical rules SHA-256 are included in every chunk request
+identity, so changing either value cannot silently reuse an older task. Use the
+local `preview_pronunciation` helper for no-network checks; creating or updating
+the remote AI33 dictionary remains a separately approved external-state action.
+Historical recovery paths do not attach this dictionary to saved tasks.
+The manual `.github/workflows/acc1_pronunciation_dictionary.yml` workflow
+creates the exact dictionary once or reuses an identical existing one, verifies
+the provider readback, and uploads only the sanitized ID/SHA binding. A same-name
+dictionary with different rules fails closed instead of being overwritten.
+
 The v3 create call returns a `task_id`. `translator_tts.py` polls the AI33 Common Task endpoint using:
 
 ```text

@@ -2,6 +2,20 @@
 
 Last updated: 2026-07-21
 
+## Acc1 pronunciation dictionary (local implementation)
+
+Future acc1 AI33 submissions are now designed to use the versioned Russian
+rules in `specs/acc1-pronunciation-dictionary-v1.json`. The remote numeric ID
+must be supplied through `AI33_PRONUNCIATION_DICTIONARY_ID`; new paid acc1 TTS
+fails closed before submission when it is missing. The local rules checksum and
+remote ID are bound into each new request identity. No dictionary was created
+or changed at AI33, no provider preview/TTS request was made, and GitHub still
+needs the secret after the remote dictionary is created. Existing saved-task
+recovery remains dictionary-free. The local manual configuration workflow
+performs exact-name/rules reuse or one create call plus readback; it refuses to
+overwrite a same-name mismatch. It has not yet been run in GitHub at the time
+of this implementation note.
+
 ## Fixed first-release recovery (local implementation, GitHub run failed)
 
 GitHub run `29813098711` on commit `1b84fab` passed the no-provider preflight
