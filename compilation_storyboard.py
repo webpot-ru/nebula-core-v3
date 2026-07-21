@@ -22,6 +22,9 @@ import re
 from typing import Any
 
 from acc1_visual_contract import (
+    CANVAS_FPS,
+    CANVAS_HEIGHT,
+    CANVAS_WIDTH,
     CINEMATIC_CAPTION_TRACK_VERSION,
     CINEMATIC_SERVICE_SHOT_MAX_SECONDS,
     CINEMATIC_SHOT_PLAN_VERSION,
@@ -32,6 +35,8 @@ from acc1_visual_contract import (
     CINEMATIC_ZOOM_END_MIN,
     CONTRACT_VERSION as VISUAL_CONTRACT_VERSION,
     DEFAULT_VISUAL_MODE,
+    EDITORIAL_MOTION_MODE,
+    EDITORIAL_MOTION_STYLE_PROFILE,
     MAX_VISUAL_SCENES,
     MIN_VISUAL_SCENES,
     MASCOT_SAFE_X,
@@ -45,6 +50,7 @@ from acc1_visual_contract import (
     resolve_visual_mode,
 )
 from acc1_cinematic_shots import CinematicShotError, build_cinematic_contract
+from acc1_editorial_motion import EditorialMotionError, build_editorial_motion_contract
 from compilation_audio_mix import verify_self_hash as verify_audio_sidecar_hash
 from compilation_narration import (
     NarrationPreflightError,
@@ -155,6 +161,29 @@ def _verified_cinematic_images(
                 "cinematic image must carry its verified file checksum",
             )
     return images
+
+
+def _verified_editorial_assets(
+    story: dict[str, Any], artifact_root: Path,
+) -> list[dict[str, Any]]:
+    verified: list[dict[str, Any]] = []
+    for asset in story.get("generated_media") or []:
+        if not isinstance(asset, dict) or asset.get("kind") != "generated_image":
+            continue
+        path = _path_under_root(
+            str(asset.get("local_path") or ""), artifact_root,
+            label="editorial image",
+        )
+        expected = str(asset.get("sha256") or "").strip().lower()
+        if not SHA256_RE.fullmatch(expected) or _sha256(path) != expected:
+            raise CompilationStoryboardError(
+                "editorial image must carry its verified file checksum",
+            )
+        verified.append({
+            **asset,
+            "local_path": path.relative_to(artifact_root.resolve()).as_posix(),
+        })
+    return verified
 
 
 def _verified_background_video(raw_path: str | Path, artifact_root: Path) -> dict[str, Any]:
@@ -1307,6 +1336,73 @@ def _build_cinematic_storyboard(
     }
 
 
+def _build_editorial_motion_storyboard(
+    compilation: dict[str, Any], artifact_root: Path, *,
+    background_video: str | Path | None = None,
+    tts_state: dict[str, Any] | None = None,
+    pause_map: dict[str, Any] | None = None,
+    audio_mix_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if background_video:
+        raise CompilationStoryboardError(
+            "editorial_motion_v1 rejects background_video",
+        )
+    timing_contract = _bound_tts_state(
+        compilation, tts_state, pause_map=pause_map,
+        audio_mix_report=audio_mix_report,
+    )
+    bindings = timing_contract["bindings"]
+    segment_timings = timing_contract["segment_timings"]
+    try:
+        narration_segments = build_compilation_segments(compilation)
+    except NarrationPreflightError as exc:
+        raise CompilationStoryboardError(str(exc)) from exc
+    story_assets: dict[str, list[dict[str, Any]]] = {}
+    story_metadata: dict[str, dict[str, Any]] = {}
+    for index, story in enumerate(compilation.get("stories") or [], start=1):
+        snapshot = story.get("source_snapshot") or {}
+        source_id = str(snapshot.get("source_id") or snapshot.get("post_id") or index)
+        segment_id = f"story_{source_id}"
+        story_assets[segment_id] = _verified_editorial_assets(story, artifact_root)
+        story_metadata[segment_id] = {
+            "story_index": index,
+            "title": str(story.get("title_ru") or snapshot.get("title") or f"История {index}"),
+            "source_label": _source_label(snapshot),
+            "truth_mode": str(snapshot.get("truth_mode") or ""),
+        }
+    duration = float(bindings["final_audio_duration_sec"])
+    style_profile = str(
+        compilation.get("style_profile") or EDITORIAL_MOTION_STYLE_PROFILE,
+    )
+    try:
+        contract = build_editorial_motion_contract(
+            narration_segments=narration_segments,
+            segment_timings=segment_timings,
+            story_assets=story_assets,
+            story_metadata=story_metadata,
+            final_audio_duration_sec=duration,
+            style_profile=style_profile,
+        )
+    except EditorialMotionError as exc:
+        raise CompilationStoryboardError(str(exc)) from exc
+    return {
+        "version": 4,
+        "format": "compilation_16x9",
+        "resolution": [CANVAS_WIDTH, CANVAS_HEIGHT],
+        "fps": CANVAS_FPS,
+        "visual_mode": EDITORIAL_MOTION_MODE,
+        "style_profile": style_profile,
+        **bindings,
+        "publication_authorized": False,
+        "timeline_duration_sec": round(duration, 3),
+        "slides": contract["scenes"],
+        "motion_plan": contract["motion_plan"],
+        "motion_plan_sha256": contract["motion_plan"]["motion_plan_sha256"],
+        "caption_track": contract["caption_track"],
+        "caption_track_sha256": contract["caption_track"]["caption_track_sha256"],
+    }
+
+
 def build_storyboard(
     compilation: dict[str, Any],
     artifact_root: Path,
@@ -1328,6 +1424,15 @@ def build_storyboard(
         mode = resolve_visual_mode(requested_mode)
     except ValueError as exc:
         raise CompilationStoryboardError(str(exc)) from exc
+    if mode == EDITORIAL_MOTION_MODE:
+        return _build_editorial_motion_storyboard(
+            compilation,
+            Path(artifact_root),
+            background_video=background_video,
+            tts_state=tts_state,
+            pause_map=pause_map,
+            audio_mix_report=audio_mix_report,
+        )
     if mode == CINEMATIC_STORY_MODE:
         return _build_cinematic_storyboard(
             compilation,
