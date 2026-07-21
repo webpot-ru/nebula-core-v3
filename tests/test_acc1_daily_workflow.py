@@ -134,11 +134,11 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         )
         self.assertIn(
             '      openai_token_cap:\n'
-            '        description: Hard cap for OpenAI translation tokens in this episode run\n'
+            '        description: Hard cap for gpt-5.6-terra input+output tokens in this daily run; gpt-5.6-sol review is separately fixed at 500000\n'
             '        required: true\n'
-            '        default: "500000"\n'
+            '        default: "3000000"\n'
             '        type: choice\n'
-            '        options: ["100000", "250000", "500000", "750000"]\n',
+            '        options: ["500000", "1000000", "2000000", "3000000"]\n',
             self.workflow,
         )
 
@@ -171,6 +171,10 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
 
         self.assertIn(
             '"openai_translation_attempts": root / "provider-attempts" / "openai-translation.json"',
+            workflow,
+        )
+        self.assertIn(
+            '"openai_review_attempts": root / "provider-attempts" / "openai-review.json"',
             workflow,
         )
 

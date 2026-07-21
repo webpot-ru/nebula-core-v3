@@ -12,7 +12,12 @@ import requests
 
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_MODEL = "gpt-5.4-2026-03-05"
+OPENAI_TERRA_MODEL = "gpt-5.6-terra"
+OPENAI_SOL_MODEL = "gpt-5.6-sol"
+OPENAI_TERRA_DAILY_TOKEN_CAP = 3_000_000
+OPENAI_SOL_DAILY_TOKEN_CAP = 500_000
+OPENAI_MODEL = OPENAI_TERRA_MODEL
+APPROVED_OPENAI_MODELS = frozenset({OPENAI_TERRA_MODEL, OPENAI_SOL_MODEL})
 DEFAULT_MAX_COMPLETION_TOKENS = 16_384
 DEFAULT_TIMEOUT_SECONDS = 120
 
@@ -141,8 +146,10 @@ def call_openai_json(
     del temperature
     if not isinstance(prompt, str) or not prompt.strip():
         raise OpenAIClientError("OpenAI prompt is required")
-    if model != OPENAI_MODEL:
-        raise OpenAIClientError(f"OpenAI model must be exactly {OPENAI_MODEL}")
+    if model not in APPROVED_OPENAI_MODELS:
+        raise OpenAIClientError(
+            "OpenAI model must be one of: " + ", ".join(sorted(APPROVED_OPENAI_MODELS))
+        )
     if isinstance(retries, bool) or retries != 0:
         raise OpenAIClientError("OpenAI automatic retries must be exactly zero")
     if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or timeout_seconds < 1:
@@ -152,7 +159,7 @@ def call_openai_json(
         raise OpenAIClientError("Missing OPENAI_API_KEY")
 
     request_body = {
-        "model": OPENAI_MODEL,
+        "model": model,
         "messages": [
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": prompt},

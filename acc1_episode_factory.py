@@ -79,7 +79,10 @@ from compilation_translation import (
 )
 from compilation_tts_runner import build_tts_chunks, run_compilation_tts
 from openai_client import (
-    OPENAI_MODEL,
+    OPENAI_SOL_MODEL,
+    OPENAI_SOL_DAILY_TOKEN_CAP,
+    OPENAI_TERRA_MODEL,
+    OPENAI_TERRA_DAILY_TOKEN_CAP,
     OpenAIJSONResult,
     call_openai_json,
 )
@@ -843,7 +846,10 @@ class CallBudget:
         self.cap = _positive_cap(cap, f"{label}_call_cap", maximum=256)
         self.label = label
         self.token_cap = (
-            _positive_cap(token_cap, f"{label}_token_cap", maximum=1_000_000)
+            _positive_cap(
+                token_cap, f"{label}_token_cap",
+                maximum=OPENAI_TERRA_DAILY_TOKEN_CAP,
+            )
             if token_cap is not None else None
         )
         self.journal_path = Path(journal_path) if journal_path is not None else None
@@ -910,7 +916,7 @@ class CallBudget:
         # Keep one logical budget unit equal to one paid generation request.
         # Automatic provider retries would otherwise multiply spend behind the
         # explicit factory cap.
-        if self.label in {"gemini", "image", "openai_translation"}:
+        if self.label in {"gemini", "image", "openai_translation", "openai_review"}:
             kwargs.setdefault("retries", 0)
         prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
         attempt = {
@@ -1211,6 +1217,7 @@ def _translate_script(
     playoff: dict[str, Any],
     openai_translation: CallBudget,
     checkpoint_dir: Path,
+    openai_review: CallBudget | None = None,
 ) -> dict[str, Any]:
     translated_stories: list[dict[str, Any]] = []
     sources = winner["sources"]
@@ -1218,9 +1225,10 @@ def _translate_script(
         translated = translate_and_review_story(
             {"title": source["title"], "body": source["body"]},
             provider=openai_translation,
-            reviewer=openai_translation,
+            reviewer=openai_review or openai_translation,
             config=TranslationConfig(
-                model=OPENAI_MODEL,
+                model=OPENAI_TERRA_MODEL,
+                reviewer_model=OPENAI_SOL_MODEL,
                 max_output_tokens=16_384,
                 max_story_revisions=2,
             ),
@@ -1346,7 +1354,16 @@ def _factory_provider_contract() -> dict[str, Any]:
         },
         "openai_translation": {
             "provider": "openai",
-            "model": OPENAI_MODEL,
+            "model": OPENAI_TERRA_MODEL,
+            "daily_token_cap": OPENAI_TERRA_DAILY_TOKEN_CAP,
+            "reasoning_effort": "none",
+            "max_output_tokens": 16_384,
+            "automatic_retries": 0,
+        },
+        "openai_review": {
+            "provider": "openai",
+            "model": OPENAI_SOL_MODEL,
+            "daily_token_cap": OPENAI_SOL_DAILY_TOKEN_CAP,
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
             "automatic_retries": 0,
@@ -1381,7 +1398,10 @@ def _paid_candidate_cap_contract(
 ) -> dict[str, int]:
     gemini_cap = _positive_cap(gemini_call_cap, "gemini_call_cap", maximum=256)
     openai_cap = _positive_cap(openai_call_cap, "openai_call_cap", maximum=256)
-    openai_tokens = _positive_cap(openai_token_cap, "openai_token_cap", maximum=1_000_000)
+    openai_tokens = _positive_cap(
+        openai_token_cap, "openai_token_cap",
+        maximum=OPENAI_TERRA_DAILY_TOKEN_CAP,
+    )
     image_cap = _positive_cap(image_call_cap, "image_call_cap", maximum=256)
     ai33_cap = _positive_cap(ai33_call_cap, "ai33_call_cap", maximum=256)
     _validate_base_candidate_pool(candidates, daily_plan)
@@ -1778,6 +1798,13 @@ def run_produce_stage(
         label="openai_translation",
         journal_path=provider_journal_dir / "openai-translation.json",
     )
+    openai_review = CallBudget(
+        openai_provider,
+        cap=openai_cap,
+        token_cap=OPENAI_SOL_DAILY_TOKEN_CAP,
+        label="openai_review",
+        journal_path=provider_journal_dir / "openai-review.json",
+    )
     images = CallBudget(
         image_provider,
         cap=image_cap,
@@ -1820,9 +1847,9 @@ def run_produce_stage(
         "gemini": {"provider": resolved_gemini_source, "model": DEFAULT_GEMINI_MODEL, "max_output_tokens": 16_384},
         "translation": {
             "provider": "openai",
-            "model": OPENAI_MODEL,
+            "model": OPENAI_TERRA_MODEL,
             "reviewer_provider": "openai",
-            "reviewer_model": OPENAI_MODEL,
+            "reviewer_model": OPENAI_SOL_MODEL,
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
         },
@@ -1879,6 +1906,7 @@ def run_produce_stage(
         episode_plan=episode_plan,
         playoff=playoff,
         openai_translation=openai_translation,
+        openai_review=openai_review,
         checkpoint_dir=workdir / "translation-checkpoints",
     )
     script["visual_mode"] = resolved_visual_mode
@@ -2184,6 +2212,7 @@ def run_produce_stage(
         "creative_review": workdir / "creative-review.json",
         "gemini_attempts": provider_journal_dir / "gemini.json",
         "openai_translation_attempts": provider_journal_dir / "openai-translation.json",
+        "openai_review_attempts": provider_journal_dir / "openai-review.json",
         "image_attempts": provider_journal_dir / "image.json",
         "ai33_attempts": provider_journal_dir / "ai33.json",
     }
@@ -2251,6 +2280,12 @@ def run_produce_stage(
             "openai_translation_token_cap": openai_translation.token_cap,
             "openai_translation_usage": copy.deepcopy(
                 openai_translation.journal.get("usage_totals") or {}
+            ),
+            "openai_review_calls": len(openai_review.calls),
+            "openai_review_call_cap": openai_review.cap,
+            "openai_review_token_cap": openai_review.token_cap,
+            "openai_review_usage": copy.deepcopy(
+                openai_review.journal.get("usage_totals") or {}
             ),
             "image_calls": len(images.calls),
             "image_call_cap": images.cap,
@@ -2439,7 +2474,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gemini-call-cap", type=int, default=64)
     parser.add_argument("--confirm-openai-spend", default="false")
     parser.add_argument("--openai-call-cap", type=int, default=96)
-    parser.add_argument("--openai-token-cap", type=int, default=500_000)
+    parser.add_argument("--openai-token-cap", type=int, default=OPENAI_TERRA_DAILY_TOKEN_CAP)
     parser.add_argument("--confirm-image-spend", default="false")
     parser.add_argument("--image-call-cap", type=int, default=16)
     parser.add_argument("--confirm-ai33-spend", default="false")

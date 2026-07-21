@@ -57,7 +57,7 @@ class OpenAIClientTests(unittest.TestCase):
         post.assert_called_once()
         _, kwargs = post.call_args
         self.assertEqual(kwargs["json"], {
-            "model": "gpt-5.4-2026-03-05",
+            "model": "gpt-5.6-terra",
             "messages": [
                 {"role": "system", "content": "Return strict JSON only. Do not use Markdown."},
                 {"role": "user", "content": "translate"},

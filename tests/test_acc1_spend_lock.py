@@ -232,7 +232,16 @@ class Acc1SpendLockTests(unittest.TestCase):
         self.assertEqual(lease["requested_caps"]["openai_token_cap"], 1_000_000)
         self.assertEqual(lease["provider_contract"]["openai_translation"], {
             "provider": "openai",
-            "model": "gpt-5.4-2026-03-05",
+            "model": "gpt-5.6-terra",
+            "daily_token_cap": 3_000_000,
+            "reasoning_effort": "none",
+            "max_output_tokens": 16_384,
+            "automatic_retries": 0,
+        })
+        self.assertEqual(lease["provider_contract"]["openai_review"], {
+            "provider": "openai",
+            "model": "gpt-5.6-sol",
+            "daily_token_cap": 500_000,
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
             "automatic_retries": 0,
@@ -298,7 +307,7 @@ class Acc1SpendLockTests(unittest.TestCase):
         }
         for field, value, expected in (
             ("openai_call_cap", 257, "between 1 and 256"),
-            ("openai_token_cap", 1_000_001, "between 1 and 1000000"),
+            ("openai_token_cap", 3_000_001, "between 1 and 3000000"),
         ):
             with self.subTest(field=field):
                 arguments = copy.deepcopy(base)

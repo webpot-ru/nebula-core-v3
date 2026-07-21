@@ -38,6 +38,7 @@ class IncompleteTranslation(TranslationError):
 @dataclass(frozen=True)
 class TranslationConfig:
     model: str = DEFAULT_MODEL
+    reviewer_model: str | None = None
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     temperature: float = 0.2
     min_length_ratio: float = 0.65
@@ -136,10 +137,13 @@ def _apply_review_patches(source_title: str, source_body: str, translated: dict[
     return patched
 
 
-def _call(provider: Provider, prompt: str, config: TranslationConfig, *, temperature: float | None = None) -> dict[str, Any]:
+def _call(
+    provider: Provider, prompt: str, config: TranslationConfig, *,
+    temperature: float | None = None, model: str | None = None,
+) -> dict[str, Any]:
     result = provider(
         prompt=prompt,
-        model=config.model,
+        model=model or config.model,
         temperature=config.temperature if temperature is None else temperature,
         max_output_tokens=config.max_output_tokens,
     )
@@ -328,7 +332,10 @@ def translate_and_review_story(
     revisions = int(saved_review.get("revisions_completed") or 0) if saved_review else 0
     review_history: list[dict[str, Any]] = list(saved_review.get("review_history") or []) if saved_review else []
     while True:
-        review = _call(review_provider, _review_prompt(title, body, translated), config, temperature=0.0)
+        review = _call(
+            review_provider, _review_prompt(title, body, translated), config,
+            temperature=0.0, model=config.reviewer_model or config.model,
+        )
         review_history.append(review)
         if review_checkpoint_path:
             _atomic_json(review_checkpoint_path, {
@@ -363,7 +370,9 @@ def translate_and_review_story(
         "source_title": title,
         "source_body": raw_body,
         "translation_audit": {
-            "model": config.model, "max_output_tokens": config.max_output_tokens,
+            "model": config.model,
+            "reviewer_model": config.reviewer_model or config.model,
+            "max_output_tokens": config.max_output_tokens,
             "full_story_first": True, "chunk_fallback": used_chunk_fallback,
             "revisions": revisions, "review": review, "source_anchors": anchors,
             "source_text_normalization": {

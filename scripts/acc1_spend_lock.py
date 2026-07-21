@@ -35,7 +35,16 @@ ARTIFACT_DIRECTORY_RE = re.compile(r"^(?P<run_id>[1-9][0-9]*)-(?P<artifact_id>[1
 PROVIDER_CONTRACT: dict[str, Any] = {
     "openai_translation": {
         "provider": "openai",
-        "model": "gpt-5.4-2026-03-05",
+        "model": "gpt-5.6-terra",
+        "daily_token_cap": 3_000_000,
+        "reasoning_effort": "none",
+        "max_output_tokens": 16_384,
+        "automatic_retries": 0,
+    },
+    "openai_review": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "daily_token_cap": 500_000,
         "reasoning_effort": "none",
         "max_output_tokens": 16_384,
         "automatic_retries": 0,
@@ -446,7 +455,7 @@ def build_lease(
             requested_caps["openai_call_cap"], "openai_call_cap", 256,
         ),
         "openai_token_cap": _positive_int(
-            requested_caps["openai_token_cap"], "openai_token_cap", 1_000_000,
+            requested_caps["openai_token_cap"], "openai_token_cap", 3_000_000,
         ),
         "gemini_call_cap": _positive_int(
             requested_caps["gemini_call_cap"], "gemini_call_cap", 256,
@@ -553,7 +562,7 @@ def validate_lease(
         raise SpendLockError("spend lease caps are incomplete or unknown")
     _positive_int(caps["reddit_request_cap"], "lease reddit_request_cap", 100)
     _positive_int(caps["openai_call_cap"], "lease openai_call_cap", 256)
-    _positive_int(caps["openai_token_cap"], "lease openai_token_cap", 1_000_000)
+    _positive_int(caps["openai_token_cap"], "lease openai_token_cap", 3_000_000)
     for field in ("gemini_call_cap", "image_call_cap", "ai33_call_cap"):
         _positive_int(caps[field], f"lease {field}", 256)
     confirmations = lease.get("confirmations")
@@ -606,7 +615,7 @@ def validate_lease_for_production(
             requested_caps["openai_call_cap"], "openai_call_cap", 256,
         ),
         "openai_token_cap": _positive_int(
-            requested_caps["openai_token_cap"], "openai_token_cap", 1_000_000,
+            requested_caps["openai_token_cap"], "openai_token_cap", 3_000_000,
         ),
         "gemini_call_cap": _positive_int(
             requested_caps["gemini_call_cap"], "gemini_call_cap", 256,
