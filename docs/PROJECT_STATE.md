@@ -11,8 +11,9 @@ Last updated: 2026-07-22
   `if: always()` upload also attempted to package the multi-gigabyte temporary
   frame workspace. No review artifact or YouTube action resulted, and the
   failed GitHub run was removed after inspection.
-- The replacement recovery path is implemented locally but is not committed,
-  pushed or GitHub-verified. It polls the same saved AI33 task once, creates a
+- The replacement recovery path is committed and pushed on
+  `codex/acc1-single-audio-srt`, but has not yet completed successfully in
+  GitHub. It polls the same saved AI33 task once, creates a
   deterministic scene-bound segment plan, renders bounded silent segments in
   an eight-way GitHub matrix, deletes every segment workspace after rendering,
   concatenates H.264 segments without video re-encoding, and muxes the existing
@@ -21,6 +22,12 @@ Last updated: 2026-07-22
   excludes source images, frame caches and the complete work directory. The
   workflow exposes no image or YouTube credentials and authorizes zero new
   AI33 submissions.
+- First segmented dispatch `29888263491` on commit `df477bf` passed exact-scope,
+  source-artifact and durable-task checks, then stopped while verifying the
+  already-downloaded master MP3 because the preparation job lacked `ffprobe`.
+  Render and assembly were skipped; no new AI33 submission, image request or
+  YouTube action occurred. The local correction installs and verifies FFmpeg
+  before the existing-task poll; it is not yet rerun.
 
 The new canonical audio contract is `specs/acc1-audio-contract-v2.json`: one
 AI33 `eleven_v3` provider task for the full narrator text, one master MP3 and

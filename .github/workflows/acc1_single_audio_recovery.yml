@@ -48,7 +48,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install preparation dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffprobe -version
       - name: Download exact saved single-task artifact
         uses: actions/download-artifact@v4
         with:

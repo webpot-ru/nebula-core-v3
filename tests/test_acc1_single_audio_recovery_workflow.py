@@ -20,6 +20,13 @@ class SingleAudioRecoveryWorkflowTests(unittest.TestCase):
         self.assertIn("--render-segment", self.workflow)
         self.assertIn("--assemble-segmented", self.workflow)
 
+    def test_preparation_installs_ffprobe_before_audio_validation(self):
+        prepare = self.workflow.split("\n  render:\n", 1)[0]
+        install = prepare.index("sudo apt-get install -y ffmpeg")
+        poll = prepare.index("Poll existing AI33 task")
+        self.assertLess(install, poll)
+        self.assertIn("ffprobe -version", prepare)
+
     def test_provider_key_is_available_only_during_saved_task_poll(self):
         prepare, render = self.workflow.split("\n  render:\n", 1)
         render, assemble = render.split("\n  assemble:\n", 1)
