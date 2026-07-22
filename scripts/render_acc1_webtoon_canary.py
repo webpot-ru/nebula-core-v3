@@ -25,16 +25,29 @@ def _read(path: Path) -> dict:
     return value
 
 
-def resolve_artifact_root(download_root: Path) -> Path:
-    direct = download_root / "storyboard-single-audio.json"
-    if direct.is_file():
-        return download_root
-    matches = list(download_root.rglob("storyboard-single-audio.json"))
+def resolve_storyboard(download_root: Path) -> Path:
+    matches = []
+    for path in download_root.rglob("*storyboard*.json"):
+        try:
+            payload = _read(path)
+        except (OSError, json.JSONDecodeError, RuntimeError):
+            continue
+        if (
+            isinstance(payload.get("slides"), list)
+            and isinstance(payload.get("motion_plan"), dict)
+            and payload.get("style_profile") == "cinematic_ink_webtoon_v1"
+        ):
+            matches.append(path)
     if len(matches) != 1:
-        raise RuntimeError(
-            f"expected exactly one storyboard-single-audio.json, found {len(matches)}",
-        )
-    return matches[0].parent
+        raise RuntimeError(f"expected exactly one production webtoon storyboard, found {len(matches)}")
+    return matches[0]
+
+
+def resolve_master_audio(download_root: Path) -> Path:
+    matches = list(download_root.rglob("narration-master.mp3"))
+    if len(matches) != 1:
+        raise RuntimeError(f"expected exactly one narration-master.mp3, found {len(matches)}")
+    return matches[0]
 
 
 def build_canary_storyboard(source: dict, *, scene_count: int = 4) -> tuple[dict, float, float]:
@@ -108,14 +121,16 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--scene-count", type=int, default=4, choices=range(3, 6))
     args = parser.parse_args()
-    root = resolve_artifact_root(Path(args.artifact_root).resolve())
+    download_root = Path(args.artifact_root).resolve()
+    storyboard_path = resolve_storyboard(download_root)
+    root = storyboard_path.parent
     output = Path(args.output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
-    source = _read(root / "storyboard-single-audio.json")
+    source = _read(storyboard_path)
     storyboard, start, end = build_canary_storyboard(source, scene_count=args.scene_count)
     (output / "storyboard-canary.json").write_text(
         json.dumps(storyboard, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    master = root / "tts-single/narration-master.mp3"
+    master = resolve_master_audio(download_root)
     audio = output / "narration-canary.mp3"
     subprocess.run(["ffmpeg", "-y", "-ss", f"{start:.3f}", "-t", f"{end-start:.3f}",
                     "-i", str(master), "-vn", "-c:a", "libmp3lame", "-q:a", "2", str(audio)],
