@@ -189,6 +189,7 @@ class EditorialMotionRendererTests(unittest.TestCase):
         self.assertIn("#portal-story-motion-007", tweens)
         self.assertIn("opacity:0,duration:.46", tweens)
         self.assertNotIn("rotation", tweens)
+        self.assertIn("40.300", tweens)
 
 
 if __name__ == "__main__":

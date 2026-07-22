@@ -526,19 +526,21 @@ def _cinematic_webtoon_scene_tweens(scene: dict[str, Any]) -> list[str]:
     }.get(module, (1.20, 0, -24))
     hero_scale, hero_x, hero_y = hero_focus
     detail_scale, detail_x, detail_y = detail_focus
-    hero_move_at = start + duration * 0.10
+    hero_move_at = start + 0.30
     page_turn_at = start + duration * 0.49
-    detail_move_at = start + duration * 0.57
+    detail_move_at = page_turn_at + 0.46
+    hero_move_duration = max(0.4, page_turn_at - hero_move_at)
+    detail_move_duration = max(0.4, exit_at - detail_move_at)
     return [
         f"tl.fromTo('#inner-{sid}', {{opacity:0}}, {{opacity:1,duration:.36,ease:'power1.out'}}, {entrance:.3f});",
         f"tl.to('#inner-{sid}', {{opacity:0,duration:.30,ease:'power1.in'}}, {exit_at:.3f});",
         f"tl.set('#inner-{sid}', {{opacity:0}}, {start + duration:.3f});",
         f"tl.set('#hero-{sid}', {{opacity:0}}, {start:.3f});",
         f"tl.set('#object-{sid}', {{opacity:0}}, {start:.3f});",
-        f"tl.fromTo('#cutout-{sid}', {{opacity:1,scale:1,x:0,y:0}}, {{scale:{hero_scale:.3f},x:{hero_x},y:{hero_y},duration:{duration * .35:.3f},ease:'sine.inOut'}}, {hero_move_at:.3f});",
+        f"tl.fromTo('#cutout-{sid}', {{opacity:1,scale:1,x:0,y:0}}, {{scale:{hero_scale:.3f},x:{hero_x},y:{hero_y},duration:{hero_move_duration:.3f},ease:'sine.inOut'}}, {hero_move_at:.3f});",
         f"tl.fromTo('#portal-{sid}', {{opacity:0,scale:1,x:0,y:0}}, {{opacity:1,duration:.46,ease:'power1.inOut'}}, {page_turn_at:.3f});",
         f"tl.to('#cutout-{sid}', {{opacity:0,duration:.46,ease:'power1.inOut'}}, {page_turn_at:.3f});",
-        f"tl.to('#portal-{sid}', {{scale:{detail_scale:.3f},x:{detail_x},y:{detail_y},duration:{duration * .34:.3f},ease:'sine.inOut'}}, {detail_move_at:.3f});",
+        f"tl.to('#portal-{sid}', {{scale:{detail_scale:.3f},x:{detail_x},y:{detail_y},duration:{detail_move_duration:.3f},ease:'sine.inOut'}}, {detail_move_at:.3f});",
     ]
 
 
