@@ -46,10 +46,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           npx --yes hyperframes@0.7.61 info
-      - name: Download completed images and master audio
+      - name: Download immutable source images
         uses: actions/download-artifact@v4
         with:
-          name: acc1-single-audio-recovered-29888971818
+          name: acc1-single-audio-rerender-29828099086
+          path: ${{ env.SOURCE }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 29828099086
+      - name: Download completed storyboard and master audio
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-segmented-preparation-29888971818
           path: ${{ env.SOURCE }}
           github-token: ${{ github.token }}
           repository: webpot-ru/nebula-core-v3
