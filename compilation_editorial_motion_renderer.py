@@ -801,7 +801,11 @@ def _run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
     except (OSError, subprocess.CalledProcessError) as exc:
         detail = ""
         if isinstance(exc, subprocess.CalledProcessError):
-            detail = (exc.stderr or exc.stdout or "").strip()[-2000:]
+            streams = [
+                value.strip() for value in (exc.stdout or "", exc.stderr or "")
+                if value.strip()
+            ]
+            detail = "\n".join(streams)[-6000:]
         raise EditorialMotionRenderError(
             f"HyperFrames command failed: {' '.join(command)} {detail}",
         ) from exc

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from subprocess import CalledProcessError
 from pathlib import Path
 
 from PIL import Image
@@ -16,12 +17,20 @@ from compilation_editorial_motion_renderer import (
     _composition_html,
     _cinematic_webtoon_scene_tweens,
     _ink_gouache_scene_tweens,
+    _run,
     preflight_editorial_motion_storyboard,
 )
 from acc1_visual_contract import INK_GOUACHE_STORY_PAGES_STYLE_PROFILE
 
 
 class EditorialMotionRendererTests(unittest.TestCase):
+    def test_run_reports_stdout_and_stderr_on_cli_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(EditorialMotionRenderError) as caught:
+                _run(["sh", "-c", "echo json-detail; echo browser-detail >&2; exit 1"], cwd=Path(tmp))
+        self.assertIn("json-detail", str(caught.exception))
+        self.assertIn("browser-detail", str(caught.exception))
+
     def _storyboard(
         self, root: Path, *, profile: str = EDITORIAL_MOTION_STYLE_PROFILE,
         story_family: str | None = None, page_layout: str | None = None,
