@@ -46,6 +46,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           npx --yes hyperframes@0.7.61 info
+          npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+            --path "$RUNNER_TEMP/hyperframes-browsers"
+          browser_path="$(find "$RUNNER_TEMP/hyperframes-browsers" \
+            -type f -name chrome-headless-shell -perm -111 | head -n 1)"
+          test -x "$browser_path"
+          echo "HYPERFRAMES_BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
       - name: Download immutable source images
         uses: actions/download-artifact@v4
         with:
