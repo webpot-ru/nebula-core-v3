@@ -1,5 +1,5 @@
-name: acc1 Single Audio Existing Task Recovery
-run-name: acc1 four-scene webtoon canary from ${{ inputs.source_run_id }}
+name: acc1 Four-Page Light Comic Canary
+run-name: acc1 four new light comic pages from ${{ inputs.source_run_id }}
 
 on:
   workflow_dispatch:
@@ -8,8 +8,8 @@ on:
         required: true
         default: "29888971818"
         type: string
-      confirm_poll_existing_task_only:
-        description: Confirm reuse only; no provider calls or polling
+      confirm_exactly_four_image_calls:
+        description: Confirm exactly four VectorEngine image calls, no retries
         required: true
         default: false
         type: boolean
@@ -26,10 +26,10 @@ jobs:
       SOURCE: build/acc1-existing
       OUTPUT: build/acc1-existing/canary-output
     steps:
-      - name: Require exact zero-provider scope
+      - name: Require exact bounded scope
         env:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
-          CONFIRM: ${{ inputs.confirm_poll_existing_task_only }}
+          CONFIRM: ${{ inputs.confirm_exactly_four_image_calls }}
         run: |
           test "$SOURCE_RUN_ID" = "29888971818"
           test "$CONFIRM" = "true"
@@ -52,14 +52,6 @@ jobs:
             -type f -name chrome-headless-shell -perm -111 | head -n 1)"
           test -x "$browser_path"
           echo "HYPERFRAMES_BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
-      - name: Download immutable source images
-        uses: actions/download-artifact@v4
-        with:
-          name: acc1-single-audio-rerender-29828099086
-          path: ${{ env.SOURCE }}
-          github-token: ${{ github.token }}
-          repository: webpot-ru/nebula-core-v3
-          run-id: 29828099086
       - name: Download completed storyboard and master audio
         uses: actions/download-artifact@v4
         with:
@@ -71,9 +63,13 @@ jobs:
       - name: Inventory reusable inputs
         run: |
           find "$SOURCE" -type f -printf '%P\n' | sort | head -300
-      - name: Render four existing comic scenes
-        run: python scripts/render_acc1_webtoon_canary.py --artifact-root "$SOURCE" --output-dir "$OUTPUT" --scene-count 4
-      - name: Verify zero-provider review output
+      - name: Generate exactly four approved light comic pages
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: python scripts/generate_acc1_webtoon_canary_pages.py --artifact-root "$SOURCE" --output-dir "$OUTPUT/generated-input" --confirm-exactly-four-image-calls
+      - name: Render four new comic scenes with existing narration
+        run: python scripts/render_acc1_webtoon_canary.py --artifact-root "$SOURCE" --storyboard-path "$OUTPUT/generated-input/storyboard-generated.json" --output-dir "$OUTPUT" --scene-count 4 --new-image-calls 4
+      - name: Verify bounded review output
         run: |
           test -s "$OUTPUT/webtoon-canary.mp4"
           test -s "$OUTPUT/narration-canary.mp3"
@@ -83,8 +79,11 @@ jobs:
           r=json.load(open(sys.argv[1]))
           assert r['renderer']=='chrome_guided_webtoon_v2'
           assert r['scene_count']==4
-          assert r['new_ai33_calls']==0 and r['new_image_calls']==0
+          assert r['new_ai33_calls']==0 and r['new_image_calls']==4
           assert r['youtube_called'] is False
+          j=json.load(open(sys.argv[1].replace('render-report.json','generated-input/paid-image-attempts.json')))
+          assert j['approved_call_cap']==4 and j['automatic_retries']==0
+          assert len(j['attempts'])==4 and all(x['status']=='complete' for x in j['attempts'])
           PY
           ffprobe -v error -show_entries stream=codec_type,codec_name -of json "$OUTPUT/webtoon-canary.mp4"
       - name: Upload short canary only

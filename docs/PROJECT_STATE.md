@@ -98,15 +98,22 @@ all four captured frames were inspected. This is local browser evidence only:
 no MP4 approval render, GitHub run, provider call, commit, push or upload was
 performed.
 
-The branch also contains a zero-provider GitHub canary surface at
-`.github/workflows/acc1_single_audio_recovery.yml`. It reuses immutable images
-from run `29828099086` plus the completed storyboard/master MP3 preparation
-overlay from run `29888971818`, selects four consecutive existing story scenes,
-crops the already completed master MP3 to the same interval, renders
-through `chrome_guided_webtoon_v2`, and uploads only the short MP4, four PNG
-review frames and evidence. It has no provider credentials, polling, image/TTS
-submission or YouTube step. A workflow run is evidence only after its artifact
-and frames are inspected.
+The branch also contains the bounded GitHub canary surface
+`.github/workflows/acc1_single_audio_recovery.yml`. Historical no-provider run
+`29911975008` proved the Chrome MP4 path with four existing dark pages and the
+existing master narration, but it did not test the approved light graphic-comic
+art direction and is therefore not style approval evidence. Its initial evenly
+spaced PNG extraction also landed on every intentional page crossfade; review
+frames now come from 25% of each scene instead. The revised workflow makes
+exactly four new VectorEngine image calls with automatic retries disabled. Each
+call creates one distinct bright warm-white, black-ink and vermilion three-panel
+comic page tied to one existing narration scene; the generated page is reused
+only as the hero/detail view inside that same scene. It then crops the already
+completed master MP3 from preparation run `29888971818`, renders through
+`chrome_guided_webtoon_v2`, and uploads the four source pages, short MP4, four
+stable PNG review frames and spend journal. The workflow has no AI33 or YouTube
+step. A new run is evidence only after all four generated pages and rendered
+frames are inspected.
 
 ## First-release no-spend pre-production (local only)
 

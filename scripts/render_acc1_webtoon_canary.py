@@ -115,19 +115,36 @@ def build_canary_storyboard(source: dict, *, scene_count: int = 4) -> tuple[dict
     return storyboard, source_start, source_end
 
 
+def review_frame_times(storyboard: dict, *, progress: float = 0.25) -> list[float]:
+    """Pick a stable in-scene review point, away from page crossfades."""
+    if not 0.0 < progress < 0.5:
+        raise ValueError("review progress must be between 0 and 0.5")
+    return [
+        round(float(scene["start_sec"]) + float(scene["duration_sec"]) * progress, 3)
+        for scene in storyboard.get("slides") or []
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--scene-count", type=int, default=4, choices=range(3, 6))
+    parser.add_argument("--storyboard-path")
+    parser.add_argument("--new-image-calls", type=int, default=0, choices=range(0, 5))
     args = parser.parse_args()
     download_root = Path(args.artifact_root).resolve()
-    storyboard_path = resolve_storyboard(download_root)
+    storyboard_path = Path(args.storyboard_path).resolve() if args.storyboard_path else resolve_storyboard(download_root)
     root = storyboard_path.parent
     output = Path(args.output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
     source = _read(storyboard_path)
-    storyboard, start, end = build_canary_storyboard(source, scene_count=args.scene_count)
+    if args.storyboard_path:
+        storyboard = source
+        start = float(source.get("canary_source_start_sec", source["slides"][0]["start_sec"]))
+        end = float(source.get("canary_source_end_sec", source["slides"][-1]["end_sec"]))
+    else:
+        storyboard, start, end = build_canary_storyboard(source, scene_count=args.scene_count)
     (output / "storyboard-canary.json").write_text(
         json.dumps(storyboard, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     master = resolve_master_audio(download_root)
@@ -138,16 +155,17 @@ def main() -> int:
     video = output / "webtoon-canary.mp4"
     report = render_chrome_guided_webtoon(storyboard, root, video, audio=audio)
     report.update({"source_run_id": "29888971818", "scene_count": args.scene_count,
-                   "new_ai33_calls": 0, "new_image_calls": 0, "youtube_called": False})
+                   "new_ai33_calls": 0, "new_image_calls": args.new_image_calls,
+                   "youtube_called": False})
     (output / "render-report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     frame_dir = output / "frames"
     frame_dir.mkdir(exist_ok=True)
-    subprocess.run([
-        "ffmpeg", "-y", "-i", str(video),
-        "-vf", f"fps=4/{storyboard['timeline_duration_sec']}",
-        "-frames:v", "4", str(frame_dir / "frame-%02d.png"),
-    ], check=True)
+    for index, timestamp in enumerate(review_frame_times(storyboard), start=1):
+        subprocess.run([
+            "ffmpeg", "-y", "-ss", f"{timestamp:.3f}", "-i", str(video),
+            "-frames:v", "1", str(frame_dir / f"frame-{index:02d}.png"),
+        ], check=True)
     return 0
 
 

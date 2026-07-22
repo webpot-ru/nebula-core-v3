@@ -3,7 +3,12 @@ import unittest
 from pathlib import Path
 
 from acc1_editorial_motion import bind_payload
-from scripts.render_acc1_webtoon_canary import build_canary_storyboard, resolve_master_audio, resolve_storyboard
+from scripts.render_acc1_webtoon_canary import (
+    build_canary_storyboard,
+    resolve_master_audio,
+    resolve_storyboard,
+    review_frame_times,
+)
 
 
 class WebtoonCanaryTests(unittest.TestCase):
@@ -41,6 +46,13 @@ class WebtoonCanaryTests(unittest.TestCase):
         self.assertEqual(canary["slides"][0]["start_sec"], 0.0)
         self.assertEqual(canary["slides"][-1]["end_sec"], 16.0)
         self.assertFalse(canary["publication_authorized"])
+        self.assertEqual(review_frame_times(canary), [1.0, 5.0, 9.0, 13.0])
+
+    def test_review_frames_stay_before_page_crossfade(self):
+        storyboard = {"slides": [{"start_sec": 0.0, "duration_sec": 20.0}]}
+        self.assertEqual(review_frame_times(storyboard), [5.0])
+        with self.assertRaises(ValueError):
+            review_frame_times(storyboard, progress=0.5)
 
 
 if __name__ == "__main__":
