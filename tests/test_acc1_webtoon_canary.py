@@ -1,10 +1,19 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from acc1_editorial_motion import bind_payload
-from scripts.render_acc1_webtoon_canary import build_canary_storyboard
+from scripts.render_acc1_webtoon_canary import build_canary_storyboard, resolve_artifact_root
 
 
 class WebtoonCanaryTests(unittest.TestCase):
+    def test_resolves_single_nested_download_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            nested = Path(tmp) / "artifact" / "build" / "recovered"
+            nested.mkdir(parents=True)
+            (nested / "storyboard-single-audio.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(resolve_artifact_root(Path(tmp)), nested)
+
     def test_rebases_four_scenes_and_preserves_zero_publication(self):
         scenes = []
         cues = []

@@ -25,6 +25,18 @@ def _read(path: Path) -> dict:
     return value
 
 
+def resolve_artifact_root(download_root: Path) -> Path:
+    direct = download_root / "storyboard-single-audio.json"
+    if direct.is_file():
+        return download_root
+    matches = list(download_root.rglob("storyboard-single-audio.json"))
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"expected exactly one storyboard-single-audio.json, found {len(matches)}",
+        )
+    return matches[0].parent
+
+
 def build_canary_storyboard(source: dict, *, scene_count: int = 4) -> tuple[dict, float, float]:
     slides = list(source.get("slides") or [])
     start_index = next((index for index, scene in enumerate(slides)
@@ -96,7 +108,7 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--scene-count", type=int, default=4, choices=range(3, 6))
     args = parser.parse_args()
-    root = Path(args.artifact_root).resolve()
+    root = resolve_artifact_root(Path(args.artifact_root).resolve())
     output = Path(args.output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
     source = _read(root / "storyboard-single-audio.json")
