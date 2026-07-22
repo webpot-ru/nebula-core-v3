@@ -54,6 +54,9 @@ jobs:
           github-token: ${{ github.token }}
           repository: webpot-ru/nebula-core-v3
           run-id: 29888971818
+      - name: Inventory reusable inputs
+        run: |
+          find "$SOURCE" -type f -printf '%P\n' | sort | head -300
       - name: Render four existing comic scenes
         run: python scripts/render_acc1_webtoon_canary.py --artifact-root "$SOURCE" --output-dir "$OUTPUT" --scene-count 4
       - name: Verify zero-provider review output
