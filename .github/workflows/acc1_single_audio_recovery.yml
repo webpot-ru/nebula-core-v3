@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 90
     env:
       SOURCE: build/acc1-existing
-      OUTPUT: build/acc1-webtoon-canary
+      OUTPUT: build/acc1-existing/canary-output
     steps:
       - name: Require exact zero-provider scope
         env:
