@@ -27,7 +27,15 @@ Last updated: 2026-07-22
   already-downloaded master MP3 because the preparation job lacked `ffprobe`.
   Render and assembly were skipped; no new AI33 submission, image request or
   YouTube action occurred. The local correction installs and verifies FFmpeg
-  before the existing-task poll; it is not yet rerun.
+  before the existing-task poll.
+- Second segmented dispatch `29888590041` on commit `ef94d7b` completed the
+  existing-task poll and preparation in 2m12s, proving the saved MP3/SRT and a
+  nine-segment render matrix. The render jobs then stopped during dependency
+  setup because project-scoped `hyperframes info` was invoked before a segment
+  workspace existed. The run was cancelled after the first identical failure;
+  no render job received provider credentials and no new AI33/image/YouTube
+  call occurred. The local correction removes that premature diagnostic; each
+  real segment still executes HyperFrames `check` before `render`.
 
 The new canonical audio contract is `specs/acc1-audio-contract-v2.json`: one
 AI33 `eleven_v3` provider task for the full narrator text, one master MP3 and

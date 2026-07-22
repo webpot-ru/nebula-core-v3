@@ -27,6 +27,12 @@ class SingleAudioRecoveryWorkflowTests(unittest.TestCase):
         self.assertLess(install, poll)
         self.assertIn("ffprobe -version", prepare)
 
+    def test_render_does_not_run_project_scoped_info_before_workspace_exists(self):
+        render = self.workflow.split("\n  render:\n", 1)[1].split("\n  assemble:\n", 1)[0]
+        self.assertNotIn("hyperframes@0.7.61 info", render)
+        self.assertIn("@puppeteer/browsers install chrome-headless-shell@stable", render)
+        self.assertIn("--render-segment", render)
+
     def test_provider_key_is_available_only_during_saved_task_poll(self):
         prepare, render = self.workflow.split("\n  render:\n", 1)
         render, assemble = render.split("\n  assemble:\n", 1)
