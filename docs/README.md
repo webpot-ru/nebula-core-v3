@@ -24,6 +24,33 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 
+### Segmented single-audio recovery
+
+The exact saved AI33 task recovery uses
+`.github/workflows/acc1_single_audio_recovery.yml`. Its three-stage cloud path
+is `prepare -> render matrix -> assemble`: preparation polls the existing task
+and writes `segmented-render-plan.json`; each matrix job renders one complete
+scene-bound segment and discards its HyperFrames workspace; assembly concatenates
+the verified H.264 segments without re-encoding and muxes the existing master
+audio. Only preparation metadata/audio, individual segment MP4s, and the final
+review package are uploaded. Source images and browser frame caches are never
+included in review artifacts.
+
+The deterministic entrypoint also exposes the individual phases for recovery
+and CI diagnostics:
+
+```bash
+python scripts/rerender_acc1_single_audio.py --artifact-root BUILD \
+  --prepare-segmented --resume-existing-task-only
+python scripts/rerender_acc1_single_audio.py --artifact-root BUILD \
+  --render-segment 1
+python scripts/rerender_acc1_single_audio.py --artifact-root BUILD \
+  --assemble-segmented
+```
+
+The preparation phase requires the AI33 key only to poll the already-submitted
+task. Render and assembly jobs receive no provider or YouTube credentials.
+
 **Current topic decision**: [`topic-strategy-research-2026-07-10.md`](topic-strategy-research-2026-07-10.md) is the source of truth for channel ownership, source lanes, the 90-day plan, evidence boundaries, and validation gates.
 
 **Current Russian channel decision**: [`acc1-russian-reddit-story-strategy-2026-07-13.md`](acc1-russian-reddit-story-strategy-2026-07-13.md) is the canonical viewer promise, SAGA/BUNDLE/THREAD contract, six-slot daily pilot matrix, S-tier target gates, brand package, and visual/thumbnail system for `acc1`.

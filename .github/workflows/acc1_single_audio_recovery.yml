@@ -1,5 +1,5 @@
 name: acc1 Single Audio Existing Task Recovery
-run-name: acc1 poll saved master-audio task from ${{ inputs.source_run_id }}
+run-name: acc1 segmented recovery from ${{ inputs.source_run_id }}
 
 on:
   workflow_dispatch:
@@ -17,26 +17,109 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: acc1-single-audio-recovery
+  cancel-in-progress: false
+
+env:
+  WORKDIR: build/acc1-single-audio-recovery
+  SOURCE_ARTIFACT: acc1-single-audio-rerender-29828099086
+  SOURCE_RUN_ID: "29828099086"
+
 jobs:
-  recover:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
-    concurrency:
-      group: acc1-single-audio-recovery
-      cancel-in-progress: false
-    env:
-      WORKDIR: build/acc1-single-audio-recovery
+    timeout-minutes: 60
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Require exact saved-task scope
         env:
-          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          REQUESTED_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           CONFIRM: ${{ inputs.confirm_poll_existing_task_only }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          test "$SOURCE_RUN_ID" = "29828099086"
+          test "$REQUESTED_SOURCE_RUN_ID" = "$SOURCE_RUN_ID"
           test "$CONFIRM" = "true"
           test "$RUN_ATTEMPT" = "1"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install preparation dependencies
+        run: pip install -r requirements.txt
+      - name: Download exact saved single-task artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.SOURCE_ARTIFACT }}
+          path: ${{ env.WORKDIR }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Verify durable task before exposing key
+        run: |
+          python - "$WORKDIR/tts-single/single-audio-request.json" <<'PY'
+          import json, sys
+          request = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert request["status"] == "SUBMITTED"
+          assert request["task_id"] == "a7ac4460-dd83-4493-86f5-fa850b2995da"
+          assert request["provider_task_cap"] == 1
+          assert request["with_transcript"] is True
+          PY
+      - name: Poll existing AI33 task and prepare deterministic segment plan
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          AI33_PRONUNCIATION_DICTIONARY_ID: ${{ secrets.AI33_PRONUNCIATION_DICTIONARY_ID }}
+        run: |
+          timeout --signal=TERM --kill-after=60s 2700s \
+            python scripts/rerender_acc1_single_audio.py \
+              --artifact-root "$WORKDIR" \
+              --prepare-segmented \
+              --resume-existing-task-only
+      - name: Export bounded render matrix
+        id: plan
+        run: |
+          python - "$WORKDIR/segmented-render-plan.json" "$WORKDIR/single-audio-preparation-result.json" "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          plan = json.load(open(sys.argv[1], encoding="utf-8"))
+          result = json.load(open(sys.argv[2], encoding="utf-8"))
+          indices = [int(item["index"]) for item in plan["segments"]]
+          assert result["status"] == "SEGMENTED_RENDER_PREPARED"
+          assert result["ai33_task_submissions"] == 0
+          assert result["existing_ai33_task_polled"] is True
+          assert result["image_calls"] == 0
+          assert result["youtube_called"] is False
+          assert 2 <= len(indices) <= 16
+          assert indices == list(range(1, len(indices) + 1))
+          with open(sys.argv[3], "a", encoding="utf-8") as output:
+              output.write("matrix=" + json.dumps({"segment": indices}, separators=(",", ":")) + "\n")
+          PY
+      - name: Upload preparation overlay only
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-segmented-preparation-${{ github.run_id }}
+          path: |
+            ${{ env.WORKDIR }}/episode-script.json
+            ${{ env.WORKDIR }}/storyboard-single-audio.json
+            ${{ env.WORKDIR }}/segmented-render-plan.json
+            ${{ env.WORKDIR }}/single-audio-preparation-result.json
+            ${{ env.WORKDIR }}/tts-single/*.mp3
+            ${{ env.WORKDIR }}/tts-single/*.srt
+            ${{ env.WORKDIR }}/tts-single/*.json
+            ${{ env.WORKDIR }}/branding/*
+          if-no-files-found: error
+          retention-days: 1
+
+  render:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -44,7 +127,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install deterministic dependencies
+      - name: Install deterministic render dependencies
         run: |
           pip install -r requirements.txt
           sudo apt-get update
@@ -56,51 +139,115 @@ jobs:
             -type f -name chrome-headless-shell -perm -111 | head -n 1)"
           test -x "$browser_path"
           echo "HYPERFRAMES_BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
-      - name: Download exact saved single-task artifact
+      - name: Download immutable source images
         uses: actions/download-artifact@v4
         with:
-          name: acc1-single-audio-rerender-29828099086
+          name: ${{ env.SOURCE_ARTIFACT }}
           path: ${{ env.WORKDIR }}
           github-token: ${{ github.token }}
           repository: webpot-ru/nebula-core-v3
-          run-id: 29828099086
-      - name: Verify durable task before exposing key
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Download preparation overlay
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-segmented-preparation-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+      - name: Render one bounded silent segment
         run: |
-          python - "$WORKDIR/tts-single/single-audio-request.json" <<'PY'
-          import json,sys
-          r=json.load(open(sys.argv[1]))
-          assert r['status']=='SUBMITTED'
-          assert r['task_id']=='a7ac4460-dd83-4493-86f5-fa850b2995da'
-          assert r['provider_task_cap']==1
-          assert r['with_transcript'] is True
-          PY
-      - name: Poll existing task with long timeout and render
+          python scripts/rerender_acc1_single_audio.py \
+            --artifact-root "$WORKDIR" \
+            --render-segment "${{ matrix.segment }}"
+      - name: Verify segment has no external calls
         env:
-          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
-          AI33_PRONUNCIATION_DICTIONARY_ID: ${{ secrets.AI33_PRONUNCIATION_DICTIONARY_ID }}
+          SEGMENT: ${{ matrix.segment }}
         run: |
-          timeout --signal=TERM --kill-after=60s 18000s \
-            python scripts/rerender_acc1_single_audio.py \
-              --artifact-root "$WORKDIR" --produce --resume-existing-task-only
-      - name: Verify zero new submissions
+          python - "$WORKDIR" "$SEGMENT" <<'PY'
+          import json, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          index = int(sys.argv[2])
+          report = json.load(open(root / "render-segments" / f"segment-{index:03d}.json", encoding="utf-8"))
+          assert report["status"] == "PASS"
+          assert report["provider_calls"] == 0
+          assert report["youtube_called"] is False
+          assert report["temporary_workspace_removed"] is True
+          assert (root / "render-segments" / f"segment-{index:03d}.mp4").stat().st_size > 0
+          PY
+      - name: Upload only rendered segment
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-render-segment-${{ matrix.segment }}-${{ github.run_id }}
+          path: |
+            ${{ env.WORKDIR }}/render-segments/segment-*.mp4
+            ${{ env.WORKDIR }}/render-segments/segment-*.json
+          if-no-files-found: error
+          retention-days: 1
+
+  assemble:
+    needs: [prepare, render]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deterministic assembly dependencies
+        run: |
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Download immutable source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.SOURCE_ARTIFACT }}
+          path: ${{ env.WORKDIR }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: ${{ env.SOURCE_RUN_ID }}
+      - name: Download preparation overlay
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-segmented-preparation-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+      - name: Download all rendered segments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: acc1-render-segment-*-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}/render-segments
+          merge-multiple: true
+      - name: Assemble segments without re-encoding video
+        run: |
+          python scripts/rerender_acc1_single_audio.py \
+            --artifact-root "$WORKDIR" \
+            --assemble-segmented
+      - name: Verify final review package
         run: |
           python - "$WORKDIR/single-audio-rerender-result.json" <<'PY'
-          import json,sys
-          r=json.load(open(sys.argv[1]))
-          assert r['status']=='READY_FOR_HUMAN_REVIEW'
-          assert r['ai33_task_submissions']==0
-          assert r['existing_ai33_task_polled'] is True
-          assert r['image_calls']==0
-          assert r['youtube_called'] is False
+          import json, sys
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          assert result["status"] == "READY_FOR_HUMAN_REVIEW"
+          assert result["ai33_task_submissions"] == 0
+          assert result["existing_ai33_task_polled"] is True
+          assert result["image_calls"] == 0
+          assert result["youtube_called"] is False
+          assert result["temporary_frame_workspaces_removed"] is True
           PY
           test -s "$WORKDIR/tts-single/narration-master.mp3"
           test -s "$WORKDIR/tts-single/narration.srt"
           test -s "$WORKDIR/final-output-single-audio.mp4"
-      - name: Upload review artifact
-        if: always()
+      - name: Upload final review files only
         uses: actions/upload-artifact@v4
         with:
           name: acc1-single-audio-recovered-${{ github.run_id }}
-          path: ${{ env.WORKDIR }}
+          path: |
+            ${{ env.WORKDIR }}/final-output-single-audio.mp4
+            ${{ env.WORKDIR }}/tts-single/*.mp3
+            ${{ env.WORKDIR }}/tts-single/*.srt
+            ${{ env.WORKDIR }}/tts-single/*.json
+            ${{ env.WORKDIR }}/editorial-motion-captions.srt
+            ${{ env.WORKDIR }}/single-audio-rerender-result.json
+            ${{ env.WORKDIR }}/render-report-single-audio.json
+            ${{ env.WORKDIR }}/segmented-render-plan.json
+            ${{ env.WORKDIR }}/single-audio-preparation-result.json
           if-no-files-found: error
           retention-days: 30

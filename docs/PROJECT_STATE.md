@@ -1,11 +1,26 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-20
+Last updated: 2026-07-22
 
-## Acc1 single-audio + SRT migration (GitHub task submitted; recovery pending)
+## Acc1 single-audio + SRT migration (segmented recovery implemented locally)
 
 - GitHub run `29828099086` submitted exactly one AI33 v3 task, `a7ac4460-dd83-4493-86f5-fa850b2995da`, with transcript output enabled. Its first status read hit the provider's transient HTTP 429 `Task polling temporarily busy`; no replacement task is authorized or required.
-- The saved run artifact contains the durable `SUBMITTED` request. The recovery workflow is constrained to that exact run and task ID, performs zero new AI33 submissions, exposes no image or YouTube credentials, and allows up to four hours per provider polling session plus bounded repeated checks for transient polling 429 responses.
+- The saved run artifact contains the durable `SUBMITTED` request. Recovery run
+  `29836923590` reached Chrome/HyperFrames rendering but the monolithic
+  893-second composition exhausted its five-hour job limit; its broad
+  `if: always()` upload also attempted to package the multi-gigabyte temporary
+  frame workspace. No review artifact or YouTube action resulted, and the
+  failed GitHub run was removed after inspection.
+- The replacement recovery path is implemented locally but is not committed,
+  pushed or GitHub-verified. It polls the same saved AI33 task once, creates a
+  deterministic scene-bound segment plan, renders bounded silent segments in
+  an eight-way GitHub matrix, deletes every segment workspace after rendering,
+  concatenates H.264 segments without video re-encoding, and muxes the existing
+  master narration in a separate assembly job. Intermediate artifacts contain
+  only the preparation overlay or one MP4 segment; the final artifact allowlist
+  excludes source images, frame caches and the complete work directory. The
+  workflow exposes no image or YouTube credentials and authorizes zero new
+  AI33 submissions.
 
 The new canonical audio contract is `specs/acc1-audio-contract-v2.json`: one
 AI33 `eleven_v3` provider task for the full narrator text, one master MP3 and
