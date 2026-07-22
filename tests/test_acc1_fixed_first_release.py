@@ -18,6 +18,13 @@ class FixedFirstReleaseTests(unittest.TestCase):
         self.assertNotIn("overlay_thumbnail_text", source)
         self.assertIn("СЕМЬЯ ТРЕБУЕТ ПРОСТИТЬ", source)
 
+        renderer = (ROOT / "compilation_editorial_motion_renderer.py").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("Cinematic Webtoon v2", renderer)
+        self.assertIn("_cinematic_webtoon_scene_tweens", renderer)
+        self.assertIn("complete pages, never collage parts", renderer)
+
     def test_workflow_has_exact_spend_and_no_publish_surface(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("confirm_69_image_calls", workflow)

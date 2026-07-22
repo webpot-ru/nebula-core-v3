@@ -26,6 +26,10 @@ class ChromeGuidedWebtoonRenderError(RuntimeError):
 
 def _semantic_camera_plan(storyboard: dict[str, Any], artifact_root: Path) -> list[dict[str, Any]]:
     scenes = preflight_editorial_motion_storyboard(storyboard, artifact_root)
+    if str(storyboard.get("style_profile") or "") != "cinematic_ink_webtoon_v1":
+        raise ChromeGuidedWebtoonRenderError(
+            "chrome guided webtoon v2 requires cinematic_ink_webtoon_v1",
+        )
     modules = [str((scene.get("motion") or {}).get("module") or "") for scene in scenes]
     if len(set(modules)) < 2:
         raise ChromeGuidedWebtoonRenderError(
@@ -37,6 +41,14 @@ def _semantic_camera_plan(storyboard: dict[str, Any], artifact_root: Path) -> li
             "narration_text": scene["narration_text"],
             "focus": (scene.get("motion") or {}).get("module"),
             "page_layout": scene.get("page_layout"),
+            "camera_beats": [
+                "hero_page_overview",
+                "hero_narration_selected_region",
+                "detail_page_crossfade",
+                "detail_narration_selected_region",
+            ],
+            "mandatory_pull_back": False,
+            "rebuild_page_as_collage": False,
             "start_sec": scene["start_sec"],
             "end_sec": scene["end_sec"],
         }

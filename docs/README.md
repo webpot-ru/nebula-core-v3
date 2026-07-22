@@ -22,6 +22,8 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Acc1 webtoon v2 production contract**: [`../specs/acc1-video-style-v2.json`](../specs/acc1-video-style-v2.json) is the fail-closed source of truth for the `chrome_guided_webtoon_v2` renderer, meaning-led panel camera, centered one-line subtitle band, Russian-market character rules, Imagen-baked Russian thumbnail text, and checksum-bound intro/CTA/outro. The approved semantic preview SHA is recorded and the fixed-release entrypoint uses the Chrome/HyperFrames renderer; provider execution still requires the workflow's exact explicit spend confirmations. Root [`../frame.md`](../frame.md) and [`acc1-cinematic-ink-webtoon-v1.md`](acc1-cinematic-ink-webtoon-v1.md) remain the creative reference.
 
+The production compositor now treats both paid scene images as already composed comic pages. For `cinematic_ink_webtoon_v1` it suppresses the legacy dark collage/host-slot layers, keeps each page intact, establishes the page, performs a deterministic layout/module-specific reading move, and crossfades once to the second page; it does not reconstruct provider pages from cutouts or repeat a mandatory push-in/pull-back/reset cycle.
+
 Generate the current no-provider visual approval MP4 with:
 
 ```bash

@@ -86,6 +86,18 @@ The fixed-release thumbnail request now asks Imagen to bake the exact Russian
 headline `СЕМЬЯ ТРЕБУЕТ ПРОСТИТЬ` into the generated artwork. The old
 post-generation text overlay is no longer used by this entrypoint.
 
+On 2026-07-22 the production compositor behind the Chrome facade was corrected
+locally. `cinematic_ink_webtoon_v1` now has its own HyperFrames choreography:
+each paid hero/detail asset remains a complete comic page, the generic dark
+collage layers and duplicated narration copy are disabled, the page is first
+established and then moved toward a layout/module-specific region, and the
+second complete page enters through one crossfade. There is no rotation or
+mandatory pull-back/reset. A no-provider browser canary using the two existing
+work-story pages passed HyperFrames checks at 0.6, 4.5, 6.2 and 10.5 seconds;
+all four captured frames were inspected. This is local browser evidence only:
+no MP4 approval render, GitHub run, provider call, commit, push or upload was
+performed.
+
 ## First-release no-spend pre-production (local only)
 
 On 2026-07-21 the existing successful source-only artifact from GitHub run

@@ -218,11 +218,12 @@ def _scene_markup(
     source = html.escape(str(scene.get("source_label") or "РЕДАКЦИОННАЯ ИЛЛЮСТРАЦИЯ"))
     hero, detail = (html.escape(path, quote=True) for path in copied_assets)
     adult_style = is_adult_animation_style_profile(style_profile)
+    guided_webtoon_style = style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE
     quote_words = str(scene.get("narration_text") or "").split()[:18]
     # Speech bubbles are reserved for short source-backed direct lines.  The
     # normal narration remains in captions, rather than being printed as a
     # fake character quote inside a comic panel.
-    quote = "" if adult_style else html.escape(
+    quote = "" if adult_style or guided_webtoon_style else html.escape(
         " ".join(quote_words) + ("…" if len(quote_words) == 18 else ""),
     )
     module_labels = {
@@ -489,6 +490,58 @@ def _adult_animation_scene_tweens(scene: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _cinematic_webtoon_scene_tweens(scene: dict[str, Any]) -> list[str]:
+    """Read two complete comic pages without rebuilding them as a collage.
+
+    The paid hero and detail assets are already composed webtoon pages.  Each
+    remains intact while the camera establishes it and then moves toward a
+    deterministic narration-relevant region.  The second page crossfades in
+    once, so there is no mechanical push/pull/reset loop.
+    """
+
+    sid = _safe_id(str(scene["scene_id"]))
+    start = float(scene["start_sec"])
+    duration = float(scene["duration_sec"])
+    layout = str(scene.get("page_layout") or "hero_left_details_right")
+    module = str((scene.get("motion") or {}).get("module") or "living_photo_depth")
+    entrance = max(0.0, start - 0.34) if start > 0 else start
+    exit_at = max(start + 0.2, start + duration - 0.30)
+    hero_focus = {
+        "hero_left_details_right": (1.16, 92, -18),
+        "phone_portal_insets": (1.22, -138, -26),
+        "message_cascade": (1.18, 118, -34),
+        "vertical_routine_triptych": (1.20, -42, -20),
+        "evidence_slits": (1.24, -154, 4),
+        "rumor_table_wide": (1.15, 0, -42),
+        "corridor_false_claim": (1.21, 132, -22),
+        "empty_desk_release": (1.14, -70, -20),
+    }.get(layout, (1.16, 0, -20))
+    detail_focus = {
+        "living_photo_depth": (1.18, 74, -20),
+        "evidence_transform": (1.30, -184, -48),
+        "digital_memory_stack": (1.27, -152, -32),
+        "graphic_timeline": (1.22, 108, -38),
+        "dark_semantic_reveal": (1.25, -116, -34),
+        "nested_collage_zoom": (1.32, -210, -54),
+    }.get(module, (1.20, 0, -24))
+    hero_scale, hero_x, hero_y = hero_focus
+    detail_scale, detail_x, detail_y = detail_focus
+    hero_move_at = start + duration * 0.10
+    page_turn_at = start + duration * 0.49
+    detail_move_at = start + duration * 0.57
+    return [
+        f"tl.fromTo('#inner-{sid}', {{opacity:0}}, {{opacity:1,duration:.36,ease:'power1.out'}}, {entrance:.3f});",
+        f"tl.to('#inner-{sid}', {{opacity:0,duration:.30,ease:'power1.in'}}, {exit_at:.3f});",
+        f"tl.set('#inner-{sid}', {{opacity:0}}, {start + duration:.3f});",
+        f"tl.set('#hero-{sid}', {{opacity:0}}, {start:.3f});",
+        f"tl.set('#object-{sid}', {{opacity:0}}, {start:.3f});",
+        f"tl.fromTo('#cutout-{sid}', {{opacity:1,scale:1,x:0,y:0}}, {{scale:{hero_scale:.3f},x:{hero_x},y:{hero_y},duration:{duration * .35:.3f},ease:'sine.inOut'}}, {hero_move_at:.3f});",
+        f"tl.fromTo('#portal-{sid}', {{opacity:0,scale:1,x:0,y:0}}, {{opacity:1,duration:.46,ease:'power1.inOut'}}, {page_turn_at:.3f});",
+        f"tl.to('#cutout-{sid}', {{opacity:0,duration:.46,ease:'power1.inOut'}}, {page_turn_at:.3f});",
+        f"tl.to('#portal-{sid}', {{scale:{detail_scale:.3f},x:{detail_x},y:{detail_y},duration:{duration * .34:.3f},ease:'sine.inOut'}}, {detail_move_at:.3f});",
+    ]
+
+
 def _timeline_script(scenes: list[dict[str, Any]], *, style_profile: str) -> str:
     lines = [
         "window.__timelines = window.__timelines || {};",
@@ -500,10 +553,10 @@ def _timeline_script(scenes: list[dict[str, Any]], *, style_profile: str) -> str
         duration = float(scene["duration_sec"])
         module = str(scene["motion"]["module"])
         tail = max(start + 0.2, start + duration - 0.8)
-        if style_profile in {
-            INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
-            CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
-        }:
+        if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE:
+            lines.extend(_cinematic_webtoon_scene_tweens(scene))
+            continue
+        if style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE:
             lines.extend(_ink_gouache_scene_tweens(scene))
             continue
         if is_adult_animation_style_profile(style_profile):
@@ -601,6 +654,16 @@ def _composition_html(scenes: list[dict[str, Any]], duration: float, *, style_pr
 .module-graphic_timeline .dark-reveal{{opacity:0}}.module-graphic_timeline .hero-cutout{{left:880px;top:100px;width:900px;height:680px}}.module-graphic_timeline .portal-shell{{left:130px;right:auto;top:125px;width:620px;height:500px;border-radius:28px;clip-path:polygon(0 4%,100% 0,96% 96%,4% 100%)}}.module-graphic_timeline .story-copy{{left:920px;top:75px}}.module-graphic_timeline .timeline-rig{{left:120px;right:120px;bottom:115px}}
 .module-dark_semantic_reveal .timeline-rig{{opacity:0}}.module-dark_semantic_reveal .plane-blue{{background:#10243c}}.module-dark_semantic_reveal .plane-coral{{background:#6f2e31}}.module-dark_semantic_reveal .plane-yellow{{background:#b48729}}.module-dark_semantic_reveal .hero-cutout{{left:760px;top:55px;width:1040px;height:940px}}.module-dark_semantic_reveal .portal-shell{{left:170px;right:auto;top:200px;width:520px;height:650px;border-radius:10px}}.module-dark_semantic_reveal .story-copy{{left:105px;top:78px;width:700px}}
 .module-nested_collage_zoom .timeline-rig,.module-nested_collage_zoom .dark-reveal{{opacity:0}}.module-nested_collage_zoom .hero-cutout{{left:330px;top:100px;width:1260px;height:860px}}.module-nested_collage_zoom .portal-shell{{right:560px;top:220px;width:520px;height:520px;border-radius:50%}}.module-nested_collage_zoom .story-copy{{left:95px;top:70px;width:590px}}
+/* Cinematic Webtoon v2: paid assets are complete pages, never collage parts. */
+#root.profile-cinematic_ink_webtoon_v1{{--webtoon-ink:#111317;--webtoon-paper:#e8dfcb;--webtoon-band:#090b0f}}
+#root.profile-cinematic_ink_webtoon_v1 #root-fill{{background:var(--webtoon-ink)}}
+#root.profile-cinematic_ink_webtoon_v1 .scene-inner{{background:var(--webtoon-ink);isolation:isolate}}
+#root.profile-cinematic_ink_webtoon_v1 .scene-inner:after{{content:'';position:absolute;left:0;right:0;bottom:0;height:130px;background:rgba(9,11,15,.94);z-index:20;pointer-events:none}}
+#root.profile-cinematic_ink_webtoon_v1 .hero-plate,#root.profile-cinematic_ink_webtoon_v1 .scene-grade,#root.profile-cinematic_ink_webtoon_v1 .color-plane,#root.profile-cinematic_ink_webtoon_v1 .object-fragment,#root.profile-cinematic_ink_webtoon_v1 .story-line,#root.profile-cinematic_ink_webtoon_v1 .story-copy,#root.profile-cinematic_ink_webtoon_v1 .timeline-rig,#root.profile-cinematic_ink_webtoon_v1 .dark-reveal,#root.profile-cinematic_ink_webtoon_v1 .foreground-tear{{display:none}}
+#root.profile-cinematic_ink_webtoon_v1 .hero-cutout,#root.profile-cinematic_ink_webtoon_v1 .portal-shell{{position:absolute;left:18px;right:18px;top:18px;bottom:18px;width:auto;height:auto;border:5px solid var(--webtoon-ink);border-radius:18px;background:var(--webtoon-paper);clip-path:none;box-shadow:none;filter:none;overflow:hidden;padding:0;transform-origin:center center;will-change:transform,opacity;z-index:3}}
+#root.profile-cinematic_ink_webtoon_v1 .portal-shell{{z-index:4}}
+#root.profile-cinematic_ink_webtoon_v1 .hero-cutout img,#root.profile-cinematic_ink_webtoon_v1 .portal-shell img{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;filter:none;transform:none}}
+#root.profile-cinematic_ink_webtoon_v1 .portal-shell i,#root.profile-cinematic_ink_webtoon_v1 .portal-glow{{display:none}}
 /* Adult Animation v1: six original episodic comic series, not a single page skin. */
 #root[class^="profile-adult_animation_"]{{--series-bg:#f1e1ca;--series-ink:#202325;--series-paper:#fff7e7;--series-accent:#ca5a43;--series-accent-two:#5c8b83;--series-line:5px}}
 #root.profile-adult_animation_family_v1{{--series-bg:#e6c8ae;--series-ink:#283032;--series-paper:#fff2dc;--series-accent:#c76853;--series-accent-two:#78937b;--series-line:5px}}
