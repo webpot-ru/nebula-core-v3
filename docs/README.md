@@ -24,6 +24,8 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 The production compositor now treats both paid scene images as already composed comic pages. For `cinematic_ink_webtoon_v1` it suppresses the legacy dark collage/host-slot layers, keeps each page intact, establishes the page, performs a deterministic layout/module-specific reading move, and crossfades once to the second page; it does not reconstruct provider pages from cutouts or repeat a mandatory push-in/pull-back/reset cycle.
 
+For a no-provider cloud check, `acc1_single_audio_recovery.yml` reuses completed run `29888971818` and renders four existing consecutive scenes with the matching slice of its existing master MP3. The artifact contains the short MP4, four PNG review frames and a zero-call report; the workflow exposes no AI33, image-provider or YouTube credentials.
+
 Generate the current no-provider visual approval MP4 with:
 
 ```bash

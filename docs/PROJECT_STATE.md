@@ -98,6 +98,15 @@ all four captured frames were inspected. This is local browser evidence only:
 no MP4 approval render, GitHub run, provider call, commit, push or upload was
 performed.
 
+The branch also contains a zero-provider GitHub canary surface at
+`.github/workflows/acc1_single_audio_recovery.yml`. It reuses only the completed
+artifact from run `29888971818`, selects four consecutive existing story
+scenes, crops the already completed master MP3 to the same interval, renders
+through `chrome_guided_webtoon_v2`, and uploads only the short MP4, four PNG
+review frames and evidence. It has no provider credentials, polling, image/TTS
+submission or YouTube step. A workflow run is evidence only after its artifact
+and frames are inspected.
+
 ## First-release no-spend pre-production (local only)
 
 On 2026-07-21 the existing successful source-only artifact from GitHub run

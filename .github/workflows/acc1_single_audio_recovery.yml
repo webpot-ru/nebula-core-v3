@@ -1,0 +1,80 @@
+name: acc1 Single Audio Existing Task Recovery
+run-name: acc1 four-scene webtoon canary from ${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        required: true
+        default: "29888971818"
+        type: string
+      confirm_poll_existing_task_only:
+        description: Confirm reuse only; no provider calls or polling
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SOURCE: build/acc1-existing
+      OUTPUT: build/acc1-webtoon-canary
+    steps:
+      - name: Require exact zero-provider scope
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIRM: ${{ inputs.confirm_poll_existing_task_only }}
+        run: |
+          test "$SOURCE_RUN_ID" = "29888971818"
+          test "$CONFIRM" = "true"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install deterministic render dependencies
+        run: |
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          npx --yes hyperframes@0.7.61 info
+      - name: Download completed images and master audio
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-single-audio-recovered-29888971818
+          path: ${{ env.SOURCE }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 29888971818
+      - name: Render four existing comic scenes
+        run: python scripts/render_acc1_webtoon_canary.py --artifact-root "$SOURCE" --output-dir "$OUTPUT" --scene-count 4
+      - name: Verify zero-provider review output
+        run: |
+          test -s "$OUTPUT/webtoon-canary.mp4"
+          test -s "$OUTPUT/narration-canary.mp3"
+          test "$(find "$OUTPUT/frames" -type f -name 'frame-*.png' | wc -l)" -eq 4
+          python - "$OUTPUT/render-report.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1]))
+          assert r['renderer']=='chrome_guided_webtoon_v2'
+          assert r['scene_count']==4
+          assert r['new_ai33_calls']==0 and r['new_image_calls']==0
+          assert r['youtube_called'] is False
+          PY
+          ffprobe -v error -show_entries stream=codec_type,codec_name -of json "$OUTPUT/webtoon-canary.mp4"
+      - name: Upload short canary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-webtoon-canary-${{ github.run_id }}
+          path: ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 14
