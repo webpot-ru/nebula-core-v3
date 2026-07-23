@@ -20,6 +20,7 @@ from acc1_visual_contract import (
     EDITORIAL_MOTION_MODE,
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+    select_format_visual_system_v3_panel_grammar,
 )
 
 
@@ -201,6 +202,40 @@ class EpisodeImageTests(unittest.TestCase):
         self.assertIn("Do not use an orange-dominated universal palette", prompt)
         self.assertIn("ivory, muted olive, dusty rose, burgundy and deep navy", prompt)
         self.assertEqual(plan[0]["page_layout"], "bundle_story_opener")
+
+    def test_v3_panel_grammar_is_meaning_led_and_not_a_fixed_triptych(self):
+        grammars = [
+            select_format_visual_system_v3_panel_grammar("BUNDLE", index, 9)
+            for index in range(1, 10)
+        ]
+        self.assertEqual(
+            [item["panel_count"] for item in grammars],
+            [1, 2, 3, 4, 5, 2, 3, 4, 1],
+        )
+        self.assertEqual(grammars[0]["beat_role"], "bundle_hook")
+        self.assertEqual(grammars[4]["beat_role"], "bundle_turning_point")
+
+    def test_v3_plan_binds_panel_grammar_to_each_generated_asset(self):
+        source_story = story("v3-grammar", words=160)
+        source_story["image_target"] = 18
+        source_story["visual_identity_contract"] = (
+            "Recurring adult woman with dark wavy hair, burgundy cardigan and black trousers; "
+            "her face, age, body shape and wardrobe remain stable inside this mini-comic."
+        )
+        plan = image_plan({
+            "episode_format": "BUNDLE",
+            "visual_mode": EDITORIAL_MOTION_MODE,
+            "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            "pillar": "relationships_family",
+            "stories": [source_story],
+        })
+        heroes = [item for item in plan if item["layer_role"] == "hero_plate"]
+        self.assertEqual(
+            [item["panel_count"] for item in heroes],
+            [1, 2, 3, 4, 5, 2, 3, 4, 1],
+        )
+        self.assertIn("Use exactly five asymmetrical panels", heroes[4]["prompt"])
+        self.assertIn("without changing this exact panel count", heroes[4]["prompt"])
 
     def test_v3_saga_and_thread_have_different_page_grammars(self):
         saga_story = story("v3-saga", words=25)

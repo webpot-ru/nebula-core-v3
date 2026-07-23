@@ -13,7 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from acc1_visual_contract import FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+from acc1_visual_contract import (
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+    select_format_visual_system_v3_panel_grammar,
+)
 from acc1_editorial_motion import bind_payload, canonical_hash
 from scripts.render_acc1_webtoon_canary import build_canary_storyboard, resolve_storyboard
 from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
@@ -43,19 +46,17 @@ wardrobe consistently on every page.
 """.strip()
 
 
-def page_prompt(scene: dict, index: int) -> str:
+def page_prompt(scene: dict, index: int, scene_count: int = 4) -> str:
     moment = " ".join(str(scene.get("narration_text") or "").split())
     if not moment:
         raise RuntimeError(f"scene {index} has no narration_text")
-    compositions = (
-        "dominant left panel, two stacked detail panels on the right",
-        "dominant upper panel, two unequal reaction panels below",
-        "tall reaction panel on the left, two wider panels on the right",
-        "wide central confrontation panel, two narrow contextual panels at the sides",
+    panel_grammar = select_format_visual_system_v3_panel_grammar(
+        "BUNDLE", index, scene_count,
     )
     return (
         f"{STYLE}\n\n{IDENTITY}\n\n"
-        f"Page {index} composition: {compositions[(index - 1) % len(compositions)]}. "
+        f"Page {index} meaning-led panel grammar {panel_grammar['id']}: "
+        f"{panel_grammar['direction']} "
         f"Depict only this narrated moment: {moment} "
         "Do not invent another event, person, document, threat or outcome."
     )
@@ -66,6 +67,9 @@ def replace_scene_assets(storyboard: dict, pages: list[Path], root: Path) -> dic
     if len(slides) != len(pages):
         raise RuntimeError("page count must match canary scene count")
     for index, (scene, page) in enumerate(zip(slides, pages), start=1):
+        panel_grammar = select_format_visual_system_v3_panel_grammar(
+            "BUNDLE", index, len(slides),
+        )
         digest = hashlib.sha256(page.read_bytes()).hexdigest()
         relative = page.relative_to(root).as_posix()
         base = {
@@ -82,6 +86,9 @@ def replace_scene_assets(storyboard: dict, pages: list[Path], root: Path) -> dic
             "motion_module": (scene.get("motion") or {}).get("module"),
             "story_family": "relationships",
             "page_layout": "bundle_story_opener" if index == 1 else "bundle_guided_page",
+            "panel_grammar": panel_grammar["id"],
+            "panel_count": panel_grammar["panel_count"],
+            "panel_beat_role": panel_grammar["beat_role"],
             "factual_text_allowed": False,
         }
         scene["assets"] = [
@@ -91,12 +98,18 @@ def replace_scene_assets(storyboard: dict, pages: list[Path], root: Path) -> dic
         scene["asset_family_id"] = base["asset_family_id"]
         scene["story_family"] = base["story_family"]
         scene["page_layout"] = base["page_layout"]
+        scene["panel_grammar"] = base["panel_grammar"]
+        scene["panel_count"] = base["panel_count"]
+        scene["panel_beat_role"] = base["panel_beat_role"]
         scene["style_profile"] = FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
         pack_payload = {
             "asset_family_id": scene["asset_family_id"],
             "motion_module": base["motion_module"],
             "story_family": base["story_family"],
             "page_layout": base["page_layout"],
+            "panel_grammar": base["panel_grammar"],
+            "panel_count": base["panel_count"],
+            "panel_beat_role": base["panel_beat_role"],
             "assets": scene["assets"],
         }
         scene["asset_pack_sha256"] = canonical_hash(pack_payload)
@@ -132,7 +145,7 @@ def main() -> int:
     journal_path = output / "paid-image-attempts.json"
     pages: list[Path] = []
     for index, scene in enumerate(storyboard["slides"], start=1):
-        prompt = page_prompt(scene, index)
+        prompt = page_prompt(scene, index, len(storyboard["slides"]))
         page = pages_dir / f"light-comic-page-{index:02d}.png"
         record = {"call": index, "output": page.relative_to(output).as_posix(),
                   "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(), "status": "started"}

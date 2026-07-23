@@ -194,6 +194,138 @@ INK_GOUACHE_PAGE_LAYOUTS = (
     "thread_prompt_anchor",
     "thread_response_vignette",
 )
+
+# The current v3 art system is intentionally not a fixed three-panel template.
+# A page's internal panel count is selected from its narrated beat and format.
+# ``page_layout`` remains the compact format-level renderer contract above;
+# ``panel_grammar`` below is the exact prompt-facing internal page structure.
+# Keeping them separate preserves compatibility with completed artifacts that
+# predate panel_grammar while making new provider calls deterministic.
+FORMAT_VISUAL_SYSTEM_V3_PANEL_GRAMMARS = {
+    "hero_single": {
+        "panel_count": 1,
+        "direction": (
+            "Use exactly one uninterrupted full-page hero image with no internal panel dividers. "
+            "Let the location and the character's emotional state read immediately."
+        ),
+    },
+    "counterpoint_diptych": {
+        "panel_count": 2,
+        "direction": (
+            "Use exactly two unequal panels: one dominant 70-percent scene and one smaller "
+            "counterpoint, reaction, message or object panel."
+        ),
+    },
+    "guided_triptych": {
+        "panel_count": 3,
+        "direction": (
+            "Use exactly three unequal panels: one dominant narrated interaction and two materially "
+            "different supporting details. Never use a symmetric grid."
+        ),
+    },
+    "escalation_quartet": {
+        "panel_count": 4,
+        "direction": (
+            "Use exactly four uneven panels: one large escalating confrontation or discovery, then "
+            "three smaller cause, reaction or evidence panels with a clear reading path."
+        ),
+    },
+    "climax_mosaic": {
+        "panel_count": 5,
+        "direction": (
+            "Use exactly five asymmetrical panels only for the narrated turning point: one dominant "
+            "emotional image surrounded by four brief, source-supported reaction or consequence fragments."
+        ),
+    },
+}
+
+# Each sequence expresses narrative function, not a random visual shuffle. The
+# shared grammar IDs make the expected panel count machine-verifiable, while
+# the format-specific beat IDs keep prompt language meaningful to the story.
+FORMAT_VISUAL_SYSTEM_V3_PANEL_BEATS = {
+    "BUNDLE": (
+        ("bundle_hook", "hero_single"),
+        ("bundle_contrast", "counterpoint_diptych"),
+        ("bundle_context", "guided_triptych"),
+        ("bundle_escalation", "escalation_quartet"),
+        ("bundle_turning_point", "climax_mosaic"),
+        ("bundle_consequence", "counterpoint_diptych"),
+        ("bundle_decision", "guided_triptych"),
+        ("bundle_final_pressure", "escalation_quartet"),
+        ("bundle_release", "hero_single"),
+    ),
+    "SAGA": (
+        ("saga_establish", "hero_single"),
+        ("saga_clue", "counterpoint_diptych"),
+        ("saga_discovery", "guided_triptych"),
+        ("saga_escalation", "escalation_quartet"),
+        ("saga_reveal", "climax_mosaic"),
+        ("saga_reaction", "counterpoint_diptych"),
+        ("saga_pursuit", "guided_triptych"),
+        ("saga_payoff", "escalation_quartet"),
+        ("saga_aftermath", "hero_single"),
+    ),
+    "THREAD": (
+        ("thread_prompt_anchor", "hero_single"),
+        ("thread_first_contrast", "counterpoint_diptych"),
+        ("thread_voice_set", "guided_triptych"),
+        ("thread_community_pressure", "escalation_quartet"),
+        ("thread_viewpoint_mosaic", "climax_mosaic"),
+        ("thread_counterpoint", "counterpoint_diptych"),
+        ("thread_distinct_voices", "guided_triptych"),
+        ("thread_consensus_split", "escalation_quartet"),
+        ("thread_reflection", "hero_single"),
+    ),
+}
+
+_SHORT_V3_PANEL_BEAT_SLOTS = {
+    1: (0,),
+    2: (0, 4),
+    3: (0, 2, 4),
+    4: (0, 1, 3, 4),
+    5: (0, 1, 2, 3, 4),
+    6: (0, 1, 2, 3, 4, 8),
+    7: (0, 1, 2, 3, 4, 6, 8),
+    8: (0, 1, 2, 3, 4, 5, 7, 8),
+    9: tuple(range(9)),
+}
+
+
+def select_format_visual_system_v3_panel_grammar(
+    format_id: object, scene_index: int, scene_count: int,
+) -> dict[str, object]:
+    """Return one deterministic, meaning-led v3 internal page grammar.
+
+    ``scene_index`` is one-based. Short stories sample the complete narrative
+    sequence proportionally, preserving an opening and an ending rather than
+    falling back to a repeated three-panel page.
+    """
+
+    normalized_format = str(format_id or "").strip().upper()
+    beats = FORMAT_VISUAL_SYSTEM_V3_PANEL_BEATS.get(normalized_format)
+    if beats is None:
+        raise ValueError("format_id must be BUNDLE, SAGA, or THREAD")
+    if not isinstance(scene_index, int) or not isinstance(scene_count, int):
+        raise ValueError("scene_index and scene_count must be integers")
+    if scene_count < 1 or scene_index < 1 or scene_index > scene_count:
+        raise ValueError("scene_index must be inside scene_count")
+    if scene_count <= len(beats):
+        slot = _SHORT_V3_PANEL_BEAT_SLOTS[scene_count][scene_index - 1]
+    else:
+        # The approved production targets are at most nine packs per story.
+        # This safe fallback still preserves a deterministic opening-to-close
+        # sweep for longer custom plans instead of random repetition.
+        slot = (scene_index - 1) * (len(beats) - 1) // (scene_count - 1)
+    beat_role, grammar_id = beats[slot]
+    grammar = FORMAT_VISUAL_SYSTEM_V3_PANEL_GRAMMARS[grammar_id]
+    return {
+        "id": beat_role,
+        "format_id": normalized_format,
+        "beat_role": beat_role,
+        "grammar_id": grammar_id,
+        "panel_count": grammar["panel_count"],
+        "direction": grammar["direction"],
+    }
 EDITORIAL_MOTION_MIN_SCENE_SECONDS = 18.0
 EDITORIAL_MOTION_TARGET_SCENE_SECONDS = 36.0
 EDITORIAL_MOTION_MAX_SCENE_SECONDS = 48.0
