@@ -52,22 +52,30 @@ class WebtoonCanaryPageTests(unittest.TestCase):
             "timeline_duration_sec": 16.0,
         })["slides"]), 5)
 
-    def test_historic_profile_is_not_a_source_selection_dependency(self):
+    def test_selects_the_generated_v3_input_not_a_derived_storyboard(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            source = root / "storyboard.json"
+            source = root / "source" / "storyboard-generated.json"
+            source.parent.mkdir()
             source.write_text(
-                '{"style_profile":"retired_visual_style","slides":[],"motion_plan":{},"caption_track":{}}',
+                '{"style_profile":"acc1_format_visual_system_v3","slides":[],"motion_plan":{},"caption_track":{}}',
+                encoding="utf-8",
+            )
+            (root / "derived" / "storyboard-canary.json").parent.mkdir()
+            (root / "derived" / "storyboard-canary.json").write_text(
+                '{"style_profile":"acc1_format_visual_system_v3","slides":[],"motion_plan":{},"caption_track":{}}',
                 encoding="utf-8",
             )
             self.assertEqual(resolve_source_storyboard(root), source)
 
-    def test_refuses_ambiguous_semantic_sources(self):
+    def test_refuses_ambiguous_generated_v3_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for index in (1, 2):
-                (root / f"storyboard-{index}.json").write_text(
-                    '{"style_profile":"retired_visual_style","slides":[],"motion_plan":{},"caption_track":{}}',
+                source = root / str(index) / "storyboard-generated.json"
+                source.parent.mkdir()
+                source.write_text(
+                    '{"style_profile":"acc1_format_visual_system_v3","slides":[],"motion_plan":{},"caption_track":{}}',
                     encoding="utf-8",
                 )
             with self.assertRaisesRegex(RuntimeError, "found 2"):

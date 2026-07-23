@@ -49,21 +49,24 @@ wardrobe consistently on every page.
 """.strip()
 
 def resolve_source_storyboard(download_root: Path) -> Path:
-    """Return one storyboard suitable as semantic input for a v3 canary.
+    """Return the retained generated v3 storyboard for semantic canary input.
 
-    The retained input supplies only narration text, timestamps and semantic
-    camera beats.  Its historic visual profile is intentionally ignored: every
-    generated page is rewritten to the approved v3 profile before rendering.
+    The retained artifact can contain an output storyboard alongside its
+    generated input.  Only ``storyboard-generated.json`` is the source-bound
+    input with the original narration text, timestamps and semantic camera
+    beats.  Selecting by semantic shape alone is ambiguous and could quietly
+    reuse a derived output instead.
     """
 
     matches: list[Path] = []
-    for path in download_root.rglob("*storyboard*.json"):
+    for path in download_root.rglob("storyboard-generated.json"):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         if not (
             isinstance(payload, dict)
+            and payload.get("style_profile") == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
             and isinstance(payload.get("slides"), list)
             and isinstance(payload.get("motion_plan"), dict)
             and isinstance(payload.get("caption_track"), dict)
@@ -72,7 +75,7 @@ def resolve_source_storyboard(download_root: Path) -> Path:
         matches.append(path)
     if len(matches) != 1:
         raise RuntimeError(
-            "expected exactly one semantic storyboard with slides, motion plan and captions, "
+            "expected exactly one generated v3 storyboard with slides, motion plan and captions, "
             f"found {len(matches)}",
         )
     return matches[0]
