@@ -31,7 +31,7 @@ jobs:
       - name: Check out the verified canary implementation
         uses: actions/checkout@v4
         with:
-          ref: adfb611f9b54087185d7059df41d2a595e0baf48
+          ref: 9ac6cf8417d51cc7c99ac4228cdf0fbf353124ef
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

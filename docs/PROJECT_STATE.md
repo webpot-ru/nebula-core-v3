@@ -12,9 +12,9 @@ Last updated: 2026-07-20
   for source-backed narration timing and semantic beats, plus a separately
   retained master MP3. A no-provider compatibility preflight runs before the
   image key is exposed.
-- The historical `cinematic_ink_webtoon_v1` profile is source-only in this
-  recovery path: it cannot be used as a page prompt or rendered visual style.
-  Generated pages are rewritten to the approved v3 profile before rendering.
+- Historic visual-profile values are ignored in this recovery path: they cannot
+  be used as a page prompt or rendered visual style. Generated pages are
+  rewritten to the approved v3 profile before rendering.
 - A replacement provider run has not been dispatched yet and still needs the
   exact user approval for five image calls.
 
