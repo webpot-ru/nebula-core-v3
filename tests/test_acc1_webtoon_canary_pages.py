@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 
 from scripts.generate_acc1_webtoon_canary_pages import (
+    build_panel_grammar_canary_storyboard,
+    expand_four_scene_canary_to_five,
     page_prompt,
     replace_scene_assets,
     resolve_source_storyboard,
@@ -11,6 +13,45 @@ from acc1_visual_contract import FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
 
 
 class WebtoonCanaryPageTests(unittest.TestCase):
+    def test_four_verified_beats_expand_to_five_without_changing_total_duration(self):
+        slides = []
+        for index, module in enumerate((
+            "living_photo_depth",
+            "evidence_transform",
+            "memory_pullback",
+            "dialogue_pressure",
+        ), start=1):
+            start = float(index - 1) * 4
+            slides.append({
+                "scene_id": f"scene-{index}",
+                "presentation": "story",
+                "start_sec": start,
+                "end_sec": start + 4,
+                "duration_sec": 4.0,
+                "narration_text": "Она открыла письмо. И увидела подпись.",
+                "motion": {"module": module},
+            })
+        source = {
+            "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            "slides": slides,
+            "motion_plan": {"version": 1},
+            "caption_track": {
+                "version": 1,
+                "cues": [{"start_sec": 0, "end_sec": 16, "text": "Она открыла письмо."}],
+            },
+        }
+        four, _, _, strategy = build_panel_grammar_canary_storyboard(source, scene_count=5)
+        self.assertEqual(strategy, "split_opening_beat")
+        self.assertEqual(len(four["slides"]), 5)
+        self.assertEqual(four["timeline_duration_sec"], 16.0)
+        self.assertEqual(four["slides"][0]["narration_text"], "Она открыла письмо.")
+        self.assertEqual(four["slides"][1]["narration_text"], "И увидела подпись.")
+        self.assertEqual(len(expand_four_scene_canary_to_five({
+            **four,
+            "slides": slides,
+            "timeline_duration_sec": 16.0,
+        })["slides"]), 5)
+
     def test_historic_profile_is_not_a_source_selection_dependency(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

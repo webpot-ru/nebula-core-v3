@@ -77,6 +77,13 @@ retained master MP3. It ignores every historical visual-profile value, rewrites
 all generated pages to v3 before rendering and performs a no-provider
 compatibility preflight before the five explicitly approved VectorEngine calls.
 
+The retained fixed-release artifact was then found to lack the semantic
+storyboard shape required by the canary, so it is no longer an execution input.
+The replacement uses the preserved v3 canary artifact, including its existing
+short narration cut. For the five-page layout-only proof it deterministically
+splits the opening source beat into setup and reveal while preserving total
+audio/caption timing; it invents neither narration nor a new voice request.
+
 The no-provider HyperFrames proof is
 `videos/chonker-talks-format-v3-preview/renders/acc1-format-v3-preview.mp4`:
 H.264 yuv420p, 1920x1080, 30 fps, exactly 18.0 seconds, 14,261,664 bytes,

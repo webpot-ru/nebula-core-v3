@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -14,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from acc1_visual_contract import (
+    EDITORIAL_MOTION_MODULES,
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     select_format_visual_system_v3_panel_grammar,
 )
@@ -73,6 +76,92 @@ def resolve_source_storyboard(download_root: Path) -> Path:
             f"found {len(matches)}",
         )
     return matches[0]
+
+
+def _split_narration_text(text: object) -> tuple[str, str]:
+    normalized = " ".join(str(text or "").split())
+    if not normalized:
+        raise RuntimeError("cannot split an empty narration beat")
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\\s+", normalized) if part.strip()]
+    if len(sentences) >= 2:
+        pivot = max(1, len(sentences) // 2)
+        return " ".join(sentences[:pivot]), " ".join(sentences[pivot:])
+    words = normalized.split()
+    if len(words) < 4:
+        return normalized, normalized
+    pivot = max(1, len(words) // 2)
+    return " ".join(words[:pivot]), " ".join(words[pivot:])
+
+
+def expand_four_scene_canary_to_five(storyboard: dict) -> dict:
+    """Split the opening source beat into setup and reveal for a 1..5 page test.
+
+    The v3 review artifact has four verified consecutive story scenes and a
+    matching short narration cut. Splitting its first beat preserves the audio
+    interval and caption timing while allowing the five different page grammars
+    to be tested without inventing text or requesting new TTS.
+    """
+
+    slides = list(storyboard.get("slides") or [])
+    if len(slides) != 4:
+        raise RuntimeError("five-page expansion requires exactly four verified source scenes")
+    original = copy.deepcopy(slides[0])
+    source_duration = float(original.get("duration_sec") or 0)
+    if source_duration <= 0:
+        raise RuntimeError("opening source scene has no positive duration")
+    setup_text, reveal_text = _split_narration_text(original.get("narration_text"))
+    setup = copy.deepcopy(original)
+    reveal = copy.deepcopy(original)
+    source_id = str(original.get("scene_id") or original.get("slide_id") or "source-opening")
+    setup["scene_id"] = f"{source_id}-setup"
+    reveal["scene_id"] = f"{source_id}-reveal"
+    setup["narration_text"] = setup_text
+    reveal["narration_text"] = reveal_text
+    setup["semantic_beat"] = "opening_setup"
+    reveal["semantic_beat"] = "opening_reveal"
+    first_duration = round(source_duration / 2, 3)
+    second_duration = round(source_duration - first_duration, 3)
+    if first_duration <= 0 or second_duration <= 0:
+        raise RuntimeError("opening source scene is too short for five-page expansion")
+    setup["duration_sec"] = first_duration
+    reveal["duration_sec"] = second_duration
+    expanded = [setup, reveal, *copy.deepcopy(slides[1:])]
+    cursor = 0.0
+    for scene in expanded:
+        duration = float(scene["duration_sec"])
+        scene["start_sec"] = round(cursor, 3)
+        scene["end_sec"] = round(cursor + duration, 3)
+        cursor += duration
+    result = dict(storyboard)
+    result["slides"] = expanded
+    result["timeline_duration_sec"] = round(cursor, 3)
+    motion_plan = dict(result["motion_plan"])
+    motion_plan.pop("motion_plan_sha256", None)
+    motion_plan.update({
+        "timeline_duration_sec": result["timeline_duration_sec"],
+        "scene_count": len(expanded),
+        "module_usage": {
+            module: sum((scene.get("motion") or {}).get("module") == module for scene in expanded)
+            for module in EDITORIAL_MOTION_MODULES
+        },
+        "scenes": expanded,
+    })
+    result["motion_plan"] = bind_payload(motion_plan, "motion_plan_sha256")
+    result["motion_plan_sha256"] = result["motion_plan"]["motion_plan_sha256"]
+    return result
+
+
+def build_panel_grammar_canary_storyboard(
+    source: dict, *, scene_count: int,
+) -> tuple[dict, float, float, str]:
+    """Build a bounded v3 canary, expanding a verified four-beat source if needed."""
+
+    story_scenes = [scene for scene in source.get("slides") or [] if scene.get("presentation") == "story"]
+    if scene_count == 5 and len(story_scenes) == 4:
+        storyboard, source_start, source_end = build_canary_storyboard(source, scene_count=4)
+        return expand_four_scene_canary_to_five(storyboard), source_start, source_end, "split_opening_beat"
+    storyboard, source_start, source_end = build_canary_storyboard(source, scene_count=scene_count)
+    return storyboard, source_start, source_end, "native_source_beats"
 
 
 def page_prompt(scene: dict, index: int, scene_count: int = 4) -> str:
@@ -183,7 +272,7 @@ def main() -> int:
     source_motion_plan = dict(source["motion_plan"])
     source_motion_plan["style_profile"] = FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
     source["motion_plan"] = source_motion_plan
-    storyboard, source_start, source_end = build_canary_storyboard(
+    storyboard, source_start, source_end, source_strategy = build_panel_grammar_canary_storyboard(
         source, scene_count=args.page_count,
     )
     storyboard["canary_source_start_sec"] = source_start
@@ -199,6 +288,7 @@ def main() -> int:
                     "source_storyboard": source_path.name,
                     "source_visual_profile_ignored": True,
                     "selected_scene_count": len(storyboard["slides"]),
+                    "five_page_source_strategy": source_strategy,
                     "source_start_sec": source_start,
                     "source_end_sec": source_end,
                 },
