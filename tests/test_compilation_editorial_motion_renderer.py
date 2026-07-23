@@ -9,6 +9,7 @@ from acc1_visual_contract import (
     ADULT_ANIMATION_WORK_STYLE_PROFILE,
     EDITORIAL_MOTION_MODE,
     EDITORIAL_MOTION_STYLE_PROFILE,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
 )
 from compilation_editorial_motion_renderer import (
     EditorialMotionRenderError,
@@ -147,6 +148,72 @@ class EditorialMotionRendererTests(unittest.TestCase):
         self.assertIn("profile-adult_animation_work_v1", html)
         self.assertIn("layout-office_grid_break", html)
         self.assertNotIn("один два три четыре", html)
+
+    def test_cinematic_webtoon_keeps_complete_pages_and_reads_them_in_sequence(self):
+        scene = {
+            "scene_id": "story-motion-007",
+            "start_sec": 40.0,
+            "end_sec": 70.0,
+            "duration_sec": 30.0,
+            "presentation": "story",
+            "story_family": "relationships",
+            "page_layout": "evidence_slits",
+            "story_title": "СЕМЕЙНЫЙ КОНФЛИКТ",
+            "source_label": "РЕДАКЦИОННАЯ ИЛЛЮСТРАЦИЯ",
+            "narration_text": "этот текст должен остаться только в субтитрах",
+            "motion": {"module": "evidence_transform"},
+            "workspace_assets": ["assets/hero.png", "assets/detail.png"],
+        }
+        html = _composition_html(
+            [scene], 70.0, style_profile=CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+        )
+        tweens = "\n".join(_cinematic_webtoon_scene_tweens(scene))
+        self.assertIn("Cinematic Webtoon v2", html)
+        self.assertIn("profile-cinematic_ink_webtoon_v1", html)
+        self.assertIn("top:18px;bottom:18px;width:auto;height:auto", html)
+        self.assertIn("object-fit:contain", html)
+        self.assertIn("height:130px;background:rgba(9,11,15,.94)", html)
+        self.assertIn(".object-fragment,#root.profile-cinematic_ink_webtoon_v1 .story-line", html)
+        self.assertNotIn("этот текст должен остаться только в субтитрах", html)
+        self.assertIn("#cutout-story-motion-007", tweens)
+        self.assertIn("#portal-story-motion-007", tweens)
+        self.assertIn("opacity:0,duration:.46", tweens)
+        self.assertNotIn("rotation", tweens)
+        self.assertIn("40.300", tweens)
+
+    def test_v3_profile_uses_complete_page_renderer_skin(self):
+        scene = {
+            "scene_id": "story-motion-v3",
+            "start_sec": 0.0,
+            "end_sec": 20.0,
+            "duration_sec": 20.0,
+            "presentation": "story",
+            "story_family": "relationships",
+            "page_layout": "bundle_story_opener",
+            "story_title": "ОТДЕЛЬНАЯ ИСТОРИЯ",
+            "source_label": "РЕДАКЦИОННАЯ ИЛЛЮСТРАЦИЯ",
+            "narration_text": "текст остаётся только в полосе субтитров",
+            "motion": {"module": "living_photo_depth"},
+            "workspace_assets": ["assets/hero.png", "assets/detail.png"],
+        }
+        html = _composition_html(
+            [scene], 20.0, style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+        )
+        self.assertIn("profile-acc1_format_visual_system_v3", html)
+        self.assertIn("#root.profile-acc1_format_visual_system_v3 .hero-cutout", html)
+        self.assertIn("object-fit:contain", html)
+        self.assertNotIn("текст остаётся только в полосе субтитров", html)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard = self._storyboard(
+                root,
+                profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                story_family="relationships",
+                page_layout="bundle_story_opener",
+            )
+            checked = preflight_editorial_motion_storyboard(storyboard, root)
+        self.assertEqual(checked[0]["style_profile"], FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE)
 
 
 if __name__ == "__main__":

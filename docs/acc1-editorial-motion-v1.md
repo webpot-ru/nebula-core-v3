@@ -2,17 +2,12 @@
 
 Last verified: 2026-07-19
 
-> **Approved visual reference on 2026-07-18.** The original six-series adult
-> animated-comic board below is the current reference. The Ink & Gouache and
-> editorial-collage systems below remain implementation/history evidence, but
-> must not be used for new acc1 visual production. The active target is the
-> six-series original adult animated-comic system in
-> [`assets/acc1-adult-animation-six-series-v1.png`](assets/acc1-adult-animation-six-series-v1.png)
-> (SHA-256 `978511cf7ed8919997533dd4b2bb41802ef6117ce5a92a6d3ecb50f1e1909117`).
-> It locks one different character/page profile per exact pilot lane:
-> relationships/family, work/money/justice, SAGA strange/dark, confessions,
-> professions, and THREAD strange/dark. Do not mix profiles within an episode;
-> SAGA is quiet adult absurdism, explicitly not noir.
+> **Historical renderer evidence only.** On 2026-07-22 every creative
+> reference board described below was superseded by
+> [`acc1-format-visual-system-v3.md`](acc1-format-visual-system-v3.md). Do not
+> use the former six-series, Ink & Gouache or editorial-collage boards in new
+> prompts. This file remains solely to explain legacy renderer behaviour,
+> tests and artifacts.
 
 ## Active implementation — six adult animated-comic series
 
@@ -36,15 +31,8 @@ the same ordered layouts, while later videos in the same thematic lane use a
 different composition. No episode silently mixes profiles or relies on random
 layout selection. This is the anti-template contract.
 
-The local no-provider motion proof is:
-
-```bash
-python3 scripts/build_acc1_adult_animation_preview.py \
-  --profile adult_animation_work_v1 \
-  --output-dir build/acc1-adult-animation-work-preview-v2
-```
-
-The captured direct HyperFrames render is
+The former preview builder and creative board were retired to project Trash on
+2026-07-22. The captured direct HyperFrames render remains historical evidence:
 `build/acc1-adult-animation-work-preview-v2/manual-silent.mp4` (48 seconds,
 1920x1080, 30 fps). It reuses crops of the locked reference board only to
 prove distinct panel geometry and seek-safe motion; it is not a final image
@@ -120,9 +108,9 @@ never accepted as factual evidence.
 
 On 2026-07-18 the user replaced the earlier full-frame / near-photoreal
 graphic-novel target with an adult **Ink & Gouache Reportage** system. The
-canonical visual reference is
-[`assets/acc1-ink-gouache-topic-layouts-v1.png`](assets/acc1-ink-gouache-topic-layouts-v1.png)
-(SHA-256 `c3a18ef4ee2714a7b85537d73e1b3b4a8135cb468a469aaa33cf691801a220f1`).
+former visual board (SHA-256
+`c3a18ef4ee2714a7b85537d73e1b3b4a8135cb468a469aaa33cf691801a220f1`)
+was retired to project Trash on 2026-07-22 and is not an allowed prompt input.
 
 This is not superhero/pop-art, a conventional motion comic, a scrapbook, or a
 fixed four-card template. It uses:
