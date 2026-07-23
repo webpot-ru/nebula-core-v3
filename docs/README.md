@@ -22,15 +22,17 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Acc1 webtoon v2 production contract**: [`../specs/acc1-video-style-v2.json`](../specs/acc1-video-style-v2.json) remains the fail-closed source of truth for the `chrome_guided_webtoon_v2` renderer, meaning-led panel camera, centered one-line subtitle band, Russian-market character rules, Imagen-baked Russian thumbnail text, and checksum-bound intro/CTA/outro. Root [`../frame.md`](../frame.md) and [`acc1-format-visual-system-v3.md`](acc1-format-visual-system-v3.md) are the current creative references. The local v3 visual proof is `../videos/chonker-talks-format-v3-preview/renders/acc1-format-v3-preview.mp4`; it is verified local motion evidence, not a provider/GitHub/publication authorization.
 
-The bounded HyperFrames recovery path is
-`.github/workflows/acc1_hyperframes_realistic_test.yml`. It consumes only
-artifact `acc1-format-v3-canary-29975009888`, whose four VectorEngine calls
-already completed without retries, plus its existing AI33 narration cut. The
-workflow performs no new provider or YouTube calls. It fails closed unless the
-storyboard and every scene use `acc1_format_visual_system_v3`, renders through
-HyperFrames, applies the checksum-bound intro/CTA/outro, burns the approved
-single-line subtitle treatment, extracts four review frames and uploads a
-review-only GitHub artifact.
+The bounded HyperFrames recovery mode lives in the already registered
+`.github/workflows/acc1_single_audio_recovery.yml`. With
+`confirm_hyperframes_reuse_only=true` it consumes only artifact
+`acc1-format-v3-canary-29975009888`, whose four VectorEngine calls already
+completed without retries, plus its existing AI33 narration cut. The paid
+canary job is disabled in this mode and the workflow performs no new provider
+or YouTube calls. It fails closed unless the storyboard and every scene use
+`acc1_format_visual_system_v3`, renders through HyperFrames, applies the
+checksum-bound intro/CTA/outro, burns the approved single-line subtitle
+treatment, extracts four review frames and uploads a review-only GitHub
+artifact.
 
 The production compositor treats both paid scene images as already composed comic pages. New fixed-release prompts use `acc1_format_visual_system_v3`; the renderer accepts that profile with the same complete-page guided-reading path while keeping `cinematic_ink_webtoon_v1` compatible for historical artifacts. The planner selects distinct BUNDLE/SAGA/THREAD grammar and pillar palette rules before spend. It does not reconstruct provider pages from collage cutouts or repeat a mandatory push-in/pull-back/reset cycle.
 
