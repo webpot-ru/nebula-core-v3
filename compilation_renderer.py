@@ -799,7 +799,12 @@ def render_compilation(
     render_output = output
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
     if brand_overlays:
-        temp_dir = tempfile.TemporaryDirectory(prefix="compilation-brand-sting-")
+        artifact_temp_root = Path(artifact_root).resolve()
+        artifact_temp_root.mkdir(parents=True, exist_ok=True)
+        temp_dir = tempfile.TemporaryDirectory(
+            prefix="compilation-brand-sting-",
+            dir=artifact_temp_root,
+        )
         render_output = Path(temp_dir.name) / "base.mp4"
     mode = _storyboard_visual_mode(storyboard)
     if mode == CINEMATIC_STORY_MODE:

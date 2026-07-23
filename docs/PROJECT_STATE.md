@@ -1,6 +1,20 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-22
+Last updated: 2026-07-23
+
+## 2026-07-23 — v3 pages generated; legacy render rejected the new profile
+
+- GitHub run `29975009888` completed all four approved VectorEngine image
+  calls with zero automatic retries.
+- The following legacy `chrome_guided_webtoon_v2` step failed before capture
+  because it still required `cinematic_ink_webtoon_v1`; the generated
+  storyboard correctly used `acc1_format_visual_system_v3`.
+- Artifact `acc1-format-v3-canary-29975009888` retains the four completed
+  pages, the exact paid-call journal, generated storyboard and existing AI33
+  narration cut.
+- A dedicated no-provider HyperFrames recovery workflow is prepared to consume
+  that artifact and fail closed on any v3 style-profile drift. The recovery
+  remains unverified until its GitHub artifact and MP4 are inspected.
 
 ## Current acc1 visual decision — format visual system v3
 

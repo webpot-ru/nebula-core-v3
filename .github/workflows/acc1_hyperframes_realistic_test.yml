@@ -1,0 +1,100 @@
+name: acc1 HyperFrames Realistic Short Test
+run-name: acc1 HyperFrames realistic test from ${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        required: true
+        default: "29975009888"
+        type: string
+      confirm_reuse_only:
+        description: Reuse completed images and audio; no provider calls or YouTube
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SOURCE: build/acc1-hyperframes-source
+      OUTPUT: build/acc1-hyperframes-review
+    steps:
+      - name: Require exact no-spend scope
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIRM_REUSE_ONLY: ${{ inputs.confirm_reuse_only }}
+        run: |
+          test "$SOURCE_RUN_ID" = "29975009888"
+          test "$CONFIRM_REUSE_ONLY" = "true"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install deterministic HyperFrames dependencies
+        run: |
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          npx --yes hyperframes@0.7.61 info
+          npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+            --path "$RUNNER_TEMP/hyperframes-browsers"
+          browser_path="$(find "$RUNNER_TEMP/hyperframes-browsers" \
+            -type f -name chrome-headless-shell -perm -111 | head -n 1)"
+          test -x "$browser_path"
+          echo "HYPERFRAMES_BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
+      - name: Download four completed v3 pages and existing narration
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-format-v3-canary-29975009888
+          path: ${{ env.SOURCE }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 29975009888
+      - name: Render production-shaped short test in HyperFrames
+        run: |
+          python scripts/render_acc1_hyperframes_realistic_test.py \
+            --artifact-root "$SOURCE" \
+            --output-dir "$OUTPUT"
+      - name: Verify style, motion, branding and bounded scope
+        run: |
+          test -s "$OUTPUT/acc1-hyperframes-realistic-test.mp4"
+          test -s "$OUTPUT/captions-brand-safe.srt"
+          test "$(find "$OUTPUT/frames" -type f -name 'frame-*.png' | wc -l)" -eq 4
+          python - "$OUTPUT/render-report.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[1]))
+          assert report["status"] == "PASS"
+          assert report["renderer"] == "hyperframes"
+          assert report["hyperframes_check_passed"] is True
+          assert report["style_profile"] == "acc1_format_visual_system_v3"
+          assert report["source_image_calls"] == 4
+          assert report["source_image_retries"] == 0
+          assert report["new_image_calls"] == 0
+          assert report["new_ai33_calls"] == 0
+          assert report["youtube_called"] is False
+          assert report["captions_burned"] is True
+          assert report["caption_band_height_px"] == 130
+          for key in ("brand_sting_used", "brand_cta_used", "brand_outro_used"):
+              assert report[key] is True
+          PY
+          ffprobe -v error -show_entries \
+            stream=codec_name,width,height,avg_frame_rate:format=duration \
+            -of json "$OUTPUT/acc1-hyperframes-realistic-test.mp4"
+      - name: Upload HyperFrames review artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-hyperframes-realistic-test-${{ github.run_id }}
+          path: ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 14
