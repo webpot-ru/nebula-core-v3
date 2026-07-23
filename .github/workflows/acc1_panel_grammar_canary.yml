@@ -1,12 +1,13 @@
 name: acc1 Five-Page Panel Grammar Canary
-run-name: acc1 five new panel-grammar pages from ${{ inputs.source_run_id }}
+run-name: acc1 five new panel-grammar pages from retained source ${{ inputs.source_run_id }}
 
 on:
   workflow_dispatch:
     inputs:
       source_run_id:
+        description: Exact retained fixed-release storyboard source
         required: true
-        default: "29888971818"
+        default: "29813098711"
         type: string
       confirm_exactly_five_image_calls:
         description: Confirm exactly five VectorEngine image calls, no retries
@@ -23,13 +24,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 105
     env:
-      SOURCE: build/acc1-existing
+      SOURCE_STORYBOARD: build/acc1-source-storyboard
+      SOURCE_AUDIO: build/acc1-source-audio
       OUTPUT: build/acc1-panel-grammar-canary
     steps:
       - name: Check out the verified canary implementation
         uses: actions/checkout@v4
         with:
-          ref: 8fc3ffd0cfb714d445a5b1d7c4f1e7f6c1e3bb23
+          ref: adfb611f9b54087185d7059df41d2a595e0baf48
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -41,8 +43,11 @@ jobs:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           CONFIRM: ${{ inputs.confirm_exactly_five_image_calls }}
         run: |
-          test "$SOURCE_RUN_ID" = "29888971818"
+          set -euo pipefail
+          test "$SOURCE_RUN_ID" = "29813098711"
           test "$CONFIRM" = "true"
+          mkdir -p "$OUTPUT"
+          printf '%s\n' '{"provider_cap":5,"automatic_retries":0,"new_ai33_calls":0,"youtube_called":false}' > "$OUTPUT/run-scope.json"
       - name: Install deterministic render dependencies
         run: |
           pip install -r requirements.txt
@@ -55,20 +60,38 @@ jobs:
             -type f -name chrome-headless-shell -perm -111 | head -n 1)"
           test -x "$browser_path"
           echo "HYPERFRAMES_BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
-      - name: Download completed storyboard and master audio
+      - name: Download retained semantic storyboard source
         uses: actions/download-artifact@v4
         with:
-          name: acc1-segmented-preparation-29888971818
-          path: ${{ env.SOURCE }}
+          name: acc1-fixed-first-release-29813098711
+          path: ${{ env.SOURCE_STORYBOARD }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 29813098711
+      - name: Download retained master narration
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-single-audio-recovered-29888971818
+          path: ${{ env.SOURCE_AUDIO }}
           github-token: ${{ github.token }}
           repository: webpot-ru/nebula-core-v3
           run-id: 29888971818
+      - name: Preflight retained inputs before VectorEngine
+        run: |
+          set -euo pipefail
+          test "$(find "$SOURCE_AUDIO" -type f -name narration-master.mp3 | wc -l)" -eq 1
+          python scripts/generate_acc1_webtoon_canary_pages.py \
+            --artifact-root "$SOURCE_STORYBOARD" \
+            --output-dir "$OUTPUT/source-preflight" \
+            --page-count 5 \
+            --preflight-only
+          test -s "$OUTPUT/source-preflight/source-preflight.json"
       - name: Generate five approved format v3 pages
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
           python scripts/generate_acc1_webtoon_canary_pages.py \
-            --artifact-root "$SOURCE" \
+            --artifact-root "$SOURCE_STORYBOARD" \
             --output-dir "$OUTPUT/generated-input" \
             --page-count 5 \
             --confirm-exactly-five-image-calls
@@ -76,7 +99,7 @@ jobs:
         run: |
           python scripts/render_acc1_hyperframes_realistic_test.py \
             --artifact-root "$OUTPUT/generated-input" \
-            --audio-root "$SOURCE" \
+            --audio-root "$SOURCE_AUDIO" \
             --output-dir "$OUTPUT" \
             --expected-page-count 5 \
             --source-run-id "$GITHUB_RUN_ID" \
