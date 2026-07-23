@@ -1,0 +1,110 @@
+name: acc1 Five-Page Panel Grammar Canary
+run-name: acc1 five new panel-grammar pages from ${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        required: true
+        default: "29888971818"
+        type: string
+      confirm_exactly_five_image_calls:
+        description: Confirm exactly five VectorEngine image calls, no retries
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  panel-grammar-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    env:
+      SOURCE: build/acc1-existing
+      OUTPUT: build/acc1-panel-grammar-canary
+    steps:
+      - name: Require exact bounded scope
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIRM: ${{ inputs.confirm_exactly_five_image_calls }}
+        run: |
+          test "$SOURCE_RUN_ID" = "29888971818"
+          test "$CONFIRM" = "true"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install deterministic render dependencies
+        run: |
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          npx --yes hyperframes@0.7.61 info
+          npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+            --path "$RUNNER_TEMP/hyperframes-browsers"
+          browser_path="$(find "$RUNNER_TEMP/hyperframes-browsers" \
+            -type f -name chrome-headless-shell -perm -111 | head -n 1)"
+          test -x "$browser_path"
+          echo "HYPERFRAMES_BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
+      - name: Download completed storyboard and master audio
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-segmented-preparation-29888971818
+          path: ${{ env.SOURCE }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 29888971818
+      - name: Generate five approved format v3 pages
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          python scripts/generate_acc1_webtoon_canary_pages.py \
+            --artifact-root "$SOURCE" \
+            --output-dir "$OUTPUT/generated-input" \
+            --page-count 5 \
+            --confirm-exactly-five-image-calls
+      - name: Render five new comic scenes with existing narration in HyperFrames
+        run: |
+          python scripts/render_acc1_hyperframes_realistic_test.py \
+            --artifact-root "$OUTPUT/generated-input" \
+            --audio-root "$SOURCE" \
+            --output-dir "$OUTPUT" \
+            --expected-page-count 5 \
+            --source-run-id "$GITHUB_RUN_ID" \
+            --source-artifact "acc1-panel-grammar-canary-$GITHUB_RUN_ID" \
+            --new-image-calls 5
+      - name: Verify bounded panel-grammar output
+        run: |
+          test -s "$OUTPUT/acc1-hyperframes-realistic-test.mp4"
+          test -s "$OUTPUT/captions-brand-safe.srt"
+          test -s "$OUTPUT/captions-brand-safe.ass"
+          test "$(find "$OUTPUT/frames" -type f -name 'frame-*.png' | wc -l)" -eq 5
+          python - "$OUTPUT/render-report.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[1]))
+          assert report['renderer']=='hyperframes'
+          assert report['hyperframes_check_passed'] is True
+          assert report['source_image_calls']==5
+          assert report['new_ai33_calls']==0 and report['new_image_calls']==5
+          assert report['youtube_called'] is False
+          storyboard=json.load(open(sys.argv[1].replace('render-report.json','generated-input/storyboard-generated.json')))
+          assert [scene['panel_count'] for scene in storyboard['slides']] == [1,2,3,4,5]
+          journal=json.load(open(sys.argv[1].replace('render-report.json','generated-input/paid-image-attempts.json')))
+          assert journal['approved_call_cap']==5 and journal['automatic_retries']==0
+          assert len(journal['attempts'])==5 and all(item['status']=='complete' for item in journal['attempts'])
+          PY
+          ffprobe -v error -show_entries stream=codec_type,codec_name -of json "$OUTPUT/acc1-hyperframes-realistic-test.mp4"
+      - name: Upload five-page canary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-panel-grammar-canary-${{ github.run_id }}
+          path: ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 14

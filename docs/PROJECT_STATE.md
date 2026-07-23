@@ -61,6 +61,14 @@ grammar with each new source pack; historical style IDs remain readable for
 recovery of old manifests. The existing paired hero/detail technical pack shape
 is retained for renderer compatibility.
 
+A separate local-only workflow,
+`.github/workflows/acc1_panel_grammar_canary.yml`, is prepared to test the
+entire `1, 2, 3, 4, 5` page-count grammar in one short review artifact. It is
+bounded to exactly five new VectorEngine calls with zero retries, existing
+master narration, HyperFrames rendering, zero AI33 calls and zero YouTube
+calls. It has not yet been dispatched at the time of this state note; a
+completed artifact still requires visual review.
+
 The no-provider HyperFrames proof is
 `videos/chonker-talks-format-v3-preview/renders/acc1-format-v3-preview.mp4`:
 H.264 yuv420p, 1920x1080, 30 fps, exactly 18.0 seconds, 14,261,664 bytes,

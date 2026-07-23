@@ -65,6 +65,24 @@ class HyperFramesRealisticTestTests(unittest.TestCase):
             verified = verify_paid_generation_receipt(storyboard)
         self.assertEqual(len(verified["attempts"]), 4)
 
+    def test_verifies_exact_five_call_receipt_without_retries(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard = root / "storyboard-generated.json"
+            storyboard.write_text("{}", encoding="utf-8")
+            journal = {
+                "approved_call_cap": 5,
+                "automatic_retries": 0,
+                "attempts": [{"status": "complete"} for _ in range(5)],
+            }
+            (root / "paid-image-attempts.json").write_text(
+                json.dumps(journal), encoding="utf-8",
+            )
+            verified = verify_paid_generation_receipt(
+                storyboard, expected_page_count=5,
+            )
+        self.assertEqual(len(verified["attempts"]), 5)
+
     def test_brand_safe_captions_are_one_line_and_skip_insert_windows(self):
         track = {
             "cues": [

@@ -27,6 +27,20 @@ class WebtoonCanaryPageTests(unittest.TestCase):
         self.assertIn("exactly four uneven panels", prompts[2])
         self.assertIn("exactly five asymmetrical panels", prompts[3])
 
+    def test_five_page_canary_covers_each_approved_panel_count_once(self):
+        prompts = [
+            page_prompt({"narration_text": "Она закрыла дверь."}, index, 5)
+            for index in range(1, 6)
+        ]
+        expected_phrases = (
+            "exactly one uninterrupted full-page hero image",
+            "exactly two unequal panels",
+            "exactly three unequal panels",
+            "exactly four uneven panels",
+            "exactly five asymmetrical panels",
+        )
+        self.assertTrue(all(phrase in prompt for phrase, prompt in zip(expected_phrases, prompts)))
+
     def test_replaces_each_scene_with_one_unique_complete_page(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

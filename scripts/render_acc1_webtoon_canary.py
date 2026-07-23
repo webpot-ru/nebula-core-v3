@@ -131,7 +131,7 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--scene-count", type=int, default=4, choices=range(3, 6))
     parser.add_argument("--storyboard-path")
-    parser.add_argument("--new-image-calls", type=int, default=0, choices=range(0, 5))
+    parser.add_argument("--new-image-calls", type=int, default=0, choices=range(0, 6))
     args = parser.parse_args()
     download_root = Path(args.artifact_root).resolve()
     storyboard_path = Path(args.storyboard_path).resolve() if args.storyboard_path else resolve_storyboard(download_root)

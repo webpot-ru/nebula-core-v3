@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate exactly four light editorial comic pages for the acc1 canary."""
+"""Generate a bounded set of light editorial comic pages for an acc1 canary."""
 
 from __future__ import annotations
 
@@ -128,20 +128,30 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--page-count", type=int, choices=(4, 5), default=4)
     parser.add_argument("--confirm-exactly-four-image-calls", action="store_true")
+    parser.add_argument("--confirm-exactly-five-image-calls", action="store_true")
     args = parser.parse_args()
-    if not args.confirm_exactly_four_image_calls:
-        raise RuntimeError("refusing paid generation without exact four-call confirmation")
+    confirmations = {
+        4: args.confirm_exactly_four_image_calls,
+        5: args.confirm_exactly_five_image_calls,
+    }
+    if not confirmations[args.page_count]:
+        raise RuntimeError(
+            f"refusing paid generation without exact {args.page_count}-call confirmation",
+        )
 
     source = json.loads(resolve_storyboard(Path(args.artifact_root)).read_text(encoding="utf-8"))
-    storyboard, source_start, source_end = build_canary_storyboard(source, scene_count=4)
+    storyboard, source_start, source_end = build_canary_storyboard(
+        source, scene_count=args.page_count,
+    )
     storyboard["canary_source_start_sec"] = source_start
     storyboard["canary_source_end_sec"] = source_end
     output = Path(args.output_dir).resolve()
     pages_dir = output / "scene-images"
     pages_dir.mkdir(parents=True, exist_ok=True)
     journal = {"provider": "vectorengine", "model": DEFAULT_IMAGE_MODEL,
-               "approved_call_cap": 4, "automatic_retries": 0, "attempts": []}
+               "approved_call_cap": args.page_count, "automatic_retries": 0, "attempts": []}
     journal_path = output / "paid-image-attempts.json"
     pages: list[Path] = []
     for index, scene in enumerate(storyboard["slides"], start=1):

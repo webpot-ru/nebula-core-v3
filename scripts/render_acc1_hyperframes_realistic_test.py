@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Build a production-shaped acc1 HyperFrames review from a failed canary artifact.
+"""Build a production-shaped acc1 HyperFrames review from a bounded canary artifact.
 
-The workflow reuses four completed VectorEngine pages and the existing AI33
-narration cut. It performs no provider or YouTube calls.
+The workflow reuses completed VectorEngine pages and existing narration. It
+performs no provider or YouTube calls.
 """
 
 from __future__ import annotations
@@ -42,7 +42,9 @@ def _read_object(path: Path) -> dict[str, Any]:
     return payload
 
 
-def resolve_generated_storyboard(download_root: Path) -> tuple[Path, dict[str, Any]]:
+def resolve_generated_storyboard(
+    download_root: Path, *, expected_page_count: int = 4,
+) -> tuple[Path, dict[str, Any]]:
     matches: list[tuple[Path, dict[str, Any]]] = []
     for path in download_root.rglob("storyboard-generated.json"):
         try:
@@ -52,11 +54,13 @@ def resolve_generated_storyboard(download_root: Path) -> tuple[Path, dict[str, A
         if (
             payload.get("style_profile") == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
             and isinstance(payload.get("slides"), list)
-            and len(payload["slides"]) == 4
+            and len(payload["slides"]) == expected_page_count
         ):
             matches.append((path, payload))
     if len(matches) != 1:
-        raise RuntimeError(f"expected one four-page v3 storyboard, found {len(matches)}")
+        raise RuntimeError(
+            f"expected one {expected_page_count}-page v3 storyboard, found {len(matches)}",
+        )
     path, payload = matches[0]
     if payload.get("publication_authorized") is not False:
         raise RuntimeError("review storyboard cannot authorize publication")
@@ -68,25 +72,54 @@ def resolve_generated_storyboard(download_root: Path) -> tuple[Path, dict[str, A
     return path, payload
 
 
-def verify_paid_generation_receipt(storyboard_path: Path) -> dict[str, Any]:
+def verify_paid_generation_receipt(
+    storyboard_path: Path, *, expected_page_count: int = 4,
+) -> dict[str, Any]:
     journal = _read_object(storyboard_path.parent / "paid-image-attempts.json")
     attempts = journal.get("attempts")
     if (
-        journal.get("approved_call_cap") != 4
+        journal.get("approved_call_cap") != expected_page_count
         or journal.get("automatic_retries") != 0
         or not isinstance(attempts, list)
-        or len(attempts) != 4
+        or len(attempts) != expected_page_count
         or any(item.get("status") != "complete" for item in attempts)
     ):
-        raise RuntimeError("source image receipt is not exactly four completed calls without retries")
+        raise RuntimeError(
+            f"source image receipt is not exactly {expected_page_count} completed calls without retries",
+        )
     return journal
 
 
-def resolve_existing_audio(download_root: Path) -> Path:
+def resolve_existing_audio(
+    download_root: Path, *, storyboard: dict[str, Any], destination: Path,
+) -> Path:
     matches = list(download_root.rglob("narration-canary.mp3"))
-    if len(matches) != 1:
+    if len(matches) == 1:
+        shutil.copy2(matches[0], destination)
+        return destination
+    if len(matches) > 1:
         raise RuntimeError(f"expected one existing canary narration file, found {len(matches)}")
-    return matches[0]
+
+    masters = list(download_root.rglob("narration-master.mp3"))
+    if len(masters) != 1:
+        raise RuntimeError(
+            f"expected one existing canary narration or master audio file, found {len(masters)} masters",
+        )
+    source_start = float(storyboard.get("canary_source_start_sec") or 0)
+    source_end = float(storyboard.get("canary_source_end_sec") or 0)
+    if source_end <= source_start:
+        raise RuntimeError("generated storyboard has no valid reusable master-audio interval")
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-v", "error", "-ss", f"{source_start:.3f}",
+            "-t", f"{source_end - source_start:.3f}", "-i", str(masters[0]),
+            "-vn", "-c:a", "libmp3lame", "-q:a", "2", str(destination),
+        ],
+        check=True,
+    )
+    if not destination.is_file() or destination.stat().st_size <= 0:
+        raise RuntimeError("master-audio extraction produced no reusable narration")
+    return destination
 
 
 def _probe_duration(path: Path) -> float:
@@ -336,18 +369,27 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", required=True)
+    parser.add_argument("--audio-root")
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--expected-page-count", type=int, choices=(4, 5), default=4)
+    parser.add_argument("--source-run-id", default=SOURCE_RUN_ID)
+    parser.add_argument("--source-artifact", default=SOURCE_ARTIFACT)
+    parser.add_argument("--new-image-calls", type=int, choices=range(0, 6), default=0)
     args = parser.parse_args()
 
     download_root = Path(args.artifact_root).resolve()
+    audio_root = Path(args.audio_root).resolve() if args.audio_root else download_root
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    storyboard_path, storyboard = resolve_generated_storyboard(download_root)
-    journal = verify_paid_generation_receipt(storyboard_path)
+    storyboard_path, storyboard = resolve_generated_storyboard(
+        download_root, expected_page_count=args.expected_page_count,
+    )
+    journal = verify_paid_generation_receipt(
+        storyboard_path, expected_page_count=args.expected_page_count,
+    )
     artifact_root = storyboard_path.parent
-    audio_source = resolve_existing_audio(download_root)
     audio = artifact_root / "narration-hyperframes-test.mp3"
-    shutil.copy2(audio_source, audio)
+    resolve_existing_audio(audio_root, storyboard=storyboard, destination=audio)
     branded_storyboard, hidden_intervals = attach_production_branding(storyboard, artifact_root)
 
     base_video = artifact_root / "hyperframes-realistic-base.mp4"
@@ -362,13 +404,13 @@ def main() -> int:
     partial_report = {
         **render_report,
         "status": "HYPERFRAMES_RENDERED_AWAITING_POSTPROCESS",
-        "source_run_id": SOURCE_RUN_ID,
-        "source_artifact": SOURCE_ARTIFACT,
+        "source_run_id": args.source_run_id,
+        "source_artifact": args.source_artifact,
         "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
         "renderer": "hyperframes",
         "source_image_calls": len(journal["attempts"]),
         "source_image_retries": journal["automatic_retries"],
-        "new_image_calls": 0,
+        "new_image_calls": args.new_image_calls,
         "new_ai33_calls": 0,
         "youtube_called": False,
         "intermediate_video": intermediate_video.name,
@@ -394,13 +436,13 @@ def main() -> int:
     report = {
         **render_report,
         "status": "PASS",
-        "source_run_id": SOURCE_RUN_ID,
-        "source_artifact": SOURCE_ARTIFACT,
+        "source_run_id": args.source_run_id,
+        "source_artifact": args.source_artifact,
         "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
         "renderer": "hyperframes",
         "source_image_calls": len(journal["attempts"]),
         "source_image_retries": journal["automatic_retries"],
-        "new_image_calls": 0,
+        "new_image_calls": args.new_image_calls,
         "new_ai33_calls": 0,
         "youtube_called": False,
         "captions_burned": True,

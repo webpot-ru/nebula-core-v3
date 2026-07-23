@@ -41,6 +41,14 @@ panels. The completed HyperFrames base MP4 and a partial report are copied to
 the upload directory before subtitle postprocessing, so an FFmpeg/SRT failure
 still leaves inspectable render evidence.
 
+The separately bounded `.github/workflows/acc1_panel_grammar_canary.yml`
+exists only to visually validate the new five-page v3 panel rhythm. Its manual
+run requires an exact confirmation for five VectorEngine calls with zero
+automatic retries, reuses existing master narration, renders with HyperFrames,
+and verifies the generated panel counts are exactly `1, 2, 3, 4, 5`. It has no
+AI33 or YouTube step; this ceiling is a review scope, not a production or
+publication authorization.
+
 The production compositor treats both paid scene images as already composed comic pages. New fixed-release prompts use `acc1_format_visual_system_v3`; the renderer accepts that profile with the same complete-page guided-reading path while keeping `cinematic_ink_webtoon_v1` compatible for historical artifacts. The planner selects distinct BUNDLE/SAGA/THREAD grammar and pillar palette rules before spend. It does not reconstruct provider pages from collage cutouts or repeat a mandatory push-in/pull-back/reset cycle.
 
 Build the no-provider v3 proof from the three frozen references with:
