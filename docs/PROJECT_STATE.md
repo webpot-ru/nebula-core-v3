@@ -73,10 +73,9 @@ The first five-page dispatch, GitHub run `29991895445`, stopped before any
 provider request because its short-retention preparation artifact had expired.
 The replacement entrypoint uses the retained fixed-release storyboard solely
 for source-backed narration timing and semantic beats, plus the separately
-retained master MP3. It rewrites all generated pages to v3 before rendering and
-performs a no-provider compatibility preflight before the five explicitly
-approved VectorEngine calls. The historical `cinematic_ink_webtoon_v1` profile
-is never used as visual direction or prompt input.
+retained master MP3. It ignores every historical visual-profile value, rewrites
+all generated pages to v3 before rendering and performs a no-provider
+compatibility preflight before the five explicitly approved VectorEngine calls.
 
 The no-provider HyperFrames proof is
 `videos/chonker-talks-format-v3-preview/renders/acc1-format-v3-preview.mp4`:

@@ -45,20 +45,12 @@ restrained neutral clothes. Preserve their faces, ages, hair, body shapes and
 wardrobe consistently on every page.
 """.strip()
 
-# The first paid fixed-release artifact is retained longer than the original
-# segmented-preparation artifact.  Its storyboard is allowed here only as a
-# source of narration timing and source-backed events.  It must never become a
-# visual reference: `replace_scene_assets()` rewrites every generated scene to
-# the approved v3 visual profile before any render sees it.
-SOURCE_ONLY_LEGACY_STYLE_PROFILE = "cinematic_ink_webtoon_v1"
-
-
 def resolve_source_storyboard(download_root: Path) -> Path:
     """Return one storyboard suitable as semantic input for a v3 canary.
 
-    A completed v3 storyboard is preferred.  The retained fixed-release
-    storyboard may be used only to recover narration text, timestamps and
-    semantic camera beats after the original preparation artifact expires.
+    The retained input supplies only narration text, timestamps and semantic
+    camera beats.  Its historic visual profile is intentionally ignored: every
+    generated page is rewritten to the approved v3 profile before rendering.
     """
 
     matches: list[Path] = []
@@ -71,16 +63,13 @@ def resolve_source_storyboard(download_root: Path) -> Path:
             isinstance(payload, dict)
             and isinstance(payload.get("slides"), list)
             and isinstance(payload.get("motion_plan"), dict)
-            and payload.get("style_profile") in {
-                FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
-                SOURCE_ONLY_LEGACY_STYLE_PROFILE,
-            }
+            and isinstance(payload.get("caption_track"), dict)
         ):
             continue
         matches.append(path)
     if len(matches) != 1:
         raise RuntimeError(
-            "expected exactly one v3 or source-only legacy storyboard, "
+            "expected exactly one semantic storyboard with slides, motion plan and captions, "
             f"found {len(matches)}",
         )
     return matches[0]
@@ -188,6 +177,12 @@ def main() -> int:
 
     source_path = resolve_source_storyboard(Path(args.artifact_root))
     source = json.loads(source_path.read_text(encoding="utf-8"))
+    # Do not carry a stale visual identity into the generated source payload.
+    # The old artifact is a semantic source only; v3 is the sole render style.
+    source["style_profile"] = FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+    source_motion_plan = dict(source["motion_plan"])
+    source_motion_plan["style_profile"] = FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+    source["motion_plan"] = source_motion_plan
     storyboard, source_start, source_end = build_canary_storyboard(
         source, scene_count=args.page_count,
     )
@@ -202,7 +197,7 @@ def main() -> int:
                     "status": "PASS",
                     "provider_calls": 0,
                     "source_storyboard": source_path.name,
-                    "source_style_profile": source.get("style_profile"),
+                    "source_visual_profile_ignored": True,
                     "selected_scene_count": len(storyboard["slides"]),
                     "source_start_sec": source_start,
                     "source_end_sec": source_end,

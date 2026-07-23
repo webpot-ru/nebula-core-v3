@@ -3,7 +3,6 @@ import unittest
 from pathlib import Path
 
 from scripts.generate_acc1_webtoon_canary_pages import (
-    SOURCE_ONLY_LEGACY_STYLE_PROFILE,
     page_prompt,
     replace_scene_assets,
     resolve_source_storyboard,
@@ -12,23 +11,22 @@ from acc1_visual_contract import FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
 
 
 class WebtoonCanaryPageTests(unittest.TestCase):
-    def test_retained_legacy_storyboard_is_semantic_source_only(self):
+    def test_historic_profile_is_not_a_source_selection_dependency(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "storyboard.json"
             source.write_text(
-                '{"style_profile":"cinematic_ink_webtoon_v1","slides":[],"motion_plan":{}}',
+                '{"style_profile":"retired_visual_style","slides":[],"motion_plan":{},"caption_track":{}}',
                 encoding="utf-8",
             )
             self.assertEqual(resolve_source_storyboard(root), source)
-            self.assertEqual(SOURCE_ONLY_LEGACY_STYLE_PROFILE, "cinematic_ink_webtoon_v1")
 
     def test_refuses_ambiguous_semantic_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for index in (1, 2):
                 (root / f"storyboard-{index}.json").write_text(
-                    '{"style_profile":"cinematic_ink_webtoon_v1","slides":[],"motion_plan":{}}',
+                    '{"style_profile":"retired_visual_style","slides":[],"motion_plan":{},"caption_track":{}}',
                     encoding="utf-8",
                 )
             with self.assertRaisesRegex(RuntimeError, "found 2"):
