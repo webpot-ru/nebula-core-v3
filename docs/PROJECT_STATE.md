@@ -2,6 +2,22 @@
 
 Last updated: 2026-07-20
 
+## 2026-07-23 — Five-page v3 panel-grammar canary recovery prepared
+
+- GitHub run `29991895445` stopped before the first VectorEngine call because
+  the short-retention preparation artifact had expired. AI33 and YouTube were
+  not called.
+- The replacement workflow is bounded to exactly five VectorEngine calls with
+  zero retries and no AI33 or YouTube step. It uses a retained storyboard only
+  for source-backed narration timing and semantic beats, plus a separately
+  retained master MP3. A no-provider compatibility preflight runs before the
+  image key is exposed.
+- The historical `cinematic_ink_webtoon_v1` profile is source-only in this
+  recovery path: it cannot be used as a page prompt or rendered visual style.
+  Generated pages are rewritten to the approved v3 profile before rendering.
+- A replacement provider run has not been dispatched yet and still needs the
+  exact user approval for five image calls.
+
 ## Acc1 single-audio + SRT migration (GitHub task submitted; recovery pending)
 
 - GitHub run `29828099086` submitted exactly one AI33 v3 task, `a7ac4460-dd83-4493-86f5-fa850b2995da`, with transcript output enabled. Its first status read hit the provider's transient HTTP 429 `Task polling temporarily busy`; no replacement task is authorized or required.
