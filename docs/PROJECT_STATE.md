@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-23
 
-## 2026-07-23 — v3 pages generated; legacy render rejected the new profile
+## 2026-07-23 — v3 pages generated; HyperFrames postprocess fix prepared
 
 - GitHub run `29975009888` completed all four approved VectorEngine image
   calls with zero automatic retries.
@@ -12,9 +12,16 @@ Last updated: 2026-07-23
 - Artifact `acc1-format-v3-canary-29975009888` retains the four completed
   pages, the exact paid-call journal, generated storyboard and existing AI33
   narration cut.
-- A dedicated no-provider HyperFrames recovery workflow is prepared to consume
-  that artifact and fail closed on any v3 style-profile drift. The recovery
-  remains unverified until its GitHub artifact and MP4 are inspected.
+- No-spend GitHub run `29980181224` reused only that artifact. HyperFrames
+  completed its base render, then subtitle postprocessing stopped because one
+  source cue exceeded the approved 60-character one-line limit. No
+  VectorEngine, AI33 or YouTube call was made.
+- The recovery now deterministically splits long source cues on word
+  boundaries, preserves their full original time window with contiguous
+  proportional subcue timing, and copies the completed HyperFrames base MP4
+  plus a partial report into the upload directory before subtitle
+  postprocessing. A new no-spend GitHub run is still required to verify the
+  final captioned MP4 and review artifact.
 
 ## Current acc1 visual decision — format visual system v3
 

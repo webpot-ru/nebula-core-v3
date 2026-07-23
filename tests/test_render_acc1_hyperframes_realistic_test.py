@@ -6,7 +6,9 @@ from pathlib import Path
 from scripts.render_acc1_hyperframes_realistic_test import (
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     brand_safe_caption_track,
+    normalize_caption_track,
     resolve_generated_storyboard,
+    split_caption_cue,
     verify_paid_generation_receipt,
     write_srt,
 )
@@ -77,6 +79,48 @@ class HyperFramesRealisticTestTests(unittest.TestCase):
             rendered = output.read_text(encoding="utf-8")
         self.assertIn("Первая строка", rendered)
         self.assertNotIn("Скрытая строка", rendered)
+
+    def test_splits_long_caption_into_contiguous_one_line_cues(self):
+        source = {
+            "start_sec": 12.0,
+            "end_sec": 18.0,
+            "text": (
+                "Это намеренно длинная реплика для проверки аккуратного деления "
+                "на несколько последовательных однострочных субтитров"
+            ),
+        }
+        parts = split_caption_cue(source)
+        self.assertGreater(len(parts), 1)
+        self.assertEqual(parts[0]["start_sec"], source["start_sec"])
+        self.assertEqual(parts[-1]["end_sec"], source["end_sec"])
+        self.assertTrue(all(len(part["text"]) <= 60 for part in parts))
+        self.assertTrue(all("\n" not in part["text"] for part in parts))
+        for left, right in zip(parts, parts[1:]):
+            self.assertAlmostEqual(left["end_sec"], right["start_sec"])
+        self.assertEqual(
+            " ".join(part["text"] for part in parts),
+            " ".join(source["text"].split()),
+        )
+
+    def test_normalized_track_writes_long_caption_without_overlap(self):
+        track = {
+            "cues": [{
+                "start_sec": 1.0,
+                "end_sec": 5.0,
+                "text": (
+                    "Одна очень длинная фраза теперь разбивается по словам и "
+                    "остаётся однострочной на всём протяжении исходной реплики"
+                ),
+            }],
+        }
+        normalized = normalize_caption_track(track)
+        self.assertEqual(normalized["cue_count"], len(normalized["cues"]))
+        with tempfile.TemporaryDirectory() as temp:
+            rendered = write_srt(
+                normalized, Path(temp) / "captions.srt",
+            ).read_text(encoding="utf-8")
+        self.assertIn("00:00:01,000", rendered)
+        self.assertIn("00:00:05,000", rendered)
 
 
 if __name__ == "__main__":

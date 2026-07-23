@@ -21,7 +21,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from acc1_visual_contract import FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
-from compilation_renderer import render_compilation
 
 
 SOURCE_RUN_ID = "29975009888"
@@ -164,6 +163,65 @@ def brand_safe_caption_track(
     return {**caption_track, "cues": cues, "cue_count": len(cues)}
 
 
+def split_caption_cue(
+    cue: dict[str, Any], max_chars: int = 60,
+) -> list[dict[str, Any]]:
+    text = " ".join(str(cue.get("text") or "").split())
+    if not text:
+        raise RuntimeError("caption cue is empty")
+    if max_chars <= 0:
+        raise RuntimeError("caption max_chars must be positive")
+
+    chunks: list[str] = []
+    current: list[str] = []
+    for word in text.split():
+        if len(word) > max_chars:
+            raise RuntimeError("caption contains a word longer than the one-line contract")
+        candidate = " ".join([*current, word])
+        if current and len(candidate) > max_chars:
+            chunks.append(" ".join(current))
+            current = [word]
+        else:
+            current.append(word)
+    if current:
+        chunks.append(" ".join(current))
+
+    start = float(cue["start_sec"])
+    end = float(cue["end_sec"])
+    duration = end - start
+    if duration <= 0:
+        raise RuntimeError("caption cue duration must be positive")
+
+    weights = [len(chunk) for chunk in chunks]
+    total_weight = sum(weights)
+    boundaries = [start]
+    cumulative = 0
+    for weight in weights[:-1]:
+        cumulative += weight
+        boundaries.append(start + duration * cumulative / total_weight)
+    boundaries.append(end)
+    return [
+        {
+            **cue,
+            "start_sec": boundaries[index],
+            "end_sec": boundaries[index + 1],
+            "text": chunk,
+        }
+        for index, chunk in enumerate(chunks)
+    ]
+
+
+def normalize_caption_track(
+    caption_track: dict[str, Any], max_chars: int = 60,
+) -> dict[str, Any]:
+    cues = [
+        part
+        for cue in caption_track.get("cues") or []
+        for part in split_caption_cue(cue, max_chars=max_chars)
+    ]
+    return {**caption_track, "cues": cues, "cue_count": len(cues)}
+
+
 def write_srt(caption_track: dict[str, Any], output: Path) -> Path:
     def stamp(seconds: float) -> str:
         milliseconds = max(0, round(seconds * 1000))
@@ -224,6 +282,8 @@ def extract_review_frames(video: Path, storyboard: dict[str, Any], output: Path)
 
 
 def main() -> int:
+    from compilation_renderer import render_compilation
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", required=True)
     parser.add_argument("--output-dir", required=True)
@@ -247,7 +307,31 @@ def main() -> int:
         base_video,
         audio=audio,
     )
-    safe_track = brand_safe_caption_track(storyboard["caption_track"], hidden_intervals)
+    intermediate_video = output_dir / "hyperframes-intermediate.mp4"
+    shutil.copy2(base_video, intermediate_video)
+    partial_report = {
+        **render_report,
+        "status": "HYPERFRAMES_RENDERED_AWAITING_POSTPROCESS",
+        "source_run_id": SOURCE_RUN_ID,
+        "source_artifact": SOURCE_ARTIFACT,
+        "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+        "renderer": "hyperframes",
+        "source_image_calls": len(journal["attempts"]),
+        "source_image_retries": journal["automatic_retries"],
+        "new_image_calls": 0,
+        "new_ai33_calls": 0,
+        "youtube_called": False,
+        "intermediate_video": intermediate_video.name,
+        "intermediate_video_sha256": _sha256(intermediate_video),
+    }
+    (output_dir / "render-report.json").write_text(
+        json.dumps(partial_report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    safe_track = normalize_caption_track(
+        brand_safe_caption_track(storyboard["caption_track"], hidden_intervals),
+    )
     captions = write_srt(safe_track, artifact_root / "captions-brand-safe.srt")
     final_video = output_dir / "acc1-hyperframes-realistic-test.mp4"
     burn_captions(base_video, captions, final_video)

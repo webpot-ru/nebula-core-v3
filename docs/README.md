@@ -32,7 +32,11 @@ or YouTube calls. It fails closed unless the storyboard and every scene use
 `acc1_format_visual_system_v3`, renders through HyperFrames, applies the
 checksum-bound intro/CTA/outro, burns the approved single-line subtitle
 treatment, extracts four review frames and uploads a review-only GitHub
-artifact.
+artifact. Long transcript cues are split deterministically at word boundaries
+into sequential lines of at most 60 characters while preserving the original
+cue window. The completed HyperFrames base MP4 and a partial report are copied
+to the upload directory before subtitle postprocessing, so an FFmpeg/SRT
+failure still leaves inspectable render evidence.
 
 The production compositor treats both paid scene images as already composed comic pages. New fixed-release prompts use `acc1_format_visual_system_v3`; the renderer accepts that profile with the same complete-page guided-reading path while keeping `cinematic_ink_webtoon_v1` compatible for historical artifacts. The planner selects distinct BUNDLE/SAGA/THREAD grammar and pillar palette rules before spend. It does not reconstruct provider pages from collage cutouts or repeat a mandatory push-in/pull-back/reset cycle.
 
