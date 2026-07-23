@@ -27,6 +27,7 @@ from acc1_visual_contract import (
     EDITORIAL_MOTION_MODULES,
     EDITORIAL_MOTION_STYLE_PROFILE,
     EDITORIAL_MOTION_STYLE_PROFILES,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     INK_GOUACHE_PAGE_LAYOUTS,
     INK_GOUACHE_STORY_FAMILIES,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
@@ -163,6 +164,7 @@ def preflight_editorial_motion_storyboard(
         if profile in {
             INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
             CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+            FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
         }:
             if (
                 story_family not in INK_GOUACHE_STORY_FAMILIES
@@ -218,7 +220,10 @@ def _scene_markup(
     source = html.escape(str(scene.get("source_label") or "РЕДАКЦИОННАЯ ИЛЛЮСТРАЦИЯ"))
     hero, detail = (html.escape(path, quote=True) for path in copied_assets)
     adult_style = is_adult_animation_style_profile(style_profile)
-    guided_webtoon_style = style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE
+    guided_webtoon_style = style_profile in {
+        CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+        FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+    }
     quote_words = str(scene.get("narration_text") or "").split()[:18]
     # Speech bubbles are reserved for short source-backed direct lines.  The
     # normal narration remains in captions, rather than being printed as a
@@ -555,7 +560,10 @@ def _timeline_script(scenes: list[dict[str, Any]], *, style_profile: str) -> str
         duration = float(scene["duration_sec"])
         module = str(scene["motion"]["module"])
         tail = max(start + 0.2, start + duration - 0.8)
-        if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE:
+        if style_profile in {
+            CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+            FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+        }:
             lines.extend(_cinematic_webtoon_scene_tweens(scene))
             continue
         if style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE:
@@ -657,15 +665,15 @@ def _composition_html(scenes: list[dict[str, Any]], duration: float, *, style_pr
 .module-dark_semantic_reveal .timeline-rig{{opacity:0}}.module-dark_semantic_reveal .plane-blue{{background:#10243c}}.module-dark_semantic_reveal .plane-coral{{background:#6f2e31}}.module-dark_semantic_reveal .plane-yellow{{background:#b48729}}.module-dark_semantic_reveal .hero-cutout{{left:760px;top:55px;width:1040px;height:940px}}.module-dark_semantic_reveal .portal-shell{{left:170px;right:auto;top:200px;width:520px;height:650px;border-radius:10px}}.module-dark_semantic_reveal .story-copy{{left:105px;top:78px;width:700px}}
 .module-nested_collage_zoom .timeline-rig,.module-nested_collage_zoom .dark-reveal{{opacity:0}}.module-nested_collage_zoom .hero-cutout{{left:330px;top:100px;width:1260px;height:860px}}.module-nested_collage_zoom .portal-shell{{right:560px;top:220px;width:520px;height:520px;border-radius:50%}}.module-nested_collage_zoom .story-copy{{left:95px;top:70px;width:590px}}
 /* Cinematic Webtoon v2: paid assets are complete pages, never collage parts. */
-#root.profile-cinematic_ink_webtoon_v1{{--webtoon-ink:#111317;--webtoon-paper:#e8dfcb;--webtoon-band:#090b0f}}
-#root.profile-cinematic_ink_webtoon_v1 #root-fill{{background:var(--webtoon-ink)}}
-#root.profile-cinematic_ink_webtoon_v1 .scene-inner{{background:var(--webtoon-ink);isolation:isolate}}
-#root.profile-cinematic_ink_webtoon_v1 .scene-inner:after{{content:'';position:absolute;left:0;right:0;bottom:0;height:130px;background:rgba(9,11,15,.94);z-index:20;pointer-events:none}}
-#root.profile-cinematic_ink_webtoon_v1 .hero-plate,#root.profile-cinematic_ink_webtoon_v1 .scene-grade,#root.profile-cinematic_ink_webtoon_v1 .color-plane,#root.profile-cinematic_ink_webtoon_v1 .object-fragment,#root.profile-cinematic_ink_webtoon_v1 .story-line,#root.profile-cinematic_ink_webtoon_v1 .story-copy,#root.profile-cinematic_ink_webtoon_v1 .timeline-rig,#root.profile-cinematic_ink_webtoon_v1 .dark-reveal,#root.profile-cinematic_ink_webtoon_v1 .foreground-tear{{display:none}}
-#root.profile-cinematic_ink_webtoon_v1 .hero-cutout,#root.profile-cinematic_ink_webtoon_v1 .portal-shell{{position:absolute;left:18px;right:18px;top:18px;bottom:18px;width:auto;height:auto;border:5px solid var(--webtoon-ink);border-radius:18px;background:var(--webtoon-paper);clip-path:none;box-shadow:none;filter:none;overflow:hidden;padding:0;transform-origin:center center;will-change:transform,opacity;z-index:3}}
-#root.profile-cinematic_ink_webtoon_v1 .portal-shell{{z-index:4}}
-#root.profile-cinematic_ink_webtoon_v1 .hero-cutout img,#root.profile-cinematic_ink_webtoon_v1 .portal-shell img{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;filter:none;transform:none}}
-#root.profile-cinematic_ink_webtoon_v1 .portal-shell i,#root.profile-cinematic_ink_webtoon_v1 .portal-glow{{display:none}}
+#root.profile-cinematic_ink_webtoon_v1,#root.profile-acc1_format_visual_system_v3{{--webtoon-ink:#111317;--webtoon-paper:#e8dfcb;--webtoon-band:#090b0f}}
+#root.profile-cinematic_ink_webtoon_v1 #root-fill,#root.profile-acc1_format_visual_system_v3 #root-fill{{background:var(--webtoon-ink)}}
+#root.profile-cinematic_ink_webtoon_v1 .scene-inner,#root.profile-acc1_format_visual_system_v3 .scene-inner{{background:var(--webtoon-ink);isolation:isolate}}
+#root.profile-cinematic_ink_webtoon_v1 .scene-inner:after,#root.profile-acc1_format_visual_system_v3 .scene-inner:after{{content:'';position:absolute;left:0;right:0;bottom:0;height:130px;background:rgba(9,11,15,.94);z-index:20;pointer-events:none}}
+#root.profile-cinematic_ink_webtoon_v1 .hero-plate,#root.profile-cinematic_ink_webtoon_v1 .scene-grade,#root.profile-cinematic_ink_webtoon_v1 .color-plane,#root.profile-cinematic_ink_webtoon_v1 .object-fragment,#root.profile-cinematic_ink_webtoon_v1 .story-line,#root.profile-cinematic_ink_webtoon_v1 .story-copy,#root.profile-cinematic_ink_webtoon_v1 .timeline-rig,#root.profile-cinematic_ink_webtoon_v1 .dark-reveal,#root.profile-cinematic_ink_webtoon_v1 .foreground-tear,#root.profile-acc1_format_visual_system_v3 .hero-plate,#root.profile-acc1_format_visual_system_v3 .scene-grade,#root.profile-acc1_format_visual_system_v3 .color-plane,#root.profile-acc1_format_visual_system_v3 .object-fragment,#root.profile-acc1_format_visual_system_v3 .story-line,#root.profile-acc1_format_visual_system_v3 .story-copy,#root.profile-acc1_format_visual_system_v3 .timeline-rig,#root.profile-acc1_format_visual_system_v3 .dark-reveal,#root.profile-acc1_format_visual_system_v3 .foreground-tear{{display:none}}
+#root.profile-cinematic_ink_webtoon_v1 .hero-cutout,#root.profile-cinematic_ink_webtoon_v1 .portal-shell,#root.profile-acc1_format_visual_system_v3 .hero-cutout,#root.profile-acc1_format_visual_system_v3 .portal-shell{{position:absolute;left:18px;right:18px;top:18px;bottom:18px;width:auto;height:auto;border:5px solid var(--webtoon-ink);border-radius:18px;background:var(--webtoon-paper);clip-path:none;box-shadow:none;filter:none;overflow:hidden;padding:0;transform-origin:center center;will-change:transform,opacity;z-index:3}}
+#root.profile-cinematic_ink_webtoon_v1 .portal-shell,#root.profile-acc1_format_visual_system_v3 .portal-shell{{z-index:4}}
+#root.profile-cinematic_ink_webtoon_v1 .hero-cutout img,#root.profile-cinematic_ink_webtoon_v1 .portal-shell img,#root.profile-acc1_format_visual_system_v3 .hero-cutout img,#root.profile-acc1_format_visual_system_v3 .portal-shell img{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;filter:none;transform:none}}
+#root.profile-cinematic_ink_webtoon_v1 .portal-shell i,#root.profile-cinematic_ink_webtoon_v1 .portal-glow,#root.profile-acc1_format_visual_system_v3 .portal-shell i,#root.profile-acc1_format_visual_system_v3 .portal-glow{{display:none}}
 /* Adult Animation v1: six original episodic comic series, not a single page skin. */
 #root[class^="profile-adult_animation_"]{{--series-bg:#f1e1ca;--series-ink:#202325;--series-paper:#fff7e7;--series-accent:#ca5a43;--series-accent-two:#5c8b83;--series-line:5px}}
 #root.profile-adult_animation_family_v1{{--series-bg:#e6c8ae;--series-ink:#283032;--series-paper:#fff2dc;--series-accent:#c76853;--series-accent-two:#78937b;--series-line:5px}}

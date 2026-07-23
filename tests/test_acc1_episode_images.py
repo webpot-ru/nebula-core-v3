@@ -9,6 +9,7 @@ from acc1_visual_contract import (
     CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     CINEMATIC_STORY_MODE,
     EDITORIAL_MOTION_MODE,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
 )
 from acc1_episode_images import EpisodeImageError, generate_episode_images, image_plan
@@ -172,6 +173,57 @@ class EpisodeImageTests(unittest.TestCase):
             list(targets),
         )
         self.assertIn("premium adult cinematic ink webtoon", plan[0]["prompt"])
+
+    def test_v3_bundle_prompt_uses_approved_drawn_format_grammar(self):
+        source_story = story("v3-bundle", words=25)
+        source_story["visual_identity_contract"] = (
+            "Recurring adult woman with dark wavy hair, burgundy cardigan and black trousers; "
+            "her face, age, body shape and wardrobe remain stable inside this mini-comic."
+        )
+        plan = image_plan({
+            "episode_format": "BUNDLE",
+            "visual_mode": EDITORIAL_MOTION_MODE,
+            "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            "pillar": "relationships_family",
+            "stories": [source_story],
+        })
+        prompt = plan[0]["prompt"]
+        self.assertIn("BUNDLE grammar", prompt)
+        self.assertIn("never photography", prompt)
+        self.assertIn("Do not use an orange-dominated universal palette", prompt)
+        self.assertIn("ivory, muted olive, dusty rose, burgundy and deep navy", prompt)
+        self.assertEqual(plan[0]["page_layout"], "bundle_story_opener")
+
+    def test_v3_saga_and_thread_have_different_page_grammars(self):
+        saga_story = story("v3-saga", words=25)
+        saga_story["visual_identity_contract"] = (
+            "Recurring adult investigator with a dark bun, long black coat and leather shoulder bag; "
+            "keep her face, age, wardrobe and apartment geography stable throughout the saga."
+        )
+        saga = image_plan({
+            "episode_format": "SAGA", "visual_mode": EDITORIAL_MOTION_MODE,
+            "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            "pillar": "strange_dark", "stories": [saga_story],
+        })
+        thread_stories = []
+        for index in range(3):
+            response = story(f"response-{index}", words=8)
+            response["visual_identity_contract"] = (
+                f"Response {index} uses one distinct believable adult in a unique contemporary setting; "
+                "do not reuse this face, wardrobe, pose or environment for another response."
+            )
+            thread_stories.append(response)
+        thread = image_plan({
+            "episode_format": "THREAD", "visual_mode": EDITORIAL_MOTION_MODE,
+            "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            "pillar": "confessions_taboo", "stories": thread_stories,
+        })
+        self.assertIn("SAGA grammar", saga[0]["prompt"])
+        self.assertEqual(saga[0]["page_layout"], "saga_panorama")
+        self.assertIn("THREAD grammar", thread[0]["prompt"])
+        self.assertEqual(thread[0]["page_layout"], "thread_prompt_anchor")
+        self.assertEqual({item["story_index"] for item in thread}, {0, 1, 2})
+        self.assertEqual(len(thread), 6)
 
     def test_explicit_release_image_targets_must_be_even(self):
         source_story = story("odd-target", words=120)

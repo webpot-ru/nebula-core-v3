@@ -22,6 +22,7 @@ from acc1_visual_contract import (
     EDITORIAL_MOTION_MODULES,
     EDITORIAL_MOTION_STYLE_PROFILE,
     EDITORIAL_MOTION_STYLE_PROFILES,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
     INK_GOUACHE_STORY_FAMILIES,
     INK_GOUACHE_PAGE_LAYOUTS,
@@ -79,6 +80,57 @@ CINEMATIC_INK_WEBTOON_STYLE = (
     "no letters, no numbers, no UI, no logo, no watermark, no gore. Preserve safe margins and clear "
     "depth layers for page overview, guided panel push-in and pull-back camera motion"
 )
+FORMAT_VISUAL_SYSTEM_V3_STYLE = (
+    "one complete premium adult hand-drawn graphic-novel page for a source-bound Russian "
+    "long-form story video; believable adult anatomy and mature expressive faces, elegant "
+    "variable ink contours, restrained cel shading, subtle matte gouache and tactile paper grain, "
+    "cream gutters, unequal panels and one dominant emotional image. Fully illustrated art only: "
+    "never photography, photomontage, photorealistic reconstruction, stock-video imitation, glossy "
+    "romance manhwa, black-and-white manga, superhero pop art or childlike cartooning. Do not use an "
+    "orange-dominated universal palette. No speech balloons, generated captions, paragraphs, letters, "
+    "numbers, UI, logo, signature, watermark or gore. Keep faces, hands and evidence above the quiet "
+    "bottom subtitle area, and compose every important beat for a full-page establish followed by a "
+    "meaning-led guided crop"
+)
+FORMAT_VISUAL_SYSTEM_V3_FORMAT_DIRECTIONS = {
+    "BUNDLE": (
+        "BUNDLE grammar: this story is a separate mini-comic inside a multi-story episode. Give it a "
+        "distinct cast, location, supporting accent colour and panel rhythm that do not leak into any "
+        "other story. Establish the whole page before guiding attention to the narrated beat"
+    ),
+    "SAGA": (
+        "SAGA grammar: one continuous cast, wardrobe and environment system spans the episode. Prefer "
+        "a panoramic establishing image with smaller discovery, message, decision or payoff panels and "
+        "clear foreground, character and background planes for restrained 2.5D parallax"
+    ),
+    "THREAD": (
+        "THREAD grammar: preserve the prompt as the visual anchor and make this response a materially "
+        "different portrait or compact situational vignette in a zigzag reading flow. Change character, "
+        "pose, environment fragment and emotional role; never reuse one universal reaction card"
+    ),
+}
+FORMAT_VISUAL_SYSTEM_V3_PILLAR_DIRECTIONS = {
+    "relationships": (
+        "relationships and family treatment: ivory, muted olive, dusty rose, burgundy and deep navy; "
+        "intimate contemporary interiors and expressive close-ups"
+    ),
+    "work": (
+        "work, money and justice treatment: graphite, cold blue, paper ivory and restrained red; "
+        "specific workplaces, tools and documents with textured graphic realism"
+    ),
+    "confessions": (
+        "confessions, awkward and taboo treatment: plum, dusty pink, cool lavender and desaturated teal; "
+        "faces, hands, phones and generous negative space"
+    ),
+    "professions": (
+        "professions and human-experience treatment: teal, cobalt, off-white and restrained muted yellow; "
+        "observational environmental and tool detail"
+    ),
+    "strange": (
+        "strange, dark and unexplained treatment: indigo, green-black, dirty ivory, steel blue and tiny "
+        "dim brass accents; cinematic cel shading with limited neo-noir only at narrative peaks"
+    ),
+}
 INK_GOUACHE_FAMILY_DIRECTIONS = {
     "relationships": (
         "relationship-family palette only: terracotta, deep indigo, tobacco brown and warm lamp amber; "
@@ -271,6 +323,33 @@ def _editorial_motion_module(excerpt: str, pack_index: int, pack_count: int) -> 
     return EDITORIAL_MOTION_MODULES[(pack_index - 1) % 3]
 
 
+def _v3_pillar(script: dict[str, Any]) -> str:
+    raw = str(script.get("pillar") or "").casefold()
+    for key in FORMAT_VISUAL_SYSTEM_V3_PILLAR_DIRECTIONS:
+        if key in raw:
+            return key
+    if any(token in raw for token in ("family", "relationship")):
+        return "relationships"
+    if any(token in raw for token in ("money", "justice", "career")):
+        return "work"
+    if any(token in raw for token in ("awkward", "taboo", "confession")):
+        return "confessions"
+    if any(token in raw for token in ("profession", "human")):
+        return "professions"
+    if any(token in raw for token in ("dark", "unexplained", "strange")):
+        return "strange"
+    return "relationships"
+
+
+def _v3_layout(format_id: str, scene_index: int) -> str:
+    layouts = {
+        "BUNDLE": ("bundle_story_opener", "bundle_guided_page"),
+        "SAGA": ("saga_panorama", "saga_discovery_panels"),
+        "THREAD": ("thread_prompt_anchor", "thread_response_vignette"),
+    }[format_id]
+    return layouts[(scene_index - 1) % len(layouts)]
+
+
 def image_plan(
     script: dict[str, Any], *, visual_mode: str | None = None,
     style_profile: str | None = None,
@@ -292,11 +371,16 @@ def image_plan(
     if mode == EDITORIAL_MOTION_MODE and active_style_profile not in EDITORIAL_MOTION_STYLE_PROFILES:
         raise EpisodeImageError("unsupported editorial motion style profile")
     if mode == EDITORIAL_MOTION_MODE:
-        if format_id == "THREAD":
+        if format_id == "THREAD" and active_style_profile != FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
             raise EpisodeImageError(
                 "editorial_motion_v1 supports SAGA/BUNDLE; THREAD needs its hybrid contract",
             )
-        allocations = _editorial_pack_allocations(stories)
+        if format_id == "THREAD":
+            allocations = {index: 1 for index in range(len(stories))}
+            if sum(allocations.values()) > EDITORIAL_MOTION_MAX_PACKS:
+                raise EpisodeImageError("THREAD responses exceed the image-call ceiling")
+        else:
+            allocations = _editorial_pack_allocations(stories)
     elif format_id == "SAGA":
         allocations = {0: 5}
     elif format_id == "BUNDLE":
@@ -333,6 +417,35 @@ def image_plan(
         visual_identity_contract = " ".join(
             str(story.get("visual_identity_contract") or "").split(),
         )
+        if mode == EDITORIAL_MOTION_MODE and active_style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
+            if len(visual_identity_contract) < 40:
+                raise EpisodeImageError(
+                    f"stories[{story_index}].visual_identity_contract is required for v3 continuity",
+                )
+            story_family = _v3_pillar(script)
+            if editorial_families is None:
+                editorial_families = [story_family] * scene_count
+            if editorial_layouts is None:
+                editorial_layouts = [
+                    _v3_layout(format_id, scene_index)
+                    for scene_index in range(1, scene_count + 1)
+                ]
+            if (
+                not isinstance(editorial_families, list)
+                or len(editorial_families) != scene_count
+                or any(str(item) not in FORMAT_VISUAL_SYSTEM_V3_PILLAR_DIRECTIONS for item in editorial_families)
+            ):
+                raise EpisodeImageError(
+                    f"stories[{story_index}].editorial_motion_families must match v3 packs",
+                )
+            if (
+                not isinstance(editorial_layouts, list)
+                or len(editorial_layouts) != scene_count
+                or any(str(item) not in INK_GOUACHE_PAGE_LAYOUTS for item in editorial_layouts)
+            ):
+                raise EpisodeImageError(
+                    f"stories[{story_index}].editorial_page_layouts must match v3 packs",
+                )
         if mode == EDITORIAL_MOTION_MODE and active_style_profile in {
             INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
             CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
@@ -401,6 +514,7 @@ def image_plan(
                         active_style_profile in {
                             INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
                             CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                            FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
                         }
                         or is_adult_animation_style_profile(active_style_profile)
                     )
@@ -412,6 +526,7 @@ def image_plan(
                         active_style_profile in {
                             INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
                             CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                            FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
                         }
                         or is_adult_animation_style_profile(active_style_profile)
                     )
@@ -427,11 +542,35 @@ def image_plan(
                         "same source-supported place, person or object, suitable for a paper-card crop "
                         "and semantic reveal."
                     )
+                    active_style = (
+                        FORMAT_VISUAL_SYSTEM_V3_STYLE
+                        if active_style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                        else CINEMATIC_INK_WEBTOON_STYLE
+                        if active_style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE
+                        else INK_GOUACHE_STORY_PAGES_STYLE
+                        if active_style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE
+                        else ADULT_ANIMATION_SERIES[active_style_profile]["art_direction"]
+                        if is_adult_animation_style_profile(active_style_profile)
+                        else EDITORIAL_MOTION_STYLE
+                    )
+                    profile_direction = (
+                        f"{FORMAT_VISUAL_SYSTEM_V3_FORMAT_DIRECTIONS[format_id]}. "
+                        f"{FORMAT_VISUAL_SYSTEM_V3_PILLAR_DIRECTIONS[story_family]}. "
+                        if active_style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                        else f"{INK_GOUACHE_FAMILY_DIRECTIONS.get(story_family, '')}. "
+                        if active_style_profile in {
+                            INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+                            CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                        }
+                        else f"{ADULT_ANIMATION_SERIES[active_style_profile]['motion_direction']}. "
+                        if is_adult_animation_style_profile(active_style_profile)
+                        else ""
+                    )
                     prompt = (
-                        f"{CINEMATIC_INK_WEBTOON_STYLE if active_style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE else INK_GOUACHE_STORY_PAGES_STYLE if active_style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE else ADULT_ANIMATION_SERIES[active_style_profile]['art_direction'] if is_adult_animation_style_profile(active_style_profile) else EDITORIAL_MOTION_STYLE}. "
+                        f"{active_style}. "
                         f"Style profile {active_style_profile}; "
                         f"asset family {family_id}; motion role {module}. "
-                        f"{INK_GOUACHE_FAMILY_DIRECTIONS.get(story_family, '') if active_style_profile in {INK_GOUACHE_STORY_PAGES_STYLE_PROFILE, CINEMATIC_INK_WEBTOON_STYLE_PROFILE} else ADULT_ANIMATION_SERIES[active_style_profile]['motion_direction'] if is_adult_animation_style_profile(active_style_profile) else ''}. "
+                        f"{profile_direction}"
                         f"Page-layout intent {page_layout or 'continuous_cutup'}; vary panel count, scale, "
                         "crop and dominant focal position from adjacent beats. "
                         f"Episode-wide identity contract: {visual_identity_contract}. Preserve these exact "

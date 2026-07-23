@@ -27,6 +27,7 @@ from acc1_visual_contract import (
     EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS,
     EDITORIAL_MOTION_STYLE_PROFILE,
     EDITORIAL_MOTION_STYLE_PROFILES,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     EDITORIAL_MOTION_MODE,
     EDITORIAL_MOTION_TARGET_SCENE_SECONDS,
     INK_GOUACHE_PAGE_LAYOUTS,
@@ -266,10 +267,16 @@ def build_editorial_motion_contract(
             packs = story_packs[segment_id]
             scene_count = (
                 len(packs)
-                if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE
+                if style_profile in {
+                    CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                }
                 else _scene_count(duration, len(packs))
             )
-            if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE and not (
+            if style_profile in {
+                CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            } and not (
                 EDITORIAL_MOTION_MIN_SCENE_SECONDS
                 <= duration / scene_count
                 <= EDITORIAL_MOTION_MAX_SCENE_SECONDS
@@ -304,6 +311,7 @@ def build_editorial_motion_contract(
             if style_profile in {
                 INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
                 CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
             }:
                 if (
                     story_family not in INK_GOUACHE_STORY_FAMILIES

@@ -46,32 +46,31 @@ Shorts up to 180 seconds render vertical 9:16; longer videos default to horizont
 
 Before visual/render work, read `docs/README.md`, `docs/PROJECT_STATE.md`, this `DESIGN.md`, and the relevant renderer files. Any live workflow that calls Reddit/Gemini/AI33/YouTube can spend provider quota and needs explicit approval.
 
-## 8. Acc1 Editorial Motion Target
+## 8. Current acc1 illustrated target
 
 The baseline Reddit-card renderer above remains valid for `reddit_pages`.
-For the separate `editorial_motion_v1` SAGA/BUNDLE lane, the approved target is
-`ink_gouache_story_pages_v1`, shown in
-`docs/assets/acc1-ink-gouache-topic-layouts-v1.png`.
+For new acc1 visual work, the approved target is
+`acc1_format_visual_system_v3`, documented in
+`docs/acc1-format-visual-system-v3.md` with three references under
+`docs/assets/acc1-format-visual-system-v3/`. Older six-series animation,
+Ink & Gouache, cinematic-webtoon and collage boards are historical only and
+must not enter new prompts.
 
-- Use adult Ink & Gouache Reportage: charcoal/ink contours, opaque gouache,
-  dry-brush shadow and tactile paper; character scenes are illustrated rather
-  than near-photorealistic.
-- Preserve believable adult anatomy, expressions and cinematic staging, but do
-  not make every scene a full-frame portrait.
-- Keep exact names, dates, messages, quotations and evidence in HTML/SVG.
-- Select a story family and its page rhythm: `relationships`, `work`, `digital`,
-  `memory`, `odd_job`, or `dark_saga`.
-- Use one to five unequal panels per page according to the beat; no mandatory
-  four-panel grid and no repeated equal-sized panel layout.
-- Use photorealism only for real documents, messages, interfaces or archival
-  evidence, not as the default character art.
-- Do not use superhero/pop-art styling, speech balloons, action words,
-  Ben-Day/halftone dots, manga, childlike cartoons, generic scrapbook or a
-  repeated equal-panel template.
+- Fully drawn adult graphic novel: stable believable adults, variable ink,
+  restrained cel shading, matte gouache, paper grain and cream gutters.
+- `BUNDLE` uses separate mini-comics and separate character locks per story.
+- `SAGA` keeps one cast and geography, with panoramas and discovery panels.
+- `THREAD` keeps the prompt as anchor and gives every response a distinct
+  portrait or situational vignette in a zigzag reading flow.
+- Topic pillars adapt palette and density without changing the channel's art
+  universe.
+- Exact Russian text, dates, messages, UI and subtitles are HTML/SVG overlays;
+  AI art contains no pseudo-text or narration paragraphs.
+- Photography, photomontage, near-photoreal reconstruction, orange-dominated
+  universal styling, glossy manhwa, superhero pop art, manga and childlike
+  cartooning are forbidden defaults.
+- Camera movement follows the narrated beat; equal-duration mechanical zoom
+  loops and mandatory resets are forbidden.
 
-This is an implemented opt-in profile, not the current renderer default. Its
-contract requires a story-family palette, a beat-specific unequal-panel layout
-and one episode-wide recurring-character identity description before any image
-provider call. `contemporary_cutup_v1` remains the production default until the
-new Ink & Gouache canary passes visual, identity-consistency and motion QA and
-is explicitly promoted.
+The `acc1_format_visual_system_v3` prompt profile and local HyperFrames proof
+are implemented. Provider or GitHub execution still requires exact approval.

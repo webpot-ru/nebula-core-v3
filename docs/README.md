@@ -6,7 +6,7 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 **GitHub**: [github.com/webpot-ru/nebula-core-v3](https://github.com/webpot-ru/nebula-core-v3) *(private)*
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-07-21
+**Last updated**: 2026-07-22
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 
@@ -18,11 +18,19 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Acc1 cinematic implementation plan**: [`acc1-cinematic-production-plan-2026-07-16.md`](acc1-cinematic-production-plan-2026-07-16.md) defines the staged full-screen scene-motion and narration/mix migration, the compatibility boundary with the current Reddit/Chonker renderer, and the evidence required before cinematic can become a default.
 
-**Acc1 editorial motion implementation and visual history**: [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md) is the source of truth for the HyperFrames renderer, the six pilot-bound adult-animated-comic profiles, their deterministic anti-template layout repertoires, provider spend ceiling and local proof. The locked reference is [`assets/acc1-adult-animation-six-series-v1.png`](assets/acc1-adult-animation-six-series-v1.png). Earlier collage and Ink & Gouache work remains technical history only, not the future art direction.
+**Current acc1 creative source of truth**: [`acc1-format-visual-system-v3.md`](acc1-format-visual-system-v3.md) locks one fully illustrated adult graphic-novel universe with distinct `BUNDLE`, `SAGA` and `THREAD` page grammars. Its three approved references live in [`assets/acc1-format-visual-system-v3/`](assets/acc1-format-visual-system-v3/). Photography, photomontage, near-photoreal reconstruction, orange-dominated universal styling and reuse of the former six-series / Ink & Gouache / collage reference boards are forbidden for new work. [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md) documents historical renderer evidence only.
 
-**Acc1 webtoon v2 production contract**: [`../specs/acc1-video-style-v2.json`](../specs/acc1-video-style-v2.json) is the fail-closed source of truth for the `chrome_guided_webtoon_v2` renderer, meaning-led panel camera, centered one-line subtitle band, Russian-market character rules, Imagen-baked Russian thumbnail text, and checksum-bound intro/CTA/outro. The approved semantic preview SHA is recorded and the fixed-release entrypoint uses the Chrome/HyperFrames renderer; provider execution still requires the workflow's exact explicit spend confirmations. Root [`../frame.md`](../frame.md) and [`acc1-cinematic-ink-webtoon-v1.md`](acc1-cinematic-ink-webtoon-v1.md) remain the creative reference.
+**Acc1 webtoon v2 production contract**: [`../specs/acc1-video-style-v2.json`](../specs/acc1-video-style-v2.json) remains the fail-closed source of truth for the `chrome_guided_webtoon_v2` renderer, meaning-led panel camera, centered one-line subtitle band, Russian-market character rules, Imagen-baked Russian thumbnail text, and checksum-bound intro/CTA/outro. Root [`../frame.md`](../frame.md) and [`acc1-format-visual-system-v3.md`](acc1-format-visual-system-v3.md) are the current creative references. The local v3 visual proof is `../videos/chonker-talks-format-v3-preview/renders/acc1-format-v3-preview.mp4`; it is verified local motion evidence, not a provider/GitHub/publication authorization.
 
-The production compositor now treats both paid scene images as already composed comic pages. For `cinematic_ink_webtoon_v1` it suppresses the legacy dark collage/host-slot layers, keeps each page intact, establishes the page, performs a deterministic layout/module-specific reading move, and crossfades once to the second page; it does not reconstruct provider pages from cutouts or repeat a mandatory push-in/pull-back/reset cycle.
+The production compositor treats both paid scene images as already composed comic pages. New fixed-release prompts use `acc1_format_visual_system_v3`; the renderer accepts that profile with the same complete-page guided-reading path while keeping `cinematic_ink_webtoon_v1` compatible for historical artifacts. The planner selects distinct BUNDLE/SAGA/THREAD grammar and pillar palette rules before spend. It does not reconstruct provider pages from collage cutouts or repeat a mandatory push-in/pull-back/reset cycle.
+
+Build the no-provider v3 proof from the three frozen references with:
+
+```bash
+cd videos/chonker-talks-format-v3-preview
+npm run check
+npm run render
+```
 
 For a no-provider cloud check, `acc1_single_audio_recovery.yml` reuses immutable images from run `29828099086` and the completed storyboard/master-MP3 overlay from run `29888971818`, then renders four existing consecutive scenes with the matching slice of that MP3. The artifact contains the short MP4, four PNG review frames and a zero-call report; the workflow exposes no AI33, image-provider or YouTube credentials.
 
@@ -54,8 +62,9 @@ validation command calls providers or YouTube.
 
 **Acc1 first-release preparation**: [`acc1-first-release-preproduction-v1.md`](acc1-first-release-preproduction-v1.md) records the no-spend human source review, four-story order, source-faithful Russian treatment, character locks and 68-image plan derived from the successful source-only artifact of run `29757914575`. It is not a production or publication authorization.
 
-The local first-release image contract registers `cinematic_ink_webtoon_v1`
-under `editorial_motion_v1` and accepts explicit even per-story image targets.
+The local first-release image contract registers `acc1_format_visual_system_v3`
+under `editorial_motion_v1`, retains historical profile compatibility and
+accepts explicit even per-story image targets.
 The locked allocation is `18 / 18 / 16 / 16` scene plates, with one separately
 budgeted thumbnail: 69 maximum image calls, no automatic retry. This enlarged
 ceiling is not provider-spend approval.

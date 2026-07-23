@@ -31,8 +31,8 @@ from acc1_pronunciation_dictionary import (
     resolve_acc1_pronunciation_dictionary_id,
 )
 from acc1_visual_contract import (
-    CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     EDITORIAL_MOTION_MODE,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
 )
 from compilation_narration import build_compilation_segments
 from chrome_guided_webtoon_renderer import render_chrome_guided_webtoon
@@ -85,9 +85,9 @@ STORY_CONFIG = (
 )
 
 LAYOUTS = (
-    "hero_left_details_right", "phone_portal_insets", "message_cascade",
-    "vertical_routine_triptych", "evidence_slits", "rumor_table_wide",
-    "corridor_false_claim", "empty_desk_release", "hero_left_details_right",
+    "bundle_story_opener", "bundle_guided_page", "bundle_guided_page",
+    "bundle_story_opener", "bundle_guided_page", "bundle_guided_page",
+    "bundle_story_opener", "bundle_guided_page", "bundle_guided_page",
 )
 
 
@@ -163,7 +163,7 @@ def build_script() -> dict:
         "outro_ru": "Где проходит граница между семейной поддержкой и правом отказаться? Обсудим в комментариях.",
         "stories": stories,
         "visual_mode": EDITORIAL_MOTION_MODE,
-        "style_profile": CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+        "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
         "pillar": "relationships_family",
         "narration_profile_id": PROFILE_ID,
         "publication_authorized": False,
@@ -181,7 +181,7 @@ def build_script() -> dict:
 def dry_run(output_dir: Path) -> dict:
     script = build_script()
     dictionary = load_acc1_pronunciation_dictionary()
-    plan = image_plan(script, visual_mode=EDITORIAL_MOTION_MODE, style_profile=CINEMATIC_INK_WEBTOON_STYLE_PROFILE)
+    plan = image_plan(script, visual_mode=EDITORIAL_MOTION_MODE, style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE)
     chunks = build_tts_chunks(
         script, voice_id=NARRATOR_VOICE_ID, narration_profile_id=PROFILE_ID,
     )
@@ -218,14 +218,16 @@ def produce(output_dir: Path) -> dict:
         script, output_dir / "scene-images", max_images=SCENE_IMAGE_COUNT,
         generator=images, model=DEFAULT_IMAGE_MODEL, artifact_root=output_dir,
         visual_mode=EDITORIAL_MOTION_MODE,
-        style_profile=CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+        style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     )
     thumbnail = output_dir / "youtube-thumbnail.png"
     images(
         prompt=(
-            "premium adult cinematic ink webtoon, tense modern family group divided by torn paper, "
-            "one woman isolated in the foreground, burgundy, indigo, amber and ivory, expressive ink and "
-            "matte gouache, YouTube 16:9 thumbnail, strong central safe area. "
+            "premium adult hand-drawn graphic-novel illustration, tense contemporary Russian family "
+            "divided inside one unequal-panel comic page, one woman isolated in the foreground, ivory, "
+            "muted olive, dusty rose, burgundy and deep navy, expressive variable ink contours, restrained "
+            "cel shading and tactile matte gouache, never photographic and never orange-dominated, "
+            "YouTube 16:9 thumbnail with a strong central safe area. "
             "Bake exactly this large, legible Russian headline into the artwork: «СЕМЬЯ ТРЕБУЕТ ПРОСТИТЬ». "
             "Correct Cyrillic spelling is mandatory; no other words, letters, subtitles, watermark or logo."
         ),

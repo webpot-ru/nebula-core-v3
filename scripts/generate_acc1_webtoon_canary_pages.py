@@ -13,21 +13,22 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from acc1_visual_contract import FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+from acc1_editorial_motion import bind_payload, canonical_hash
 from scripts.render_acc1_webtoon_canary import build_canary_storyboard, resolve_storyboard
 from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
 
 
 STYLE = """
-Create one complete horizontal 16:9 editorial comic page for a Russian long-form
-story video. This is the approved LIGHT GRAPHIC COMIC style: bright warm-white or
-light cream paper background, crisp expressive black hand-inked outlines, flat
-matte vermilion-orange accents, tiny charcoal and muted warm-gray details, ample
-white negative space, subtle screen-print grain. Contemporary adult editorial
-illustration, emotionally readable but restrained, clean and premium. Exactly
-three unequal panels with visible cream gutters: one dominant narrative panel
-and two supporting close-up/detail panels. Characters and setting must continue
-coherently across all panels. Never cinematic realism, never dark brown grading,
-never photorealistic, never anime, never childish clip-art. No words, letters,
+Create one complete horizontal 16:9 premium adult hand-drawn graphic-novel page
+for a Russian long-form story video. Use believable adult anatomy, mature expressive
+faces, elegant variable ink contours, restrained cel shading, subtle matte gouache,
+tactile paper grain, cream gutters and unequal panels with one dominant emotional
+image. This is fully illustrated art: never photography, photomontage, photorealistic
+reconstruction, glossy romance manhwa, superhero pop art or childish clip-art, and
+never an orange-dominated universal palette. Use BUNDLE grammar: this story is a
+separate mini-comic with its own cast, setting, supporting accent colour and panel
+rhythm. No words, letters,
 numbers, captions, speech bubbles, UI, logos, signatures or watermarks. Keep the
 bottom 14 percent visually quiet because HTML subtitles are added separately.
 """.strip()
@@ -79,6 +80,8 @@ def replace_scene_assets(storyboard: dict, pages: list[Path], root: Path) -> dic
             "caption": "",
             "asset_family_id": f"canary-light-comic-{index:02d}",
             "motion_module": (scene.get("motion") or {}).get("module"),
+            "story_family": "relationships",
+            "page_layout": "bundle_story_opener" if index == 1 else "bundle_guided_page",
             "factual_text_allowed": False,
         }
         scene["assets"] = [
@@ -86,7 +89,25 @@ def replace_scene_assets(storyboard: dict, pages: list[Path], root: Path) -> dic
             {**base, "layer_role": "detail_plate"},
         ]
         scene["asset_family_id"] = base["asset_family_id"]
-        scene["style_profile"] = "cinematic_ink_webtoon_v1"
+        scene["story_family"] = base["story_family"]
+        scene["page_layout"] = base["page_layout"]
+        scene["style_profile"] = FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+        pack_payload = {
+            "asset_family_id": scene["asset_family_id"],
+            "motion_module": base["motion_module"],
+            "story_family": base["story_family"],
+            "page_layout": base["page_layout"],
+            "assets": scene["assets"],
+        }
+        scene["asset_pack_sha256"] = canonical_hash(pack_payload)
+    storyboard["style_profile"] = FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+    if isinstance(storyboard.get("motion_plan"), dict):
+        motion_plan = dict(storyboard["motion_plan"])
+        motion_plan.pop("motion_plan_sha256", None)
+        motion_plan["style_profile"] = FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+        motion_plan["scenes"] = slides
+        storyboard["motion_plan"] = bind_payload(motion_plan, "motion_plan_sha256")
+        storyboard["motion_plan_sha256"] = storyboard["motion_plan"]["motion_plan_sha256"]
     return storyboard
 
 

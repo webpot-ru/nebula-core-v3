@@ -52,6 +52,7 @@ EDITORIAL_MOTION_CAPTION_TRACK_VERSION = 1
 EDITORIAL_MOTION_STYLE_PROFILE = "contemporary_cutup_v1"
 INK_GOUACHE_STORY_PAGES_STYLE_PROFILE = "ink_gouache_story_pages_v1"
 CINEMATIC_INK_WEBTOON_STYLE_PROFILE = "cinematic_ink_webtoon_v1"
+FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE = "acc1_format_visual_system_v3"
 ADULT_ANIMATION_FAMILY_STYLE_PROFILE = "adult_animation_family_v1"
 ADULT_ANIMATION_WORK_STYLE_PROFILE = "adult_animation_work_v1"
 ADULT_ANIMATION_SAGA_STYLE_PROFILE = "adult_animation_saga_absurd_v1"
@@ -166,6 +167,7 @@ EDITORIAL_MOTION_STYLE_PROFILES = frozenset({
     EDITORIAL_MOTION_STYLE_PROFILE,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
     CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     *ADULT_ANIMATION_STYLE_PROFILES,
 })
 INK_GOUACHE_STORY_FAMILIES = (
@@ -185,6 +187,12 @@ INK_GOUACHE_PAGE_LAYOUTS = (
     "rumor_table_wide",
     "corridor_false_claim",
     "empty_desk_release",
+    "bundle_story_opener",
+    "bundle_guided_page",
+    "saga_panorama",
+    "saga_discovery_panels",
+    "thread_prompt_anchor",
+    "thread_response_vignette",
 )
 EDITORIAL_MOTION_MIN_SCENE_SECONDS = 18.0
 EDITORIAL_MOTION_TARGET_SCENE_SECONDS = 36.0

@@ -1,5 +1,5 @@
-name: acc1 Four-Page Light Comic Canary
-run-name: acc1 four new light comic pages from ${{ inputs.source_run_id }}
+name: acc1 Four-Page Format v3 Canary
+run-name: acc1 four new format v3 pages from ${{ inputs.source_run_id }}
 
 on:
   workflow_dispatch:
@@ -63,7 +63,7 @@ jobs:
       - name: Inventory reusable inputs
         run: |
           find "$SOURCE" -type f -printf '%P\n' | sort | head -300
-      - name: Generate exactly four approved light comic pages
+      - name: Generate exactly four approved format v3 pages
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: python scripts/generate_acc1_webtoon_canary_pages.py --artifact-root "$SOURCE" --output-dir "$OUTPUT/generated-input" --confirm-exactly-four-image-calls
@@ -90,7 +90,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: acc1-webtoon-canary-${{ github.run_id }}
+          name: acc1-format-v3-canary-${{ github.run_id }}
           path: ${{ env.OUTPUT }}
           if-no-files-found: error
           retention-days: 14

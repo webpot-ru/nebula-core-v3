@@ -11,6 +11,7 @@ from acc1_visual_contract import (
     CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     EDITORIAL_MOTION_MODE,
     EDITORIAL_MOTION_STYLE_PROFILE,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
 )
 from compilation_editorial_motion_renderer import (
     EditorialMotionRenderError,
@@ -190,6 +191,40 @@ class EditorialMotionRendererTests(unittest.TestCase):
         self.assertIn("opacity:0,duration:.46", tweens)
         self.assertNotIn("rotation", tweens)
         self.assertIn("40.300", tweens)
+
+    def test_v3_profile_uses_complete_page_renderer_skin(self):
+        scene = {
+            "scene_id": "story-motion-v3",
+            "start_sec": 0.0,
+            "end_sec": 20.0,
+            "duration_sec": 20.0,
+            "presentation": "story",
+            "story_family": "relationships",
+            "page_layout": "bundle_story_opener",
+            "story_title": "ОТДЕЛЬНАЯ ИСТОРИЯ",
+            "source_label": "РЕДАКЦИОННАЯ ИЛЛЮСТРАЦИЯ",
+            "narration_text": "текст остаётся только в полосе субтитров",
+            "motion": {"module": "living_photo_depth"},
+            "workspace_assets": ["assets/hero.png", "assets/detail.png"],
+        }
+        html = _composition_html(
+            [scene], 20.0, style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+        )
+        self.assertIn("profile-acc1_format_visual_system_v3", html)
+        self.assertIn("#root.profile-acc1_format_visual_system_v3 .hero-cutout", html)
+        self.assertIn("object-fit:contain", html)
+        self.assertNotIn("текст остаётся только в полосе субтитров", html)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard = self._storyboard(
+                root,
+                profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                story_family="relationships",
+                page_layout="bundle_story_opener",
+            )
+            checked = preflight_editorial_motion_storyboard(storyboard, root)
+        self.assertEqual(checked[0]["style_profile"], FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE)
 
 
 if __name__ == "__main__":

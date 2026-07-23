@@ -1,6 +1,43 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
+
+## Current acc1 visual decision — format visual system v3
+
+On 2026-07-22 the owner approved one fully illustrated adult graphic-novel
+universe with three format-specific references: `BUNDLE`, `SAGA` and `THREAD`.
+The authoritative contract is
+[`acc1-format-visual-system-v3.md`](acc1-format-visual-system-v3.md), the compact
+machine-readable brief is root [`frame.md`](../frame.md), and the approved
+reference images are stored under
+[`assets/acc1-format-visual-system-v3/`](assets/acc1-format-visual-system-v3/).
+
+This decision supersedes all former creative reference boards: the six-series
+adult-animation board, Ink & Gouache topic board, editorial collage and the
+standalone cinematic-webtoon styleframe must not be used in new prompts or
+style comparisons. Historical renderer/code evidence may remain documented but
+has no creative authority.
+
+The local image planner now registers `acc1_format_visual_system_v3` as a
+supported profile and builds distinct source-bound prompt grammar for
+`BUNDLE`, `SAGA` and `THREAD`, plus pillar-specific art direction. It explicitly
+forbids photography, photomontage, photoreal reconstruction, childlike art and
+an orange-dominated universal palette. The locked fixed first-release
+entrypoint now requests this profile and v3 BUNDLE page layouts; historical
+style IDs remain readable for recovery of old manifests. The existing paired
+hero/detail technical pack shape is retained for renderer compatibility.
+
+The no-provider HyperFrames proof is
+`videos/chonker-talks-format-v3-preview/renders/acc1-format-v3-preview.mp4`:
+H.264 yuv420p, 1920x1080, 30 fps, exactly 18.0 seconds, 14,261,664 bytes,
+SHA-256 `0067f31eea05fe316b32a9671f6f1f583c7798e75451f06946ba1ad35b48e1a2`.
+It uses only the three approved local references, a stationary 110 px subtitle
+band and different meaning-led camera paths for BUNDLE, SAGA and THREAD.
+HyperFrames lint/runtime/layout/motion/contrast checks passed, five browser
+snapshots and three frames extracted from the MP4 were visually inspected.
+This verifies the local visual/motion proof and prompt integration only. No
+image, AI33, Reddit or YouTube provider was called; no GitHub workflow, upload,
+publication, commit or push was performed.
 
 ## Acc1 pronunciation dictionary (local implementation)
 
@@ -125,8 +162,8 @@ and `specs/acc1-first-release-v1/production-plan.json`. Human editorial review
 retains four sources (`1uw7804`, `1v0l1ei`, `1uy2j23`, `1uviexk`) totaling 2,377
 source words / 18.28 source minutes and rejects `1uxqltp` because its advertised
 empty-house consequence is still hypothetical. The visual target is 68 unique
-`cinematic_ink_webtoon_v1` illustrations with separate character and palette
-locks. This is local planning only: independent producer/critic review, exact
+`acc1_format_visual_system_v3` illustrated pages with separate character and
+palette locks. This is local planning only: independent producer/critic review, exact
 Russian translation, rights evidence, provider budget, rendering and any upload
 remain blocked and unauthorised. Local-only author outreach text is prepared in
 [`acc1-first-release-rights-outreach-v1.md`](acc1-first-release-rights-outreach-v1.md),
@@ -147,13 +184,11 @@ allowlist is only `image` and `ai33`; Reddit, Gemini, OpenAI and YouTube are not
 configured. The workflow is local-only until committed, pushed and registered
 on the default branch, and no paid call or render has run.
 
-## Current visual candidate — Cinematic Ink Webtoon (local only)
+## Retired visual candidate — Cinematic Ink Webtoon (historical only)
 
-On 2026-07-20 the newly drawn `cinematic_ink_webtoon_v1` direction was recorded
-in root [`frame.md`](../frame.md) and
-[`acc1-cinematic-ink-webtoon-v1.md`](acc1-cinematic-ink-webtoon-v1.md), with the
-current styleframe at
-[`assets/acc1-cinematic-ink-webtoon-styleframe-v1.png`](assets/acc1-cinematic-ink-webtoon-styleframe-v1.png).
+On 2026-07-20 the then-candidate `cinematic_ink_webtoon_v1` direction was
+recorded in the repository. Its detailed brief and styleframe were retired to
+project Trash on 2026-07-22 and are no longer allowed prompt inputs.
 It combines adult modern colour webtoon staging with ink/gouache/paper texture,
 alternates full-screen scenes with unequal two-to-three-panel pages, keeps
 story text in narration and deterministic HTML/SVG, targets 16–20 unique
@@ -162,16 +197,13 @@ push-in → pull-back camera choreography. The five story pillars keep one share
 channel grammar but receive distinct palettes and pacing; BUNDLE, SAGA and
 THREAD have separate layout rhythms.
 
-This is a **local style candidate**, not a verified rendered pilot and not a
-production-default change. The implemented six-series adult-animation system
-below remains the active code path until an actual MP4 passes identity, motion,
-text and visual QA and the user explicitly promotes the new candidate. No
-provider call, GitHub workflow, configuration change, upload or publication
-was made by documenting it.
+This candidate was superseded on 2026-07-22 by format visual system v3. It is
+retained here only as historical implementation context and must not be used as
+a creative reference for new work.
 
-## Current visual decision — acc1 six-series adult animation
+## Retired visual decision — acc1 six-series adult animation (historical only)
 
-On 2026-07-18 the user approved the original **adult animated-comic** direction as the current visual target for `acc1`. The locked, approved reference is [`assets/acc1-adult-animation-six-series-v1.png`](assets/acc1-adult-animation-six-series-v1.png) (SHA-256 `978511cf7ed8919997533dd4b2bb41802ef6117ce5a92a6d3ecb50f1e1909117`). It replaces the earlier editorial-collage, cinematic/noir and Ink & Gouache proposals as the *creative target*; those older generated concepts were moved to the project safe Trash and must not be reused as visual references.
+On 2026-07-18 the user approved the original **adult animated-comic** direction as the visual target at that time. It was superseded on 2026-07-22 by format visual system v3. Its former reference board is no longer an allowed input for new prompts; the remaining section records historical renderer evidence only.
 
 This is one original adult 2D animation family, not a copy of an existing animated series. Each of the six exact pilot lanes has a locked, distinct character-design and page-language profile:
 
@@ -235,8 +267,8 @@ asset made no provider call and is a visual timing proof only.
 
 `/Users/lali/Projects/reddit` is a multilingual YouTube story-entertainment pipeline for the ChonkerTalks channel network.
 
-- `editorial_motion_v1` is implemented locally across the acc1 artifact-ready factory. Motion-plan v2 supports the production-default `contemporary_cutup_v1` and the separate opt-in `ink_gouache_story_pages_v1`. The Ink & Gouache profile is adult illustrated reportage with one to five unequal panels, six topic palettes (`relationships`, `work`, `digital`, `memory`, `odd_job`, `dark_saga`), eight beat-specific page choreographies, and an episode-wide recurring-character identity contract required before provider spend. Its canonical reference remains `docs/assets/acc1-ink-gouache-topic-layouts-v1.png` (SHA-256 `c3a18ef4ee2714a7b85537d73e1b3b4a8135cb468a469aaa33cf691801a220f1`). The current verified canary is `build/reddit-five-minute-ink-gouache-v6/reddit-five-minute-ink-gouache-s-tier-v6.mp4`: source-locked Reddit/BORU `1i8nufm`, H.264/AAC, 1920x1080/30, exactly 300 seconds, SHA-256 `5cf32e036e34f983bb6df041878060fe8a2bfea92c5ceedcda7793a84347a37d`. It reuses the already accepted eight paired packs / 16 `gpt-image-2` plates with zero new provider calls, replaces repeated paper-card framing with full-frame depth fields, varies type placement by semantic layout, limits the vermilion connector to message/rumor relationships, and runs all scene visibility and overlap from one root GSAP timeline. HyperFrames 0.7.61 check and render passed with zero runtime, layout, motion and contrast errors. Eleven chapter samples and exact frames at the former 46.5/82.5/118.75/227.5/263.75-second risk boundaries passed visual review; FFmpeg `blackdetect` found no black intervals. The earlier v3 near-black boundary is superseded. This proves the local silent visual canary only, not AI33 synchronization, audience response, rights or release readiness. No GitHub run, YouTube upload, production-default change, OAuth or publication state changed. See [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md).
-- The editorial image path now preserves oversized near-16:9 provider originals and deterministically normalizes the working copy to 1536x864 with both checksums and dimensions recorded. This is intentionally limited to `editorial_motion_v1`; undersized or materially different aspect ratios remain fail-closed. The local first-release revision raises the hard ceiling from 60 to 69 calls solely to accommodate 68 exact scene plates plus one thumbnail, adds the explicit `cinematic_ink_webtoon_v1` profile and supports even per-story image targets. This is a code/config ceiling, not spend approval; automatic retries remain disabled and a live run requires separate exact authorization.
+- `editorial_motion_v1` remains implemented locally as historical renderer evidence. Its former `contemporary_cutup_v1` and `ink_gouache_story_pages_v1` creative boards were retired to project Trash on 2026-07-22 and cannot be used for new prompts. The verified Ink & Gouache canary `build/reddit-five-minute-ink-gouache-v6/reddit-five-minute-ink-gouache-s-tier-v6.mp4` remains technical proof only; it does not override format visual system v3. See [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md).
+- The editorial image path now preserves oversized near-16:9 provider originals and deterministically normalizes the working copy to 1536x864 with both checksums and dimensions recorded. This is intentionally limited to `editorial_motion_v1`; undersized or materially different aspect ratios remain fail-closed. The local first-release revision keeps the hard ceiling of 69 calls solely for 68 exact scene plates plus one thumbnail, promotes `acc1_format_visual_system_v3` for new prompts and keeps legacy profile IDs only for historical recovery. This is a code/config ceiling, not spend approval; automatic retries remain disabled and a live run requires separate exact authorization.
 - Local-only MacBook proof now connects the separately validated HyperFrames 0.7.61 editorial-collage pilot to the installed `html-video` 0.1.0 project through its HyperFrames adapter. The exact output is `build/html-video/chonker-hyperframes-through-html-video.mp4`: H.264, 1920x1080, 60 fps, 22.25 seconds and 1,335 frames; hook/story/dossier/final frames were visually inspected. The current alpha adapter required local fixes for Playwright Chromium discovery, single-file duration trimming, safe variable-to-DOM binding and direct `window.__timelines` playback; details are in ignored `build/html-video/LOCAL_INTEGRATION_NOTES.md`. This proves the local render path only: it is not wired into the production factory, GitHub or YouTube, and used no provider API, TTS, image-generation credit or upload.
 - A second local-only S-tier visual-stack proof is in `build/s-tier-stack-pilot`. It combines one original modular identity with infinite-zoom hook, editorial/photojournal story, dossier evidence, chronological timeline and dark climax. Four explicitly approved VectorEngine `gpt-image-2` calls produced the scene art with zero retries; exact text, times and evidence remain deterministic HTML. HyperFrames 0.7.61 check passes, six scene snapshots were visually inspected, and the full output `chonker-s-tier-stack-pilot-full.mp4` is H.264 yuv420p, 1920x1080, 30 fps, exactly 42.0 seconds (SHA-256 `7b8967c70bdeb0dfc0dd67a10974afb5eee5d5d2a98fb9e41fc945a10ae1ebee`) rendered locally in 76.5 seconds. The `html-video` bridge recognizes the template and renders it, but the current 0.1.0 adapter hard-limits this fixed 42-second composition to 30 seconds; its truncated integration artifact is `chonker-s-tier-stack-pilot.mp4`. Therefore HyperFrames is the verified production renderer for this format while `html-video` remains an alpha catalog/orchestration layer. No TTS, GitHub workflow, upload or YouTube action was used.
 - Latest exact acc1 resume: GitHub run [`29469183213`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/29469183213) resumed the immutable artifact from `29468736511` on `main@8c5eb7d` with no Reddit read and no new OpenAI, Image, or AI33 request. It rebuilt a 21:03 H.264/AAC MP4, background/video binding, thumbnail and 209-slide storyboard, but stopped at media QA because two natural phrase-aligned slides measured `12.204s` and `12.121s` against the former exact `12.0s` ceiling. The diagnostic artifact is `/tmp/acc1-resume-29469183213/acc1-daily-episode-29469183213`; its provider journals remain at OpenAI `28 / 181,796` tokens, image `5` attempts (four COMPLETE plus one already-accepted local fallback), and AI33 `6` completed POST tasks. Local-only follow-up changes the QA ceiling to `12.25s`, a narrow word-boundary tolerance that accepts this exact MP4 while still blocking `>12.25s`. A second local-only visual/narration correction shortens the new deterministic intro to source-backed cold open -> disclosure -> concise title cue, makes the visible first screen a real first-post title card rather than a printed greeting, gives AI33-aligned text an 80 ms lead, reads `911` as `девять один один`, and derives the outro question from the pillar/source. It deliberately keeps the male narrator for un-attributed dialogue; the female role remains only for explicitly sourced comment/response segments. The actual-title frame proof is `/tmp/acc1-visual-fix-preview/intro-after.png`. All changed targeted tests pass, but no correction is committed, pushed, re-run, or uploaded.
