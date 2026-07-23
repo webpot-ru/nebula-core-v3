@@ -113,6 +113,9 @@ def build_resume_lease(
         parent_lease, expected_repository=repository,
         expected_workflow_path=WORKFLOW_PATH,
     )
+    parent_openai_service_tier = parent_lease["provider_contract"]["openai"][
+        "service_tier"
+    ]
     parent_run_id = _positive(parent_run_id, "parent_run_id")
     if parent_resume_lease is None:
         if parent_lease.get("run_id") != parent_run_id:
@@ -134,6 +137,11 @@ def build_resume_lease(
         or not attempts
         or any(item.get("status") != "COMPLETE" for item in attempts if isinstance(item, dict))
         or any(not isinstance(item, dict) for item in attempts)
+        or any(
+            item.get("service_tier") != parent_openai_service_tier
+            for item in attempts
+            if isinstance(item, dict)
+        )
     ):
         raise ResumeLockError("parent OpenAI journal is not completely resumable")
     openai_call_cap = _positive(openai_call_cap, "openai_call_cap")

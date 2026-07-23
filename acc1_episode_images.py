@@ -13,6 +13,7 @@ from typing import Any, Callable
 from PIL import Image, ImageEnhance, ImageOps, UnidentifiedImageError
 
 from acc1_visual_contract import CINEMATIC_STORY_MODE, resolve_visual_mode
+from provider_call_identity import provider_request_sha256
 from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
 
 
@@ -300,10 +301,9 @@ def generate_episode_images(
             raise EpisodeImageError(
                 "planned image output must remain under artifact_root",
             )
-        request_sha256 = _canonical_hash({
-            "prompt": item["prompt"], "model": model,
-            "max_output_tokens": None, "voice_id": None,
-        })
+        request_sha256 = provider_request_sha256(
+            prompt=item["prompt"], model=model,
+        )
         entry = checkpoint["entries"][plan_index] if plan_index < len(checkpoint["entries"]) else None
         attempt = attempts[plan_index] if plan_index < len(attempts) else None
         ambiguous = bool(

@@ -142,7 +142,7 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             '        required: true\n'
             '        default: "96"\n'
             '        type: choice\n'
-            '        options: ["16", "24", "32", "48", "64", "96", "128"]\n',
+            '        options: ["16", "24", "32", "48", "64", "96", "128", "160"]\n',
             self.workflow,
         )
         self.assertIn(
@@ -185,6 +185,28 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         self.assertIn(
             '"openai_attempts": root / "provider-attempts" / "openai.json"',
             workflow,
+        )
+
+    def test_openai_service_tier_is_explicit_defaulted_and_forwarded(self):
+        workflow = self.workflow
+        self.assertIn(
+            "      openai_service_tier:\n"
+            "        description: Explicit OpenAI tier; flex remains default and no automatic fallback occurs\n"
+            "        required: true\n"
+            "        default: flex\n"
+            "        type: choice\n"
+            "        options:\n"
+            "          - flex\n"
+            "          - default\n",
+            workflow,
+        )
+        self.assertEqual(
+            workflow.count("OPENAI_SERVICE_TIER: ${{ inputs.openai_service_tier }}"),
+            3,
+        )
+        self.assertEqual(
+            workflow.count('--openai-service-tier "$OPENAI_SERVICE_TIER"'),
+            3,
         )
 
     def test_source_precedes_every_paid_stage_and_quality_ai_is_off(self):

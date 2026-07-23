@@ -10,6 +10,7 @@ from unittest import mock
 import acc1_episode_factory as factory
 from acc1_daily_planner import build_daily_plan
 from openai_client import OpenAIJSONResult, OpenAIUsage
+from provider_call_identity import provider_request_sha256
 from scripts.acc1_spend_lock import build_lease, self_hash
 
 
@@ -138,6 +139,15 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertIsNone(report["background_sha256"])
         self.assertRegex(report["narration_profile_sha256"], r"^[0-9a-f]{64}$")
 
+    def test_cinematic_storyboard_receives_no_baseline_background(self):
+        self.assertIsNone(factory._storyboard_background_path(None, Path("workdir")))
+        self.assertEqual(
+            factory._storyboard_background_path(
+                Path("workdir/assets/loop.mp4"), Path("workdir"),
+            ),
+            Path("assets/loop.mp4"),
+        )
+
     def test_unknown_mode_and_cinematic_thread_fail_before_paid_provider(self):
         calls = []
         common = {
@@ -244,6 +254,11 @@ class EpisodeFactoryTests(unittest.TestCase):
             self.assertFalse((workdir / "candidate-pool.json").exists())
             self.assertFalse((workdir / "source-stage.json").exists())
         self.assertEqual(captured["max_time_windows_per_topic"], 3)
+        self.assertEqual(
+            captured["candidate_limit"],
+            factory.SAGA_BUNDLE_CANDIDATE_LIMIT_PER_SOURCE,
+        )
+        self.assertEqual(captured["candidate_limit"], 100)
         self.assertEqual(captured["excluded_source_ids"], {"old-source"})
         self.assertEqual(captured["excluded_story_signatures"], {"old-signature"})
 
@@ -309,6 +324,62 @@ class EpisodeFactoryTests(unittest.TestCase):
                 diagnostics, "source_diagnostics_sha256"
             )
         )
+        self.assertFalse(diagnostics["publication_authorized"])
+
+    def test_saga_review_failure_persists_exact_source_diagnostics(self):
+        dark_plan = build_daily_plan(
+            ROOT / "channels.json",
+            production_date="2026-07-18",
+            pilot_override="pilot_03",
+        )
+        queue = {"version": 1, "entries": [{"post_id": "blocked-one"}]}
+        review = {
+            "version": 2,
+            "status": "no_eligible_saga_candidate",
+            "candidate_count": 1,
+            "eligible_candidate_count": 0,
+        }
+        fake_reddit = mock.Mock()
+        fake_reddit._core._requestor.request_count = 13
+
+        def fake_fetch(**kwargs):
+            Path(kwargs["producer_queue_output"]).write_text(
+                json.dumps(queue), encoding="utf-8",
+            )
+            return {"post_id": "blocked-one"}
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch("scraper.AI_QUALITY_ENABLED", False),
+            mock.patch("scraper.AI_QUALITY_FAIL_OPEN", False),
+            mock.patch.object(factory, "fetch_best_story", side_effect=fake_fetch),
+            mock.patch.object(factory, "build_review", return_value=review),
+        ):
+            workdir = Path(temp)
+            with self.assertRaisesRegex(
+                factory.EpisodeFactoryError, "no_eligible_saga_candidate",
+            ):
+                factory.run_source_stage(
+                    daily_plan=dark_plan,
+                    workdir=workdir,
+                    channels_path=ROOT / "channels.json",
+                    confirm_reddit_read=True,
+                    reddit_request_cap=24,
+                    reddit_factory=lambda **_kwargs: fake_reddit,
+                )
+            diagnostics = json.loads(
+                (workdir / "source-diagnostics.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(
+            diagnostics["status"], "BLOCKED_DETERMINISTIC_SOURCE_REVIEW"
+        )
+        self.assertEqual(diagnostics["review"], review)
+        self.assertEqual(diagnostics["reddit_http_requests_observed"], 13)
+        self.assertTrue(
+            factory._verify_self_hash(diagnostics, "source_diagnostics_sha256")
+        )
+        self.assertFalse(diagnostics["production_authorized"])
         self.assertFalse(diagnostics["publication_authorized"])
 
     def test_bundle_selector_failure_persists_exact_source_diagnostics(self):
@@ -498,6 +569,16 @@ class EpisodeFactoryTests(unittest.TestCase):
                 budget(prompt="bounded request")
                 self.assertEqual(calls[0]["retries"], 0)
 
+    def test_image_budget_uses_shared_resumable_request_identity(self):
+        budget = factory.CallBudget(
+            lambda **_kwargs: {"ok": True}, cap=1, label="image",
+        )
+        budget(prompt="scene prompt", model="gpt-image-2", size="1536x864")
+        self.assertEqual(
+            budget.calls[0]["request_sha256"],
+            provider_request_sha256(prompt="scene prompt", model="gpt-image-2"),
+        )
+
     def test_candidate_prompts_define_weighted_score_ranges_and_link_dependency(self):
         candidate = {
             "candidate_id": "candidate-1",
@@ -519,11 +600,31 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertIn('"renderability": 5', producer_prompt)
         self.assertIn("canonical Reddit source_url is provenance", producer_prompt)
         self.assertIn('"depends_on_screenshot_or_link": false', producer_prompt)
+        self.assertIn(
+            "complete payoff means the supplied source delivers the promised",
+            producer_prompt,
+        )
+        self.assertIn(
+            "explaining the ontology, identity, motive, or mechanism",
+            producer_prompt,
+        )
+        self.assertIn(
+            "Do not use missing_payoff or open_ending_misrepresented merely because",
+            producer_prompt,
+        )
+        self.assertIn(
+            "packaging_honesty separately audits any explanatory claim",
+            producer_prompt,
+        )
 
         candidate["producer_proposal"] = {"review": {"verdict": "PASS"}}
         critic_prompt = factory._candidate_prompt(candidate, self.plan, "critic")
         self.assertIn("WEIGHTED POINTS, never percentages", critic_prompt)
         self.assertIn("screenshot_or_link_dependent", critic_prompt)
+        self.assertIn(
+            "Use open_ending_misrepresented only when the producer or packaging explicitly promises",
+            critic_prompt,
+        )
 
     def test_candidate_prompts_keep_labeled_nosleep_fiction_inside_viewer_promise(self):
         candidate = {
@@ -830,7 +931,12 @@ class EpisodeFactoryTests(unittest.TestCase):
         journal_payload = {
             "version": 1, "provider": "openai", "cap": 64,
             "token_cap": 1_000_000, "usage_totals": dict(usage),
-            "attempts": [{"index": 1, "status": "COMPLETE", "usage": dict(usage)}],
+            "attempts": [{
+                "index": 1,
+                "status": "COMPLETE",
+                "service_tier": factory.DEFAULT_SERVICE_TIER,
+                "usage": dict(usage),
+            }],
             "publication_authorized": False,
         }
         with tempfile.TemporaryDirectory() as temp:
@@ -846,7 +952,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                         input_tokens=2, cached_input_tokens=0, output_tokens=1,
                         total_tokens=3, reasoning_tokens=0,
                     ),
-                    service_tier=factory.REQUIRED_SERVICE_TIER,
+                    service_tier=factory.DEFAULT_SERVICE_TIER,
                 )
 
             budget = factory.CallBudget(
@@ -916,7 +1022,7 @@ class EpisodeFactoryTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 factory.EpisodeFactoryError,
-                "required Flex service tier",
+                "explicitly requested service tier",
             ):
                 budget(
                     prompt="one translation",
@@ -936,6 +1042,50 @@ class EpisodeFactoryTests(unittest.TestCase):
                 "total_tokens": 3,
                 "reasoning_tokens": 0,
             })
+
+    def test_openai_budget_binds_explicit_default_tier_before_transport(self):
+        calls = []
+
+        def provider(**kwargs):
+            calls.append(kwargs)
+            return OpenAIJSONResult(
+                payload={"translated": True},
+                usage=OpenAIUsage(
+                    input_tokens=2,
+                    cached_input_tokens=0,
+                    output_tokens=1,
+                    total_tokens=3,
+                    reasoning_tokens=0,
+                ),
+                service_tier="default",
+            )
+
+        budget = factory.CallBudget(
+            provider,
+            cap=1,
+            label="openai",
+            token_cap=1_000,
+            required_service_tier="default",
+        )
+        budget(prompt="translation", model=factory.OPENAI_MODEL)
+        self.assertEqual(calls[0]["service_tier"], "default")
+        self.assertEqual(budget.calls[0]["service_tier"], "default")
+
+        with self.assertRaisesRegex(
+            factory.EpisodeFactoryError,
+            "does not match the approved budget",
+        ):
+            factory.CallBudget(
+                provider,
+                cap=1,
+                label="openai",
+                token_cap=1_000,
+                required_service_tier="default",
+            )(
+                prompt="wrong tier",
+                service_tier="flex",
+            )
+        self.assertEqual(len(calls), 1)
 
     def test_ai33_inline_audio_response_is_journaled_without_serializing_bytes(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1141,6 +1291,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                     workdir=workdir,
                     channels_path=ROOT / "channels.json",
                     confirm_openai_spend=True,
+                    openai_service_tier="default",
                     openai_call_cap=96,
                     openai_token_cap=500_000,
                     confirm_image_spend=True,
@@ -1152,6 +1303,10 @@ class EpisodeFactoryTests(unittest.TestCase):
             self.assertFalse(report["would_call_openai"])
             self.assertFalse(report["would_call_image_provider"])
             self.assertFalse(report["would_call_ai33"])
+            self.assertEqual(
+                report["provider_contract"]["openai"]["service_tier"],
+                "default",
+            )
             self.assertEqual(
                 report["runtime_budget"]["workflow_timeout_minutes"], 360,
             )
@@ -1207,6 +1362,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 "image_call_cap": 16,
                 "ai33_call_cap": 96,
             },
+            "provider_contract": factory._factory_provider_contract(),
         }
         paid_calls = []
         with tempfile.TemporaryDirectory() as temp:
@@ -1503,17 +1659,17 @@ class EpisodeFactoryTests(unittest.TestCase):
             }
             for candidate_index in range(5)
         ]
-        self.assertEqual(factory._required_openai_calls(candidates), 127)
+        self.assertEqual(factory._required_openai_calls(candidates), 143)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First short paragraph.\n\nSecond one.\n\nThird one."
-        self.assertEqual(factory._required_openai_calls(candidates), 127)
+        self.assertEqual(factory._required_openai_calls(candidates), 143)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First" + (" " * 20_000) + "short response."
-        self.assertEqual(factory._required_openai_calls(candidates), 127)
+        self.assertEqual(factory._required_openai_calls(candidates), 143)
 
     def test_self_hash_detects_release_manifest_tamper(self):
         manifest = {"status": "READY_FOR_HUMAN_REVIEW", "publication_authorized": False}
@@ -1536,6 +1692,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                     "image_call_cap": 8,
                     "ai33_call_cap": 32,
                 },
+                "provider_contract": factory._factory_provider_contract(),
             }
             producer_reports = [{"candidate_id": "candidate-1", "status": "COMPLETE"}]
             critic_reports = [{"candidate_id": "candidate-1", "status": "COMPLETE"}]
@@ -1786,9 +1943,23 @@ class EpisodeFactoryTests(unittest.TestCase):
                 order.append("mix")
                 self.assertIs(state, tts_state)
                 self.assertIs(kwargs.get("pause_map"), pause_map)
-                output = Path(kwargs["output_path"])
+                self.assertEqual(
+                    Path(kwargs["pause_map_path"]),
+                    Path("tts/narration-pause-map.json"),
+                )
+                self.assertEqual(
+                    Path(kwargs["output_path"]),
+                    Path("tts/compilation_voice_mix.wav"),
+                )
+                self.assertEqual(
+                    Path(kwargs["report_path"]),
+                    Path("tts/audio-mix-report.json"),
+                )
+                output = workdir / Path(kwargs["output_path"])
                 output.write_bytes(b"mixed-audio")
-                factory._atomic_json(Path(kwargs["report_path"]), audio_mix_report)
+                factory._atomic_json(
+                    workdir / Path(kwargs["report_path"]), audio_mix_report,
+                )
                 return audio_mix_report
 
             def fake_storyboard(*args, **kwargs):

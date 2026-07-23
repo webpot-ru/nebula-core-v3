@@ -178,6 +178,7 @@ def _semantic_units(
     segment_id: str,
     sanitized_text: str,
     explicit_beats: Any = None,
+    max_chars: int | None = None,
 ) -> list[dict[str, Any]]:
     units: list[str] = []
     boundary_source = "whole_segment"
@@ -212,15 +213,31 @@ def _semantic_units(
             )
         boundary_source = "explicit_story_beat"
     else:
-        units = [
+        paragraphs = [
             value.strip()
             for value in re.split(r"\n\s*\n+", sanitized_text)
             if value.strip()
         ]
-        if len(units) > 1:
+        if len(paragraphs) > 1:
             boundary_source = "paragraph"
-        if not units:
-            units = [sanitized_text.strip()]
+        if not paragraphs:
+            paragraphs = [sanitized_text.strip()]
+        if max_chars is None:
+            units = paragraphs
+        else:
+            if max_chars < 1:
+                raise NarrationPreflightError("semantic max_chars must be positive")
+            units = []
+            current: list[str] = []
+            for paragraph in paragraphs:
+                candidate = "\n\n".join([*current, paragraph])
+                if current and len(candidate) > max_chars:
+                    units.append("\n\n".join(current))
+                    current = [paragraph]
+                else:
+                    current.append(paragraph)
+            if current:
+                units.append("\n\n".join(current))
 
     return [
         {
@@ -325,6 +342,7 @@ def build_compilation_segments(
                 segment_id=segment_id,
                 sanitized_text=sanitized,
                 explicit_beats=item.get("_explicit_beats"),
+                max_chars=int(profile["semantic_chunk_policy"]["max_chars"]),
             )
         segments.append(segment)
     return segments

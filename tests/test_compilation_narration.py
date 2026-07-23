@@ -152,6 +152,37 @@ class CompilationNarrationTests(unittest.TestCase):
             STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
         )
 
+    def test_profile_packs_short_reddit_paragraphs_before_tts(self):
+        disclosure = "Это художественная история с Reddit."
+        paragraph = (
+            "Мы медленно шли по тёмной тропе, прислушиваясь к ветру "
+            "и далёкой воде."
+        )
+        narration = "\n\n".join([paragraph] * 80)
+        compilation = {
+            "pillar": "strange_dark_unexplained",
+            "truth_disclosure_ru": disclosure,
+            "intro_ru": f"Начало. {disclosure}",
+            "stories": [{
+                "source_snapshot": {"post_id": "a", "truth_mode": "fiction"},
+                "narration_ru": narration,
+            }],
+            "outro_ru": "Конец.",
+        }
+        segments = build_compilation_segments(
+            compilation,
+            narration_profile_id=STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+        )
+        story = next(item for item in segments if item["kind"] == "story")
+        units = story["semantic_units"]
+        self.assertLess(len(units), 10)
+        self.assertTrue(all(len(item["text"]) <= 1_650 for item in units))
+        self.assertTrue(all(item["boundary_source"] == "paragraph" for item in units))
+        self.assertEqual(
+            " ".join("\n\n".join(item["text"] for item in units).split()),
+            " ".join(narration.split()),
+        )
+
     def test_profile_selection_fails_on_unknown_pillar_or_changed_beats(self):
         disclosure = "Это художественная история с Reddit."
         compilation = {

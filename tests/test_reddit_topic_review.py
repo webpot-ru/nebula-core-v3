@@ -167,22 +167,72 @@ class RedditTopicReviewTests(unittest.TestCase):
                 self.assertRegex(review["review_sha256"], r"^[0-9a-f]{64}$")
 
     def test_saga_link_dependency_is_a_hard_block(self):
+        body = self.saga_body(
+            "My husband argued with my family and our relationship changed forever.",
+            "Finally, we broke up and I blocked him.",
+        )
+        body += " [Read more](https://www.reddit.com/r/relationship_advice/comments/linked2/part_2/)"
         entry = self.entry(
             "linked",
             "My husband and my family forced me to choose",
-            self.saga_body(
-                "My husband argued with my family and our relationship changed forever.",
-                "Finally, we broke up and I blocked him.",
-            ),
+            body,
             subreddit="r/relationship_advice",
         )
-        entry.update({"topic_family": "human_drama", "source_has_markdown_link": True})
+        entry.update({
+            "topic_family": "human_drama",
+            "source_has_url": True,
+            "source_has_markdown_link": True,
+        })
         review = review_reddit_topics.build_review(
             self.saga_queue("relationships_family", "human_drama", [entry]), 3,
         )
         self.assertEqual(review["status"], "no_eligible_saga_candidate")
         self.assertIn(
             "screenshot_or_link_dependent", review["candidate_reviews"][0]["blocking_reasons"],
+        )
+
+    def test_saga_reddit_author_profile_link_is_not_a_story_dependency(self):
+        body = self.saga_body(
+            "Every night the impossible shadow waited behind the locked door.",
+            "The locked door opened behind me. The shadow smiled.",
+        )
+        body += " I learned [that](https://www.reddit.com/user/gamalfrank/)."
+        entry = self.entry(
+            "profile-link",
+            "One strange rule kept the night shift alive",
+            body,
+            subreddit="r/nosleep",
+        )
+        entry.update({
+            "topic_family": "dark_curiosity",
+            "source_has_url": True,
+            "source_has_markdown_link": True,
+        })
+
+        review = review_reddit_topics.build_review(
+            self.saga_queue(
+                "strange_dark_unexplained", "dark_curiosity", [entry],
+            ),
+            3,
+        )
+
+        self.assertEqual(review["status"], "review_ready", review)
+        topic = review["candidate_reviews"][0]
+        self.assertFalse(topic["depends_on_screenshot_or_link"])
+        self.assertNotIn("screenshot_or_link_dependent", topic["blocking_reasons"])
+
+    def test_profile_shaped_non_reddit_link_remains_a_dependency(self):
+        entry = self.entry(
+            "external-profile",
+            "One strange rule kept the night shift alive",
+            "The night ended. [author](https://example.com/user/gamalfrank/)",
+        )
+        entry.update({"source_has_url": True, "source_has_markdown_link": True})
+
+        self.assertTrue(
+            review_reddit_topics.source_depends_on_external(
+                entry, entry["source_body"],
+            )
         )
 
     def test_saga_machine_like_character_density_is_a_hard_block(self):
@@ -288,6 +338,59 @@ class RedditTopicReviewTests(unittest.TestCase):
         topic = review["top_topics"][0]
         self.assertTrue(topic["payoff_complete"])
         self.assertIn("The shadow smiled.", topic["payoff_evidence"])
+
+    def test_saga_terminal_reddit_prose_does_not_require_final_punctuation(self):
+        for ending in (
+            "Do not stop. Do not pull over to help them",
+            "*Fuck that.*",
+            "Would I still be…\n\n…Lost in the Forest",
+        ):
+            with self.subTest(ending=ending):
+                entry = self.entry(
+                    "terminal-reddit",
+                    "One strange rule kept the night shift alive",
+                    self.saga_body(
+                        "Every night the impossible shadow waited behind the locked door.",
+                        ending,
+                    ),
+                    subreddit="r/nosleep",
+                )
+                entry["topic_family"] = "dark_curiosity"
+
+                review = review_reddit_topics.build_review(
+                    self.saga_queue(
+                        "strange_dark_unexplained", "dark_curiosity", [entry],
+                    ),
+                    3,
+                )
+
+                self.assertEqual(review["status"], "review_ready", review)
+                self.assertTrue(review["top_topics"][0]["payoff_complete"])
+
+    def test_saga_obvious_syntactic_continuation_remains_blocked(self):
+        entry = self.entry(
+            "unfinished-syntax",
+            "One strange rule kept the night shift alive",
+            self.saga_body(
+                "Every night the impossible shadow waited behind the locked door.",
+                "I reached for the door because",
+            ),
+            subreddit="r/nosleep",
+        )
+        entry["topic_family"] = "dark_curiosity"
+
+        review = review_reddit_topics.build_review(
+            self.saga_queue(
+                "strange_dark_unexplained", "dark_curiosity", [entry],
+            ),
+            3,
+        )
+
+        self.assertEqual(review["status"], "no_eligible_saga_candidate")
+        self.assertIn(
+            "payoff_not_structurally_proven",
+            review["candidate_reviews"][0]["blocking_reasons"],
+        )
 
     def test_saga_intent_without_source_plan_cannot_fall_back_to_legacy_review(self):
         entry = self.entry(

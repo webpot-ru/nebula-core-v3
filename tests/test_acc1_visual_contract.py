@@ -99,7 +99,7 @@ class VisualModeContractTests(unittest.TestCase):
             self.assertTrue(output.is_file())
 
     def test_long_service_bumper_fails_closed(self):
-        with self.assertRaisesRegex(CinematicShotError, "short 15-second bumper"):
+        with self.assertRaisesRegex(CinematicShotError, "short 17-second bumper"):
             build_cinematic_contract(
                 narration_segments=[
                     {
@@ -117,7 +117,7 @@ class VisualModeContractTests(unittest.TestCase):
                 ],
                 segment_timings={
                     "intro": {
-                        "duration_sec": 16.0,
+                        "duration_sec": 18.0,
                         "words": [
                             {
                                 "word": word,
@@ -154,8 +154,66 @@ class VisualModeContractTests(unittest.TestCase):
                     }],
                 },
                 story_metadata={"story_one": {"story_index": 1}},
-                final_audio_duration_sec=36.0,
+                final_audio_duration_sec=38.0,
             )
+
+    def test_service_bumper_accepts_provider_tail_and_post_pause(self):
+        intro_text = "Короткое вступление."
+        story_text = "История продолжается достаточно долго."
+        contract = build_cinematic_contract(
+            narration_segments=[
+                {
+                    "segment_id": "intro",
+                    "kind": "intro",
+                    "voice_role": "narrator",
+                    "text": intro_text,
+                },
+                {
+                    "segment_id": "story_one",
+                    "kind": "story",
+                    "voice_role": "narrator",
+                    "text": story_text,
+                },
+            ],
+            segment_timings={
+                "intro": {
+                    "duration_sec": 16.10551,
+                    "words": [
+                        {
+                            "word": word,
+                            "start": index * 7.0,
+                            "end": (index + 1) * 7.0,
+                            "timing_source": "ai33",
+                        }
+                        for index, word in enumerate(intro_text.split())
+                    ],
+                    "timing_source": "ai33",
+                },
+                "story_one": {
+                    "duration_sec": 20.0,
+                    "words": [
+                        {
+                            "word": word,
+                            "start": index * 4.0,
+                            "end": (index + 1) * 4.0,
+                            "timing_source": "ai33",
+                        }
+                        for index, word in enumerate(story_text.split())
+                    ],
+                    "timing_source": "ai33",
+                },
+            },
+            story_visuals={
+                "story_one": [{
+                    "local_path": "scene.png",
+                    "sha256": "a" * 64,
+                }],
+            },
+            story_metadata={"story_one": {"story_index": 1}},
+            final_audio_duration_sec=36.10551,
+        )
+
+        self.assertAlmostEqual(contract["shots"][0]["duration_sec"], 16.106)
 
     def test_too_few_words_for_required_story_shots_fails_cleanly(self):
         with self.assertRaisesRegex(CinematicShotError, "fewer words"):

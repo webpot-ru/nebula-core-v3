@@ -288,6 +288,7 @@ class CompilationStoryboardTests(unittest.TestCase):
             }]
             state = self._profiled_tts_state(compilation)
             pause_map = build_pause_map(state)
+            output_duration = pause_map["timeline_duration_sec"] - 0.156
             mix_report = {
                 "version": 1,
                 "status": "PASS",
@@ -299,7 +300,7 @@ class CompilationStoryboardTests(unittest.TestCase):
                 "narration_profile_sha256": state["narration_profile_sha256"],
                 "pause_map_sha256": pause_map["pause_map_sha256"],
                 "output_sha256": "4" * 64,
-                "output_duration_sec": pause_map["timeline_duration_sec"],
+                "output_duration_sec": output_duration,
                 "expected_timeline_duration_sec": pause_map[
                     "timeline_duration_sec"
                 ],
@@ -318,7 +319,7 @@ class CompilationStoryboardTests(unittest.TestCase):
         self.assertEqual(storyboard["audio_sha256"], "4" * 64)
         self.assertEqual(
             storyboard["timeline_duration_sec"],
-            round(pause_map["timeline_duration_sec"], 3),
+            round(output_duration, 3),
         )
         self.assertEqual(
             storyboard["pause_map_sha256"], pause_map["pause_map_sha256"],
@@ -329,7 +330,7 @@ class CompilationStoryboardTests(unittest.TestCase):
         )
         self.assertEqual(
             storyboard["slides"][-1]["end_sec"],
-            round(pause_map["timeline_duration_sec"], 3),
+            round(output_duration, 3),
         )
 
         tampered = dict(mix_report, output_sha256="5" * 64)

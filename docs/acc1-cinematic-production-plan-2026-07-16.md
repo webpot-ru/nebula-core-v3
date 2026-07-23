@@ -1,9 +1,10 @@
 # План внедрения cinematic-формата acc1 — 2026-07-16
 
-Статус: этапы A-C, техническая часть этапа D и локальная инфраструктура
-post-human release gate реализованы 2026-07-17 поверх актуального
-`origin/main@8c5eb7d`. `reddit_pages` остаётся дефолтом; человеческий
-creative/audio review и production canary ещё не выполнялись.
+Статус: этапы A-C, техническая часть этапа D, artifact-only production canary
+этапа E и инфраструктура post-human release gate реализованы и проверены
+2026-07-17. `reddit_pages` остаётся дефолтом; формальный человеческий
+creative/audio review, rights evidence, release-review receipt и YouTube-пилот
+ещё не выполнялись.
 
 ## Решение
 
@@ -51,10 +52,11 @@ creative/audio review и production canary ещё не выполнялись.
   финального audio hash в baseline/cinematic вариантах.
 
 Внешними воротами остаются человеческий creative/audio review точного
-кандидата, отдельно подтверждённый provider/GitHub canary, реальный правовой
-допуск источника и точное разрешение на YouTube upload. Factory-aware release
-adapter, rights-manifest contract и no-provider GitHub gate уже реализованы
-локально, но не могут заменить реальные доказательства и не были запущены.
+кандидата, реальный правовой допуск источника и точное разрешение на YouTube
+upload. Отдельно подтверждённый provider/GitHub canary выполнен; factory-aware
+release adapter, rights-manifest contract и no-provider GitHub gate активны,
+но не могут заменить эти человеческие и правовые доказательства и ещё не
+запускались на данном кандидате.
 
 ## Локальное доказательство — 2026-07-17
 
@@ -280,20 +282,17 @@ artifact-only GitHub run. Private/unlisted YouTube canary возможен то�
 действующего release-gate adapter, правового допуска конкретных источников,
 human review и точного upload approval.
 
-Локальная инфраструктура этих ворот реализована 2026-07-17: factory-aware
+Инфраструктура этих ворот реализована 2026-07-17: factory-aware
 `acc1_release_gate.py`, точный `acc1_rights_manifest.py`, no-provider
 `acc1_release_review.yml` и private-only `acc1_private_upload.yml`. Private
 upload больше не может доверять одному `READY_FOR_HUMAN_REVIEW`: он требует
 отдельную self-hashed квитанцию `READY_FOR_PRIVATE_REVIEW`, связанную с точным
-factory run, видео, аудио, thumbnail, human review и rights evidence. Это
-локальная готовность к этапу, а не его прохождение: реального rights record,
-human PASS, GitHub canary или YouTube upload/readback ещё нет.
-
-Live readback 2026-07-17 показал отдельный deployment-риск: на GitHub `main`
-активен старый manual workflow `acc1 Private Artifact Upload` id `313326356`,
-который ещё принимает один `READY_FOR_HUMAN_REVIEW`; новый `acc1 Release
-Review Gate` там не зарегистрирован. Старый workflow нельзя запускать до merge
-новой цепочки либо его отдельно разрешённого отключения.
+factory run, видео, аудио, thumbnail, human review и rights evidence. GitHub
+`main` содержит активные hardened `acc1 Private Artifact Upload` id
+`313326356` и no-provider `acc1 Release Review Gate` id `314883599`. Это
+готовность инфраструктуры, а не прохождение ворот для кандидата: реального
+rights record, формального human PASS, release-review receipt или YouTube
+upload/readback ещё нет.
 
 ## Ворота продвижения в дефолт
 
@@ -310,7 +309,60 @@ Review Gate` там не зарегистрирован. Старый workflow �
 Один outlier конкурента или один красивый локальный ролик не является
 достаточным основанием.
 
-## Результат первого implementation slice
+## Live implementation status — 2026-07-17
+
+PR [#44](https://github.com/webpot-ru/nebula-core-v3/pull/44) merged the
+feature-flagged cinematic implementation and factory-aware release chain to
+`main@017934e3`. The first authorized artifact-only canary
+[`29555487790`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/29555487790)
+stopped before every paid provider because deterministic source review found
+only one eligible candidate out of four. The saved queue proved one rejection
+was a classifier false positive: a final Reddit author-profile attribution was
+treated like a part-2 dependency. The corrected contract allows only exact
+Reddit `/user/` and `/u/` attribution links, keeps every continuation/external
+link and image blocked. Canary `29557578785` then found exactly five valid
+stories at depth 50 and reached paid production, where one Flex response
+completed before an explicit capacity HTTP 429 stopped the next request.
+Those five sources are now correctly reserved, so sustainable episode rotation
+uses one maximum-size Reddit listing page (100 rows) under the unchanged HTTP
+cap. Source-only run `29558815654` proved that path with five new, reservation-
+disjoint finalists. Paid run `29559053073` then passed the new source lease but
+received the same explicit Flex-capacity HTTP 429 on its first OpenAI request;
+image, AI33, render, and YouTube were not reached. Because this is the second
+independent Flex-capacity failure, PR #45 adds an explicit `default` service-tier
+canary path while retaining Flex as the default and prohibiting automatic
+fallback. The selected tier is hash-bound through preflight, lease, request,
+journal, and response readback. Standard-tier canary `29559999245` then proved
+eight exact-tier responses (55,588 total tokens) and stopped at editorial
+review, not transport. Its payoff wording was corrected without lowering the
+S-tier score, safety, evidence, or packaging-honesty gates. Follow-up source run
+`29560368413` made zero paid calls and exposed a separate terminal-punctuation
+false block: exact local replay of its immutable queue now yields three valid,
+link-independent SAGA sources while all 13 link-dependent entries remain
+blocked. Paid checkpoint `29561785390` then reviewed that exact three-story pool
+on the standard tier for 50,919 tokens. One candidate passed both reviews at
+95.5 with zero final failures; the other two were correctly blocked for weak
+discussion potential and advertiser safety. The run stopped only because the
+exceptional-winner rule required five alternatives despite the complete source
+contract allowing 3-5. The aligned rule still requires three ordinary passes,
+but permits a single >=95 zero-failure winner after every member of the complete
+contracted pool was reviewed. A hash-bound resume reuses the seven completed
+reviews. The continuation chain then completed translation review, five
+checksum-bound scene images, 13 AI33 narration tasks, measured voice-only mix,
+storyboard, render and QA without repeating completed provider calls. Final
+no-provider rerender
+[`29573211739`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/29573211739)
+on PR #45 head `a1c07b0` is `READY_FOR_HUMAN_REVIEW`: 15/32 OpenAI calls used
+123,799/500,000 combined tokens, five/8 image calls and 13/32 AI33 submissions.
+Its 1920x1080 H.264/AAC 30 fps MP4 is 1,222.666667 seconds with SHA-256
+`2100d7947d2fa3ac8c2b0e28968055a318af0963c92786717fad862f93ed6101`.
+Media QA passed with zero failures or warnings; exact frame readback confirmed
+the safe two-line intro title, slow inward movement, clean story composition
+and final CTA. Publication remains false and no YouTube path ran. Promotion to
+the default still requires the formal human, audio, rights and retention gates
+above.
+
+## Результат implementation
 
 Первый локальный проход выполнен в исходных границах visual contract:
 
@@ -320,10 +372,11 @@ Review Gate` там не зарегистрирован. Старый workflow �
 4. добавить targeted renderer/storyboard/QA tests;
 5. выполнить визуальный readback итогового MP4.
 
-Этот slice не вызывал Reddit, OpenAI, image provider, AI33 или YouTube и не
-менял `channels.json`. Voice profiles и локальный measured voice-only mix также
-реализованы без provider-вызова. Платный образец существующего narrator voice
-остаётся отдельным действием только после принятия визуального доказательства.
+Первый no-spend slice не вызывал Reddit, OpenAI, image provider, AI33 или
+YouTube и не менял `channels.json`. Последующий отдельно разрешённый
+artifact-only production canary проверил реальный provider image/voice путь и
+финальный MP4 в пределах точных caps; hash-bound continuation не повторяла
+завершённые вызовы. YouTube и `channels.json` по-прежнему не затрагивались.
 
 ## Не входит в этот план
 

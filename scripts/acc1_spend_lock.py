@@ -58,6 +58,29 @@ PROVIDER_CONTRACT: dict[str, Any] = {
         "emotion_tags": False,
     },
 }
+SUPPORTED_OPENAI_SERVICE_TIERS = frozenset({"flex", "default"})
+
+
+def provider_contract(openai_service_tier: str = "flex") -> dict[str, Any]:
+    tier = str(openai_service_tier or "").strip().lower()
+    if tier not in SUPPORTED_OPENAI_SERVICE_TIERS:
+        raise SpendLockError(
+            "OpenAI service tier must be exactly flex or default"
+        )
+    contract = copy.deepcopy(PROVIDER_CONTRACT)
+    contract["openai"]["service_tier"] = tier
+    return contract
+
+
+def _validate_provider_contract(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise SpendLockError("spend lease provider/model contract is invalid")
+    openai = value.get("openai")
+    tier = openai.get("service_tier") if isinstance(openai, dict) else None
+    expected = provider_contract(str(tier or ""))
+    if value != expected:
+        raise SpendLockError("spend lease provider/model contract is incompatible")
+    return expected
 
 CAP_KEYS = {
     "reddit_request_cap",
@@ -418,6 +441,7 @@ def build_lease(
     head_sha: str,
     requested_caps: dict[str, Any],
     confirmations: dict[str, Any],
+    openai_service_tier: str = "flex",
     created_at: str | None = None,
 ) -> dict[str, Any]:
     """Build a self-verifying lease from the exact source-stage artifacts."""
@@ -483,7 +507,7 @@ def build_lease(
         "reserved_sources": reserved_sources,
         "requested_caps": caps,
         "confirmations": confirmed,
-        "provider_contract": copy.deepcopy(PROVIDER_CONTRACT),
+        "provider_contract": provider_contract(openai_service_tier),
         "retention_days": LEASE_RETENTION_DAYS,
         "lock_scope": LOCK_SCOPE,
         "publication_authorized": False,
@@ -532,8 +556,7 @@ def validate_lease(
         raise SpendLockError("spend lease retention policy is incompatible")
     if lease.get("lock_scope") != LOCK_SCOPE:
         raise SpendLockError("spend lease scope is incompatible")
-    if lease.get("provider_contract") != PROVIDER_CONTRACT:
-        raise SpendLockError("spend lease provider/model contract is incompatible")
+    _validate_provider_contract(lease.get("provider_contract"))
     bindings = lease.get("source_bindings")
     if not isinstance(bindings, dict) or set(bindings) != BINDING_KEYS:
         raise SpendLockError("spend lease source bindings are incomplete or unknown")
@@ -617,8 +640,7 @@ def validate_lease_for_production(
     }
     if lease.get("confirmations") != expected_confirmations:
         raise SpendLockError("spend lease does not bind the exact confirmations")
-    if provider_contract != PROVIDER_CONTRACT:
-        raise SpendLockError("factory provider/model contract drifted from the spend-lock contract")
+    _validate_provider_contract(provider_contract)
     if lease.get("provider_contract") != provider_contract:
         raise SpendLockError("spend lease does not bind the exact provider/model contract")
     if run_id is not None and lease.get("run_id") != _positive_int(run_id, "run_id", 10**20):
@@ -796,6 +818,11 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--reddit-request-cap", required=True, type=int)
     create.add_argument("--openai-call-cap", required=True, type=int)
     create.add_argument("--openai-token-cap", required=True, type=int)
+    create.add_argument(
+        "--openai-service-tier",
+        choices=tuple(sorted(SUPPORTED_OPENAI_SERVICE_TIERS)),
+        default="flex",
+    )
     create.add_argument("--image-call-cap", required=True, type=int)
     create.add_argument("--ai33-call-cap", required=True, type=int)
     create.add_argument("--confirm-reddit-read", required=True)
@@ -866,6 +893,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "image_spend": args.confirm_image_spend,
                 "ai33_spend": args.confirm_ai33_spend,
             },
+            openai_service_tier=args.openai_service_tier,
             created_at=args.created_at,
         )
         _atomic_json(Path(args.output), result)

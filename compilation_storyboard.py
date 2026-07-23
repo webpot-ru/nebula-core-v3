@@ -548,6 +548,8 @@ def _bound_tts_state(
     pause_entries: list[dict[str, Any]] = []
     render_audio_sha256 = source_audio_sha256
     render_duration = source_final_duration
+    mixed_timeline_scale = 1.0
+    pause_map_duration = source_final_duration
     if mixed_timeline:
         if not isinstance(pause_map, dict) or not isinstance(audio_mix_report, dict):
             raise CompilationStoryboardError(
@@ -599,7 +601,9 @@ def _bound_tts_state(
                 "audio mix report output_sha256 is required",
             )
         try:
-            render_duration = float(pause_map.get("timeline_duration_sec") or 0)
+            pause_map_duration = float(
+                pause_map.get("timeline_duration_sec") or 0,
+            )
             report_expected_duration = float(
                 audio_mix_report.get("expected_timeline_duration_sec") or 0,
             )
@@ -614,15 +618,17 @@ def _bound_tts_state(
                 "mixed narration duration contract is invalid",
             ) from exc
         if (
-            render_duration <= 0
-            or abs(report_expected_duration - render_duration) > 0.001
+            pause_map_duration <= 0
+            or abs(report_expected_duration - pause_map_duration) > 0.001
             or report_output_duration <= 0
-            or abs(report_output_duration - render_duration)
+            or abs(report_output_duration - pause_map_duration)
             > max(0.05, report_tolerance) + 0.001
         ):
             raise CompilationStoryboardError(
                 "audio mix duration does not bind the pause-map timeline",
             )
+        render_duration = report_output_duration
+        mixed_timeline_scale = render_duration / pause_map_duration
         pause_entries = pause_map.get("entries")
         if not isinstance(pause_entries, list) or not pause_entries:
             raise CompilationStoryboardError("pause map entries are required")
@@ -741,9 +747,14 @@ def _bound_tts_state(
                     "pause map chunk/timeline binding does not match TTS state",
                 )
             if entry["timeline_start_sec"] is None:
-                entry["timeline_start_sec"] = timeline_audio_start
-            entry["timeline_end_sec"] = timeline_pause_end
-            word_offset = timeline_audio_start - float(entry["timeline_start_sec"])
+                entry["timeline_start_sec"] = (
+                    timeline_audio_start * mixed_timeline_scale
+                )
+            entry["timeline_end_sec"] = timeline_pause_end * mixed_timeline_scale
+            word_offset = (
+                timeline_audio_start * mixed_timeline_scale
+                - float(entry["timeline_start_sec"])
+            )
             mixed_cursor = timeline_pause_end
         previous_start = 0.0
         for expected_word, word in zip(text.split(), words):
@@ -762,8 +773,12 @@ def _bound_tts_state(
                 raise CompilationStoryboardError("TTS word timing does not bind to exact chunk text/audio")
             entry["words"].append({
                 "word": expected_word,
-                "start": word_offset + start * (1.0 if mixed_timeline else timeline_scale),
-                "end": word_offset + end * (1.0 if mixed_timeline else timeline_scale),
+                "start": word_offset + start * (
+                    mixed_timeline_scale if mixed_timeline else timeline_scale
+                ),
+                "end": word_offset + end * (
+                    mixed_timeline_scale if mixed_timeline else timeline_scale
+                ),
                 "timing_source": timing_source,
             })
             previous_start = start
@@ -783,7 +798,7 @@ def _bound_tts_state(
 
     if observed_order != expected_order or abs(observed_raw_duration - raw_duration) > 0.001:
         raise CompilationStoryboardError("TTS timed chunks do not cover the full narration plan")
-    if mixed_timeline and abs(mixed_cursor - render_duration) > 0.001:
+    if mixed_timeline and abs(mixed_cursor - pause_map_duration) > 0.001:
         raise CompilationStoryboardError("pause map does not cover the mixed timeline")
     contract_sha256 = str(tts_state.get("timing_contract_sha256") or "").lower()
     if not SHA256_RE.fullmatch(contract_sha256) or contract_sha256 != _canonical_hash(timing_contract):

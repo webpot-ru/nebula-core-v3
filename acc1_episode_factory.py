@@ -92,19 +92,20 @@ from compilation_translation import (
 )
 from compilation_tts_runner import build_tts_chunks, run_compilation_tts
 from openai_client import (
+    DEFAULT_SERVICE_TIER,
     DEFAULT_TIMEOUT_SECONDS as OPENAI_REQUEST_TIMEOUT_SECONDS,
     OPENAI_MODEL,
     PROMPT_CACHE_KEY,
-    REQUIRED_SERVICE_TIER,
     OpenAIJSONResult,
     call_openai_json,
+    normalize_service_tier,
 )
+from provider_call_identity import provider_request_sha256
 from scraper import fetch_best_story, get_reddit, history_posts, load_channel_config, load_history
 from source_text_quality import source_text_quality_blockers
 from source_safety import source_safety_evidence
 from scripts.build_acc1_creative_review_template import build_template
 from scripts.acc1_spend_lock import (
-    PROVIDER_CONTRACT as SPEND_LOCK_PROVIDER_CONTRACT,
     WORKFLOW_PATH as SPEND_LOCK_WORKFLOW_PATH,
     SpendLockError,
     validate_lease_for_production,
@@ -128,6 +129,7 @@ FACTORY_VERSION = 2
 MIN_SOURCE_REVIEW_CANDIDATES = 3
 MAX_SOURCE_REVIEW_CANDIDATES = 5
 MIN_PASSING_FINALISTS = 3
+SAGA_BUNDLE_CANDIDATE_LIMIT_PER_SOURCE = 100
 THREAD_PROMPT_CANDIDATE_LIMIT = 20
 NARRATOR_VOICE_ID = "elevenlabs_JBFqnCBsd6RMkjVDRZzb"
 COMMENT_VOICE_ID = "elevenlabs_MOgsVr0EwwxqQs5cNDhu"
@@ -440,11 +442,11 @@ def _translation_fallback_piece_ceiling(body: str, chunk_chars: int = 7_000) -> 
 
 
 def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
-    """Budget reviews, one evidence correction per finalist, and winner production."""
+    """Budget reviews, bounded evidence correction, and winner production."""
     translation_calls = max(
         (
             sum(
-                (9 if str(candidate.get("format") or "").upper() == "SAGA" else 6)
+                (10 if str(candidate.get("format") or "").upper() == "SAGA" else 7)
                 + _translation_fallback_piece_ceiling(
                     str(source.get("body") or "")
                 )
@@ -757,7 +759,7 @@ def run_source_stage(
             channel_config=channel,
             skip_rank=0,
             max_ai_candidates=0,
-            candidate_limit=25,
+            candidate_limit=SAGA_BUNDLE_CANDIDATE_LIMIT_PER_SOURCE,
             topic_family=daily_plan["source_plan"]["topic_family"],
             include_source_body_in_queue=True,
             format_intent=daily_plan["source_plan"]["format_intent"],
@@ -773,6 +775,27 @@ def run_source_stage(
         queue = _read_object(queue_path)
         review = build_review(queue, 30)
         if review.get("status") != "review_ready":
+            source_diagnostics = {
+                "version": 1,
+                "status": "BLOCKED_DETERMINISTIC_SOURCE_REVIEW",
+                "channel_id": "acc1",
+                "episode_key": daily_plan["episode_key"],
+                "pilot_id": daily_plan["pilot_id"],
+                "format": format_id,
+                "pillar": daily_plan["pillar"],
+                "daily_plan_sha256": canonical_hash(daily_plan),
+                "failure": f"deterministic source review blocked: {review.get('status')}",
+                "reddit_http_request_cap": cap,
+                "reddit_http_requests_observed": _reddit_request_count(reddit),
+                "queue": queue,
+                "review": review,
+                "production_authorized": False,
+                "publication_authorized": False,
+            }
+            source_diagnostics["source_diagnostics_sha256"] = _self_hash(
+                source_diagnostics, "source_diagnostics_sha256",
+            )
+            _atomic_json(workdir / "source-diagnostics.json", source_diagnostics)
             raise EpisodeFactoryError(f"deterministic source review blocked: {review.get('status')}")
         if format_id == "SAGA":
             candidates = _saga_candidates(queue, review, daily_plan)
@@ -950,10 +973,20 @@ class CallBudget:
         journal_path: Path | None = None,
         token_cap: int | None = None,
         allow_completed_resume: bool = False,
+        required_service_tier: str | None = None,
     ):
         self.provider = provider
         self.cap = _positive_cap(cap, f"{label}_call_cap", maximum=256)
         self.label = label
+        self.required_service_tier = (
+            normalize_service_tier(required_service_tier or DEFAULT_SERVICE_TIER)
+            if label == "openai"
+            else None
+        )
+        if label != "openai" and required_service_tier is not None:
+            raise EpisodeFactoryError(
+                "required_service_tier is valid only for the OpenAI budget"
+            )
         self.token_cap = (
             _positive_cap(token_cap, f"{label}_token_cap", maximum=1_000_000)
             if token_cap is not None else None
@@ -1011,6 +1044,13 @@ class CallBudget:
                 ):
                     raise EpisodeFactoryError(
                         f"{label} completed resume journal contains an unresolved or invalid attempt"
+                    )
+                if self.required_service_tier is not None and any(
+                    item.get("service_tier") != self.required_service_tier
+                    for item in attempts
+                ):
+                    raise EpisodeFactoryError(
+                        "openai completed resume journal service tier does not match"
                     )
                 if self.token_cap is not None:
                     totals = previous.get("usage_totals")
@@ -1077,15 +1117,25 @@ class CallBudget:
         # explicit factory cap.
         if self.label in {"openai", "image"}:
             kwargs.setdefault("retries", 0)
+        if self.required_service_tier is not None:
+            requested_service_tier = normalize_service_tier(
+                kwargs.get("service_tier", self.required_service_tier)
+            )
+            if requested_service_tier != self.required_service_tier:
+                raise EpisodeFactoryError(
+                    "OpenAI call service tier does not match the approved budget"
+                )
+            kwargs["service_tier"] = self.required_service_tier
         prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
         attempt = {
             "index": len(self.calls) + 1,
-            "request_sha256": canonical_hash({
-                "prompt": prompt,
-                "model": kwargs.get("model") or kwargs.get("model_id"),
-                "max_output_tokens": kwargs.get("max_output_tokens"),
-                "voice_id": kwargs.get("voice_id"),
-            }),
+            "request_sha256": provider_request_sha256(
+                prompt=prompt,
+                model=kwargs.get("model") or kwargs.get("model_id"),
+                max_output_tokens=kwargs.get("max_output_tokens"),
+                voice_id=kwargs.get("voice_id"),
+                service_tier=kwargs.get("service_tier"),
+            ),
             "model": kwargs.get("model") or kwargs.get("model_id"),
             "status": "IN_FLIGHT",
         }
@@ -1121,11 +1171,11 @@ class CallBudget:
                 attempt["status"] = "BLOCKED_TOKEN_CAP_EXCEEDED"
                 self._write_journal()
                 raise EpisodeFactoryError("OpenAI actual usage exceeded the approved token cap")
-            if raw_response.service_tier != REQUIRED_SERVICE_TIER:
+            if raw_response.service_tier != self.required_service_tier:
                 attempt["status"] = "BLOCKED_SERVICE_TIER_MISMATCH"
                 self._write_journal()
                 raise EpisodeFactoryError(
-                    "OpenAI response did not prove the required Flex service tier"
+                    "OpenAI response did not prove the explicitly requested service tier"
                 )
         elif self.token_cap is not None:
             attempt["status"] = "BLOCKED_MISSING_USAGE"
@@ -1175,6 +1225,18 @@ Non-negotiable rules:
   Use fictional_as_real only when the proposed framing explicitly presents fiction as a
   verified/real event or suppresses/contradicts that required disclosure.
 - Do not invent facts, chronology, outcomes, hooks, people, or visual events.
+- For SAGA/BUNDLE, complete payoff means the supplied source delivers the promised
+  confrontation, reversal, consequence, or other narrative outcome. It does not require
+  explaining the ontology, identity, motive, or mechanism of a supernatural event, and it
+  does not require eliminating deliberate residual ambiguity after the climax. Calling a
+  delivered climax and outcome a complete payoff is not itself a claim that the mystery is
+  explained. Do not infer from "полноценная развязка" that every strange event must be solved.
+- Do not use missing_payoff or open_ending_misrepresented merely because a monster, double,
+  glitch, motive, or future risk remains unexplained after the promised confrontation/outcome.
+  Use open_ending_misrepresented only when the producer or packaging explicitly promises a
+  closed explanation/outcome that the source does not provide, or when the source actually
+  stops before its promised central confrontation/outcome. Score payoff on the delivered
+  climax and consequence, while packaging_honesty separately audits any explanatory claim.
 - Any evidence field must be a short exact substring copied from a supplied source body.
 - Every evidence quote must contain at least 24 characters, four words, and three unique words.
 - The direction is fixed: format={daily_plan['format']}, pillar={daily_plan['pillar']}.
@@ -1523,6 +1585,16 @@ def _git_sha() -> str:
     return value
 
 
+def _storyboard_background_path(
+    background_path: Path | None,
+    workdir: Path,
+) -> Path | None:
+    """Return the artifact-relative baseline background, or none for cinematic mode."""
+    if background_path is None:
+        return None
+    return background_path.relative_to(workdir)
+
+
 def _greenlight(daily_plan: dict[str, Any], winner: dict[str, Any], playoff: dict[str, Any]) -> dict[str, Any]:
     sources = [{
         "post_id": item["source_id"],
@@ -1698,7 +1770,10 @@ def _source_artifacts(workdir: Path, daily_plan: dict[str, Any]) -> tuple[dict[s
     return queue, review, pool, stage
 
 
-def _factory_provider_contract() -> dict[str, Any]:
+def _factory_provider_contract(
+    openai_service_tier: str = DEFAULT_SERVICE_TIER,
+) -> dict[str, Any]:
+    resolved_service_tier = normalize_service_tier(openai_service_tier)
     return {
         "openai": {
             "provider": "openai",
@@ -1706,7 +1781,7 @@ def _factory_provider_contract() -> dict[str, Any]:
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
             "automatic_retries": 0,
-            "service_tier": REQUIRED_SERVICE_TIER,
+            "service_tier": resolved_service_tier,
             "prompt_cache_key": PROMPT_CACHE_KEY,
             "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
@@ -1777,6 +1852,7 @@ def _paid_preflight_contract(
     workdir: Path,
     channels_path: Path,
     confirm_openai_spend: str | bool,
+    openai_service_tier: str = DEFAULT_SERVICE_TIER,
     openai_call_cap: int,
     openai_token_cap: int,
     confirm_image_spend: str | bool,
@@ -1831,9 +1907,7 @@ def _paid_preflight_contract(
     api_key = str(os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY") or "")
     if not api_key:
         raise EpisodeFactoryError("AI33_API_KEY is required before creating the paid spend lease")
-    provider_contract = _factory_provider_contract()
-    if provider_contract != SPEND_LOCK_PROVIDER_CONTRACT:
-        raise EpisodeFactoryError("factory provider/model contract drifted from spend-lock schema")
+    provider_contract = _factory_provider_contract(openai_service_tier)
     report = {
         "version": FACTORY_VERSION,
         "status": "PAID_PREFLIGHT_PASS",
@@ -1875,6 +1949,7 @@ def run_paid_preflight(
     workdir: Path,
     channels_path: Path,
     confirm_openai_spend: str | bool,
+    openai_service_tier: str = DEFAULT_SERVICE_TIER,
     openai_call_cap: int,
     openai_token_cap: int,
     confirm_image_spend: str | bool,
@@ -1889,6 +1964,7 @@ def run_paid_preflight(
         workdir=workdir,
         channels_path=channels_path,
         confirm_openai_spend=confirm_openai_spend,
+        openai_service_tier=openai_service_tier,
         openai_call_cap=openai_call_cap,
         openai_token_cap=openai_token_cap,
         confirm_image_spend=confirm_image_spend,
@@ -1938,6 +2014,7 @@ def _validate_spend_lease_contract(
     openai_token_cap: int,
     image_call_cap: int,
     ai33_call_cap: int,
+    provider_contract: dict[str, Any],
 ) -> dict[str, Any]:
     expected_path = (Path(workdir) / "spend-lease.json").resolve()
     if spend_lease_path is None or Path(spend_lease_path).resolve() != expected_path:
@@ -1969,7 +2046,7 @@ def _validate_spend_lease_contract(
                 "image_spend": True,
                 "ai33_spend": True,
             },
-            provider_contract=_factory_provider_contract(),
+            provider_contract=provider_contract,
             run_id=run_id,
             run_attempt=run_attempt,
             head_sha=head_sha,
@@ -1993,6 +2070,7 @@ def _validate_resume_contract(
     openai_token_cap: int,
     image_call_cap: int,
     ai33_call_cap: int,
+    provider_contract: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     expected_path = (workdir / "resume-spend-lease.json").resolve()
     if resume_lease_path is None or Path(resume_lease_path).resolve() != expected_path:
@@ -2032,7 +2110,7 @@ def _validate_resume_contract(
             workflow_path=SPEND_LOCK_WORKFLOW_PATH,
             requested_caps=parent_lease.get("requested_caps") or {},
             confirmations=parent_lease.get("confirmations") or {},
-            provider_contract=parent_lease.get("provider_contract") or {},
+            provider_contract=provider_contract,
             run_id=parent_lease.get("run_id"),
             run_attempt=parent_lease.get("run_attempt"),
             head_sha=parent_lease.get("head_sha"),
@@ -2170,6 +2248,7 @@ def run_produce_stage(
     workdir: Path,
     channels_path: Path,
     confirm_openai_spend: str | bool,
+    openai_service_tier: str = DEFAULT_SERVICE_TIER,
     openai_call_cap: int,
     openai_token_cap: int,
     confirm_image_spend: str | bool,
@@ -2212,6 +2291,7 @@ def run_produce_stage(
         workdir=workdir,
         channels_path=channels_path,
         confirm_openai_spend=confirm_openai_spend,
+        openai_service_tier=openai_service_tier,
         openai_call_cap=openai_call_cap,
         openai_token_cap=openai_token_cap,
         confirm_image_spend=confirm_image_spend,
@@ -2225,6 +2305,12 @@ def run_produce_stage(
     openai_tokens = int(paid_preflight["caps"]["openai_token_cap"])
     image_cap = int(paid_preflight["caps"]["image_call_cap"])
     ai33_cap = int(paid_preflight["caps"]["ai33_call_cap"])
+    provider_contract = paid_preflight.get("provider_contract")
+    expected_provider_contract = _factory_provider_contract(openai_service_tier)
+    if provider_contract != expected_provider_contract:
+        raise EpisodeFactoryError(
+            "paid preflight provider/model contract does not match production"
+        )
     is_resume = resume_review_run_id is not None
     if is_resume:
         enriched, producer_reports, critic_reports = _validate_resume_contract(
@@ -2240,6 +2326,7 @@ def run_produce_stage(
             openai_token_cap=openai_tokens,
             image_call_cap=image_cap,
             ai33_call_cap=ai33_cap,
+            provider_contract=provider_contract,
         )
     else:
         _validate_spend_lease_contract(
@@ -2255,6 +2342,7 @@ def run_produce_stage(
             openai_token_cap=openai_tokens,
             image_call_cap=image_cap,
             ai33_call_cap=ai33_cap,
+            provider_contract=provider_contract,
         )
     api_key = str(os.environ.get("AI33_API_KEY") or os.environ.get("A133_API_KEY") or "")
     channel = _channel_config(channels_path)
@@ -2268,6 +2356,7 @@ def run_produce_stage(
         label="openai",
         journal_path=provider_journal_dir / "openai.json",
         allow_completed_resume=is_resume,
+        required_service_tier=openai_service_tier,
     )
     images = CallBudget(
         image_provider,
@@ -2349,7 +2438,7 @@ def run_produce_stage(
             "model": OPENAI_MODEL,
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
-            "service_tier": REQUIRED_SERVICE_TIER,
+            "service_tier": normalize_service_tier(openai_service_tier),
             "prompt_cache_key": PROMPT_CACHE_KEY,
             "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
@@ -2360,7 +2449,7 @@ def run_produce_stage(
             "reviewer_model": OPENAI_MODEL,
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
-            "service_tier": REQUIRED_SERVICE_TIER,
+            "service_tier": normalize_service_tier(openai_service_tier),
             "prompt_cache_key": PROMPT_CACHE_KEY,
             "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
@@ -2544,16 +2633,17 @@ def run_produce_stage(
         pronunciation_dictionary_sha256=pronunciation_dictionary["sha256"],
         post_task=ai33,
     )
-    pause_map_path = workdir / "tts" / "narration-pause-map.json"
+    pause_map_relative_path = Path("tts/narration-pause-map.json")
+    pause_map_path = workdir / pause_map_relative_path
     try:
         pause_map = build_pause_map(tts_state, output_path=pause_map_path)
         audio_mix_report = mix_compilation_audio(
             tts_state,
             artifact_root=workdir,
             pause_map=pause_map,
-            pause_map_path=pause_map_path,
-            output_path=workdir / "tts" / "compilation_voice_mix.wav",
-            report_path=workdir / "tts" / "audio-mix-report.json",
+            pause_map_path=pause_map_relative_path,
+            output_path=Path("tts/compilation_voice_mix.wav"),
+            report_path=Path("tts/audio-mix-report.json"),
         )
     except CompilationAudioMixError as exc:
         raise EpisodeFactoryError(f"voice-only audio mix blocked: {exc}") from exc
@@ -2572,7 +2662,7 @@ def run_produce_stage(
     storyboard = build_storyboard(
         script,
         workdir,
-        background_video=background_path.relative_to(workdir),
+        background_video=_storyboard_background_path(background_path, workdir),
         tts_state=tts_state,
         visual_mode=resolved_visual_mode,
         pause_map=pause_map,
@@ -2926,6 +3016,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reddit-request-cap", type=int, default=24)
     parser.add_argument("--reserved-source-exclusions")
     parser.add_argument("--confirm-openai-spend", default="false")
+    parser.add_argument(
+        "--openai-service-tier",
+        choices=("flex", "default"),
+        default=DEFAULT_SERVICE_TIER,
+        help="Explicit OpenAI processing tier; never changed by fallback.",
+    )
     parser.add_argument("--openai-call-cap", type=int, default=96)
     parser.add_argument("--openai-token-cap", type=int, default=500_000)
     parser.add_argument("--confirm-image-spend", default="false")
@@ -2971,6 +3067,7 @@ def main(argv: list[str] | None = None) -> int:
             workdir=workdir,
             channels_path=channels,
             confirm_openai_spend=args.confirm_openai_spend,
+            openai_service_tier=args.openai_service_tier,
             openai_call_cap=args.openai_call_cap,
             openai_token_cap=args.openai_token_cap,
             confirm_image_spend=args.confirm_image_spend,
@@ -2985,6 +3082,7 @@ def main(argv: list[str] | None = None) -> int:
             workdir=workdir,
             channels_path=channels,
             confirm_openai_spend=args.confirm_openai_spend,
+            openai_service_tier=args.openai_service_tier,
             openai_call_cap=args.openai_call_cap,
             openai_token_cap=args.openai_token_cap,
             confirm_image_spend=args.confirm_image_spend,

@@ -18,7 +18,7 @@ class FakeResponse:
         return self._payload
 
 
-def valid_response(content='{"translated":true}'):
+def valid_response(content='{"translated":true}', *, service_tier="flex"):
     return {
         "id": "chatcmpl-test",
         "choices": [{"message": {"content": content}}],
@@ -29,7 +29,7 @@ def valid_response(content='{"translated":true}'):
             "total_tokens": 200,
             "completion_tokens_details": {"reasoning_tokens": 12},
         },
-        "service_tier": "flex",
+        "service_tier": service_tier,
     }
 
 
@@ -112,8 +112,40 @@ class OpenAIClientTests(unittest.TestCase):
                     mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True),
                     mock.patch.object(openai_client.requests, "post", return_value=FakeResponse(payload=invalid)),
                 ):
-                    with self.assertRaisesRegex(openai_client.OpenAIClientError, "Flex service tier"):
+                    with self.assertRaisesRegex(
+                        openai_client.OpenAIClientError,
+                        "explicitly requested service tier",
+                    ):
                         openai_client.call_openai_json(prompt="translate")
+
+    def test_default_tier_is_explicitly_requested_and_proven(self):
+        payload = valid_response(service_tier="default")
+        with (
+            mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True),
+            mock.patch.object(
+                openai_client.requests,
+                "post",
+                return_value=FakeResponse(payload=payload),
+            ) as post,
+        ):
+            result = openai_client.call_openai_json(
+                prompt="translate",
+                service_tier="default",
+            )
+        self.assertEqual(post.call_args.kwargs["json"]["service_tier"], "default")
+        self.assertEqual(result.service_tier, "default")
+
+    def test_unknown_service_tier_blocks_before_transport(self):
+        with (
+            mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True),
+            mock.patch.object(openai_client.requests, "post") as post,
+        ):
+            with self.assertRaisesRegex(openai_client.OpenAIClientError, "flex.*default"):
+                openai_client.call_openai_json(
+                    prompt="translate",
+                    service_tier="auto",
+                )
+        post.assert_not_called()
 
     def test_invalid_cached_input_usage_is_rejected(self):
         payload = valid_response()

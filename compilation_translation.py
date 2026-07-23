@@ -111,8 +111,207 @@ For REVISE, report every material issue you can find in this one complete pass; 
 minor alternatives across repeated reviews. Return strict JSON:
 {{"verdict":"PASS|REVISE","issues":[{{"kind":"...","source_quote":"exact source quote","translation_quote":"exact current Russian quote","replacement":"exact Russian replacement","explanation":"..."}}],"ending_preserved":true}}
 For every REVISE issue, translation_quote must occur verbatim in the current translation and replacement
-must be the complete local replacement for only that quote. Do not request or perform a full rewrite.
+must be the complete local replacement for only that quote. source_quote must occur verbatim in SOURCE
+TITLE or SOURCE BODY. Do not request or perform a full rewrite.
 SOURCE TITLE: {source_title}\nSOURCE BODY:\n{source_body}\nTRANSLATION:\n{json.dumps(translated, ensure_ascii=False)}"""
+
+
+def _invalid_review_source_quote_indexes(
+    source_title: str,
+    source_body: str,
+    review: dict[str, Any],
+) -> list[int]:
+    issues = review.get("issues")
+    if not isinstance(issues, list) or not issues:
+        raise TranslationError("REVISE verdict requires structured issues")
+    invalid: list[int] = []
+    for index, issue in enumerate(issues, 1):
+        if not isinstance(issue, dict):
+            raise TranslationError(f"review issue {index} is not an object")
+        quote = str(issue.get("source_quote") or "").strip()
+        if not quote or (quote not in source_body and quote not in source_title):
+            invalid.append(index)
+    return invalid
+
+
+def _normalize_review_source_quote_casing(
+    source_title: str,
+    source_body: str,
+    review: dict[str, Any],
+) -> dict[str, Any]:
+    """Recover a unique exact source slice when only quote casing differs."""
+    issues = review.get("issues")
+    if not isinstance(issues, list) or not issues:
+        raise TranslationError("REVISE verdict requires structured issues")
+    repaired_issues: list[dict[str, Any]] = []
+    changed = False
+    for index, issue in enumerate(issues, 1):
+        if not isinstance(issue, dict):
+            raise TranslationError(f"review issue {index} is not an object")
+        repaired_issue = dict(issue)
+        quote = str(issue.get("source_quote") or "").strip()
+        if quote and quote not in source_body and quote not in source_title:
+            matches: list[str] = []
+            folded_quote = quote.casefold()
+            for source_text in (source_title, source_body):
+                folded_source = source_text.casefold()
+                start = 0
+                while True:
+                    offset = folded_source.find(folded_quote, start)
+                    if offset < 0:
+                        break
+                    matches.append(source_text[offset:offset + len(quote)])
+                    start = offset + 1
+            if len(matches) == 1:
+                repaired_issue["source_quote"] = matches[0]
+                changed = True
+        repaired_issues.append(repaired_issue)
+    if not changed:
+        return review
+    repaired_review = dict(review)
+    repaired_review["issues"] = repaired_issues
+    return repaired_review
+
+
+def _discard_explicit_review_noops(review: dict[str, Any]) -> dict[str, Any]:
+    """Discard only self-identified non-issues whose replacement changes nothing."""
+    issues = review.get("issues")
+    if not isinstance(issues, list) or not issues:
+        raise TranslationError("REVISE verdict requires structured issues")
+    nonissue_markers = (
+        "no issue", "no material issue", "is fine", "already correct",
+        "does not need correction", "does not require correction",
+    )
+    actionable: list[dict[str, Any]] = []
+    discarded: list[dict[str, Any]] = []
+    for index, issue in enumerate(issues, 1):
+        if not isinstance(issue, dict):
+            raise TranslationError(f"review issue {index} is not an object")
+        old = str(issue.get("translation_quote") or "").strip()
+        new = str(issue.get("replacement") or "").strip()
+        if old and old == new:
+            explanation = str(issue.get("explanation") or "").strip()
+            if not any(marker in explanation.casefold() for marker in nonissue_markers):
+                raise TranslationError(
+                    f"review issue {index} repeats its replacement without declaring a non-issue"
+                )
+            discarded.append({
+                "issue_index": index,
+                "kind": issue.get("kind"),
+                "source_quote": issue.get("source_quote"),
+                "translation_quote": old,
+                "explanation": explanation,
+                "reason": "EXPLICIT_NONISSUE_WITH_IDENTICAL_REPLACEMENT",
+            })
+            continue
+        actionable.append(dict(issue))
+    if not discarded:
+        return review
+    if not actionable:
+        raise TranslationError("REVISE review contains no actionable issues after explicit no-op removal")
+    repaired_review = dict(review)
+    repaired_review["issues"] = actionable
+    repaired_review["discarded_noop_issues"] = [
+        *(review.get("discarded_noop_issues") or []),
+        *discarded,
+    ]
+    return repaired_review
+
+
+def _discard_review_issues_without_exact_source_evidence(
+    source_title: str,
+    source_body: str,
+    review: dict[str, Any],
+) -> dict[str, Any]:
+    """Preserve but do not apply issues unsupported by an exact source quote."""
+    issues = review.get("issues")
+    if not isinstance(issues, list) or not issues:
+        raise TranslationError("REVISE verdict requires structured issues")
+    invalid_indexes = _invalid_review_source_quote_indexes(source_title, source_body, review)
+    if not invalid_indexes:
+        return review
+    invalid_set = set(invalid_indexes)
+    actionable = [dict(issue) for index, issue in enumerate(issues, 1) if index not in invalid_set]
+    if not actionable:
+        raise TranslationError(
+            "REVISE review contains no actionable issues with exact source evidence"
+        )
+    discarded = [
+        {
+            "issue_index": index,
+            "kind": issues[index - 1].get("kind"),
+            "source_quote": issues[index - 1].get("source_quote"),
+            "translation_quote": issues[index - 1].get("translation_quote"),
+            "replacement": issues[index - 1].get("replacement"),
+            "explanation": issues[index - 1].get("explanation"),
+            "reason": "INVALID_SOURCE_EVIDENCE_AFTER_REPAIR_ALLOWANCE",
+        }
+        for index in invalid_indexes
+    ]
+    repaired_review = dict(review)
+    repaired_review["issues"] = actionable
+    repaired_review["discarded_invalid_evidence_issues"] = [
+        *(review.get("discarded_invalid_evidence_issues") or []),
+        *discarded,
+    ]
+    return repaired_review
+
+
+def _repair_review_source_quotes(
+    provider: Provider,
+    source_title: str,
+    source_body: str,
+    review: dict[str, Any],
+    config: TranslationConfig,
+) -> dict[str, Any]:
+    """Repair only invalid source evidence without changing a paid review decision."""
+    invalid_indexes = _invalid_review_source_quote_indexes(source_title, source_body, review)
+    if not invalid_indexes:
+        return review
+    issues = review["issues"]
+    invalid_evidence = [
+        {
+            "issue_index": index,
+            "kind": issues[index - 1].get("kind"),
+            "source_quote": issues[index - 1].get("source_quote"),
+            "explanation": issues[index - 1].get("explanation"),
+        }
+        for index in invalid_indexes
+    ]
+    prompt = f"""Repair ONLY the source_quote evidence for the indexed translation-review issues below.
+For each requested issue_index, copy one exact verbatim substring from SOURCE TITLE or SOURCE BODY
+that supports the existing issue. The quote must be at least 24 characters and four words.
+Do not change, reinterpret, add, remove, or resolve any review issue. Return strict JSON only:
+{{"repairs":[{{"issue_index":1,"source_quote":"exact verbatim source substring"}}]}}
+Return every requested issue_index exactly once and no other indexes.
+SOURCE TITLE: {source_title}
+SOURCE BODY:\n{source_body}
+INVALID EVIDENCE:\n{json.dumps(invalid_evidence, ensure_ascii=False)}"""
+    payload = _call(provider, prompt, config, temperature=0.0)
+    repairs = payload.get("repairs")
+    if not isinstance(repairs, list):
+        raise TranslationError("source-quote repair response lacks repairs")
+    repaired_by_index: dict[int, str] = {}
+    for item in repairs:
+        if not isinstance(item, dict) or set(item) != {"issue_index", "source_quote"}:
+            raise TranslationError("source-quote repair item has an unsafe shape")
+        issue_index = item.get("issue_index")
+        quote = str(item.get("source_quote") or "").strip()
+        if type(issue_index) is not int or issue_index in repaired_by_index:
+            raise TranslationError("source-quote repair has a duplicate or invalid issue_index")
+        if len(quote) < 24 or len(quote.split()) < 4:
+            raise TranslationError("source-quote repair evidence is too weak")
+        if quote not in source_body and quote not in source_title:
+            raise TranslationError("source-quote repair is not an exact source substring")
+        repaired_by_index[issue_index] = quote
+    if sorted(repaired_by_index) != invalid_indexes:
+        raise TranslationError("source-quote repair did not cover the exact invalid issue set")
+    repaired_review = dict(review)
+    repaired_issues = [dict(issue) for issue in issues]
+    for issue_index, quote in repaired_by_index.items():
+        repaired_issues[issue_index - 1]["source_quote"] = quote
+    repaired_review["issues"] = repaired_issues
+    return repaired_review
 
 
 def _final_adjudication_prompt(
@@ -449,12 +648,67 @@ def translate_and_review_story(
     review_provider = reviewer or provider
     revisions = int(saved_review.get("revisions_completed") or 0) if saved_review else 0
     review_history: list[dict[str, Any]] = list(saved_review.get("review_history") or []) if saved_review else []
+    source_quote_repair_completed = bool(
+        saved_review.get("source_quote_repair_completed")
+    ) if saved_review else False
+
+    def normalize_pending_review(pending: dict[str, Any]) -> dict[str, Any]:
+        nonlocal source_quote_repair_completed
+        normalized = _discard_explicit_review_noops(pending)
+        normalized = _normalize_review_source_quote_casing(title, body, normalized)
+        if normalized is not pending:
+            pending = normalized
+            review_history[-1] = pending
+            if review_checkpoint_path:
+                _atomic_json(review_checkpoint_path, {
+                    "schema_version": 2,
+                    "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                    "revisions_completed": revisions,
+                    "review_history": review_history,
+                    "current_translation": translated,
+                    "source_quote_repair_completed": source_quote_repair_completed,
+                })
+        invalid_indexes = _invalid_review_source_quote_indexes(title, body, pending)
+        if not invalid_indexes:
+            return pending
+        if source_quote_repair_completed:
+            pending = _discard_review_issues_without_exact_source_evidence(
+                title, body, pending,
+            )
+            review_history[-1] = pending
+            if review_checkpoint_path:
+                _atomic_json(review_checkpoint_path, {
+                    "schema_version": 2,
+                    "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                    "revisions_completed": revisions,
+                    "review_history": review_history,
+                    "current_translation": translated,
+                    "source_quote_repair_completed": True,
+                })
+            return pending
+        repaired = _repair_review_source_quotes(
+            review_provider, title, body, pending, config,
+        )
+        source_quote_repair_completed = True
+        review_history[-1] = repaired
+        if review_checkpoint_path:
+            _atomic_json(review_checkpoint_path, {
+                "schema_version": 2,
+                "source_sha256": hashlib.sha256(body.encode()).hexdigest(),
+                "revisions_completed": revisions,
+                "review_history": review_history,
+                "current_translation": translated,
+                "source_quote_repair_completed": True,
+            })
+        return repaired
+
     review: dict[str, Any] | None = None
     if saved_review and review_history:
         pending = review_history[-1]
         if pending.get("verdict") == "PASS" and pending.get("ending_preserved") is True:
             review = pending
         elif pending.get("verdict") == "REVISE" and len(review_history) == revisions + 1:
+            pending = normalize_pending_review(pending)
             if revisions >= config.max_story_revisions:
                 if not config.allow_final_adjudication:
                     raise TranslationError("translation remains REVISE after maximum story revisions")
@@ -470,6 +724,7 @@ def translate_and_review_story(
                         "review_history": review_history,
                         "current_translation": translated,
                         "final_adjudication": adjudication,
+                        "source_quote_repair_completed": source_quote_repair_completed,
                     })
             else:
                 revisions += 1
@@ -482,6 +737,7 @@ def translate_and_review_story(
                         "revisions_completed": revisions,
                         "review_history": review_history,
                         "current_translation": translated,
+                        "source_quote_repair_completed": source_quote_repair_completed,
                     })
         elif len(review_history) > revisions:
             raise TranslationError("saved translation review checkpoint is inconsistent")
@@ -497,11 +753,13 @@ def translate_and_review_story(
                 "revisions_completed": revisions,
                 "review_history": review_history,
                 "current_translation": translated,
+                "source_quote_repair_completed": source_quote_repair_completed,
             })
         if review.get("verdict") == "PASS" and review.get("ending_preserved") is True:
             break
         if review.get("verdict") != "REVISE":
             raise TranslationError("reviewer returned invalid or unsafe verdict")
+        review = normalize_pending_review(review)
         if revisions >= config.max_story_revisions:
             if not config.allow_final_adjudication:
                 raise TranslationError("translation remains REVISE after maximum story revisions")
@@ -517,6 +775,7 @@ def translate_and_review_story(
                     "review_history": review_history,
                     "current_translation": translated,
                     "final_adjudication": adjudication,
+                    "source_quote_repair_completed": source_quote_repair_completed,
                 })
             break
         revisions += 1
@@ -529,6 +788,7 @@ def translate_and_review_story(
                 "revisions_completed": revisions,
                 "review_history": review_history,
                 "current_translation": translated,
+                "source_quote_repair_completed": source_quote_repair_completed,
             })
         review = None
 
@@ -542,6 +802,7 @@ def translate_and_review_story(
             "model": config.model, "max_output_tokens": config.max_output_tokens,
             "full_story_first": True, "chunk_fallback": used_chunk_fallback,
             "revisions": revisions, "review": review, "source_anchors": anchors,
+            "source_quote_repair_completed": source_quote_repair_completed,
             "source_text_normalization": {
                 "mode": "collapse_whitespace_preserve_paragraphs_v1",
                 "applied": raw_body != body,
