@@ -32,6 +32,7 @@ from acc1_visual_contract import (
     INK_GOUACHE_STORY_FAMILIES,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
     is_adult_animation_style_profile,
+    select_format_visual_system_v3_panel_grammar,
 )
 
 
@@ -161,6 +162,7 @@ def preflight_editorial_motion_storyboard(
             raise EditorialMotionRenderError(f"{scene_id} asset roles are invalid")
         story_family = str(scene.get("story_family") or "")
         page_layout = str(scene.get("page_layout") or "")
+        panel_grammar = str(scene.get("panel_grammar") or "")
         if profile in {
             INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
             CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
@@ -173,6 +175,18 @@ def preflight_editorial_motion_storyboard(
                 raise EditorialMotionRenderError(
                     f"{scene_id} has no supported ink-and-gouache family/layout",
                 )
+            if profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE and panel_grammar:
+                expected_grammar = select_format_visual_system_v3_panel_grammar(
+                    str(scene.get("format_id") or "BUNDLE"),
+                    int(scene.get("scene_number") or 1),
+                    int(scene.get("scene_count") or 1),
+                )
+                # Existing frozen artifacts do not contain panel grammar. New
+                # artifacts do, but may use segment-local metadata instead of
+                # these optional renderer fields, so validate the ID shape here
+                # and let the planner enforce its exact sequence.
+                if not panel_grammar.startswith(expected_grammar["format_id"].lower() + "_"):
+                    raise EditorialMotionRenderError(f"{scene_id} has an invalid v3 panel grammar")
         elif is_adult_animation_style_profile(profile):
             series = ADULT_ANIMATION_SERIES[profile]
             if (
@@ -192,6 +206,21 @@ def preflight_editorial_motion_storyboard(
             "page_layout": str(assets[0].get("page_layout") or ""),
             "assets": assets,
         }
+        asset_panel_grammar = str(assets[0].get("panel_grammar") or "")
+        if asset_panel_grammar:
+            asset_panel_count = assets[0].get("panel_count")
+            asset_panel_beat_role = str(assets[0].get("panel_beat_role") or "")
+            if (
+                any(str(asset.get("panel_grammar") or "") != asset_panel_grammar for asset in assets)
+                or any(asset.get("panel_count") != asset_panel_count for asset in assets)
+                or any(str(asset.get("panel_beat_role") or "") != asset_panel_beat_role for asset in assets)
+            ):
+                raise EditorialMotionRenderError(f"{scene_id} asset panel grammar drift")
+            pack_payload.update({
+                "panel_grammar": asset_panel_grammar,
+                "panel_count": asset_panel_count,
+                "panel_beat_role": asset_panel_beat_role,
+            })
         if canonical_hash(pack_payload) != scene.get("asset_pack_sha256"):
             raise EditorialMotionRenderError(f"{scene_id} asset pack checksum mismatch")
         scene["verified_assets"] = verified_assets
@@ -215,6 +244,7 @@ def _scene_markup(
     story_family = _safe_id(str(scene.get("story_family") or "neutral"))
     raw_page_layout = str(scene.get("page_layout") or "continuous-cutup")
     page_layout = _safe_id(raw_page_layout)
+    panel_grammar = _safe_id(str(scene.get("panel_grammar") or "legacy"))
     presentation = _safe_id(str(scene.get("presentation") or "story"))
     title = html.escape(str(scene.get("story_title") or "ИСТОРИЯ"))
     source = html.escape(str(scene.get("source_label") or "РЕДАКЦИОННАЯ ИЛЛЮСТРАЦИЯ"))
@@ -264,7 +294,7 @@ def _scene_markup(
             'data-track-index="1"'
         )
     return f"""
-      <section class="clip motion-scene module-{module} family-{story_family} layout-{page_layout} presentation-{presentation}" id="clip-{scene_id}"
+      <section class="clip motion-scene module-{module} family-{story_family} layout-{page_layout} grammar-{panel_grammar} presentation-{presentation}" id="clip-{scene_id}"
         {timing_attributes}>
         <div class="scene-inner" id="inner-{scene_id}" data-layout-allow-overflow>
           <img class="hero-plate" id="hero-{scene_id}" src="{hero}" alt="" data-layout-allow-overflow>

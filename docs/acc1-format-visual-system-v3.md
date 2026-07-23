@@ -39,6 +39,24 @@ Forbidden defaults: orange-dominated art, childlike cartooning, glossy romance
 manhwa, black-and-white manga, superhero pop art, identical panel grids,
 repeated reaction templates and mechanical equal-duration zoom loops.
 
+### Meaning-led panel rhythm
+
+A page is not fixed at three panels. The planner selects its internal grammar
+from the source-bound narrative beat, never randomly:
+
+- **1 panel** — hook, geography, intimate aftermath or a final emotional hold;
+- **2 panels** — contrast: person/reaction, message/consequence or before/after;
+- **3 panels** — ordinary development with one dominant interaction and two
+  supporting details;
+- **4 panels** — escalation: a major scene plus cause, reaction and evidence;
+- **5 panels** — one turning point only: a dominant emotional image surrounded
+  by four short source-supported fragments.
+
+`BUNDLE`, `SAGA` and `THREAD` use different named beat sequences but share this
+rule. The five-panel mosaic is an accent, not a default; no adjacent pages may
+be selected merely to satisfy a numerical pattern. The exact panel count is
+bound into every newly generated source pack for renderer and QA traceability.
+
 ## Format references
 
 ### BUNDLE — several complete stories

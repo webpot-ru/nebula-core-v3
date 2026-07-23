@@ -15,6 +15,17 @@ class WebtoonCanaryPageTests(unittest.TestCase):
         self.assertIn("never photography", normalized)
         self.assertIn("never an orange-dominated universal palette", normalized)
         self.assertIn("Она закрыла дверь", normalized)
+        self.assertIn("exactly one uninterrupted full-page hero image", normalized)
+
+    def test_canary_prompt_uses_a_different_panel_count_for_each_meaningful_beat(self):
+        prompts = [
+            page_prompt({"narration_text": "Она закрыла дверь."}, index, 4)
+            for index in range(1, 5)
+        ]
+        self.assertIn("exactly one uninterrupted full-page hero image", prompts[0])
+        self.assertIn("exactly two unequal panels", prompts[1])
+        self.assertIn("exactly four uneven panels", prompts[2])
+        self.assertIn("exactly five asymmetrical panels", prompts[3])
 
     def test_replaces_each_scene_with_one_unique_complete_page(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -36,4 +47,7 @@ class WebtoonCanaryPageTests(unittest.TestCase):
             self.assertEqual(replaced["style_profile"], FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE)
             self.assertEqual(replaced["slides"][0]["page_layout"], "bundle_story_opener")
             self.assertEqual(replaced["slides"][1]["page_layout"], "bundle_guided_page")
+            self.assertEqual(replaced["slides"][0]["panel_count"], 1)
+            self.assertEqual(replaced["slides"][1]["panel_count"], 5)
+            self.assertEqual(replaced["slides"][0]["panel_grammar"], "bundle_hook")
             self.assertRegex(replaced["slides"][0]["asset_pack_sha256"], r"^[0-9a-f]{64}$")

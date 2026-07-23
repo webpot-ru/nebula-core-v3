@@ -33,6 +33,7 @@ from acc1_pronunciation_dictionary import (
 from acc1_visual_contract import (
     EDITORIAL_MOTION_MODE,
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+    select_format_visual_system_v3_panel_grammar,
 )
 from compilation_narration import build_compilation_segments
 from chrome_guided_webtoon_renderer import render_chrome_guided_webtoon
@@ -129,6 +130,10 @@ def build_script() -> dict:
         if target["image_target"] != config["target"]:
             raise RuntimeError(f"image target drift for {config['post_id']}")
         pack_count = config["target"] // 2
+        panel_grammars = [
+            select_format_visual_system_v3_panel_grammar("BUNDLE", scene_index, pack_count)["id"]
+            for scene_index in range(1, pack_count + 1)
+        ]
         stories.append({
             "title_ru": config["title"],
             "narration_ru": narration,
@@ -141,6 +146,7 @@ def build_script() -> dict:
             "visual_identity_contract": config["identity"],
             "editorial_motion_families": [config["palette"]] * pack_count,
             "editorial_page_layouts": list(LAYOUTS[:pack_count]),
+            "editorial_panel_grammars": panel_grammars,
             "source_snapshot": {
                 "source_id": config["post_id"], "post_id": config["post_id"],
                 "subreddit": config["subreddit"], "author": config["author"],

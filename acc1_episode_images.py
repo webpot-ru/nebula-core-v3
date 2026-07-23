@@ -28,6 +28,7 @@ from acc1_visual_contract import (
     INK_GOUACHE_PAGE_LAYOUTS,
     is_adult_animation_style_profile,
     resolve_visual_mode,
+    select_format_visual_system_v3_panel_grammar,
     select_adult_animation_layouts,
 )
 from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
@@ -414,6 +415,7 @@ def image_plan(
             )
         editorial_families = story.get("editorial_motion_families")
         editorial_layouts = story.get("editorial_page_layouts")
+        editorial_panel_grammars = story.get("editorial_panel_grammars")
         visual_identity_contract = " ".join(
             str(story.get("visual_identity_contract") or "").split(),
         )
@@ -430,6 +432,21 @@ def image_plan(
                     _v3_layout(format_id, scene_index)
                     for scene_index in range(1, scene_count + 1)
                 ]
+            expected_panel_grammars = [
+                select_format_visual_system_v3_panel_grammar(
+                    format_id, scene_index, scene_count,
+                )["id"]
+                for scene_index in range(1, scene_count + 1)
+            ]
+            if editorial_panel_grammars is None:
+                editorial_panel_grammars = expected_panel_grammars
+            elif (
+                not isinstance(editorial_panel_grammars, list)
+                or [str(item) for item in editorial_panel_grammars] != expected_panel_grammars
+            ):
+                raise EpisodeImageError(
+                    f"stories[{story_index}].editorial_panel_grammars must follow the v3 meaning-led rhythm",
+                )
             if (
                 not isinstance(editorial_families, list)
                 or len(editorial_families) != scene_count
@@ -532,6 +549,13 @@ def image_plan(
                     )
                     else ""
                 )
+                panel_grammar = (
+                    select_format_visual_system_v3_panel_grammar(
+                        format_id, scene_index, scene_count,
+                    )
+                    if active_style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                    else None
+                )
                 for layer_role in EDITORIAL_LAYER_ROLES:
                     role_direction = (
                         "Create the wide hero plate: an establishing documentary composition with "
@@ -566,13 +590,19 @@ def image_plan(
                         if is_adult_animation_style_profile(active_style_profile)
                         else ""
                     )
+                    panel_direction = (
+                        f"Panel grammar {panel_grammar['id']}: {panel_grammar['direction']} "
+                        if panel_grammar is not None
+                        else ""
+                    )
                     prompt = (
                         f"{active_style}. "
                         f"Style profile {active_style_profile}; "
                         f"asset family {family_id}; motion role {module}. "
                         f"{profile_direction}"
-                        f"Page-layout intent {page_layout or 'continuous_cutup'}; vary panel count, scale, "
-                        "crop and dominant focal position from adjacent beats. "
+                        f"{panel_direction}"
+                        f"Page-layout intent {page_layout or 'continuous_cutup'}; vary panel scale, crop and "
+                        "dominant focal position from adjacent beats without changing this exact panel count. "
                         f"Episode-wide identity contract: {visual_identity_contract}. Preserve these exact "
                         "recurring illustrated identities across every asset family; no age, face, hair, "
                         "wardrobe or body-shape drift. "
@@ -591,6 +621,9 @@ def image_plan(
                         "motion_module": module,
                         "story_family": story_family or None,
                         "page_layout": page_layout or None,
+                        "panel_grammar": panel_grammar["id"] if panel_grammar is not None else None,
+                        "panel_count": panel_grammar["panel_count"] if panel_grammar is not None else None,
+                        "panel_beat_role": panel_grammar["beat_role"] if panel_grammar is not None else None,
                         "source_excerpt": excerpt,
                         "source_excerpt_sha256": hashlib.sha256(
                             excerpt.encode("utf-8"),
@@ -710,6 +743,9 @@ def generate_episode_images(
             "motion_module": item.get("motion_module"),
             "story_family": item.get("story_family"),
             "page_layout": item.get("page_layout"),
+            "panel_grammar": item.get("panel_grammar"),
+            "panel_count": item.get("panel_count"),
+            "panel_beat_role": item.get("panel_beat_role"),
             "source_excerpt_sha256": item["source_excerpt_sha256"],
             "episode_plan_sha256": script.get("episode_plan_sha256"),
         }

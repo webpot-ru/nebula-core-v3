@@ -132,7 +132,16 @@ def _group_asset_packs(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
             raise EditorialMotionError(f"asset family {family_id} has invalid motion module")
         story_families = {str(item.get("story_family") or "") for item in family_assets}
         page_layouts = {str(item.get("page_layout") or "") for item in family_assets}
-        if len(story_families) != 1 or len(page_layouts) != 1:
+        panel_grammars = {str(item.get("panel_grammar") or "") for item in family_assets}
+        panel_counts = {item.get("panel_count") for item in family_assets}
+        panel_beat_roles = {str(item.get("panel_beat_role") or "") for item in family_assets}
+        if (
+            len(story_families) != 1
+            or len(page_layouts) != 1
+            or len(panel_grammars) != 1
+            or len(panel_counts) != 1
+            or len(panel_beat_roles) != 1
+        ):
             raise EditorialMotionError(f"asset family {family_id} has inconsistent art direction")
         pack_payload = {
             "asset_family_id": family_id,
@@ -141,6 +150,17 @@ def _group_asset_packs(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "page_layout": next(iter(page_layouts)),
             "assets": family_assets,
         }
+        panel_grammar = next(iter(panel_grammars))
+        if panel_grammar:
+            panel_count = next(iter(panel_counts))
+            panel_beat_role = next(iter(panel_beat_roles))
+            if not isinstance(panel_count, int) or panel_count not in {1, 2, 3, 4, 5} or not panel_beat_role:
+                raise EditorialMotionError(f"asset family {family_id} has invalid panel grammar metadata")
+            pack_payload.update({
+                "panel_grammar": panel_grammar,
+                "panel_count": panel_count,
+                "panel_beat_role": panel_beat_role,
+            })
         packs.append({**pack_payload, "asset_pack_sha256": canonical_hash(pack_payload)})
     return packs
 
@@ -308,6 +328,9 @@ def build_editorial_motion_contract(
             pack = packs[index]
             story_family = str(pack.get("story_family") or "")
             page_layout = str(pack.get("page_layout") or "")
+            panel_grammar = str(pack.get("panel_grammar") or "")
+            panel_count = pack.get("panel_count")
+            panel_beat_role = str(pack.get("panel_beat_role") or "")
             if style_profile in {
                 INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
                 CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
@@ -365,6 +388,9 @@ def build_editorial_motion_contract(
                 "assets": pack["assets"],
                 "story_family": story_family or None,
                 "page_layout": page_layout or None,
+                "panel_grammar": panel_grammar or None,
+                "panel_count": panel_count if panel_grammar else None,
+                "panel_beat_role": panel_beat_role or None,
                 "motion": _motion_contract(module),
                 "style_profile": style_profile,
                 "truth_status": "editorial_illustration",

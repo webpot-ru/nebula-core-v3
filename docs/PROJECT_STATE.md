@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-23
 
-## 2026-07-23 — v3 pages generated; caption visual correction prepared
+## 2026-07-23 — v3 pages generated; captions and panel grammar verified
 
 - GitHub run `29975009888` completed all four approved VectorEngine image
   calls with zero automatic retries.
@@ -23,13 +23,13 @@ Last updated: 2026-07-23
   treated SRT font sizing against an implicit small canvas, made captions huge
   and wrapped them over the comic panels instead of the empty 130 px bottom
   band.
-- The next no-spend recovery uses an ASS caption layout with an explicit
-  1920x1080 coordinate system, a 42 px font and a 38 px bottom margin, then
-  splits cues on word boundaries at 44 characters maximum. The SRT remains in
-  the artifact as an editable timing sidecar. It still preserves the original
-  cue windows and copies the completed HyperFrames base MP4 plus a partial
-  report before subtitle postprocessing. A new review artifact is required
-  before the output can be accepted.
+- No-spend GitHub run `29986200257` completed the ASS subtitle recovery using
+  only the frozen four pages and existing narration. The review artifact is
+  1920x1080 H.264/AAC, 104.465 seconds; inspected frames confirm one centred
+  Russian line in the stationary 130 px black subtitle band. The SRT remains
+  an editable timing sidecar and the ASS explicitly uses a 1920x1080 canvas,
+  42 px font and 38 px bottom margin. The paid canary and YouTube remained
+  skipped; no VectorEngine, AI33 or YouTube call was made.
 
 ## Current acc1 visual decision — format visual system v3
 
@@ -51,10 +51,15 @@ The local image planner now registers `acc1_format_visual_system_v3` as a
 supported profile and builds distinct source-bound prompt grammar for
 `BUNDLE`, `SAGA` and `THREAD`, plus pillar-specific art direction. It explicitly
 forbids photography, photomontage, photoreal reconstruction, childlike art and
-an orange-dominated universal palette. The locked fixed first-release
-entrypoint now requests this profile and v3 BUNDLE page layouts; historical
-style IDs remain readable for recovery of old manifests. The existing paired
-hero/detail technical pack shape is retained for renderer compatibility.
+an orange-dominated universal palette. New v3 pages select a deterministic,
+meaning-led internal grammar of 1–5 unequal panels: hero/establish (1),
+contrast (2), development (3), escalation (4), and a turning-point mosaic (5).
+The selection varies per BUNDLE/SAGA/THREAD beat rather than repeating a
+three-panel template; the completed older artifact remains readable without
+the new metadata. The locked fixed first-release entrypoint now binds this
+grammar with each new source pack; historical style IDs remain readable for
+recovery of old manifests. The existing paired hero/detail technical pack shape
+is retained for renderer compatibility.
 
 The no-provider HyperFrames proof is
 `videos/chonker-talks-format-v3-preview/renders/acc1-format-v3-preview.mp4`:
