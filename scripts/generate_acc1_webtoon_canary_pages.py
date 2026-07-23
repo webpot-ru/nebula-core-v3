@@ -18,7 +18,7 @@ from acc1_visual_contract import (
     select_format_visual_system_v3_panel_grammar,
 )
 from acc1_editorial_motion import bind_payload, canonical_hash
-from scripts.render_acc1_webtoon_canary import build_canary_storyboard, resolve_storyboard
+from scripts.render_acc1_webtoon_canary import build_canary_storyboard
 from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
 
 
@@ -44,6 +44,46 @@ visibly pregnant. Husband is a 28-year-old Russian man with short dark hair and
 restrained neutral clothes. Preserve their faces, ages, hair, body shapes and
 wardrobe consistently on every page.
 """.strip()
+
+# The first paid fixed-release artifact is retained longer than the original
+# segmented-preparation artifact.  Its storyboard is allowed here only as a
+# source of narration timing and source-backed events.  It must never become a
+# visual reference: `replace_scene_assets()` rewrites every generated scene to
+# the approved v3 visual profile before any render sees it.
+SOURCE_ONLY_LEGACY_STYLE_PROFILE = "cinematic_ink_webtoon_v1"
+
+
+def resolve_source_storyboard(download_root: Path) -> Path:
+    """Return one storyboard suitable as semantic input for a v3 canary.
+
+    A completed v3 storyboard is preferred.  The retained fixed-release
+    storyboard may be used only to recover narration text, timestamps and
+    semantic camera beats after the original preparation artifact expires.
+    """
+
+    matches: list[Path] = []
+    for path in download_root.rglob("*storyboard*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not (
+            isinstance(payload, dict)
+            and isinstance(payload.get("slides"), list)
+            and isinstance(payload.get("motion_plan"), dict)
+            and payload.get("style_profile") in {
+                FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                SOURCE_ONLY_LEGACY_STYLE_PROFILE,
+            }
+        ):
+            continue
+        matches.append(path)
+    if len(matches) != 1:
+        raise RuntimeError(
+            "expected exactly one v3 or source-only legacy storyboard, "
+            f"found {len(matches)}",
+        )
+    return matches[0]
 
 
 def page_prompt(scene: dict, index: int, scene_count: int = 4) -> str:
@@ -131,23 +171,48 @@ def main() -> int:
     parser.add_argument("--page-count", type=int, choices=(4, 5), default=4)
     parser.add_argument("--confirm-exactly-four-image-calls", action="store_true")
     parser.add_argument("--confirm-exactly-five-image-calls", action="store_true")
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Validate reusable semantic input without exposing a provider key or generating images.",
+    )
     args = parser.parse_args()
     confirmations = {
         4: args.confirm_exactly_four_image_calls,
         5: args.confirm_exactly_five_image_calls,
     }
-    if not confirmations[args.page_count]:
+    if not args.preflight_only and not confirmations[args.page_count]:
         raise RuntimeError(
             f"refusing paid generation without exact {args.page_count}-call confirmation",
         )
 
-    source = json.loads(resolve_storyboard(Path(args.artifact_root)).read_text(encoding="utf-8"))
+    source_path = resolve_source_storyboard(Path(args.artifact_root))
+    source = json.loads(source_path.read_text(encoding="utf-8"))
     storyboard, source_start, source_end = build_canary_storyboard(
         source, scene_count=args.page_count,
     )
     storyboard["canary_source_start_sec"] = source_start
     storyboard["canary_source_end_sec"] = source_end
     output = Path(args.output_dir).resolve()
+    if args.preflight_only:
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "source-preflight.json").write_text(
+            json.dumps(
+                {
+                    "status": "PASS",
+                    "provider_calls": 0,
+                    "source_storyboard": source_path.name,
+                    "source_style_profile": source.get("style_profile"),
+                    "selected_scene_count": len(storyboard["slides"]),
+                    "source_start_sec": source_start,
+                    "source_end_sec": source_end,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        return 0
     pages_dir = output / "scene-images"
     pages_dir.mkdir(parents=True, exist_ok=True)
     journal = {"provider": "vectorengine", "model": DEFAULT_IMAGE_MODEL,

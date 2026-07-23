@@ -69,6 +69,15 @@ master narration, HyperFrames rendering, zero AI33 calls and zero YouTube
 calls. It has not yet been dispatched at the time of this state note; a
 completed artifact still requires visual review.
 
+The first five-page dispatch, GitHub run `29991895445`, stopped before any
+provider request because its short-retention preparation artifact had expired.
+The replacement entrypoint uses the retained fixed-release storyboard solely
+for source-backed narration timing and semantic beats, plus the separately
+retained master MP3. It rewrites all generated pages to v3 before rendering and
+performs a no-provider compatibility preflight before the five explicitly
+approved VectorEngine calls. The historical `cinematic_ink_webtoon_v1` profile
+is never used as visual direction or prompt input.
+
 The no-provider HyperFrames proof is
 `videos/chonker-talks-format-v3-preview/renders/acc1-format-v3-preview.mp4`:
 H.264 yuv420p, 1920x1080, 30 fps, exactly 18.0 seconds, 14,261,664 bytes,
