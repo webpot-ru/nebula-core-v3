@@ -7,16 +7,18 @@ Last updated: 2026-07-20
 - GitHub run `29991895445` stopped before the first VectorEngine call because
   the short-retention preparation artifact had expired. AI33 and YouTube were
   not called.
+- Runs `29995234328` and `29997939357` also stopped before any provider call:
+  the retained fixed-release artifact does not contain the semantic storyboard
+  contract needed by this canary. It is no longer an execution input.
 - The replacement workflow is bounded to exactly five VectorEngine calls with
-  zero retries and no AI33 or YouTube step. It uses a retained storyboard only
-  for source-backed narration timing and semantic beats, plus a separately
-  retained master MP3. A no-provider compatibility preflight runs before the
-  image key is exposed.
-- Historic visual-profile values are ignored in this recovery path: they cannot
-  be used as a page prompt or rendered visual style. Generated pages are
-  rewritten to the approved v3 profile before rendering.
-- A replacement provider run has not been dispatched yet and still needs the
-  exact user approval for five image calls.
+  zero retries and no AI33 or YouTube step. It uses the retained v3 canary
+  artifact `acc1-format-v3-canary-29975009888`, which contains both a verified
+  v3 storyboard and its matching existing narration cut. For the layout-only
+  five-page proof it splits the opening source beat into setup and reveal while
+  preserving total audio/caption timing. A no-provider preflight runs before
+  the image key is exposed.
+- The old artifact's visual profile never becomes prompt input; every generated
+  page is forced to the approved v3 profile before rendering.
 
 ## Acc1 single-audio + SRT migration (GitHub task submitted; recovery pending)
 
