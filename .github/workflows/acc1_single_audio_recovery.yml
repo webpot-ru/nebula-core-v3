@@ -154,6 +154,7 @@ jobs:
         run: |
           test -s "$OUTPUT/acc1-hyperframes-realistic-test.mp4"
           test -s "$OUTPUT/captions-brand-safe.srt"
+          test -s "$OUTPUT/captions-brand-safe.ass"
           test "$(find "$OUTPUT/frames" -type f -name 'frame-*.png' | wc -l)" -eq 4
           python - "$OUTPUT/render-report.json" <<'PY'
           import json,sys
@@ -169,6 +170,7 @@ jobs:
           assert report["youtube_called"] is False
           assert report["captions_burned"] is True
           assert report["caption_band_height_px"] == 130
+          assert report["caption_layout"] == "ass_1920x1080"
           for key in ("brand_sting_used", "brand_cta_used", "brand_outro_used"):
               assert report[key] is True
           PY

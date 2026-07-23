@@ -26,6 +26,9 @@ from acc1_visual_contract import FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
 SOURCE_RUN_ID = "29975009888"
 SOURCE_ARTIFACT = f"acc1-format-v3-canary-{SOURCE_RUN_ID}"
 STYLE_CONTRACT = ROOT / "specs/acc1-video-style-v2.json"
+CAPTION_MAX_CHARS = 44
+CAPTION_FONT_SIZE = 42
+CAPTION_BAND_HEIGHT = 130
 
 
 def _sha256(path: Path) -> str:
@@ -164,7 +167,7 @@ def brand_safe_caption_track(
 
 
 def split_caption_cue(
-    cue: dict[str, Any], max_chars: int = 60,
+    cue: dict[str, Any], max_chars: int = CAPTION_MAX_CHARS,
 ) -> list[dict[str, Any]]:
     text = " ".join(str(cue.get("text") or "").split())
     if not text:
@@ -212,7 +215,7 @@ def split_caption_cue(
 
 
 def normalize_caption_track(
-    caption_track: dict[str, Any], max_chars: int = 60,
+    caption_track: dict[str, Any], max_chars: int = CAPTION_MAX_CHARS,
 ) -> dict[str, Any]:
     cues = [
         part
@@ -222,7 +225,9 @@ def normalize_caption_track(
     return {**caption_track, "cues": cues, "cue_count": len(cues)}
 
 
-def write_srt(caption_track: dict[str, Any], output: Path) -> Path:
+def write_srt(
+    caption_track: dict[str, Any], output: Path, max_chars: int = CAPTION_MAX_CHARS,
+) -> Path:
     def stamp(seconds: float) -> str:
         milliseconds = max(0, round(seconds * 1000))
         hours, milliseconds = divmod(milliseconds, 3_600_000)
@@ -233,7 +238,7 @@ def write_srt(caption_track: dict[str, Any], output: Path) -> Path:
     blocks = []
     for index, cue in enumerate(caption_track.get("cues") or [], start=1):
         text = " ".join(str(cue.get("text") or "").split())
-        if not text or len(text) > 60 or "\n" in text:
+        if not text or len(text) > max_chars or "\n" in text:
             raise RuntimeError("caption cue violates the approved one-line contract")
         blocks.append(
             f"{index}\n{stamp(float(cue['start_sec']))} --> "
@@ -245,18 +250,63 @@ def write_srt(caption_track: dict[str, Any], output: Path) -> Path:
     return output
 
 
-def burn_captions(source: Path, captions: Path, output: Path) -> None:
-    subtitle_name = captions.name.replace("'", r"\'")
-    video_filter = (
-        f"subtitles=filename='{subtitle_name}':"
-        "force_style='FontName=Arial,FontSize=46,Bold=1,"
-        "PrimaryColour=&H00EAF2F5,OutlineColour=&H00101010,"
-        "BorderStyle=1,Outline=2,Shadow=0,Alignment=2,MarginV=27'"
+def write_ass(caption_track: dict[str, Any], output: Path) -> Path:
+    def stamp(seconds: float) -> str:
+        centiseconds = max(0, round(seconds * 100))
+        hours, centiseconds = divmod(centiseconds, 360_000)
+        minutes, centiseconds = divmod(centiseconds, 6_000)
+        secs, centiseconds = divmod(centiseconds, 100)
+        return f"{hours}:{minutes:02d}:{secs:02d}.{centiseconds:02d}"
+
+    def escape(text: str) -> str:
+        return text.replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}")
+
+    events = []
+    for cue in caption_track.get("cues") or []:
+        text = " ".join(str(cue.get("text") or "").split())
+        if not text or len(text) > CAPTION_MAX_CHARS or "\n" in text:
+            raise RuntimeError("caption cue violates the approved one-line contract")
+        events.append(
+            f"Dialogue: 0,{stamp(float(cue['start_sec']))},{stamp(float(cue['end_sec']))},"
+            f"Caption,,0,0,0,,{escape(text)}",
+        )
+    if not events:
+        raise RuntimeError("brand-safe caption track is empty")
+    output.write_text(
+        "\n".join([
+            "[Script Info]",
+            "ScriptType: v4.00+",
+            "PlayResX: 1920",
+            "PlayResY: 1080",
+            "ScaledBorderAndShadow: yes",
+            "",
+            "[V4+ Styles]",
+            "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,"
+            "BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,"
+            "BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
+            f"Style: Caption,Arial,{CAPTION_FONT_SIZE},&H00EAF2F5,&H000000FF,&H00101010,"
+            "&H00000000,-1,0,0,0,100,100,0,0,1,1,0,2,0,0,38,1",
+            "",
+            "[Events]",
+            "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
+            *events,
+            "",
+        ]),
+        encoding="utf-8",
     )
+    return output
+
+
+def subtitle_filter(captions: Path) -> str:
+    subtitle_name = captions.name.replace("'", r"\'")
+    return f"ass=filename='{subtitle_name}'"
+
+
+def burn_captions(source: Path, captions: Path, output: Path) -> None:
     subprocess.run(
         [
             "ffmpeg", "-y", "-v", "error", "-i", str(source),
-            "-vf", video_filter, "-c:v", "libx264", "-preset", "medium",
+            "-vf", subtitle_filter(captions), "-c:v", "libx264", "-preset", "medium",
             "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "copy",
             "-movflags", "+faststart", str(output),
         ],
@@ -333,10 +383,12 @@ def main() -> int:
         brand_safe_caption_track(storyboard["caption_track"], hidden_intervals),
     )
     captions = write_srt(safe_track, artifact_root / "captions-brand-safe.srt")
+    captions_ass = write_ass(safe_track, artifact_root / "captions-brand-safe.ass")
     final_video = output_dir / "acc1-hyperframes-realistic-test.mp4"
-    burn_captions(base_video, captions, final_video)
+    burn_captions(base_video, captions_ass, final_video)
     extract_review_frames(final_video, storyboard, output_dir / "frames")
     shutil.copy2(captions, output_dir / captions.name)
+    shutil.copy2(captions_ass, output_dir / captions_ass.name)
     shutil.copy2(storyboard_path, output_dir / "storyboard-generated.json")
 
     report = {
@@ -352,7 +404,10 @@ def main() -> int:
         "new_ai33_calls": 0,
         "youtube_called": False,
         "captions_burned": True,
-        "caption_band_height_px": 130,
+        "caption_band_height_px": CAPTION_BAND_HEIGHT,
+        "caption_max_chars": CAPTION_MAX_CHARS,
+        "caption_font_size_px": CAPTION_FONT_SIZE,
+        "caption_layout": "ass_1920x1080",
         "brand_safe_caption_cues": len(safe_track["cues"]),
         "final_video": final_video.name,
         "final_video_sha256": _sha256(final_video),

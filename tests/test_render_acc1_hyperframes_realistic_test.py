@@ -4,12 +4,15 @@ import unittest
 from pathlib import Path
 
 from scripts.render_acc1_hyperframes_realistic_test import (
+    CAPTION_MAX_CHARS,
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     brand_safe_caption_track,
     normalize_caption_track,
     resolve_generated_storyboard,
     split_caption_cue,
+    subtitle_filter,
     verify_paid_generation_receipt,
+    write_ass,
     write_srt,
 )
 
@@ -93,7 +96,7 @@ class HyperFramesRealisticTestTests(unittest.TestCase):
         self.assertGreater(len(parts), 1)
         self.assertEqual(parts[0]["start_sec"], source["start_sec"])
         self.assertEqual(parts[-1]["end_sec"], source["end_sec"])
-        self.assertTrue(all(len(part["text"]) <= 60 for part in parts))
+        self.assertTrue(all(len(part["text"]) <= CAPTION_MAX_CHARS for part in parts))
         self.assertTrue(all("\n" not in part["text"] for part in parts))
         for left, right in zip(parts, parts[1:]):
             self.assertAlmostEqual(left["end_sec"], right["start_sec"])
@@ -121,6 +124,17 @@ class HyperFramesRealisticTestTests(unittest.TestCase):
             ).read_text(encoding="utf-8")
         self.assertIn("00:00:01,000", rendered)
         self.assertIn("00:00:05,000", rendered)
+
+    def test_ass_captions_pin_the_real_1080p_canvas(self):
+        track = {"cues": [{"start_sec": 1.0, "end_sec": 2.0, "text": "Одна строка"}]}
+        with tempfile.TemporaryDirectory() as temp:
+            output = write_ass(track, Path(temp) / "captions.ass")
+            rendered = output.read_text(encoding="utf-8")
+        self.assertIn("PlayResX: 1920", rendered)
+        self.assertIn("PlayResY: 1080", rendered)
+        self.assertIn("Style: Caption,Arial,42", rendered)
+        self.assertIn("Dialogue: 0,0:00:01.00,0:00:02.00", rendered)
+        self.assertEqual(subtitle_filter(Path("captions.ass")), "ass=filename='captions.ass'")
 
 
 if __name__ == "__main__":

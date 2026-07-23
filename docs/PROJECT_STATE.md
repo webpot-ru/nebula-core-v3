@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-23
 
-## 2026-07-23 — v3 pages generated; HyperFrames postprocess fix prepared
+## 2026-07-23 — v3 pages generated; caption visual correction prepared
 
 - GitHub run `29975009888` completed all four approved VectorEngine image
   calls with zero automatic retries.
@@ -16,12 +16,20 @@ Last updated: 2026-07-23
   completed its base render, then subtitle postprocessing stopped because one
   source cue exceeded the approved 60-character one-line limit. No
   VectorEngine, AI33 or YouTube call was made.
-- The recovery now deterministically splits long source cues on word
-  boundaries, preserves their full original time window with contiguous
-  proportional subcue timing, and copies the completed HyperFrames base MP4
-  plus a partial report into the upload directory before subtitle
-  postprocessing. A new no-spend GitHub run is still required to verify the
-  final captioned MP4 and review artifact.
+- No-spend GitHub run `29983040913` completed: it used only the frozen four
+  pages and existing narration, skipped the paid canary and made no new
+  VectorEngine, AI33 or YouTube call. Its 1920x1080 H.264/AAC review MP4 is
+  104.465 seconds, but visual review rejected the subtitle treatment: FFmpeg
+  treated SRT font sizing against an implicit small canvas, made captions huge
+  and wrapped them over the comic panels instead of the empty 130 px bottom
+  band.
+- The next no-spend recovery uses an ASS caption layout with an explicit
+  1920x1080 coordinate system, a 42 px font and a 38 px bottom margin, then
+  splits cues on word boundaries at 44 characters maximum. The SRT remains in
+  the artifact as an editable timing sidecar. It still preserves the original
+  cue windows and copies the completed HyperFrames base MP4 plus a partial
+  report before subtitle postprocessing. A new review artifact is required
+  before the output can be accepted.
 
 ## Current acc1 visual decision — format visual system v3
 
