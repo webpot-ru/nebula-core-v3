@@ -6,7 +6,7 @@ on:
     inputs:
       source_run_id:
         required: true
-        default: "29888971818"
+        default: "30063115374"
         type: string
       confirm_exactly_four_image_calls:
         description: Confirm exactly four VectorEngine image calls, no retries
@@ -106,7 +106,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      SOURCE: build/acc1-hyperframes-source
+      SOURCE: build/acc1-five-page-source
+      AUDIO: build/acc1-existing-audio
       WORKDIR: build/acc1-segmented-canary
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -117,7 +118,7 @@ jobs:
           CONFIRM_REUSE_ONLY: ${{ inputs.confirm_hyperframes_reuse_only }}
           CONFIRM_PAID_IMAGES: ${{ inputs.confirm_exactly_four_image_calls }}
         run: |
-          test "$SOURCE_RUN_ID" = "29975009888"
+          test "$SOURCE_RUN_ID" = "30063115374"
           test "$CONFIRM_REUSE_ONLY" = "true"
           test "$CONFIRM_PAID_IMAGES" = "false"
       - uses: actions/checkout@v4
@@ -132,11 +133,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           ffprobe -version
-      - name: Download four completed v3 pages and existing narration
+      - name: Download five completed v3 pages
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-panel-grammar-canary-30063115374
+          path: ${{ env.SOURCE }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 30063115374
+      - name: Download existing narration
         uses: actions/download-artifact@v4
         with:
           name: acc1-format-v3-canary-29975009888
-          path: ${{ env.SOURCE }}
+          path: ${{ env.AUDIO }}
           github-token: ${{ github.token }}
           repository: webpot-ru/nebula-core-v3
           run-id: 29975009888
@@ -145,6 +154,7 @@ jobs:
           set -euo pipefail
           python scripts/run_acc1_segmented_no_spend_canary.py \
             --source-root "$SOURCE" \
+            --audio-root "$AUDIO" \
             --workdir "$WORKDIR" \
             --source-run-id "${{ inputs.source_run_id }}" \
             --prepare \
@@ -164,7 +174,7 @@ jobs:
           ceiling = float(plan["max_duration_sec"])
           assert plan["renderer"] == "hyperframes_segmented"
           assert plan["segment_count"] == len(indices)
-          assert 2 <= len(indices) <= 4
+          assert 2 <= len(indices) <= 5
           assert indices == list(range(1, len(indices) + 1))
           assert 0 < ceiling <= 120.0
           assert all(0 < float(item["duration_sec"]) <= ceiling + 0.001 for item in segments)
@@ -315,7 +325,7 @@ jobs:
           assert result["status"] == "PASS"
           assert result["render_strategy"] == "hyperframes_segmented_matrix"
           assert result["render_segment_count"] == plan["segment_count"]
-          assert 2 <= result["render_segment_count"] <= 4
+          assert 2 <= result["render_segment_count"] <= 5
           assert result["temporary_frame_workspaces_removed"] is True
           assert result["new_image_calls"] == 0
           assert result["new_ai33_calls"] == 0

@@ -26,14 +26,22 @@ Last updated: 2026-07-24
 - The already registered
   `.github/workflows/acc1_single_audio_recovery.yml` now also contains a
   GitHub-only `segmented_prepare -> segmented_render matrix ->
-  segmented_assemble` canary. It reuses the four v3 pages and narration from
-  artifact `acc1-format-v3-canary-29975009888`, chooses a canary-only ceiling
-  just above its longest scene so at least two independent render jobs must
-  run, and exposes no VectorEngine, AI33 or YouTube credential to that path.
+  segmented_assemble` canary. It reuses the five completed v3 pages from
+  artifact `acc1-panel-grammar-canary-30063115374` and the existing narration
+  from `acc1-format-v3-canary-29975009888`, chooses a canary-only ceiling just
+  above its longest scene so at least two independent render jobs must run,
+  and exposes no VectorEngine, AI33 or YouTube credential to that path.
 - Source, unit and YAML checks pass without producing local media. At this
   checkpoint no new MP4, provider request or YouTube action has occurred. The
   owner authorized the narrowly scoped commit/push and no-spend GitHub run;
   the run ID and artifact verification remain pending.
+- First no-spend attempt `30094999562` stopped in `segmented_prepare` before
+  any render job because the older four-page artifact `29975009888` exposed
+  identical legacy camera-path signatures to the new fail-closed facade. The
+  paid job was skipped and no VectorEngine, AI33 or YouTube call ran. The
+  recovery source is now the already completed five-page artifact
+  `30063115374`, whose `1–5` panel grammars passed semantic-camera recovery in
+  run `30080653348`; narration is still reused from `29975009888`.
 
 ## 2026-07-24 — Semantic camera and caption-safe brand proof verified in GitHub
 

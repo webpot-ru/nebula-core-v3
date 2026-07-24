@@ -41,14 +41,15 @@ reference is run `29888971818`, which produced nine bounded render jobs.
 The bounded HyperFrames recovery mode lives in the already registered
 `.github/workflows/acc1_single_audio_recovery.yml`. With
 `confirm_hyperframes_reuse_only=true` it consumes only artifact
-`acc1-format-v3-canary-29975009888`, whose four VectorEngine calls already
-completed without retries, plus its existing AI33 narration cut. The paid
+`acc1-panel-grammar-canary-30063115374`, whose five VectorEngine calls already
+completed without retries, plus the existing AI33 narration cut retained in
+`acc1-format-v3-canary-29975009888`. The paid
 canary job is disabled in this mode and the workflow performs no new provider
 or YouTube calls. The reuse path is itself segmented:
 `segmented_prepare -> segmented_render matrix -> segmented_assemble`.
-Preparation verifies the frozen four-call receipt, image checksums, storyboard,
+Preparation verifies the frozen five-call receipt, image checksums, storyboard,
 semantic camera bindings and existing narration. It chooses a canary-only
-ceiling just above the longest source scene, which forces `2–4` real,
+ceiling just above the longest source scene, which forces `2–5` real,
 independent matrix jobs without cutting a scene. Each render job gets no
 provider secret, uses an isolated temporary HyperFrames workspace and uploads
 only its own silent segment. Assembly downloads every segment, verifies the
@@ -74,8 +75,8 @@ npm run render
 ```
 
 For the current no-spend segmentation check,
-`acc1_single_audio_recovery.yml` reuses the immutable four-page v3 artifact
-from run `29975009888` and its existing narration. The result is a short
+`acc1_single_audio_recovery.yml` reuses the immutable five-page v3 artifact
+from run `30063115374` and the existing narration from run `29975009888`. The result is a short
 GitHub-only MP4 plus a checksum-bound preparation receipt, path-free segment
 plan, one report per render job and a final zero-call report. This proves the
 matrix/assembly route; it does not approve new provider spend or publication.
