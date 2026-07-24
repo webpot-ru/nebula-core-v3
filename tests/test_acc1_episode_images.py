@@ -14,7 +14,12 @@ from acc1_visual_contract import (
     build_format_visual_system_v3_semantic_camera,
     select_format_visual_system_v3_panel_grammar,
 )
-from acc1_episode_images import EpisodeImageError, generate_episode_images, image_plan
+from acc1_episode_images import (
+    EpisodeImageError,
+    generate_episode_images,
+    image_plan,
+    normalize_editorial_provider_image,
+)
 
 
 def story(source_id: str, words: int = 80):
@@ -26,6 +31,21 @@ def story(source_id: str, words: int = 80):
 
 
 class EpisodeImageTests(unittest.TestCase):
+    def test_editorial_normalizer_accepts_provider_output_near_final_ratio(self):
+        with tempfile.TemporaryDirectory() as temp:
+            image_path = Path(temp) / "provider-landscape.png"
+            Image.new("RGB", (1672, 941), "#314159").save(image_path)
+            result = normalize_editorial_provider_image(
+                image_path,
+                requested_size="1536x1024",
+                output_size="1536x864",
+            )
+            self.assertIsNotNone(result)
+            self.assertEqual(result["provider_original_dimensions"], [1672, 941])
+            self.assertEqual(result["normalized_dimensions"], [1536, 864])
+            with Image.open(image_path) as normalized:
+                self.assertEqual(normalized.size, (1536, 864))
+
     def test_format_allocations_are_bounded_and_deliberate(self):
         saga = {"episode_format": "SAGA", "stories": [story("one")]}
         bundle = {"episode_format": "BUNDLE", "stories": [story("a"), story("b")]}

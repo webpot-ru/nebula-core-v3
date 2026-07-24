@@ -238,15 +238,18 @@ def normalize_editorial_provider_image(
     requested_ratio = requested_dimensions[0] / requested_dimensions[1]
     output_ratio = output_dimensions[0] / output_dimensions[1]
     actual_ratio = actual_size[0] / actual_size[1]
+    requested_ratio_error = abs(actual_ratio - requested_ratio) / requested_ratio
+    output_ratio_error = abs(actual_ratio - output_ratio) / output_ratio
     if (
         actual_size[0] < output_dimensions[0]
         or actual_size[1] < output_dimensions[1]
         or actual_size[0] <= actual_size[1]
-        or abs(actual_ratio - requested_ratio) / requested_ratio > 0.02
+        or min(requested_ratio_error, output_ratio_error) > 0.02
     ):
         raise EpisodeImageError(
             "editorial image cannot be normalized without unsafe crop: "
-            f"expected landscape near {requested_dimensions[0]}x{requested_dimensions[1]}, "
+            f"expected landscape near {requested_dimensions[0]}x{requested_dimensions[1]} "
+            f"or {output_dimensions[0]}x{output_dimensions[1]}, "
             f"got {actual_size[0]}x{actual_size[1]}"
         )
     crop_fraction = 1.0 - min(actual_ratio, output_ratio) / max(actual_ratio, output_ratio)

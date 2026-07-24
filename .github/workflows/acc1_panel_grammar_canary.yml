@@ -18,6 +18,11 @@ on:
         required: true
         default: false
         type: boolean
+      recover_image_size_run_id:
+        description: Recover one existing image-size artifact without provider calls
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -32,11 +37,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Refuse reruns and require exactly one paid scope
+      - name: Refuse reruns and require exactly one bounded scope
         env:
           RUN_ATTEMPT: ${{ github.run_attempt }}
           CONFIRM_FIVE: ${{ inputs.confirm_exactly_five_image_calls }}
           CONFIRM_ONE: ${{ inputs.confirm_exactly_one_image_size_canary }}
+          RECOVER_RUN_ID: ${{ inputs.recover_image_size_run_id }}
         run: |
           set -euo pipefail
           test "$RUN_ATTEMPT" = "1"
@@ -46,9 +52,10 @@ jobs:
           selected = [
               os.environ["CONFIRM_FIVE"] == "true",
               os.environ["CONFIRM_ONE"] == "true",
+              bool(os.environ["RECOVER_RUN_ID"].strip()),
           ]
           if sum(selected) != 1:
-              raise SystemExit("exactly one bounded paid scope must be selected")
+              raise SystemExit("exactly one bounded scope must be selected")
           PY
 
   panel-grammar-canary:
@@ -200,6 +207,73 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: acc1-image-size-canary-${{ github.run_id }}
+          path: ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  image-size-recovery:
+    needs: scope
+    if: ${{ inputs.recover_image_size_run_id != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OUTPUT: build/acc1-image-size-recovery
+      SOURCE_RUN_ID: ${{ inputs.recover_image_size_run_id }}
+    steps:
+      - name: Require the exact existing canary artifact
+        run: |
+          set -euo pipefail
+          test "$SOURCE_RUN_ID" = "30100693747"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deterministic image dependency
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+      - name: Download the existing one-call canary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-image-size-canary-30100693747
+          path: ${{ env.OUTPUT }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 30100693747
+      - name: Normalize the existing landscape image without providers
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_image_size_canary.py \
+            --output-dir "$OUTPUT" \
+            --recover-existing \
+            --source-run-id "$SOURCE_RUN_ID"
+      - name: Verify no-spend recovery result
+        run: |
+          set -euo pipefail
+          python - "$OUTPUT/image-size-canary-result.json" "$OUTPUT/provider-attempts/image.json" <<'PY'
+          import json
+          import sys
+
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          journal = json.load(open(sys.argv[2], encoding="utf-8"))
+          assert result["status"] == "IMAGE_SIZE_CANARY_RECOVERED"
+          assert result["source_run_id"] == "30100693747"
+          assert result["provider_original_dimensions"] == [1672, 941]
+          assert result["final_dimensions"] == [1536, 864]
+          assert result["source_image_calls"] == 1
+          assert result["new_image_calls"] == 0
+          assert result["new_ai33_calls"] == 0
+          assert result["youtube_called"] is False
+          assert journal["cap"] == 1
+          assert len(journal["attempts"]) == 1
+          assert journal["attempts"][0]["status"] == "COMPLETE"
+          PY
+          test -s "$OUTPUT/scene-images/first-production-page.png"
+      - name: Upload recovered image-size evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-image-size-recovery-${{ github.run_id }}
           path: ${{ env.OUTPUT }}
           if-no-files-found: error
           retention-days: 14
