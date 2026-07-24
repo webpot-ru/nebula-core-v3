@@ -194,6 +194,8 @@ class EpisodeImageTests(unittest.TestCase):
         self.assertIn("never photography", prompt)
         self.assertIn("Do not use an orange-dominated universal palette", prompt)
         self.assertIn("ivory, muted olive, dusty rose, burgundy and deep navy", prompt)
+        self.assertIn("horizontal landscape canvas, never portrait or square", prompt)
+        self.assertIn("centered 16:9 crop-safe area", prompt)
         self.assertEqual(plan[0]["page_layout"], "bundle_story_opener")
 
     def test_v3_panel_grammar_is_meaning_led_and_not_a_fixed_triptych(self):
@@ -423,6 +425,40 @@ class EpisodeImageTests(unittest.TestCase):
                 assets[0]["normalization"]["provider_original_sha256"],
                 r"^[0-9a-f]{64}$",
             )
+
+    def test_editorial_standard_landscape_request_normalizes_to_video_size(self):
+        script = {
+            "episode_format": "SAGA",
+            "visual_mode": EDITORIAL_MOTION_MODE,
+            "stories": [story("one")],
+        }
+        calls = []
+
+        def standard_landscape_generator(*, output_path, size, **_kwargs):
+            calls.append(size)
+            Image.new("RGB", (1537, 1023), "#314159").save(output_path)
+            return output_path
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _updated, assets = generate_episode_images(
+                script,
+                root,
+                max_images=58,
+                generator=standard_landscape_generator,
+                size="1536x1024",
+                output_size="1536x864",
+            )
+            with Image.open(root / assets[0]["local_path"]) as image:
+                self.assertEqual(image.size, (1536, 864))
+            self.assertEqual(set(calls), {"1536x1024"})
+            self.assertEqual(assets[0]["size"], "1536x864")
+            self.assertEqual(assets[0]["provider_requested_size"], "1536x1024")
+            self.assertEqual(
+                assets[0]["normalization"]["provider_requested_dimensions"],
+                [1536, 1024],
+            )
+            self.assertLessEqual(assets[0]["normalization"]["crop_fraction"], 0.18)
 
     def test_editorial_unsafe_provider_crop_is_rejected(self):
         script = {

@@ -2,6 +2,34 @@
 
 Last updated: 2026-07-24
 
+## 2026-07-24 — First paid preparation stopped safely on provider orientation drift
+
+- Fixed-release run
+  [`30097084226`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30097084226)
+  passed its no-provider preflight from commit
+  `b1684b1728c61050e67845c60b68becf756b4452`, then stopped on the first
+  VectorEngine response. The request asked for `1536x864`, but the provider
+  returned a portrait `1023x1537` file.
+- The fail-closed image validator rejected the unsafe crop before another
+  scene request. Exactly one VectorEngine generation completed; the other 68
+  approved image calls, all 61 AI33 submissions, every render segment,
+  assembly and YouTube remained untouched. The five-file diagnostic artifact
+  `acc1-fixed-first-release-source-30097084226` remains on GitHub and was not
+  downloaded locally.
+- The recovery revision requests VectorEngine's standard `1536x1024`
+  horizontal canvas and normalizes only a verified landscape response to the
+  required `1536x864` video page. Prompts keep every panel, face, hand and
+  evidence in the centered 16:9 safe area and reserve the additional
+  top/bottom region as expendable paper bleed. Portrait, square, undersized or
+  off-contract responses still fail closed; no automatic retry was added.
+- The already registered
+  `.github/workflows/acc1_panel_grammar_canary.yml` now has a mutually
+  exclusive one-image size-canary scope. It uses the exact first production
+  prompt, permits one VectorEngine call with zero retries, exposes no AI33 or
+  YouTube secret and uploads the result only to GitHub. This path is
+  source-tested but not provider-verified until its separately approved
+  one-call run completes.
+
 ## 2026-07-24 — Segmented full-release architecture verified in GitHub
 
 - The fixed first-release production route is no longer allowed to send the

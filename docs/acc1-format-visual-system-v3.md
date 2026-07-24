@@ -1,6 +1,6 @@
 # Chonker Talks acc1 — format visual system v3
 
-Last updated: 2026-07-22
+Last updated: 2026-07-24
 
 Status: **current approved creative reference for new acc1 episodes**.
 
@@ -38,6 +38,21 @@ All formats use one recognizable illustrated universe:
 Forbidden defaults: orange-dominated art, childlike cartooning, glossy romance
 manhwa, black-and-white manga, superhero pop art, identical panel grids,
 repeated reaction templates and mechanical equal-duration zoom loops.
+
+### Provider canvas and video crop
+
+- Fixed-release image generation requests a horizontal `1536x1024` provider
+  canvas and never asks the provider to infer portrait, square or automatic
+  orientation.
+- The complete page, every panel, face, hand and evidence object stays inside
+  the centered 16:9 safe zone. Only unimportant paper texture or atmospheric
+  bleed may occupy the additional top and bottom area.
+- A verified landscape response is preserved with its checksum, then
+  deterministically normalized to the `1536x864` video page. The permitted
+  crop is bounded; portrait, square, undersized or excessive-crop responses
+  fail closed and are never silently rotated, stretched or accepted.
+- The one-image GitHub canary uses the exact first production prompt before a
+  new batch can be approved. It has no automatic retry, AI33 or YouTube access.
 
 ### Meaning-led panel rhythm
 

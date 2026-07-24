@@ -22,6 +22,9 @@ class FixedFirstReleaseTests(unittest.TestCase):
         self.assertNotIn("from compilation_renderer import", source)
         self.assertNotIn("overlay_thumbnail_text", source)
         self.assertIn("СЕМЬЯ ТРЕБУЕТ ПРОСТИТЬ", source)
+        self.assertIn("size=PROVIDER_LANDSCAPE_SIZE", source)
+        self.assertIn("output_size=SIZE", source)
+        self.assertIn("normalize_editorial_provider_image(", source)
 
         renderer = (ROOT / "compilation_editorial_motion_renderer.py").read_text(
             encoding="utf-8",

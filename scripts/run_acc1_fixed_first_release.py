@@ -24,7 +24,13 @@ from acc1_episode_factory import (
     CallBudget,
     NARRATOR_VOICE_ID,
 )
-from acc1_episode_images import generate_episode_images, image_plan
+from acc1_episode_images import (
+    PROVIDER_LANDSCAPE_SIZE,
+    SIZE,
+    generate_episode_images,
+    image_plan,
+    normalize_editorial_provider_image,
+)
 from acc1_narration_profiles import resolve_narration_profile
 from acc1_pronunciation_dictionary import (
     load_acc1_pronunciation_dictionary,
@@ -310,6 +316,8 @@ def prepare_segmented(output_dir: Path) -> dict:
         generator=images, model=DEFAULT_IMAGE_MODEL, artifact_root=output_dir,
         visual_mode=EDITORIAL_MOTION_MODE,
         style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+        size=PROVIDER_LANDSCAPE_SIZE,
+        output_size=SIZE,
     )
     thumbnail = output_dir / "youtube-thumbnail.png"
     images(
@@ -322,7 +330,14 @@ def prepare_segmented(output_dir: Path) -> dict:
             "Bake exactly this large, legible Russian headline into the artwork: «СЕМЬЯ ТРЕБУЕТ ПРОСТИТЬ». "
             "Correct Cyrillic spelling is mandatory; no other words, letters, subtitles, watermark or logo."
         ),
-        output_path=thumbnail, model=DEFAULT_IMAGE_MODEL, size="1536x864",
+        output_path=thumbnail,
+        model=DEFAULT_IMAGE_MODEL,
+        size=PROVIDER_LANDSCAPE_SIZE,
+    )
+    thumbnail_normalization = normalize_editorial_provider_image(
+        thumbnail,
+        requested_size=PROVIDER_LANDSCAPE_SIZE,
+        output_size=SIZE,
     )
     write_json(output_dir / "episode-script.json", script)
     write_json(output_dir / "scene-images-manifest.json", {
@@ -377,6 +392,7 @@ def prepare_segmented(output_dir: Path) -> dict:
         "master_audio": audio.relative_to(output_dir).as_posix(),
         "master_audio_sha256": sha256_file(audio),
         "thumbnail": thumbnail.name, "thumbnail_sha256": sha256_file(thumbnail),
+        "thumbnail_normalization": thumbnail_normalization,
         "image_calls": len(images.calls), "ai33_task_submissions": len(ai33.calls),
         "segment_count": len(segment_indices),
         "segment_indices": segment_indices,

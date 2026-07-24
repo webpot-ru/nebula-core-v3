@@ -37,6 +37,7 @@ from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
 
 Generator = Callable[..., Path]
 SIZE = "1536x864"
+PROVIDER_LANDSCAPE_SIZE = "1536x1024"
 STYLE = (
     "cinematic editorial illustration for a Russian Reddit storytelling video, "
     "realistic textured lighting, one clear focal event, restrained dark copper and teal palette, "
@@ -91,8 +92,10 @@ FORMAT_VISUAL_SYSTEM_V3_STYLE = (
     "romance manhwa, black-and-white manga, superhero pop art or childlike cartooning. Do not use an "
     "orange-dominated universal palette. No speech balloons, generated captions, paragraphs, letters, "
     "numbers, UI, logo, signature, watermark or gore. Keep faces, hands and evidence above the quiet "
-    "bottom subtitle area, and compose every important beat for a full-page establish followed by a "
-    "meaning-led guided crop"
+    "bottom subtitle area. Use a horizontal landscape canvas, never portrait or square. Keep every "
+    "panel, face, hand and evidence inside the centered 16:9 crop-safe area; reserve the extra top and "
+    "bottom only for expendable paper bleed. Compose every important beat for a full-page establish "
+    "followed by a meaning-led guided crop"
 )
 FORMAT_VISUAL_SYSTEM_V3_FORMAT_DIRECTIONS = {
     "BUNDLE": (
@@ -206,13 +209,16 @@ def _validate_generated_image(path: Path, *, expected_size: tuple[int, int]) -> 
         )
 
 
-def _normalize_editorial_image(
+def normalize_editorial_provider_image(
     path: Path,
     *,
-    expected_size: tuple[int, int],
+    requested_size: str,
+    output_size: str = SIZE,
 ) -> dict[str, Any] | None:
-    """Preserve and normalize a near-16:9 editorial provider response."""
+    """Preserve a valid landscape provider response and normalize its safe 16:9 crop."""
 
+    requested_dimensions = _expected_dimensions(requested_size)
+    output_dimensions = _expected_dimensions(output_size)
     try:
         with Image.open(path) as image:
             actual_size = image.size
@@ -222,23 +228,32 @@ def _normalize_editorial_image(
         raise EpisodeImageError(
             f"image provider returned an undecodable file: {path.name}"
         ) from exc
-    if actual_size == expected_size:
-        return None
     if actual_format not in {"PNG", "JPEG", "WEBP"}:
         raise EpisodeImageError(
             f"image provider returned unsupported format {actual_format or '(unknown)'}"
         )
-    expected_ratio = expected_size[0] / expected_size[1]
+    if actual_size == output_dimensions:
+        _validate_generated_image(path, expected_size=output_dimensions)
+        return None
+    requested_ratio = requested_dimensions[0] / requested_dimensions[1]
+    output_ratio = output_dimensions[0] / output_dimensions[1]
     actual_ratio = actual_size[0] / actual_size[1]
     if (
-        actual_size[0] < expected_size[0]
-        or actual_size[1] < expected_size[1]
-        or abs(actual_ratio - expected_ratio) / expected_ratio > 0.02
+        actual_size[0] < output_dimensions[0]
+        or actual_size[1] < output_dimensions[1]
+        or actual_size[0] <= actual_size[1]
+        or abs(actual_ratio - requested_ratio) / requested_ratio > 0.02
     ):
         raise EpisodeImageError(
             "editorial image cannot be normalized without unsafe crop: "
-            f"expected near {expected_size[0]}x{expected_size[1]}, "
+            f"expected landscape near {requested_dimensions[0]}x{requested_dimensions[1]}, "
             f"got {actual_size[0]}x{actual_size[1]}"
+        )
+    crop_fraction = 1.0 - min(actual_ratio, output_ratio) / max(actual_ratio, output_ratio)
+    if crop_fraction > 0.18:
+        raise EpisodeImageError(
+            "editorial image cannot be normalized without unsafe crop: "
+            f"requested ratio {requested_ratio:.4f}, output ratio {output_ratio:.4f}"
         )
     original = path.with_name(f"{path.stem}.provider-original{path.suffix.lower()}")
     if original.exists():
@@ -247,15 +262,18 @@ def _normalize_editorial_image(
     original_sha256 = hashlib.sha256(original.read_bytes()).hexdigest()
     with Image.open(original) as image:
         normalized = ImageOps.fit(
-            image.convert("RGB"), expected_size, method=Image.Resampling.LANCZOS,
+            image.convert("RGB"), output_dimensions, method=Image.Resampling.LANCZOS,
         )
         normalized.save(path, format="PNG", optimize=True)
+    _validate_generated_image(path, expected_size=output_dimensions)
     return {
         "method": "center_crop_lanczos",
+        "provider_requested_dimensions": list(requested_dimensions),
         "provider_original_path": original.name,
         "provider_original_sha256": original_sha256,
         "provider_original_dimensions": list(actual_size),
-        "normalized_dimensions": list(expected_size),
+        "normalized_dimensions": list(output_dimensions),
+        "crop_fraction": round(crop_fraction, 6),
     }
 
 
@@ -686,6 +704,7 @@ def generate_episode_images(
     generator: Generator = call_image_generation,
     model: str = DEFAULT_IMAGE_MODEL,
     size: str = SIZE,
+    output_size: str | None = None,
     artifact_root: Path | None = None,
     visual_mode: str | None = None,
     style_profile: str | None = None,
@@ -705,7 +724,7 @@ def generate_episode_images(
     output_dir = Path(output_dir)
     root = Path(artifact_root) if artifact_root is not None else output_dir
     root = root.resolve()
-    expected_size = _expected_dimensions(size)
+    expected_size = _expected_dimensions(output_size or size)
     resolved_output_dir = output_dir.resolve()
     if artifact_root is not None and (
         resolved_output_dir != root and root not in resolved_output_dir.parents
@@ -744,10 +763,13 @@ def generate_episode_images(
             raise EpisodeImageError("generated image must remain under artifact_root")
         normalization = None
         if active_visual_mode == EDITORIAL_MOTION_MODE:
-            normalization = _normalize_editorial_image(
-                resolved, expected_size=expected_size,
+            normalization = normalize_editorial_provider_image(
+                resolved,
+                requested_size=size,
+                output_size=output_size or size,
             )
-        _validate_generated_image(resolved, expected_size=expected_size)
+        else:
+            _validate_generated_image(resolved, expected_size=expected_size)
         digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
         asset = {
             "media_id": f"generated-{item['source_id']}-scene-{item['scene_index']:02d}",
@@ -756,7 +778,8 @@ def generate_episode_images(
             "sha256": digest,
             "download_status": "verified",
             "model": model,
-            "size": size,
+            "size": output_size or size,
+            "provider_requested_size": size,
             "prompt": item["prompt"],
             "caption": "",
             "scene_index": item["scene_index"],

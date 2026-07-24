@@ -1,5 +1,5 @@
-name: acc1 Five-Page Panel Grammar Canary
-run-name: acc1 five new panel-grammar pages from ${{ inputs.source_run_id }}
+name: acc1 Bounded Visual Canary
+run-name: acc1 bounded panel-grammar or image-size canary at ${{ github.sha }}
 
 on:
   workflow_dispatch:
@@ -13,13 +13,47 @@ on:
         required: true
         default: false
         type: boolean
+      confirm_exactly_one_image_size_canary:
+        description: Confirm exactly one production image-size call, no retries
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: acc1-bounded-image-canary-paid
+  cancel-in-progress: false
+
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse reruns and require exactly one paid scope
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          CONFIRM_FIVE: ${{ inputs.confirm_exactly_five_image_calls }}
+          CONFIRM_ONE: ${{ inputs.confirm_exactly_one_image_size_canary }}
+        run: |
+          set -euo pipefail
+          test "$RUN_ATTEMPT" = "1"
+          python - <<'PY'
+          import os
+
+          selected = [
+              os.environ["CONFIRM_FIVE"] == "true",
+              os.environ["CONFIRM_ONE"] == "true",
+          ]
+          if sum(selected) != 1:
+              raise SystemExit("exactly one bounded paid scope must be selected")
+          PY
+
   panel-grammar-canary:
+    needs: scope
+    if: ${{ inputs.confirm_exactly_five_image_calls }}
     runs-on: ubuntu-latest
     timeout-minutes: 105
     env:
@@ -108,3 +142,65 @@ jobs:
           path: ${{ env.OUTPUT }}
           if-no-files-found: error
           retention-days: 14
+
+  image-size-canary:
+    needs: scope
+    if: ${{ inputs.confirm_exactly_one_image_size_canary }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OUTPUT: build/acc1-image-size-canary
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install bounded canary dependencies
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+      - name: Validate exact production prompt without providers
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_image_size_canary.py \
+            --output-dir "$OUTPUT" \
+            --preflight-only
+      - name: Generate exactly one production image
+        env:
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_image_size_canary.py \
+            --output-dir "$OUTPUT" \
+            --confirm-exactly-one-image-call
+      - name: Verify one-call landscape result
+        run: |
+          set -euo pipefail
+          python - "$OUTPUT/image-size-canary-result.json" "$OUTPUT/provider-attempts/image.json" <<'PY'
+          import json
+          import sys
+
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          journal = json.load(open(sys.argv[2], encoding="utf-8"))
+          assert result["status"] == "IMAGE_SIZE_CANARY_PASS"
+          assert result["provider_requested_size"] == "1536x1024"
+          assert result["required_output_size"] == "1536x864"
+          assert result["final_dimensions"] == [1536, 864]
+          assert result["new_image_calls"] == 1
+          assert result["automatic_retries"] == 0
+          assert result["new_ai33_calls"] == 0
+          assert result["youtube_called"] is False
+          assert journal["cap"] == 1
+          assert len(journal["attempts"]) == 1
+          assert journal["attempts"][0]["status"] == "COMPLETE"
+          PY
+          test -s "$OUTPUT/scene-images/first-production-page.png"
+      - name: Upload one-image canary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-image-size-canary-${{ github.run_id }}
+          path: ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
