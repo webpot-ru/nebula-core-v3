@@ -41,6 +41,13 @@ Last updated: 2026-07-24
   rebinds both scene identifiers and normalized narration hashes, rebuilds the
   motion-plan checksum, and passes the complete editorial renderer preflight in
   the local test suite before cloud execution.
+- No-spend recovery run `30065475666` then completed successfully. It reused
+  the five previously generated pages and retained narration, passed the full
+  HyperFrames render and output verification, and uploaded review artifact
+  `acc1-panel-grammar-recovery-30065475666` (96,751,206 bytes). The run made
+  zero new VectorEngine and AI33 calls and did not call YouTube. This is
+  GitHub- and artifact-metadata-verified; visual approval of the MP4 remains a
+  separate review step.
 
 ## Acc1 single-audio + SRT migration (GitHub task submitted; recovery pending)
 
