@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-24
 
-## 2026-07-24 — First paid preparation stopped safely on provider orientation drift
+## 2026-07-24 — Landscape image canary recovered and provider contract verified
 
 - Fixed-release run
   [`30097084226`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30097084226)
@@ -26,9 +26,29 @@ Last updated: 2026-07-24
   `.github/workflows/acc1_panel_grammar_canary.yml` now has a mutually
   exclusive one-image size-canary scope. It uses the exact first production
   prompt, permits one VectorEngine call with zero retries, exposes no AI33 or
-  YouTube secret and uploads the result only to GitHub. This path is
-  source-tested but not provider-verified until its separately approved
-  one-call run completes.
+  YouTube secret and uploads the result only to GitHub.
+- The separately approved one-image run
+  [`30100693747`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30100693747)
+  used commit `5247b17e1e684b7a2c4f44392380c9403ea38122`, made exactly
+  one VectorEngine call with zero retries and returned a usable landscape PNG
+  at `1672x941`. No AI33 or YouTube action ran. The provider call itself
+  succeeded, but the first normalizer revision incorrectly compared the
+  response only with the requested `1536x1024` ratio and therefore rejected a
+  response already within `0.0531%` of the required 16:9 ratio.
+- Commit `16ba06f5ea1041eb0b5ae68068e3efe05e7fb6e4` accepts a sufficiently
+  large landscape response close to either the requested provider ratio or
+  the exact video ratio while retaining the portrait, square, undersized and
+  excessive-crop fail-closed gates. No-spend recovery run
+  [`30101554291`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30101554291)
+  reused only the existing artifact from `30100693747`; both paid jobs were
+  skipped. It preserved the `1672x941` original and normalized the working PNG
+  to `1536x864` with crop fraction `0.000531`.
+- The recovery report records `source_image_calls=1`, `new_image_calls=0`,
+  `new_ai33_calls=0` and `youtube_called=false`. Artifact
+  `acc1-image-size-recovery-30101554291` remains on GitHub and was not
+  downloaded locally. This verifies the fixed first-release landscape
+  provider contract only; the 69-image/61-AI33 production batch was not
+  restarted or authorized by this canary.
 
 ## 2026-07-24 — Segmented full-release architecture verified in GitHub
 

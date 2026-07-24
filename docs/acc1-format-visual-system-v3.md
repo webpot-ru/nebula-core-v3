@@ -53,6 +53,9 @@ repeated reaction templates and mechanical equal-duration zoom loops.
   fail closed and are never silently rotated, stretched or accepted.
 - The one-image GitHub canary uses the exact first production prompt before a
   new batch can be approved. It has no automatic retry, AI33 or YouTube access.
+  Run `30100693747` returned a `1672x941` landscape image in exactly one call;
+  no-spend recovery `30101554291` reused that frozen artifact and verified the
+  final `1536x864` normalization with no new provider or YouTube action.
 
 ### Meaning-led panel rhythm
 

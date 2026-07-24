@@ -60,15 +60,21 @@ four independent render jobs, then assembled a 104.465-second 1920x1080
 H.264/AAC artifact with zero new image, AI33 or YouTube calls.
 
 The separately bounded `.github/workflows/acc1_panel_grammar_canary.yml`
-has two mutually exclusive manual scopes. The historical five-page scope
+has three mutually exclusive manual scopes. The historical five-page scope
 requires an exact confirmation for five VectorEngine calls with zero automatic
 retries, reuses existing master narration, renders with HyperFrames and
 verifies panel counts `1, 2, 3, 4, 5`. The image-size scope uses the exact
 first fixed-release production prompt and permits exactly one VectorEngine
 call, with no render and no retry, to prove the provider returns a usable
-landscape canvas before another full batch is considered. Neither scope
-contains AI33 or YouTube access; each is a review boundary, not production or
-publication authorization.
+landscape canvas before another full batch is considered. The third scope is
+no-spend recovery: it accepts only the frozen artifact from the registered
+one-image run and receives no VectorEngine, AI33 or YouTube secret. The two
+paid scopes contain no AI33 or YouTube access; every scope is a review
+boundary, not production or publication authorization. One-image run
+`30100693747` returned a usable `1672x941` landscape PNG with exactly one call
+and no retry. No-spend run `30101554291` reused that artifact, skipped both
+paid jobs and normalized the working image to `1536x864`; it recorded zero new
+image or AI33 calls and no YouTube action.
 
 The production compositor treats both paid scene images as already composed comic pages. New fixed-release prompts use `acc1_format_visual_system_v3`; the renderer accepts that profile with the same complete-page guided-reading path while keeping `cinematic_ink_webtoon_v1` compatible for historical artifacts. The planner selects distinct BUNDLE/SAGA/THREAD grammar and pillar palette rules before spend. It does not reconstruct provider pages from collage cutouts or repeat a mandatory push-in/pull-back/reset cycle.
 
@@ -125,7 +131,9 @@ provider-standard `1536x1024` landscape canvas, require all meaningful page
 content inside a centered 16:9 safe zone and normalize a verified landscape
 response to `1536x864`. The original response and both checksums are retained
 in the GitHub preparation artifact. Portrait, square, undersized or excessive
-crop results remain fail-closed.
+crop results remain fail-closed. This contract is GitHub-verified by the
+one-call/recovery pair `30100693747` and `30101554291`; the proof does not
+authorize the remaining production image or narration batch.
 
 The dedicated fixed-input command is:
 
