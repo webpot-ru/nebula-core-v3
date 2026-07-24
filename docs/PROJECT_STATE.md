@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-24
 
-## 2026-07-24 — Semantic camera and caption-safe brand proof implemented locally
+## 2026-07-24 — Semantic camera and caption-safe brand proof verified in GitHub
 
 - The v3 visual contract now binds every `1–5` panel grammar to canonical
   normalized panel regions. Page prompts and HyperFrames consume the same
@@ -25,9 +25,15 @@ Last updated: 2026-07-24
   GitHub Actions and remain there as artifacts. Local work is limited to
   no-media unit/static checks; review media should not be downloaded unless
   explicitly requested.
-- This state is local implementation evidence until the corresponding GitHub
-  no-spend recovery run succeeds. No new VectorEngine, AI33 or YouTube call is
-  authorized by this change.
+- GitHub no-spend recovery run `30080653348` completed successfully from
+  workflow commit `a25d61bd172c4f89f4abd2cdf431d769930e6e01`. It verified
+  all five semantic camera contracts, completely decoded the rendered MP4 and
+  extracted intro/CTA/outro caption review frames. Artifact
+  `acc1-semantic-camera-caption-safe-30080653348` is `92,506,789` bytes and
+  remains on GitHub.
+- The run reused only existing images and narration: zero new VectorEngine or
+  AI33 calls and no YouTube action. This verifies the GitHub render/artifact
+  path but does not authorize publication.
 
 ## 2026-07-23 — v3 pages generated; captions and panel grammar verified
 
