@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-24
 
-## 2026-07-24 — Segmented full-release and no-spend matrix canary prepared
+## 2026-07-24 — Segmented full-release architecture verified in GitHub
 
 - The fixed first-release production route is no longer allowed to send the
   complete long storyboard to one HyperFrames render. It now has three
@@ -31,10 +31,8 @@ Last updated: 2026-07-24
   from `acc1-format-v3-canary-29975009888`, chooses a canary-only ceiling just
   above its longest scene so at least two independent render jobs must run,
   and exposes no VectorEngine, AI33 or YouTube credential to that path.
-- Source, unit and YAML checks pass without producing local media. At this
-  checkpoint no new MP4, provider request or YouTube action has occurred. The
-  owner authorized the narrowly scoped commit/push and no-spend GitHub run;
-  the run ID and artifact verification remain pending.
+- Source, unit and YAML checks pass without producing local media. No review
+  artifact was downloaded to the workstation.
 - First no-spend attempt `30094999562` stopped in `segmented_prepare` before
   any render job because the older four-page artifact `29975009888` exposed
   identical legacy camera-path signatures to the new fail-closed facade. The
@@ -42,6 +40,24 @@ Last updated: 2026-07-24
   recovery source is now the already completed five-page artifact
   `30063115374`, whose `1–5` panel grammars passed semantic-camera recovery in
   run `30080653348`; narration is still reused from `29975009888`.
+- No-spend GitHub run
+  [`30095412932`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30095412932)
+  completed successfully from commit
+  `49603f0fb2a17f409dd0aa58193270d4774841b5`. The paid canary job was
+  skipped; `segmented_prepare` exported four contiguous segments with a
+  canary ceiling of `26.126` seconds, all four independent render jobs passed,
+  and `segmented_assemble` completed in 53 seconds.
+- The assembled GitHub-only MP4 is H.264/AAC, 1920x1080, 30 fps,
+  `104.465011` seconds and `129,643,070` bytes, with SHA-256
+  `63c3e3401760dc8f8a0294c47590c8ec940e3fe1a6af1f192b1e48d7ee3a1f36`.
+  Final artifact `acc1-segmented-no-spend-canary-30095412932` is
+  `129,673,944` bytes and remains on GitHub. Preparation, every segment and
+  final assembly report `new_image_calls=0`, `new_ai33_calls=0`,
+  `provider_calls=0` and `youtube_called=false`.
+- This verifies the prepare/matrix/assemble runtime and proves the long release
+  will not be submitted as one monolithic HyperFrames job. It does not perform
+  or authorize the paid 69-image/61-AI33 full-release preparation; the actual
+  long-run segment count remains duration-derived under the 120-second ceiling.
 
 ## 2026-07-24 — Semantic camera and caption-safe brand proof verified in GitHub
 

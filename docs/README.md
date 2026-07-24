@@ -54,7 +54,10 @@ independent matrix jobs without cutting a scene. Each render job gets no
 provider secret, uses an isolated temporary HyperFrames workspace and uploads
 only its own silent segment. Assembly downloads every segment, verifies the
 deterministic plan, concatenates H.264 without video re-encoding, muxes the
-existing narration and leaves the final review artifact on GitHub.
+existing narration and leaves the final review artifact on GitHub. This exact
+path is GitHub-verified by successful no-spend run `30095412932`: it produced
+four independent render jobs, then assembled a 104.465-second 1920x1080
+H.264/AAC artifact with zero new image, AI33 or YouTube calls.
 
 The separately bounded `.github/workflows/acc1_panel_grammar_canary.yml`
 exists only to visually validate the new five-page v3 panel rhythm. Its manual
