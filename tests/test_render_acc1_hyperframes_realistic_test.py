@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -8,7 +9,7 @@ from scripts.render_acc1_hyperframes_realistic_test import (
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     brand_safe_caption_track,
     normalize_caption_track,
-    repair_scene_id_bindings,
+    repair_scene_bindings,
     resolve_generated_storyboard,
     split_caption_cue,
     subtitle_filter,
@@ -20,10 +21,20 @@ from acc1_editorial_motion import bind_payload
 
 
 class HyperFramesRealisticTestTests(unittest.TestCase):
-    def test_repairs_only_scene_id_bindings_and_rebinds_motion_plan(self):
+    def test_repairs_split_scene_ids_text_hashes_and_motion_plan(self):
         slides = [
-            {"scene_id": "opening-setup", "slide_id": "opening"},
-            {"scene_id": "opening-reveal", "slide_id": "opening"},
+            {
+                "scene_id": "opening-setup",
+                "slide_id": "opening",
+                "narration_text": "  Первая   часть. ",
+                "text_sha256": "stale",
+            },
+            {
+                "scene_id": "opening-reveal",
+                "slide_id": "opening",
+                "narration_text": "Вторая часть.",
+                "text_sha256": "stale",
+            },
         ]
         storyboard = {
             "slides": slides,
@@ -32,17 +43,23 @@ class HyperFramesRealisticTestTests(unittest.TestCase):
             ),
         }
         storyboard["motion_plan_sha256"] = storyboard["motion_plan"]["motion_plan_sha256"]
-        repaired = repair_scene_id_bindings(storyboard)
+        repaired = repair_scene_bindings(storyboard)
         self.assertEqual(
             [scene["slide_id"] for scene in repaired["slides"]],
             ["opening-setup", "opening-reveal"],
         )
         self.assertEqual(repaired["motion_plan"]["scenes"], repaired["slides"])
+        self.assertEqual(repaired["slides"][0]["narration_text"], "Первая часть.")
+        self.assertEqual(
+            repaired["slides"][0]["text_sha256"],
+            hashlib.sha256("Первая часть.".encode("utf-8")).hexdigest(),
+        )
         self.assertEqual(
             repaired["motion_plan_sha256"],
             repaired["motion_plan"]["motion_plan_sha256"],
         )
         self.assertEqual(storyboard["slides"][0]["slide_id"], "opening")
+        self.assertEqual(storyboard["slides"][0]["text_sha256"], "stale")
 
     def test_resolves_only_exact_four_page_v3_storyboard(self):
         with tempfile.TemporaryDirectory() as temp:

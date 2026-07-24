@@ -92,14 +92,15 @@ def verify_paid_generation_receipt(
     return journal
 
 
-def repair_scene_id_bindings(storyboard: dict[str, Any]) -> dict[str, Any]:
-    """Repair only the historical split-scene ID binding in a copied artifact.
+def repair_scene_bindings(storyboard: dict[str, Any]) -> dict[str, Any]:
+    """Repair historical split-scene bindings in a copied artifact.
 
     The failed five-page run already contains five completed image pages.  Its
     opening beat was split into setup and reveal, but the two copied ``slide_id``
     values retained the source ID while their ``scene_id`` values changed.  This
-    deterministic recovery fixes that internal relation and rebinds the motion
-    plan; it never changes narration, timing, assets or the provider receipt.
+    deterministic recovery fixes that relation and the narration checksum that
+    became stale when the opening text was split, then rebinds the motion plan.
+    It never changes narration meaning, timing, assets or the provider receipt.
     """
 
     result = copy.deepcopy(storyboard)
@@ -115,6 +116,11 @@ def repair_scene_id_bindings(storyboard: dict[str, Any]) -> dict[str, Any]:
             raise RuntimeError("recovery requires unique scene ids")
         seen.add(scene_id)
         scene["slide_id"] = scene_id
+        narration = " ".join(str(scene.get("narration_text") or "").split())
+        if not narration:
+            raise RuntimeError(f"{scene_id} has no narration")
+        scene["narration_text"] = narration
+        scene["text_sha256"] = hashlib.sha256(narration.encode("utf-8")).hexdigest()
     motion_plan = result.get("motion_plan")
     if not isinstance(motion_plan, dict):
         raise RuntimeError("recovery storyboard has no motion plan")
@@ -413,9 +419,11 @@ def main() -> int:
     parser.add_argument("--source-artifact", default=SOURCE_ARTIFACT)
     parser.add_argument("--new-image-calls", type=int, choices=range(0, 6), default=0)
     parser.add_argument(
+        "--repair-scene-bindings",
         "--repair-scene-id-bindings",
+        dest="repair_scene_bindings",
         action="store_true",
-        help="Repair only the known historical scene_id/slide_id mismatch in the downloaded artifact.",
+        help="Repair the known historical split-scene ID and narration checksum bindings.",
     )
     args = parser.parse_args()
 
@@ -430,8 +438,8 @@ def main() -> int:
         storyboard_path, expected_page_count=args.expected_page_count,
     )
     artifact_root = storyboard_path.parent
-    if args.repair_scene_id_bindings:
-        storyboard = repair_scene_id_bindings(storyboard)
+    if args.repair_scene_bindings:
+        storyboard = repair_scene_bindings(storyboard)
         storyboard_path.write_text(
             json.dumps(storyboard, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from acc1_editorial_motion import build_editorial_motion_contract
+from acc1_editorial_motion import bind_payload, build_editorial_motion_contract
 from acc1_visual_contract import (
     ADULT_ANIMATION_WORK_STYLE_PROFILE,
     CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
@@ -21,6 +21,7 @@ from compilation_editorial_motion_renderer import (
     _run,
     preflight_editorial_motion_storyboard,
 )
+from scripts.render_acc1_hyperframes_realistic_test import repair_scene_bindings
 from acc1_visual_contract import INK_GOUACHE_STORY_PAGES_STYLE_PROFILE
 
 
@@ -98,6 +99,31 @@ class EditorialMotionRendererTests(unittest.TestCase):
             checked = preflight_editorial_motion_storyboard(self._storyboard(root), root)
         self.assertEqual(len(checked), 1)
         self.assertEqual(len(checked[0]["verified_assets"]), 2)
+
+    def test_repaired_split_scene_passes_complete_editorial_preflight(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard = self._storyboard(
+                root,
+                profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                story_family="relationships",
+                page_layout="bundle_story_opener",
+            )
+            scene = storyboard["slides"][0]
+            source_id = scene["scene_id"]
+            scene["scene_id"] = f"{source_id}-setup"
+            scene["narration_text"] = "первая часть"
+            motion_plan = dict(storyboard["motion_plan"])
+            motion_plan.pop("motion_plan_sha256", None)
+            motion_plan["scenes"] = storyboard["slides"]
+            storyboard["motion_plan"] = bind_payload(motion_plan, "motion_plan_sha256")
+            storyboard["motion_plan_sha256"] = storyboard["motion_plan"]["motion_plan_sha256"]
+
+            repaired = repair_scene_bindings(storyboard)
+            checked = preflight_editorial_motion_storyboard(repaired, root)
+
+        self.assertEqual(checked[0]["scene_id"], f"{source_id}-setup")
+        self.assertEqual(checked[0]["slide_id"], checked[0]["scene_id"])
 
     def test_preflight_rejects_tampered_asset(self):
         with tempfile.TemporaryDirectory() as temp:

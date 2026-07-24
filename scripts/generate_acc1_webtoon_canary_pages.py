@@ -141,6 +141,11 @@ def expand_four_scene_canary_to_five(storyboard: dict) -> dict:
             raise RuntimeError("expanded scene has no stable identifier")
         scene["scene_id"] = scene_id
         scene["slide_id"] = scene_id
+        narration = " ".join(str(scene.get("narration_text") or "").split())
+        if not narration:
+            raise RuntimeError(f"{scene_id} has no narration after expansion")
+        scene["narration_text"] = narration
+        scene["text_sha256"] = hashlib.sha256(narration.encode("utf-8")).hexdigest()
         duration = float(scene["duration_sec"])
         scene["start_sec"] = round(cursor, 3)
         scene["end_sec"] = round(cursor + duration, 3)
