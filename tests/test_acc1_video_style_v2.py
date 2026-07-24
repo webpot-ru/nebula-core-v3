@@ -15,6 +15,18 @@ class Acc1VideoStyleV2Tests(unittest.TestCase):
         contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
         self.assertEqual(contract["style_id"], "chonker_cinematic_webtoon_v2")
         self.assertEqual(contract["renderer"]["required_id"], "chrome_guided_webtoon_v2")
+        self.assertEqual(
+            contract["renderer"]["production_render_strategy"],
+            "hyperframes_segmented_matrix",
+        )
+        self.assertEqual(contract["renderer"]["segment_count_min"], 2)
+        self.assertEqual(contract["renderer"]["segment_count_max"], 16)
+        self.assertEqual(contract["renderer"]["segment_max_duration_sec"], 120)
+        self.assertEqual(contract["renderer"]["matrix_max_parallel"], 8)
+        self.assertIn(
+            "render_chrome_guided_webtoon(",
+            contract["renderer"]["forbidden_imports"],
+        )
         self.assertEqual(contract["subtitles"]["line_count"], 1)
         self.assertEqual(contract["subtitles"]["vertical_alignment"], "center")
         self.assertEqual(contract["subtitles"]["band"]["height"], 130)
@@ -49,6 +61,9 @@ class Acc1VideoStyleV2Tests(unittest.TestCase):
             "61c037374b3972da149296de3b72de58359579f9ca783aba86da0c144962ac3f",
         )
         self.assertEqual(set(report["brand_assets"]), {"intro", "subscribe_cta", "outro"})
+        self.assertEqual(report["render_strategy"], "hyperframes_segmented_matrix")
+        self.assertEqual(report["segment_max_duration_sec"], 120)
+        self.assertEqual(report["matrix_max_parallel"], 8)
         self.assertFalse(report["provider_calls_authorized"])
 
     def test_paid_gate_accepts_approved_renderer(self):

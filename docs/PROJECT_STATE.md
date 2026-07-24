@@ -2,6 +2,39 @@
 
 Last updated: 2026-07-24
 
+## 2026-07-24 — Segmented full-release and no-spend matrix canary prepared
+
+- The fixed first-release production route is no longer allowed to send the
+  complete long storyboard to one HyperFrames render. It now has three
+  fail-closed actions: paid source preparation, one silent bounded segment and
+  final assembly.
+- `.github/workflows/acc1_fixed_first_release.yml` now expresses those actions
+  as `prepare -> render matrix -> assemble`. The matrix permits `2–16`
+  contiguous segments, runs at most eight render jobs in parallel and rejects
+  every segment above 120 seconds. Render and assembly jobs receive no
+  VectorEngine, AI33 or YouTube credentials.
+- Each matrix job uses the same checksum-bound v3 storyboard, images and
+  semantic camera metadata produced once by `prepare`. The assembly job
+  verifies every H.264 1920x1080 segment against the deterministic plan,
+  concatenates video without re-encoding and only then muxes the existing
+  narration.
+- The design restores the architecture proven by successful segmented run
+  `29888971818`, which rendered nine independent parts and assembled them.
+  The count remains duration-derived; the current fixed episode is expected to
+  produce the same nine-part shape, while the hard safety invariant is the
+  120-second ceiling and the absence of a monolithic production fallback.
+- The already registered
+  `.github/workflows/acc1_single_audio_recovery.yml` now also contains a
+  GitHub-only `segmented_prepare -> segmented_render matrix ->
+  segmented_assemble` canary. It reuses the four v3 pages and narration from
+  artifact `acc1-format-v3-canary-29975009888`, chooses a canary-only ceiling
+  just above its longest scene so at least two independent render jobs must
+  run, and exposes no VectorEngine, AI33 or YouTube credential to that path.
+- Source, unit and YAML checks pass without producing local media. At this
+  checkpoint no new MP4, provider request or YouTube action has occurred. The
+  owner authorized the narrowly scoped commit/push and no-spend GitHub run;
+  the run ID and artifact verification remain pending.
+
 ## 2026-07-24 — Semantic camera and caption-safe brand proof verified in GitHub
 
 - The v3 visual contract now binds every `1–5` panel grammar to canonical
@@ -189,9 +222,12 @@ single-image story rendering are explicitly forbidden.
 brand-asset hashes. The existing paid fixed-release workflow runs this gate
 before provider credentials are exposed. After human approval on 2026-07-21,
 the preview SHA is recorded and `scripts/run_acc1_fixed_first_release.py` now
-uses `chrome_guided_webtoon_renderer.render_chrome_guided_webtoon`. The static
-gate reports `PRODUCTION_READY`; this does not itself authorize a provider run,
-retry, publication, upload, commit or push.
+uses the bounded `build_chrome_guided_segment_plan`,
+`render_chrome_guided_segment` and `assemble_chrome_guided_segments` entry
+points. The monolithic renderer remains available only to short canaries and
+is absent from the full-release production entrypoint. The static gate reports
+`PRODUCTION_READY`; this does not itself authorize a provider run, retry,
+publication, upload, commit or push.
 
 The reproducible no-provider approval render is produced by
 `scripts/render_acc1_style_v2_preview.py`. The current local MP4 is
@@ -271,8 +307,11 @@ the committed script SHA `2537b928afb22bbae74caa1ffa5ecd7c885fbbc3735f914b43be7e
 plans exactly 68 scene-image calls plus one thumbnail with zero automatic image
 retries, and plans exactly 61 one-time AI33 task submissions. Its provider
 allowlist is only `image` and `ai33`; Reddit, Gemini, OpenAI and YouTube are not
-configured. The workflow is local-only until committed, pushed and registered
-on the default branch, and no paid call or render has run.
+configured. After one-time provider preparation, the workflow exports a
+duration-bounded matrix, renders each segment in an isolated runner and
+assembles only after every segment report passes. The workflow is local-only
+until committed, pushed and registered on the default branch, and no paid call
+or render has run.
 
 ## Retired visual candidate — Cinematic Ink Webtoon (historical only)
 

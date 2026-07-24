@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,7 @@ from acc1_visual_contract import (
 
 
 HYPERFRAMES_VERSION = "0.7.61"
+DEFAULT_SEGMENT_MAX_DURATION_SEC = 120.0
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -905,8 +907,13 @@ def _composition_html(scenes: list[dict[str, Any]], duration: float, *, style_pr
 
 def _write_workspace(
     scenes: list[dict[str, Any]], artifact_root: Path, audio: Path, duration: float, *, style_profile: str,
+    workspace_path: Path | None = None,
 ) -> Path:
-    workspace = artifact_root / "editorial-motion-hyperframes"
+    workspace = (
+        Path(workspace_path).resolve()
+        if workspace_path is not None
+        else artifact_root / "editorial-motion-hyperframes"
+    )
     assets_dir = workspace / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     if not GSAP_RUNTIME.is_file():
@@ -985,6 +992,333 @@ def _hyperframes_cli() -> list[str]:
     if not npx:
         raise EditorialMotionRenderError("HyperFrames CLI is unavailable")
     return [npx, "--yes", f"hyperframes@{HYPERFRAMES_VERSION}"]
+
+
+def _render_segment_plan(
+    scenes: list[dict[str, Any]], *,
+    max_duration_sec: float = DEFAULT_SEGMENT_MAX_DURATION_SEC,
+) -> list[dict[str, Any]]:
+    """Split contiguous scenes without cutting scenes or changing their duration."""
+
+    if max_duration_sec <= 0:
+        raise EditorialMotionRenderError("segment duration must be positive")
+    groups: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    group_start = 0.0
+    for scene in scenes:
+        start = float(scene["start_sec"])
+        end = float(scene["end_sec"])
+        if current and end - group_start > max_duration_sec:
+            groups.append(current)
+            current = []
+        if not current:
+            group_start = start
+        current.append(scene)
+    if current:
+        groups.append(current)
+
+    plan: list[dict[str, Any]] = []
+    for index, group in enumerate(groups, start=1):
+        source_start = float(group[0]["start_sec"])
+        source_end = float(group[-1]["end_sec"])
+        duration = source_end - source_start
+        if duration > max_duration_sec + 0.001:
+            raise EditorialMotionRenderError(
+                f"scene group {index} exceeds the {max_duration_sec:.3f}s render ceiling",
+            )
+        local_scenes: list[dict[str, Any]] = []
+        for scene in group:
+            local_start = float(scene["start_sec"]) - source_start
+            local_end = float(scene["end_sec"]) - source_start
+            local_scenes.append({
+                **scene,
+                "start_sec": round(local_start, 6),
+                "end_sec": round(local_end, 6),
+                "duration_sec": round(local_end - local_start, 6),
+            })
+        plan.append({
+            "index": index,
+            "source_start_sec": round(source_start, 6),
+            "source_end_sec": round(source_end, 6),
+            "duration_sec": round(duration, 6),
+            "scene_ids": [str(scene["scene_id"]) for scene in group],
+            "scenes": local_scenes,
+        })
+    return plan
+
+
+def build_editorial_render_segment_plan(
+    storyboard: dict[str, Any],
+    artifact_root: Path,
+    *,
+    max_duration_sec: float = DEFAULT_SEGMENT_MAX_DURATION_SEC,
+) -> dict[str, Any]:
+    """Return the public path-free plan consumed by the GitHub render matrix."""
+
+    scenes = preflight_editorial_motion_storyboard(
+        storyboard,
+        Path(artifact_root).resolve(),
+    )
+    segments = _render_segment_plan(scenes, max_duration_sec=max_duration_sec)
+    return {
+        "version": 2,
+        "renderer": "hyperframes_segmented",
+        "max_duration_sec": max_duration_sec,
+        "timeline_duration_sec": float(storyboard["timeline_duration_sec"]),
+        "segment_count": len(segments),
+        "segments": [
+            {key: value for key, value in segment.items() if key != "scenes"}
+            for segment in segments
+        ],
+    }
+
+
+def _probe_h264(path: Path, *, cwd: Path) -> dict[str, Any]:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise EditorialMotionRenderError("ffprobe is required")
+    probe = _run([
+        ffprobe,
+        "-v",
+        "error",
+        "-show_entries",
+        "stream=codec_type,codec_name,width,height,avg_frame_rate:format=duration",
+        "-of",
+        "json",
+        str(path),
+    ], cwd=cwd)
+    try:
+        payload = json.loads(probe.stdout)
+        stream = next(
+            item for item in payload.get("streams") or []
+            if item.get("codec_type") == "video"
+        )
+        duration = float((payload.get("format") or {}).get("duration") or 0)
+    except (ValueError, StopIteration, json.JSONDecodeError) as exc:
+        raise EditorialMotionRenderError("ffprobe could not verify editorial MP4") from exc
+    if (
+        stream.get("codec_name") != "h264"
+        or [stream.get("width"), stream.get("height")]
+        != [CANVAS_WIDTH, CANVAS_HEIGHT]
+    ):
+        raise EditorialMotionRenderError("editorial MP4 geometry or codec drifted")
+    return {"stream": stream, "duration_sec": duration}
+
+
+def render_editorial_motion_segment(
+    storyboard: dict[str, Any],
+    artifact_root: Path,
+    segment_index: int,
+    output: Path,
+    *,
+    max_duration_sec: float = DEFAULT_SEGMENT_MAX_DURATION_SEC,
+) -> dict[str, Any]:
+    """Render one bounded silent segment and discard its frame workspace."""
+
+    root = Path(artifact_root).resolve()
+    scenes = preflight_editorial_motion_storyboard(storyboard, root)
+    segments = _render_segment_plan(scenes, max_duration_sec=max_duration_sec)
+    if segment_index < 1 or segment_index > len(segments):
+        raise EditorialMotionRenderError("segment index is outside the deterministic plan")
+    segment = segments[segment_index - 1]
+    output = Path(output).resolve()
+    if output == root or root not in output.parents:
+        raise EditorialMotionRenderError("segment output must remain under artifact_root")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    cli = _hyperframes_cli()
+    style_profile = str(storyboard["style_profile"])
+    print(
+        f"render segment {segment_index}/{len(segments)} "
+        f"({segment['duration_sec']:.3f}s, {len(segment['scenes'])} scenes)",
+        flush=True,
+    )
+    with tempfile.TemporaryDirectory(
+        prefix=f".hf-segment-{segment_index:03d}-",
+        dir=root,
+    ) as temp:
+        workspace = Path(temp) / "workspace"
+        _write_workspace(
+            segment["scenes"],
+            root,
+            root / "episode-script.json",
+            float(segment["duration_sec"]),
+            style_profile=style_profile,
+            workspace_path=workspace,
+        )
+        check = _run([*cli, "check", "--json"], cwd=workspace)
+        _run([
+            *cli,
+            "render",
+            "--quality",
+            "high",
+            "--workers",
+            "1",
+            "--output",
+            str(output),
+        ], cwd=workspace)
+        if not output.is_file() or output.stat().st_size <= 0:
+            raise EditorialMotionRenderError("HyperFrames produced no segment MP4")
+        probe = _probe_h264(output, cwd=workspace)
+    if abs(float(probe["duration_sec"]) - float(segment["duration_sec"])) > 0.12:
+        raise EditorialMotionRenderError("segment duration drifted")
+    try:
+        check_payload = json.loads(check.stdout or "{}")
+    except json.JSONDecodeError:
+        check_payload = {"raw": check.stdout[-2000:]}
+    return {
+        "version": 2,
+        "status": "PASS",
+        "segment_index": segment_index,
+        "segment_count": len(segments),
+        "segment_max_duration_sec": max_duration_sec,
+        "source_start_sec": segment["source_start_sec"],
+        "source_end_sec": segment["source_end_sec"],
+        "duration_sec": round(float(probe["duration_sec"]), 3),
+        "scene_ids": segment["scene_ids"],
+        "output": output.name,
+        "output_sha256": _sha256(output),
+        "output_bytes": output.stat().st_size,
+        "hyperframes_check_passed": True,
+        "hyperframes_check": check_payload,
+        "temporary_workspace_removed": True,
+        "provider_calls": 0,
+        "youtube_called": False,
+    }
+
+
+def assemble_editorial_motion_segments(
+    storyboard: dict[str, Any],
+    artifact_root: Path,
+    segment_paths: list[Path],
+    output: Path,
+    *,
+    audio: Path,
+    max_duration_sec: float = DEFAULT_SEGMENT_MAX_DURATION_SEC,
+) -> dict[str, Any]:
+    """Concatenate verified silent segments and mux the existing narration."""
+
+    root = Path(artifact_root).resolve()
+    scenes = preflight_editorial_motion_storyboard(storyboard, root)
+    plan = _render_segment_plan(scenes, max_duration_sec=max_duration_sec)
+    if len(segment_paths) != len(plan):
+        raise EditorialMotionRenderError(
+            "segment file count does not match deterministic plan",
+        )
+    verified_paths: list[Path] = []
+    segment_reports: list[dict[str, Any]] = []
+    for segment, raw_path in zip(plan, segment_paths, strict=True):
+        path = _under_root(raw_path, root, label="editorial segment")
+        probe = _probe_h264(path, cwd=root)
+        if abs(float(probe["duration_sec"]) - float(segment["duration_sec"])) > 0.12:
+            raise EditorialMotionRenderError(
+                "segment duration does not match deterministic plan",
+            )
+        verified_paths.append(path)
+        segment_reports.append({
+            "index": segment["index"],
+            "duration_sec": round(float(probe["duration_sec"]), 3),
+            "sha256": _sha256(path),
+            "bytes": path.stat().st_size,
+        })
+
+    audio_path = _under_root(audio, root, label="editorial narration audio")
+    output = Path(output).resolve()
+    if output == root or root not in output.parents:
+        raise EditorialMotionRenderError("editorial output must remain under artifact_root")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise EditorialMotionRenderError("ffmpeg is required for segment assembly")
+    with tempfile.TemporaryDirectory(prefix=".hf-assembly-", dir=root) as temp:
+        temp_root = Path(temp)
+        concat_list = temp_root / "segments.txt"
+        concat_lines = []
+        for path in verified_paths:
+            escaped = str(path).replace("'", "'\\''")
+            concat_lines.append("file '" + escaped + "'\n")
+        concat_list.write_text(
+            "".join(concat_lines),
+            encoding="utf-8",
+        )
+        silent_output = temp_root / "joined-silent.mp4"
+        _run([
+            ffmpeg,
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_list),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(silent_output),
+        ], cwd=temp_root)
+        _run([
+            ffmpeg,
+            "-y",
+            "-i",
+            str(silent_output),
+            "-i",
+            str(audio_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            str(output),
+        ], cwd=temp_root)
+    if not output.is_file() or output.stat().st_size <= 0:
+        raise EditorialMotionRenderError("segment assembly produced no MP4")
+    probe = _probe_h264(output, cwd=root)
+    expected_duration = float(storyboard["timeline_duration_sec"])
+    if abs(float(probe["duration_sec"]) - expected_duration) > 0.35:
+        raise EditorialMotionRenderError("assembled MP4 duration drifted")
+    caption_path = write_caption_srt(
+        storyboard["caption_track"],
+        root / "editorial-motion-captions.srt",
+    )
+    return {
+        "version": 3,
+        "status": "PASS",
+        "visual_mode": EDITORIAL_MOTION_MODE,
+        "style_profile": str(storyboard["style_profile"]),
+        "renderer": "hyperframes_segmented",
+        "hyperframes_version": HYPERFRAMES_VERSION,
+        "publication_authorized": False,
+        "output_sha256": _sha256(output),
+        "video_codec": "h264",
+        "resolution": [CANVAS_WIDTH, CANVAS_HEIGHT],
+        "fps": CANVAS_FPS,
+        "duration_sec": round(float(probe["duration_sec"]), 3),
+        "scene_count": len(scenes),
+        "segment_count": len(plan),
+        "segments": segment_reports,
+        "segment_max_duration_sec": max_duration_sec,
+        "temporary_frame_workspaces_removed": True,
+        "caption_srt": str(caption_path),
+        "caption_srt_sha256": _sha256(caption_path),
+        "audio_sha256": _sha256(audio_path),
+        "audio_mux": "ffmpeg_concat_then_post_render_mux",
+        "motion_plan_sha256": storyboard["motion_plan_sha256"],
+        "caption_track_sha256": storyboard["caption_track_sha256"],
+        "module_usage": storyboard["motion_plan"]["module_usage"],
+        "asset_pack_count": len({scene["asset_family_id"] for scene in scenes}),
+        "background_video_used": False,
+        "factual_text_rendering": "html_svg_only",
+        "provider_calls": 0,
+        "youtube_called": False,
+    }
 
 
 def render_editorial_motion_compilation(

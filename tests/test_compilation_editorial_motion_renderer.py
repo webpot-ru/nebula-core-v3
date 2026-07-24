@@ -19,8 +19,10 @@ from compilation_editorial_motion_renderer import (
     _composition_html,
     _cinematic_webtoon_scene_tweens,
     _ink_gouache_scene_tweens,
+    _render_segment_plan,
     _semantic_webtoon_scene_tweens,
     _run,
+    build_editorial_render_segment_plan,
     preflight_editorial_motion_storyboard,
 )
 from scripts.render_acc1_hyperframes_realistic_test import repair_scene_bindings
@@ -283,6 +285,49 @@ class EditorialMotionRendererTests(unittest.TestCase):
         self.assertIn("scale:1.520,x:-480,y:-255", tweens)
         self.assertNotIn("#portal-story-motion-v3-semantic', {scale", tweens)
         self.assertNotIn("rotation", tweens)
+
+    def test_segment_plan_resets_local_time_without_cutting_scenes(self):
+        scenes = [
+            {"scene_id": "one", "start_sec": 0.0, "end_sec": 40.0, "duration_sec": 40.0},
+            {"scene_id": "two", "start_sec": 40.0, "end_sec": 80.0, "duration_sec": 40.0},
+            {"scene_id": "three", "start_sec": 80.0, "end_sec": 130.0, "duration_sec": 50.0},
+            {"scene_id": "four", "start_sec": 130.0, "end_sec": 160.0, "duration_sec": 30.0},
+        ]
+        plan = _render_segment_plan(scenes, max_duration_sec=90.0)
+        self.assertEqual(
+            [item["scene_ids"] for item in plan],
+            [["one", "two"], ["three", "four"]],
+        )
+        self.assertEqual(plan[1]["scenes"][0]["start_sec"], 0.0)
+        self.assertEqual(plan[1]["scenes"][-1]["end_sec"], 80.0)
+
+    def test_segment_plan_rejects_one_scene_above_render_ceiling(self):
+        scenes = [{
+            "scene_id": "oversized",
+            "start_sec": 0.0,
+            "end_sec": 121.0,
+            "duration_sec": 121.0,
+        }]
+        with self.assertRaisesRegex(EditorialMotionRenderError, "render ceiling"):
+            _render_segment_plan(scenes, max_duration_sec=120.0)
+
+    def test_v3_public_segment_plan_contains_no_materialized_asset_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            storyboard = self._storyboard(
+                root,
+                profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                story_family="relationships",
+                page_layout="bundle_story_opener",
+            )
+            plan = build_editorial_render_segment_plan(storyboard, root)
+        self.assertEqual(plan["renderer"], "hyperframes_segmented")
+        self.assertEqual(plan["segment_count"], 1)
+        self.assertNotIn("scenes", plan["segments"][0])
+        self.assertEqual(
+            plan["segments"][0]["scene_ids"],
+            ["story_one-motion-001"],
+        )
 
 
 if __name__ == "__main__":

@@ -35,8 +35,11 @@ from acc1_visual_contract import (
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     select_format_visual_system_v3_panel_grammar,
 )
-from compilation_narration import build_compilation_segments
-from chrome_guided_webtoon_renderer import render_chrome_guided_webtoon
+from chrome_guided_webtoon_renderer import (
+    assemble_chrome_guided_segments,
+    build_chrome_guided_segment_plan,
+    render_chrome_guided_segment,
+)
 from compilation_storyboard import build_storyboard
 from compilation_tts_runner import build_tts_chunks, run_compilation_tts
 from translator_tts import post_tts_task
@@ -49,6 +52,8 @@ PROFILE_ID = "acc1_relationships_family_v1"
 IMAGE_CAP = 69
 SCENE_IMAGE_COUNT = 68
 TTS_CAP = 61
+MIN_RENDER_SEGMENTS = 2
+MAX_RENDER_SEGMENTS = 16
 
 STORY_CONFIG = (
     {
@@ -212,7 +217,87 @@ def dry_run(output_dir: Path) -> dict:
     return result
 
 
-def produce(output_dir: Path) -> dict:
+def _validate_segment_plan(plan: dict) -> list[int]:
+    segments = plan.get("segments")
+    if not isinstance(segments, list):
+        raise RuntimeError("segmented render plan has no segments")
+    if plan.get("renderer") != "hyperframes_segmented":
+        raise RuntimeError("segmented render plan uses an unexpected renderer")
+    indices = [int(item["index"]) for item in segments]
+    if not MIN_RENDER_SEGMENTS <= len(indices) <= MAX_RENDER_SEGMENTS:
+        raise RuntimeError(
+            f"fixed release requires {MIN_RENDER_SEGMENTS}-{MAX_RENDER_SEGMENTS} "
+            f"bounded render segments, got {len(indices)}",
+        )
+    if indices != list(range(1, len(indices) + 1)):
+        raise RuntimeError("segmented render indices must be contiguous")
+    if int(plan.get("segment_count") or 0) != len(indices):
+        raise RuntimeError("segmented render count does not match its segment list")
+    ceiling = float(plan.get("max_duration_sec") or 0)
+    if ceiling <= 0 or ceiling > 120.0:
+        raise RuntimeError("segmented render ceiling must be at most 120 seconds")
+    durations = [float(item.get("duration_sec") or 0) for item in segments]
+    if any(duration <= 0 for duration in durations):
+        raise RuntimeError("segmented render plan contains an empty segment")
+    if any(duration > ceiling + 0.001 for duration in durations):
+        raise RuntimeError("segmented render plan contains an oversized segment")
+    return indices
+
+
+def _prepared_file(output_dir: Path, raw: object, *, label: str) -> Path:
+    root = output_dir.resolve()
+    candidate = (root / str(raw or "")).resolve()
+    if candidate == root or root not in candidate.parents or not candidate.is_file():
+        raise RuntimeError(f"{label} must be a file under the prepared artifact")
+    return candidate
+
+
+def _load_preparation(output_dir: Path) -> tuple[dict, dict, dict]:
+    storyboard_path = output_dir / "storyboard.json"
+    plan_path = output_dir / "segmented-render-plan.json"
+    result = json.loads(
+        (output_dir / "segmented-preparation-result.json").read_text(encoding="utf-8"),
+    )
+    plan = json.loads(
+        plan_path.read_text(encoding="utf-8"),
+    )
+    storyboard = json.loads(
+        storyboard_path.read_text(encoding="utf-8"),
+    )
+    indices = _validate_segment_plan(plan)
+    if (
+        result.get("status") != "SEGMENTED_RENDER_PREPARED"
+        or result.get("image_calls") != IMAGE_CAP
+        or result.get("ai33_task_submissions") != TTS_CAP
+        or result.get("publication_authorized") is not False
+        or result.get("youtube_called") is not False
+        or result.get("segment_indices") != indices
+        or int(result.get("segment_count") or 0) != len(indices)
+        or result.get("storyboard_sha256") != sha256_file(storyboard_path)
+        or result.get("segment_plan_sha256") != sha256_file(plan_path)
+    ):
+        raise RuntimeError("segmented preparation result is incomplete or unsafe")
+    audio = _prepared_file(
+        output_dir,
+        result.get("master_audio"),
+        label="master audio",
+    )
+    thumbnail = _prepared_file(
+        output_dir,
+        result.get("thumbnail"),
+        label="thumbnail",
+    )
+    if (
+        not audio.is_file()
+        or sha256_file(audio) != result.get("master_audio_sha256")
+        or not thumbnail.is_file()
+        or sha256_file(thumbnail) != result.get("thumbnail_sha256")
+    ):
+        raise RuntimeError("segmented preparation media checksum mismatch")
+    return result, plan, storyboard
+
+
+def prepare_segmented(output_dir: Path) -> dict:
     preflight = dry_run(output_dir)
     script = json.loads((output_dir / "episode-script.json").read_text(encoding="utf-8"))
     provider_dir = output_dir / "provider-attempts"
@@ -280,18 +365,88 @@ def produce(output_dir: Path) -> dict:
         script, output_dir, tts_state=tts_state, visual_mode=EDITORIAL_MOTION_MODE,
     )
     write_json(output_dir / "storyboard.json", storyboard)
-    video = output_dir / "final-output.mp4"
-    render_report = render_chrome_guided_webtoon(
-        storyboard, output_dir, video, audio=audio,
-    )
-    write_json(output_dir / "render-report.json", render_report)
+    segment_plan = build_chrome_guided_segment_plan(storyboard, output_dir)
+    segment_indices = _validate_segment_plan(segment_plan)
+    write_json(output_dir / "segmented-render-plan.json", segment_plan)
     result = {
         **preflight,
-        "status": "READY_FOR_HUMAN_REVIEW",
-        "video": video.name, "video_sha256": sha256_file(video),
+        "status": "SEGMENTED_RENDER_PREPARED",
+        "storyboard": "storyboard.json",
+        "storyboard_sha256": sha256_file(output_dir / "storyboard.json"),
+        "segment_plan_sha256": sha256_file(output_dir / "segmented-render-plan.json"),
+        "master_audio": audio.relative_to(output_dir).as_posix(),
+        "master_audio_sha256": sha256_file(audio),
         "thumbnail": thumbnail.name, "thumbnail_sha256": sha256_file(thumbnail),
         "image_calls": len(images.calls), "ai33_task_submissions": len(ai33.calls),
+        "segment_count": len(segment_indices),
+        "segment_indices": segment_indices,
+        "segment_max_duration_sec": segment_plan["max_duration_sec"],
         "publication_authorized": False, "youtube_called": False,
+    }
+    write_json(output_dir / "segmented-preparation-result.json", result)
+    return result
+
+
+def render_segment(output_dir: Path, segment_index: int) -> dict:
+    preparation, plan, storyboard = _load_preparation(output_dir)
+    indices = _validate_segment_plan(plan)
+    if segment_index not in indices:
+        raise RuntimeError("requested segment is outside the prepared matrix")
+    output = output_dir / "render-segments" / f"segment-{segment_index:03d}.mp4"
+    report = render_chrome_guided_segment(
+        storyboard,
+        output_dir,
+        segment_index,
+        output,
+    )
+    if (
+        report.get("status") != "PASS"
+        or report.get("provider_calls") != 0
+        or report.get("youtube_called") is not False
+        or report.get("temporary_workspace_removed") is not True
+        or int(report.get("segment_count") or 0) != preparation["segment_count"]
+    ):
+        raise RuntimeError("bounded segment render returned an unsafe report")
+    write_json(
+        output_dir / "render-segments" / f"segment-{segment_index:03d}.json",
+        report,
+    )
+    return report
+
+
+def assemble_segmented(output_dir: Path) -> dict:
+    preparation, plan, storyboard = _load_preparation(output_dir)
+    indices = _validate_segment_plan(plan)
+    segment_paths = [
+        output_dir / "render-segments" / f"segment-{index:03d}.mp4"
+        for index in indices
+    ]
+    video = output_dir / "final-output.mp4"
+    audio = output_dir / str(preparation["master_audio"])
+    render_report = assemble_chrome_guided_segments(
+        storyboard,
+        output_dir,
+        segment_paths,
+        video,
+        audio=audio,
+    )
+    if (
+        render_report.get("status") != "PASS"
+        or render_report.get("provider_calls") != 0
+        or render_report.get("youtube_called") is not False
+        or render_report.get("temporary_frame_workspaces_removed") is not True
+        or int(render_report.get("segment_count") or 0) != len(indices)
+    ):
+        raise RuntimeError("segmented assembly returned an unsafe report")
+    write_json(output_dir / "render-report.json", render_report)
+    result = {
+        **preparation,
+        "status": "READY_FOR_HUMAN_REVIEW",
+        "video": video.name,
+        "video_sha256": sha256_file(video),
+        "render_segment_count": len(indices),
+        "render_strategy": render_report["render_strategy"],
+        "temporary_frame_workspaces_removed": True,
     }
     write_json(output_dir / "fixed-release-result.json", result)
     return result
@@ -300,16 +455,35 @@ def produce(output_dir: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--produce", action="store_true")
+    parser.add_argument("--prepare-segmented", action="store_true")
+    parser.add_argument("--render-segment", type=int)
+    parser.add_argument("--assemble-segmented", action="store_true")
     parser.add_argument("--confirm-image-ai33-spend", action="store_true")
     args = parser.parse_args()
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    if args.produce:
+    actions = sum((
+        bool(args.prepare_segmented),
+        args.render_segment is not None,
+        bool(args.assemble_segmented),
+    ))
+    if actions > 1:
+        raise SystemExit("choose exactly one segmented production action")
+    if args.prepare_segmented:
         if not args.confirm_image_ai33_spend:
             raise SystemExit("refusing provider calls without --confirm-image-ai33-spend")
-        result = produce(output_dir)
+        result = prepare_segmented(output_dir)
+    elif args.render_segment is not None:
+        if args.confirm_image_ai33_spend:
+            raise SystemExit("segment rendering cannot accept provider-spend confirmation")
+        result = render_segment(output_dir, args.render_segment)
+    elif args.assemble_segmented:
+        if args.confirm_image_ai33_spend:
+            raise SystemExit("segment assembly cannot accept provider-spend confirmation")
+        result = assemble_segmented(output_dir)
     else:
+        if args.confirm_image_ai33_spend:
+            raise SystemExit("dry-run preflight cannot accept provider-spend confirmation")
         result = dry_run(output_dir)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

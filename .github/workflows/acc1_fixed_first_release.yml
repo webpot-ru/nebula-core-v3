@@ -1,5 +1,5 @@
 name: acc1 Fixed First Release
-run-name: acc1 fixed first release at ${{ github.sha }}
+run-name: acc1 segmented fixed first release at ${{ github.sha }}
 
 on:
   workflow_dispatch:
@@ -23,15 +23,19 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: acc1-fixed-first-release-paid
+  cancel-in-progress: false
+
+env:
+  WORKDIR: build/acc1-fixed-first-release
+
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    concurrency:
-      group: acc1-fixed-first-release-paid
-      cancel-in-progress: false
-    env:
-      WORKDIR: build/acc1-fixed-first-release
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Refuse reruns and require exact confirmations
         env:
@@ -49,22 +53,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Install deterministic render dependencies
+      - name: Install preparation dependencies
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-          npx --yes hyperframes@0.7.61 info
+          ffprobe -version
       - name: Run no-provider fixed-input preflight
         run: |
           set -euo pipefail
-          # Fail before any provider credentials are exposed unless the exact
-          # approved webtoon renderer and preview hash are committed.
           python scripts/validate_acc1_video_style_v2.py --require-production-ready
           python scripts/run_acc1_fixed_first_release.py --output-dir "$WORKDIR"
           python - "$WORKDIR/fixed-input-preflight.json" <<'PY'
@@ -83,7 +82,7 @@ jobs:
           assert report["ai33_task_cap"] == 61
           assert report["publication_authorized"] is False
           PY
-      - name: Produce image-and-voice artifact
+      - name: Produce immutable image, voice and storyboard source
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
@@ -95,19 +94,168 @@ jobs:
           timeout --signal=TERM --kill-after=60s 18000s \
             python scripts/run_acc1_fixed_first_release.py \
               --output-dir "$WORKDIR" \
-              --produce \
+              --prepare-segmented \
               --confirm-image-ai33-spend
-      - name: Verify non-publishing result
+      - name: Export bounded render matrix
+        id: plan
         run: |
           set -euo pipefail
-          python - "$WORKDIR/fixed-release-result.json" <<'PY'
+          python - "$WORKDIR/segmented-render-plan.json" "$WORKDIR/segmented-preparation-result.json" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+
+          plan = json.load(open(sys.argv[1], encoding="utf-8"))
+          result = json.load(open(sys.argv[2], encoding="utf-8"))
+          segments = plan["segments"]
+          indices = [int(item["index"]) for item in segments]
+          ceiling = float(plan["max_duration_sec"])
+          assert plan["renderer"] == "hyperframes_segmented"
+          assert plan["segment_count"] == len(indices)
+          assert result["status"] == "SEGMENTED_RENDER_PREPARED"
+          assert result["image_calls"] == 69
+          assert result["ai33_task_submissions"] == 61
+          assert result["youtube_called"] is False
+          assert result["publication_authorized"] is False
+          assert result["segment_indices"] == indices
+          assert result["segment_count"] == len(indices)
+          assert 2 <= len(indices) <= 16
+          assert indices == list(range(1, len(indices) + 1))
+          assert 0 < ceiling <= 120.0
+          assert all(0 < float(item["duration_sec"]) <= ceiling + 0.001 for item in segments)
+          with open(sys.argv[3], "a", encoding="utf-8") as output:
+              output.write("matrix=" + json.dumps({"segment": indices}, separators=(",", ":")) + "\n")
+          PY
+          test ! -e "$WORKDIR/final-output.mp4"
+      - name: Upload immutable prepared source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-fixed-first-release-source-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
+
+  render:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install deterministic render dependencies
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+            --path "$RUNNER_TEMP/hyperframes-browsers"
+          browser_path="$(find "$RUNNER_TEMP/hyperframes-browsers" \
+            -type f -name chrome-headless-shell -perm -111 | head -n 1)"
+          test -x "$browser_path"
+          echo "HYPERFRAMES_BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
+      - name: Download immutable prepared source
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-fixed-first-release-source-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+      - name: Render one bounded silent segment
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_fixed_first_release.py \
+            --output-dir "$WORKDIR" \
+            --render-segment "${{ matrix.segment }}"
+      - name: Verify isolated segment
+        env:
+          SEGMENT: ${{ matrix.segment }}
+        run: |
+          set -euo pipefail
+          python - "$WORKDIR" "$SEGMENT" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          index = int(sys.argv[2])
+          report = json.load(open(root / "render-segments" / f"segment-{index:03d}.json", encoding="utf-8"))
+          plan = json.load(open(root / "segmented-render-plan.json", encoding="utf-8"))
+          assert report["status"] == "PASS"
+          assert report["segment_index"] == index
+          assert report["segment_count"] == plan["segment_count"]
+          assert report["duration_sec"] <= float(plan["max_duration_sec"]) + 0.12
+          assert report["provider_calls"] == 0
+          assert report["youtube_called"] is False
+          assert report["temporary_workspace_removed"] is True
+          assert (root / "render-segments" / f"segment-{index:03d}.mp4").stat().st_size > 0
+          PY
+      - name: Upload only rendered segment
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-fixed-first-release-segment-${{ matrix.segment }}-${{ github.run_id }}
+          path: |
+            ${{ env.WORKDIR }}/render-segments/segment-*.mp4
+            ${{ env.WORKDIR }}/render-segments/segment-*.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  assemble:
+    needs: [prepare, render]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deterministic assembly dependencies
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Download immutable prepared source
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-fixed-first-release-source-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+      - name: Download all rendered segments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: acc1-fixed-first-release-segment-*-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}/render-segments
+          merge-multiple: true
+      - name: Assemble segments without re-encoding video
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_fixed_first_release.py \
+            --output-dir "$WORKDIR" \
+            --assemble-segmented
+      - name: Verify final review package
+        run: |
+          set -euo pipefail
+          python - "$WORKDIR/fixed-release-result.json" "$WORKDIR/segmented-render-plan.json" <<'PY'
           import json
           import sys
 
           result = json.load(open(sys.argv[1], encoding="utf-8"))
+          plan = json.load(open(sys.argv[2], encoding="utf-8"))
           assert result["status"] == "READY_FOR_HUMAN_REVIEW"
           assert result["image_calls"] == 69
           assert result["ai33_task_submissions"] == 61
+          assert result["render_segment_count"] == plan["segment_count"]
+          assert result["render_strategy"] == "hyperframes_segmented_matrix"
+          assert result["temporary_frame_workspaces_removed"] is True
           assert result["publication_authorized"] is False
           assert result["youtube_called"] is False
           PY
@@ -115,11 +263,20 @@ jobs:
           test -s "$WORKDIR/youtube-thumbnail.png"
           ffprobe -v error -show_entries stream=codec_name,width,height \
             -of json "$WORKDIR/final-output.mp4"
-      - name: Upload review artifact
-        if: always()
+      - name: Upload final review artifact
         uses: actions/upload-artifact@v4
         with:
           name: acc1-fixed-first-release-${{ github.run_id }}
-          path: build/acc1-fixed-first-release
+          path: |
+            ${{ env.WORKDIR }}/final-output.mp4
+            ${{ env.WORKDIR }}/youtube-thumbnail.png
+            ${{ env.WORKDIR }}/editorial-motion-captions.srt
+            ${{ env.WORKDIR }}/episode-script.json
+            ${{ env.WORKDIR }}/storyboard.json
+            ${{ env.WORKDIR }}/segmented-render-plan.json
+            ${{ env.WORKDIR }}/segmented-preparation-result.json
+            ${{ env.WORKDIR }}/render-report.json
+            ${{ env.WORKDIR }}/fixed-release-result.json
           if-no-files-found: error
           retention-days: 30
+          compression-level: 0

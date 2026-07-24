@@ -28,24 +28,32 @@ an Actions artifact. Local execution is limited to source inspection, unit
 tests, lint/static validation and compile/type checks that do not create media.
 Do not download GitHub review media unless the owner explicitly requests it.
 
+The fixed first-release long render is a mandatory segmented GitHub pipeline:
+`prepare -> render matrix -> assemble`. Preparation performs the separately
+approved 69 VectorEngine and 61 AI33 calls once, freezes the v3 storyboard and
+exports a path-free segment plan. Matrix jobs have no provider credentials,
+render one silent segment each with a hard 120-second ceiling and run at most
+eight at once. Assembly verifies every segment, concatenates H.264 video
+without re-encoding and then muxes the frozen narration. Production rejects a
+one-segment plan and has no monolithic fallback. The successful historical
+reference is run `29888971818`, which produced nine bounded render jobs.
+
 The bounded HyperFrames recovery mode lives in the already registered
 `.github/workflows/acc1_single_audio_recovery.yml`. With
 `confirm_hyperframes_reuse_only=true` it consumes only artifact
 `acc1-format-v3-canary-29975009888`, whose four VectorEngine calls already
 completed without retries, plus its existing AI33 narration cut. The paid
 canary job is disabled in this mode and the workflow performs no new provider
-or YouTube calls. It fails closed unless the storyboard and every scene use
-`acc1_format_visual_system_v3`, renders through HyperFrames, applies the
-checksum-bound intro/CTA/outro, burns the approved single-line subtitle
-treatment, extracts four review frames and uploads a review-only GitHub
-artifact. Long transcript cues are split deterministically at word boundaries
-into sequential lines of at most 44 characters while preserving the original
-cue window. The SRT is paired with an ASS layout explicitly pinned to the
-1920x1080 canvas with a 42 px font and 38 px bottom margin, so captions occupy
-one line inside the fixed 130 px bottom band rather than scaling over the comic
-panels. The completed HyperFrames base MP4 and a partial report are copied to
-the upload directory before subtitle postprocessing, so an FFmpeg/SRT failure
-still leaves inspectable render evidence.
+or YouTube calls. The reuse path is itself segmented:
+`segmented_prepare -> segmented_render matrix -> segmented_assemble`.
+Preparation verifies the frozen four-call receipt, image checksums, storyboard,
+semantic camera bindings and existing narration. It chooses a canary-only
+ceiling just above the longest source scene, which forces `2–4` real,
+independent matrix jobs without cutting a scene. Each render job gets no
+provider secret, uses an isolated temporary HyperFrames workspace and uploads
+only its own silent segment. Assembly downloads every segment, verifies the
+deterministic plan, concatenates H.264 without video re-encoding, muxes the
+existing narration and leaves the final review artifact on GitHub.
 
 The separately bounded `.github/workflows/acc1_panel_grammar_canary.yml`
 exists only to visually validate the new five-page v3 panel rhythm. Its manual
@@ -65,7 +73,12 @@ npm run check
 npm run render
 ```
 
-For a no-provider cloud check, `acc1_single_audio_recovery.yml` reuses immutable images from run `29828099086` and the completed storyboard/master-MP3 overlay from run `29888971818`, then renders four existing consecutive scenes with the matching slice of that MP3. The artifact contains the short MP4, four PNG review frames and a zero-call report; the workflow exposes no AI33, image-provider or YouTube credentials.
+For the current no-spend segmentation check,
+`acc1_single_audio_recovery.yml` reuses the immutable four-page v3 artifact
+from run `29975009888` and its existing narration. The result is a short
+GitHub-only MP4 plus a checksum-bound preparation receipt, path-free segment
+plan, one report per render job and a final zero-call report. This proves the
+matrix/assembly route; it does not approve new provider spend or publication.
 
 Generate the current no-provider visual approval MP4 with:
 
@@ -109,13 +122,32 @@ python scripts/run_acc1_fixed_first_release.py \
   --output-dir build/acc1-fixed-first-release
 ```
 
-Without `--produce` this performs a no-network preflight and proves the exact
-provider envelope: 68 scene images, one thumbnail, zero automatic image
-retries and 61 AI33 narration tasks. The corresponding manual workflow is
+Without a production action this performs a no-network preflight and proves
+the exact provider envelope: 68 scene images, one thumbnail, zero automatic
+image retries and 61 AI33 narration tasks. The corresponding manual workflow is
 `.github/workflows/acc1_fixed_first_release.yml`. Its production step requires
 three explicit confirmations and contains no Reddit, Gemini, OpenAI or YouTube
-credentials or calls. `--produce --confirm-image-ai33-spend` is spend-enabled
-and must not be run locally or in GitHub without exact authorization.
+credentials or calls outside the `prepare` job.
+
+The workflow invokes the three production actions separately:
+
+```bash
+python scripts/run_acc1_fixed_first_release.py \
+  --output-dir build/acc1-fixed-first-release \
+  --prepare-segmented --confirm-image-ai33-spend
+
+python scripts/run_acc1_fixed_first_release.py \
+  --output-dir build/acc1-fixed-first-release \
+  --render-segment 1
+
+python scripts/run_acc1_fixed_first_release.py \
+  --output-dir build/acc1-fixed-first-release \
+  --assemble-segmented
+```
+
+These are workflow implementation references, not local-run instructions.
+`--prepare-segmented` is spend-enabled and must not run without exact provider
+authorization; MP4 rendering and assembly belong in GitHub Actions.
 
 **Russian dark-series references**: [`russian-longform-competitor-analysis-2026-07-11.md`](russian-longform-competitor-analysis-2026-07-11.md) and [`russian-horror-editorial-system.md`](russian-horror-editorial-system.md) remain the specialized evidence/editorial contracts for the horror series; they no longer define the whole `acc1` channel.
 

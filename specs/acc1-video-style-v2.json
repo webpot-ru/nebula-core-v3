@@ -10,9 +10,21 @@
   "renderer": {
     "required_id": "chrome_guided_webtoon_v2",
     "production_entrypoint": "scripts/run_acc1_fixed_first_release.py",
+    "production_workflow": ".github/workflows/acc1_fixed_first_release.yml",
+    "production_render_strategy": "hyperframes_segmented_matrix",
+    "segment_count_min": 2,
+    "segment_count_max": 16,
+    "segment_max_duration_sec": 120,
+    "matrix_max_parallel": 8,
+    "required_segmented_actions": [
+      "build_chrome_guided_segment_plan(",
+      "render_chrome_guided_segment(",
+      "assemble_chrome_guided_segments("
+    ],
     "forbidden_imports": [
       "from compilation_renderer import",
-      "render_compilation("
+      "render_compilation(",
+      "render_chrome_guided_webtoon("
     ],
     "forbidden_visual_patterns": [
       "large_narration_paragraph",
