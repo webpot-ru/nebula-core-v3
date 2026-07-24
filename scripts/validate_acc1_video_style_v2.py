@@ -58,10 +58,56 @@ def validate_contract(*, require_production_ready: bool = False) -> dict:
     entrypoint = ROOT / renderer["production_entrypoint"]
     source = entrypoint.read_text(encoding="utf-8")
     forbidden_hits = [token for token in renderer.get("forbidden_imports", []) if token in source]
+    required_actions = renderer.get("required_segmented_actions", [])
+    missing_actions = [token for token in required_actions if token not in source]
+    if (
+        renderer.get("production_render_strategy") != "hyperframes_segmented_matrix"
+        or renderer.get("segment_count_min") != 2
+        or renderer.get("segment_count_max") != 16
+        or renderer.get("segment_max_duration_sec") != 120
+        or renderer.get("matrix_max_parallel") != 8
+    ):
+        raise StyleContractError("segmented production limits drifted")
+
+    workflow_path = ROOT / renderer["production_workflow"]
+    workflow = workflow_path.read_text(encoding="utf-8")
+    required_workflow_tokens = [
+        "\n  prepare:\n",
+        "\n  render:\n",
+        "\n  assemble:\n",
+        "--prepare-segmented",
+        "--render-segment",
+        "--assemble-segmented",
+        "matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}",
+        "max-parallel: 8",
+        "ceiling <= 120.0",
+        "merge-multiple: true",
+    ]
+    missing_workflow_tokens = [
+        token for token in required_workflow_tokens if token not in workflow
+    ]
+    render_job = ""
+    assemble_job = ""
+    if "\n  render:\n" in workflow and "\n  assemble:\n" in workflow:
+        render_job = workflow.split("\n  render:\n", 1)[1].split("\n  assemble:\n", 1)[0]
+        assemble_job = workflow.split("\n  assemble:\n", 1)[1]
+    no_spend_secret_leaks = [
+        token
+        for token in ("VECTORENGINE_API_KEY", "AI33_API_KEY", "YOUTUBE_")
+        if token in render_job or token in assemble_job
+    ]
     approved_preview = contract.get("approval_gate", {}).get("approved_preview_sha256")
     blockers = []
     if forbidden_hits:
         blockers.append("legacy_renderer_still_wired")
+    if missing_actions:
+        blockers.append("segmented_renderer_actions_missing")
+    if missing_workflow_tokens:
+        blockers.append("segmented_workflow_topology_missing")
+    if no_spend_secret_leaks:
+        blockers.append("provider_secret_exposed_after_preparation")
+    if "--produce" in workflow:
+        blockers.append("monolithic_production_flag_present")
     if not approved_preview:
         blockers.append("approved_preview_sha256_missing")
 
@@ -69,6 +115,9 @@ def validate_contract(*, require_production_ready: bool = False) -> dict:
         "status": "PRODUCTION_READY" if not blockers else "BLOCKED",
         "style_id": contract["style_id"],
         "renderer_required": renderer["required_id"],
+        "render_strategy": renderer["production_render_strategy"],
+        "segment_max_duration_sec": renderer["segment_max_duration_sec"],
+        "matrix_max_parallel": renderer["matrix_max_parallel"],
         "subtitle_mode": subtitles["mode"],
         "brand_assets": checked_assets,
         "approved_preview_sha256": approved_preview,
