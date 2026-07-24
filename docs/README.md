@@ -6,7 +6,7 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 **GitHub**: [github.com/webpot-ru/nebula-core-v3](https://github.com/webpot-ru/nebula-core-v3) *(private)*
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-07-22
+**Last updated**: 2026-07-24
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
 
@@ -20,7 +20,13 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 
 **Current acc1 creative source of truth**: [`acc1-format-visual-system-v3.md`](acc1-format-visual-system-v3.md) locks one fully illustrated adult graphic-novel universe with distinct `BUNDLE`, `SAGA` and `THREAD` page grammars. New pages use a deterministic meaning-led 1–5 panel rhythm (establish, contrast, development, escalation, turning point), rather than a permanent three-panel template. Its three approved references live in [`assets/acc1-format-visual-system-v3/`](assets/acc1-format-visual-system-v3/). Photography, photomontage, near-photoreal reconstruction, orange-dominated universal styling and reuse of the former six-series / Ink & Gouache / collage reference boards are forbidden for new work. [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md) documents historical renderer evidence only.
 
-**Acc1 webtoon v2 production contract**: [`../specs/acc1-video-style-v2.json`](../specs/acc1-video-style-v2.json) remains the fail-closed source of truth for the `chrome_guided_webtoon_v2` renderer, meaning-led panel camera, centered one-line subtitle band, Russian-market character rules, Imagen-baked Russian thumbnail text, and checksum-bound intro/CTA/outro. Root [`../frame.md`](../frame.md) and [`acc1-format-visual-system-v3.md`](acc1-format-visual-system-v3.md) are the current creative references. The local v3 visual proof is `../videos/chonker-talks-format-v3-preview/renders/acc1-format-v3-preview.mp4`; it is verified local motion evidence, not a provider/GitHub/publication authorization.
+**Acc1 webtoon v2 production contract**: [`../specs/acc1-video-style-v2.json`](../specs/acc1-video-style-v2.json) remains the fail-closed source of truth for the `chrome_guided_webtoon_v2` renderer, meaning-led panel camera, centered one-line subtitle band, Russian-market character rules, Imagen-baked Russian thumbnail text, and checksum-bound intro/CTA/outro. Intro, transparent subscribe CTA and outro must preserve the active narration subtitle in the fixed band whenever narration continues. Root [`../frame.md`](../frame.md) and [`acc1-format-visual-system-v3.md`](acc1-format-visual-system-v3.md) are the current creative references. New v3 scenes carry canonical panel coordinates, source-bound reading order and explicit semantic camera paths consumed by both prompt generation and HyperFrames.
+
+**Video verification is GitHub-only**: run MP4 rendering, browser-frame capture,
+contact sheets and human visual review in GitHub Actions and keep the result as
+an Actions artifact. Local execution is limited to source inspection, unit
+tests, lint/static validation and compile/type checks that do not create media.
+Do not download GitHub review media unless the owner explicitly requests it.
 
 The bounded HyperFrames recovery mode lives in the already registered
 `.github/workflows/acc1_single_audio_recovery.yml`. With

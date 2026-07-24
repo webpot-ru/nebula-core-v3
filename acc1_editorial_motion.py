@@ -33,6 +33,7 @@ from acc1_visual_contract import (
     INK_GOUACHE_PAGE_LAYOUTS,
     INK_GOUACHE_STORY_FAMILIES,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+    build_format_visual_system_v3_semantic_camera,
     is_adult_animation_style_profile,
 )
 
@@ -396,6 +397,14 @@ def build_editorial_motion_contract(
                 "truth_status": "editorial_illustration",
                 "factual_text_rendering": "html_svg_only",
             }
+            if (
+                style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                and panel_grammar
+            ):
+                scene.update(build_format_visual_system_v3_semantic_camera(
+                    panel_beat_role,
+                    text,
+                ))
             for field in ("title", "source_label", "truth_mode"):
                 if metadata.get(field):
                     scene[{"title": "story_title"}.get(field, field)] = str(metadata[field])

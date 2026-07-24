@@ -11,6 +11,7 @@ from acc1_visual_contract import (
     EDITORIAL_MOTION_MODE,
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+    build_format_visual_system_v3_semantic_camera,
     select_format_visual_system_v3_panel_grammar,
 )
 from acc1_episode_images import EpisodeImageError, generate_episode_images, image_plan
@@ -206,6 +207,25 @@ class EpisodeImageTests(unittest.TestCase):
         )
         self.assertEqual(grammars[0]["beat_role"], "bundle_hook")
         self.assertEqual(grammars[4]["beat_role"], "bundle_turning_point")
+
+    def test_v3_semantic_camera_binds_each_panel_to_source_text_and_coordinates(self):
+        camera = build_format_visual_system_v3_semantic_camera(
+            "bundle_escalation",
+            "Первый смысловой фрагмент ведёт ко второму, затем к третьему и четвёртому.",
+        )
+        self.assertEqual(camera["camera_contract_version"], 1)
+        self.assertEqual(len(camera["panel_regions"]), 4)
+        self.assertEqual(len(camera["camera_path"]), 5)
+        self.assertEqual(camera["camera_path"][0]["kind"], "page_overview")
+        self.assertEqual(
+            [beat["panel_id"] for beat in camera["camera_path"][1:]],
+            ["dominant", "support_top", "support_middle", "support_bottom"],
+        )
+        self.assertEqual(camera["camera_path"][2]["transform"]["y"], 265)
+        self.assertEqual(
+            " ".join(beat["narration_excerpt"] for beat in camera["camera_path"][1:]),
+            "Первый смысловой фрагмент ведёт ко второму, затем к третьему и четвёртому.",
+        )
 
     def test_v3_plan_binds_panel_grammar_to_each_generated_asset(self):
         source_story = story("v3-grammar", words=160)

@@ -94,6 +94,7 @@ class WebtoonCanaryPageTests(unittest.TestCase):
         self.assertIn("never an orange-dominated universal palette", normalized)
         self.assertIn("Она закрыла дверь", normalized)
         self.assertIn("exactly one uninterrupted full-page hero image", normalized)
+        self.assertIn("Bind the visual reading order to the narration exactly", normalized)
 
     def test_canary_prompt_uses_a_different_panel_count_for_each_meaningful_beat(self):
         prompts = [
@@ -128,8 +129,14 @@ class WebtoonCanaryPageTests(unittest.TestCase):
                 page.write_bytes(f"page-{index}".encode())
                 pages.append(page)
             storyboard = {"slides": [
-                {"motion": {"module": "living_photo_depth"}},
-                {"motion": {"module": "evidence_transform"}},
+                {
+                    "motion": {"module": "living_photo_depth"},
+                    "narration_text": "Она увидела письмо и замерла.",
+                },
+                {
+                    "motion": {"module": "evidence_transform"},
+                    "narration_text": "Семья потребовала объяснений, но она отказалась отвечать.",
+                },
             ]}
             replaced = replace_scene_assets(storyboard, pages, root)
             self.assertEqual(len(replaced["slides"][0]["assets"]), 2)
@@ -142,4 +149,9 @@ class WebtoonCanaryPageTests(unittest.TestCase):
             self.assertEqual(replaced["slides"][0]["panel_count"], 1)
             self.assertEqual(replaced["slides"][1]["panel_count"], 5)
             self.assertEqual(replaced["slides"][0]["panel_grammar"], "bundle_hook")
+            self.assertEqual(
+                replaced["slides"][1]["semantic_focus"]["reading_order"],
+                ["dominant", "left_top", "left_bottom", "right_top", "right_bottom"],
+            )
+            self.assertEqual(len(replaced["slides"][1]["camera_path"]), 6)
             self.assertRegex(replaced["slides"][0]["asset_pack_sha256"], r"^[0-9a-f]{64}$")

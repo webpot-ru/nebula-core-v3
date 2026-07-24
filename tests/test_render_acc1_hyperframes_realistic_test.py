@@ -3,13 +3,16 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.render_acc1_hyperframes_realistic_test import (
     CAPTION_MAX_CHARS,
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+    attach_production_branding,
     brand_safe_caption_track,
     normalize_caption_track,
     repair_scene_bindings,
+    resolve_existing_audio,
     resolve_generated_storyboard,
     split_caption_cue,
     subtitle_filter,
@@ -21,6 +24,22 @@ from acc1_editorial_motion import bind_payload
 
 
 class HyperFramesRealisticTestTests(unittest.TestCase):
+    def test_reuses_valid_audio_already_at_destination(self):
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "narration-hyperframes-test.mp3"
+            destination.write_bytes(b"existing-mp3")
+            with patch(
+                "scripts.render_acc1_hyperframes_realistic_test._probe_duration",
+                return_value=12.0,
+            ) as probe:
+                resolved = resolve_existing_audio(
+                    Path(temp),
+                    storyboard={},
+                    destination=destination,
+                )
+        self.assertEqual(resolved, destination)
+        probe.assert_called_once_with(destination)
+
     def test_repairs_split_scene_ids_text_hashes_and_motion_plan(self):
         slides = [
             {
@@ -143,6 +162,25 @@ class HyperFramesRealisticTestTests(unittest.TestCase):
             rendered = output.read_text(encoding="utf-8")
         self.assertIn("Первая строка", rendered)
         self.assertNotIn("Скрытая строка", rendered)
+
+    def test_brand_inserts_do_not_create_caption_gaps(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, hidden_intervals = attach_production_branding(
+                {"timeline_duration_sec": 100.0},
+                Path(temp),
+            )
+        self.assertEqual(hidden_intervals, [])
+        track = {
+            "cues": [
+                {"start_sec": 4.7, "end_sec": 5.4, "text": "Интро"},
+                {"start_sec": 40.0, "end_sec": 41.0, "text": "Подпишись"},
+                {"start_sec": 98.0, "end_sec": 99.0, "text": "Аутро"},
+            ],
+        }
+        self.assertEqual(
+            brand_safe_caption_track(track, hidden_intervals)["cues"],
+            track["cues"],
+        )
 
     def test_splits_long_caption_into_contiguous_one_line_cues(self):
         source = {

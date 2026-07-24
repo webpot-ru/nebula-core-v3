@@ -1,6 +1,33 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-23
+Last updated: 2026-07-24
+
+## 2026-07-24 — Semantic camera and caption-safe brand proof implemented locally
+
+- The v3 visual contract now binds every `1–5` panel grammar to canonical
+  normalized panel regions. Page prompts and HyperFrames consume the same
+  source-text partition, named reading order and exact camera transforms.
+  Camera movement is therefore narration-led rather than selected from a
+  generic animation module.
+- Each scene begins with one complete comic page, then moves directly to the
+  panel whose bound excerpt is being narrated. There is no duplicated page
+  layer, random direction, shake or mandatory pull-back between details.
+- The subtitle contract keeps the active one-line narration caption visible
+  during intro, subscribe CTA and outro. Brand overlays no longer create
+  narration-caption gaps.
+- Targeted source/renderer/style tests pass (`56` tests), the fail-closed style
+  validator reports `PRODUCTION_READY`, and a temporary no-provider local proof
+  passed HyperFrames checks: H.264/AAC, 1920x1080 at 30 fps, `104.465011`
+  seconds, `45,826,429` bytes, SHA-256
+  `0df2115356c2bccc24ca99f6efedc8dbab4a85fff23e76b7d88ce9da736add85`.
+- The owner approved the visual result and changed the execution policy:
+  future MP4 renders, browser captures and visual-review evidence must run in
+  GitHub Actions and remain there as artifacts. Local work is limited to
+  no-media unit/static checks; review media should not be downloaded unless
+  explicitly requested.
+- This state is local implementation evidence until the corresponding GitHub
+  no-spend recovery run succeeds. No new VectorEngine, AI33 or YouTube call is
+  authorized by this change.
 
 ## 2026-07-23 — v3 pages generated; captions and panel grammar verified
 

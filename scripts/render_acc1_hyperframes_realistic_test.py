@@ -21,7 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from acc1_visual_contract import FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+from acc1_visual_contract import (
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+    build_format_visual_system_v3_semantic_camera,
+)
 from acc1_editorial_motion import bind_payload
 
 
@@ -121,6 +124,15 @@ def repair_scene_bindings(storyboard: dict[str, Any]) -> dict[str, Any]:
             raise RuntimeError(f"{scene_id} has no narration")
         scene["narration_text"] = narration
         scene["text_sha256"] = hashlib.sha256(narration.encode("utf-8")).hexdigest()
+        panel_beat_role = str(scene.get("panel_beat_role") or "")
+        if (
+            result.get("style_profile") == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+            and panel_beat_role
+        ):
+            scene.update(build_format_visual_system_v3_semantic_camera(
+                panel_beat_role,
+                narration,
+            ))
     motion_plan = result.get("motion_plan")
     if not isinstance(motion_plan, dict):
         raise RuntimeError("recovery storyboard has no motion plan")
@@ -136,6 +148,9 @@ def repair_scene_bindings(storyboard: dict[str, Any]) -> dict[str, Any]:
 def resolve_existing_audio(
     download_root: Path, *, storyboard: dict[str, Any], destination: Path,
 ) -> Path:
+    if destination.is_file() and destination.stat().st_size > 0:
+        _probe_duration(destination)
+        return destination
     matches = list(download_root.rglob("narration-canary.mp3"))
     if len(matches) == 1:
         shutil.copy2(matches[0], destination)
@@ -186,6 +201,7 @@ def attach_production_branding(
 ) -> tuple[dict[str, Any], list[tuple[float, float]]]:
     contract = _read_object(STYLE_CONTRACT)
     inserts = contract["brand_inserts"]
+    caption_visibility = contract["subtitles"]["visibility_during_brand_inserts"]
     brand_dir = artifact_root / "brand-inserts"
     brand_dir.mkdir(parents=True, exist_ok=True)
     duration = float(storyboard["timeline_duration_sec"])
@@ -221,7 +237,8 @@ def attach_production_branding(
             "duration_sec": round(insert_duration, 3),
             "audio_policy": "discard",
         }
-        hidden_intervals.append((start, start + insert_duration))
+        if caption_visibility.get(key) == "hidden":
+            hidden_intervals.append((start, start + insert_duration))
     return result, hidden_intervals
 
 

@@ -34,6 +34,15 @@ def validate_contract(*, require_production_ready: bool = False) -> dict:
         raise StyleContractError("subtitle text must be centered in both axes")
     if subtitles.get("band", {}).get("height") != 130:
         raise StyleContractError("subtitle band height drift")
+    expected_brand_caption_visibility = {
+        "intro": "visible",
+        "subscribe_cta": "visible",
+        "outro": "visible",
+    }
+    if subtitles.get("visibility_during_brand_inserts") != expected_brand_caption_visibility:
+        raise StyleContractError(
+            "all brand inserts must preserve captions while narration continues",
+        )
 
     checked_assets = {}
     for name, item in contract.get("brand_inserts", {}).items():

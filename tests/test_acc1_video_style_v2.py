@@ -18,6 +18,14 @@ class Acc1VideoStyleV2Tests(unittest.TestCase):
         self.assertEqual(contract["subtitles"]["line_count"], 1)
         self.assertEqual(contract["subtitles"]["vertical_alignment"], "center")
         self.assertEqual(contract["subtitles"]["band"]["height"], 130)
+        self.assertEqual(
+            contract["subtitles"]["visibility_during_brand_inserts"],
+            {
+                "intro": "visible",
+                "subscribe_cta": "visible",
+                "outro": "visible",
+            },
+        )
         self.assertEqual(contract["thumbnail"]["text_mode"], "imagen_baked_in")
         self.assertFalse(contract["approval_gate"]["provider_calls_before_approval"])
         self.assertEqual(set(contract["brand_inserts"]), {"intro", "subscribe_cta", "outro"})

@@ -12,12 +12,14 @@ from acc1_visual_contract import (
     EDITORIAL_MOTION_MODE,
     EDITORIAL_MOTION_STYLE_PROFILE,
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+    build_format_visual_system_v3_semantic_camera,
 )
 from compilation_editorial_motion_renderer import (
     EditorialMotionRenderError,
     _composition_html,
     _cinematic_webtoon_scene_tweens,
     _ink_gouache_scene_tweens,
+    _semantic_webtoon_scene_tweens,
     _run,
     preflight_editorial_motion_storyboard,
 )
@@ -219,6 +221,7 @@ class EditorialMotionRendererTests(unittest.TestCase):
         self.assertIn("40.300", tweens)
 
     def test_v3_profile_uses_complete_page_renderer_skin(self):
+        narration = "текст остаётся только в полосе субтитров"
         scene = {
             "scene_id": "story-motion-v3",
             "start_sec": 0.0,
@@ -229,9 +232,13 @@ class EditorialMotionRendererTests(unittest.TestCase):
             "page_layout": "bundle_story_opener",
             "story_title": "ОТДЕЛЬНАЯ ИСТОРИЯ",
             "source_label": "РЕДАКЦИОННАЯ ИЛЛЮСТРАЦИЯ",
-            "narration_text": "текст остаётся только в полосе субтитров",
+            "narration_text": narration,
             "motion": {"module": "living_photo_depth"},
             "workspace_assets": ["assets/hero.png", "assets/detail.png"],
+            **build_format_visual_system_v3_semantic_camera(
+                "bundle_hook",
+                narration,
+            ),
         }
         html = _composition_html(
             [scene], 20.0, style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
@@ -240,6 +247,8 @@ class EditorialMotionRendererTests(unittest.TestCase):
         self.assertIn("#root.profile-acc1_format_visual_system_v3 .hero-cutout", html)
         self.assertIn("object-fit:contain", html)
         self.assertNotIn("текст остаётся только в полосе субтитров", html)
+        self.assertEqual(html.count('src="assets/hero.png"'), 1)
+        self.assertNotIn('src="assets/detail.png"', html)
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -251,6 +260,29 @@ class EditorialMotionRendererTests(unittest.TestCase):
             )
             checked = preflight_editorial_motion_storyboard(storyboard, root)
         self.assertEqual(checked[0]["style_profile"], FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE)
+
+    def test_v3_semantic_tweens_follow_bound_panel_coordinates_without_pullbacks(self):
+        narration = (
+            "Сначала семья давит на героиню. Затем сестра плачет. "
+            "Героиня отказывает. Родители возмущаются."
+        )
+        scene = {
+            "scene_id": "story-motion-v3-semantic",
+            "start_sec": 10.0,
+            "end_sec": 34.0,
+            "duration_sec": 24.0,
+            "narration_text": narration,
+            **build_format_visual_system_v3_semantic_camera(
+                "bundle_escalation",
+                narration,
+            ),
+        }
+        tweens = "\n".join(_semantic_webtoon_scene_tweens(scene))
+        self.assertIn("scale:1.200,x:225,y:-20", tweens)
+        self.assertIn("scale:1.520,x:-480,y:265", tweens)
+        self.assertIn("scale:1.520,x:-480,y:-255", tweens)
+        self.assertNotIn("#portal-story-motion-v3-semantic', {scale", tweens)
+        self.assertNotIn("rotation", tweens)
 
 
 if __name__ == "__main__":
