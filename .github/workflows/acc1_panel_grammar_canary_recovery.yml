@@ -1,0 +1,132 @@
+name: acc1 Five-Page Panel Grammar Canary Recovery
+run-name: acc1 no-spend recovery for five pages from ${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Exact failed five-page canary artifact with five completed images
+        required: true
+        default: "30063115374"
+        type: string
+      confirm_reuse_only:
+        description: "Confirm reuse only: zero new VectorEngine, AI33 or YouTube calls"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  panel-grammar-canary-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    env:
+      SOURCE: build/acc1-five-page-failed-source
+      AUDIO: build/acc1-retained-v3-audio
+      OUTPUT: build/acc1-panel-grammar-recovery
+    steps:
+      - name: Check out the exact recovery implementation
+        uses: actions/checkout@v4
+        with:
+          ref: dc64506d2f070dccfe7edb2b64812e49769d13cc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Require exact no-spend scope
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIRM: ${{ inputs.confirm_reuse_only }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_RUN_ID" = "30063115374"
+          test "$CONFIRM" = "true"
+          mkdir -p "$OUTPUT"
+          printf '%s\n' '{"new_image_calls":0,"new_ai33_calls":0,"youtube_called":false}' > "$OUTPUT/run-scope.json"
+      - name: Install deterministic render dependencies
+        run: |
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          npx --yes hyperframes@0.7.61 info
+          npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+            --path "$RUNNER_TEMP/hyperframes-browsers"
+          browser_path="$(find "$RUNNER_TEMP/hyperframes-browsers" \
+            -type f -name chrome-headless-shell -perm -111 | head -n 1)"
+          test -x "$browser_path"
+          echo "HYPERFRAMES_BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
+      - name: Download five completed pages only
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-panel-grammar-canary-30063115374
+          path: ${{ env.SOURCE }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 30063115374
+      - name: Download retained existing narration only
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-format-v3-canary-29975009888
+          path: ${{ env.AUDIO }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 29975009888
+      - name: Prove completed inputs before recovery render
+        run: |
+          python - "$SOURCE" <<'PY'
+          import json
+          import pathlib
+          import sys
+          root = pathlib.Path(sys.argv[1])
+          storyboards = list(root.rglob("storyboard-generated.json"))
+          assert len(storyboards) == 1
+          storyboard = json.loads(storyboards[0].read_text())
+          assert len(storyboard["slides"]) == 5
+          assert [scene["panel_count"] for scene in storyboard["slides"]] == [1, 2, 3, 4, 5]
+          journal = json.loads((storyboards[0].parent / "paid-image-attempts.json").read_text())
+          assert journal["approved_call_cap"] == 5 and journal["automatic_retries"] == 0
+          assert len(journal["attempts"]) == 5 and all(item["status"] == "complete" for item in journal["attempts"])
+          assert any(scene.get("scene_id") != scene.get("slide_id") for scene in storyboard["slides"])
+          PY
+          test "$(find "$AUDIO" -type f -name narration-canary.mp3 | wc -l)" -eq 1
+      - name: Render from completed pages with repaired ID bindings
+        run: |
+          python scripts/render_acc1_hyperframes_realistic_test.py \
+            --artifact-root "$SOURCE" \
+            --audio-root "$AUDIO" \
+            --output-dir "$OUTPUT" \
+            --expected-page-count 5 \
+            --source-run-id "30063115374" \
+            --source-artifact "acc1-panel-grammar-canary-30063115374" \
+            --new-image-calls 0 \
+            --repair-scene-id-bindings
+      - name: Verify no-spend recovery output
+        run: |
+          test -s "$OUTPUT/acc1-hyperframes-realistic-test.mp4"
+          test -s "$OUTPUT/captions-brand-safe.srt"
+          test -s "$OUTPUT/captions-brand-safe.ass"
+          test "$(find "$OUTPUT/frames" -type f -name 'frame-*.png' | wc -l)" -eq 5
+          python - "$OUTPUT/render-report.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[1]))
+          assert report['status'] == 'PASS'
+          assert report['renderer'] == 'hyperframes'
+          assert report['hyperframes_check_passed'] is True
+          assert report['source_image_calls'] == 5
+          assert report['source_image_retries'] == 0
+          assert report['new_image_calls'] == 0 and report['new_ai33_calls'] == 0
+          assert report['youtube_called'] is False
+          PY
+      - name: Upload no-spend recovery review only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-panel-grammar-recovery-${{ github.run_id }}
+          path: ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 14

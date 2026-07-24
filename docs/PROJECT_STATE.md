@@ -1,6 +1,6 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-23
+Last updated: 2026-07-24
 
 ## 2026-07-23 — Five-page v3 panel-grammar canary recovery prepared
 
@@ -26,6 +26,14 @@ Last updated: 2026-07-23
   verified v3 `storyboard-generated.json` input, rather than using a broad
   semantic-file glob; an automated test covers the coexisting derived
   storyboard case before any image credential is exposed.
+- Run `30063115374` passed that preflight and completed exactly five
+  VectorEngine pages with zero retries. Rendering then stopped before MP4
+  output because the split opening beat had new `scene_id` values but retained
+  the copied source `slide_id`; no AI33 or YouTube call occurred. The future
+  generator now binds both IDs together. A separate no-spend recovery workflow
+  reuses only the five completed pages and the retained narration, repairs that
+  verified internal ID relation in its runner copy, rebinds the motion-plan
+  checksum, and exposes no VectorEngine or AI33 credential.
 
 ## Acc1 single-audio + SRT migration (GitHub task submitted; recovery pending)
 
