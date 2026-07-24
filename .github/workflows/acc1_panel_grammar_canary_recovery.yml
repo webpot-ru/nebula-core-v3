@@ -31,7 +31,7 @@ jobs:
       - name: Check out the exact recovery implementation
         uses: actions/checkout@v4
         with:
-          ref: dc64506d2f070dccfe7edb2b64812e49769d13cc
+          ref: f532d12c4ec1d0c389596bc29b16e4d25dfc236f
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -104,7 +104,7 @@ jobs:
             --source-run-id "30063115374" \
             --source-artifact "acc1-panel-grammar-canary-30063115374" \
             --new-image-calls 0 \
-            --repair-scene-id-bindings
+            --repair-scene-bindings
       - name: Verify no-spend recovery output
         run: |
           test -s "$OUTPUT/acc1-hyperframes-realistic-test.mp4"
