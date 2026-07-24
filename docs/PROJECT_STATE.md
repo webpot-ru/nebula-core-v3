@@ -2,6 +2,26 @@
 
 Last updated: 2026-07-24
 
+## 2026-07-24 — Semantic camera and caption-safe recovery verified in GitHub
+
+- Implementation commit `4761246ef088eebed36c9adf1bd3a6d85ecb8452`
+  binds each v3 page's canonical panel regions, source-text reading order and
+  explicit camera path. Intro, subscribe CTA and outro preserve active
+  narration subtitles in the fixed bottom band.
+- GitHub run `30080653348` completed successfully from workflow commit
+  `a25d61bd172c4f89f4abd2cdf431d769930e6e01`. It reused only the five
+  completed pages from run `30063115374` and the retained narration.
+- The runner verified all five semantic camera contracts, performed a complete
+  FFmpeg decode of the rendered MP4, extracted separate intro/CTA/outro caption
+  review frames and uploaded artifact
+  `acc1-semantic-camera-caption-safe-30080653348` (`92,506,789` bytes).
+- The workflow made zero new VectorEngine or AI33 calls and did not call
+  YouTube. This is GitHub/action-artifact verified and does not authorize
+  publication.
+- Owner policy is now GitHub-only for MP4 rendering, browser-frame capture and
+  visual-review evidence. Local execution is limited to no-media unit/static
+  checks; review media must not be downloaded unless explicitly requested.
+
 ## 2026-07-23 — Five-page v3 panel-grammar canary recovery prepared
 
 - GitHub run `29991895445` stopped before the first VectorEngine call because

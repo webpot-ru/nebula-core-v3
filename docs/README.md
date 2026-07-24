@@ -20,9 +20,16 @@ Agent entrypoint: [`../AGENTS.md`](../AGENTS.md). Read it together with [`PROJEC
 **GitHub**: [github.com/webpot-ru/nebula-core-v3](https://github.com/webpot-ru/nebula-core-v3) *(private)*
 **Brand**: ChonkerTalks  
 **Purpose**: Automated multilingual YouTube story-entertainment publishing pipeline
-**Last updated**: 2026-07-21
+**Last updated**: 2026-07-24
 
 **Current state for new chats**: read [`PROJECT_STATE.md`](PROJECT_STATE.md) first.
+
+**Video verification is GitHub-only**: run MP4 rendering, browser-frame
+capture, contact sheets and human visual review in GitHub Actions and keep the
+result as an Actions artifact. Local execution is limited to source inspection,
+unit tests, lint/static validation and compile/type checks that do not create
+media. Do not download GitHub review media unless the owner explicitly
+requests it.
 
 **Current topic decision**: [`topic-strategy-research-2026-07-10.md`](topic-strategy-research-2026-07-10.md) is the source of truth for channel ownership, source lanes, the 90-day plan, evidence boundaries, and validation gates.
 
