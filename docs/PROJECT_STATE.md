@@ -1,6 +1,6 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-20
+Last updated: 2026-07-23
 
 ## 2026-07-23 — Five-page v3 panel-grammar canary recovery prepared
 
@@ -19,6 +19,13 @@ Last updated: 2026-07-20
   the image key is exposed.
 - The old artifact's visual profile never becomes prompt input; every generated
   page is forced to the approved v3 profile before rendering.
+- Run `29999873852` downloaded that retained artifact and found the existing
+  narration successfully, but stopped in its no-provider preflight because the
+  artifact contains two semantic storyboard JSON files. It made zero
+  VectorEngine, AI33 or YouTube calls. The recovery now selects only the
+  verified v3 `storyboard-generated.json` input, rather than using a broad
+  semantic-file glob; an automated test covers the coexisting derived
+  storyboard case before any image credential is exposed.
 
 ## Acc1 single-audio + SRT migration (GitHub task submitted; recovery pending)
 

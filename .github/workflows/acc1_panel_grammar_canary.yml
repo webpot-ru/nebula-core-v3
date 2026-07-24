@@ -30,7 +30,7 @@ jobs:
       - name: Check out the verified canary implementation
         uses: actions/checkout@v4
         with:
-          ref: 00387be1eb756c12fc85f6602ce149d7aae66097
+          ref: b6ba06368fd346bb7594fc6c2612419ccfcd6864
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
