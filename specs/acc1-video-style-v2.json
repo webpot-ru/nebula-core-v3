@@ -56,7 +56,11 @@
     "text_color": "#f5f2ea",
     "outline_color": "#101010",
     "outline_px": 2,
-    "hide_during_brand_insert": true,
+    "visibility_during_brand_inserts": {
+      "intro": "visible",
+      "subscribe_cta": "visible",
+      "outro": "visible"
+    },
     "youtube_srt_required": true
   },
   "brand_inserts": {

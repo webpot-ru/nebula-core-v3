@@ -132,6 +132,9 @@ visual grammar of a horror SAGA.
   same push-in/pull-back sequence for every panel.
 - A new visual state should communicate a new beat, not merely satisfy a timer.
 - The fixed subtitle band remains stationary while the comic moves behind it.
+- Intro, transparent subscribe CTA and outro do not interrupt narration
+  captions; the active one-line subtitle remains visible in the fixed band
+  whenever narration continues.
 - Keep important faces, hands and evidence outside the subtitle exclusion area.
 
 ## Approval boundary

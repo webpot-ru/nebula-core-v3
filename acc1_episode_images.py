@@ -27,6 +27,7 @@ from acc1_visual_contract import (
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
     INK_GOUACHE_STORY_FAMILIES,
     INK_GOUACHE_PAGE_LAYOUTS,
+    build_format_visual_system_v3_semantic_camera,
     is_adult_animation_style_profile,
     resolve_visual_mode,
     select_format_visual_system_v3_panel_grammar,
@@ -571,6 +572,14 @@ def image_plan(
                     if active_style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
                     else None
                 )
+                semantic_camera = (
+                    build_format_visual_system_v3_semantic_camera(
+                        panel_grammar["id"],
+                        excerpt,
+                    )
+                    if panel_grammar is not None
+                    else None
+                )
                 for layer_role in EDITORIAL_LAYER_ROLES:
                     role_direction = (
                         "Create the wide hero plate: an establishing documentary composition with "
@@ -606,7 +615,21 @@ def image_plan(
                         else ""
                     )
                     panel_direction = (
-                        f"Panel grammar {panel_grammar['id']}: {panel_grammar['direction']} "
+                        (
+                            f"Panel grammar {panel_grammar['id']}: {panel_grammar['direction']} "
+                            "Bind the visual reading order to the narration exactly: "
+                            + "; ".join(
+                                (
+                                    f"{panel['panel_id']} ({panel['semantic_role']}) depicts only "
+                                    f"“{beat['narration_excerpt']}”"
+                                )
+                                for panel, beat in zip(
+                                    semantic_camera["panel_regions"],
+                                    semantic_camera["camera_path"][1:],
+                                )
+                            )
+                            + ". "
+                        )
                         if panel_grammar is not None
                         else ""
                     )

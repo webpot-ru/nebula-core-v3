@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 
 from acc1_visual_contract import (
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+    build_format_visual_system_v3_semantic_camera,
     select_format_visual_system_v3_panel_grammar,
 )
 from acc1_editorial_motion import bind_payload, canonical_hash
@@ -53,10 +54,24 @@ def page_prompt(scene: dict, index: int, scene_count: int = 4) -> str:
     panel_grammar = select_format_visual_system_v3_panel_grammar(
         "BUNDLE", index, scene_count,
     )
+    semantic_camera = build_format_visual_system_v3_semantic_camera(
+        panel_grammar["id"], moment,
+    )
+    panel_binding = "; ".join(
+        (
+            f"{panel['panel_id']} ({panel['semantic_role']}) depicts only "
+            f"“{beat['narration_excerpt']}”"
+        )
+        for panel, beat in zip(
+            semantic_camera["panel_regions"],
+            semantic_camera["camera_path"][1:],
+        )
+    )
     return (
         f"{STYLE}\n\n{IDENTITY}\n\n"
         f"Page {index} meaning-led panel grammar {panel_grammar['id']}: "
         f"{panel_grammar['direction']} "
+        f"Bind the visual reading order to the narration exactly: {panel_binding}. "
         f"Depict only this narrated moment: {moment} "
         "Do not invent another event, person, document, threat or outcome."
     )
@@ -102,6 +117,10 @@ def replace_scene_assets(storyboard: dict, pages: list[Path], root: Path) -> dic
         scene["panel_count"] = base["panel_count"]
         scene["panel_beat_role"] = base["panel_beat_role"]
         scene["style_profile"] = FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+        scene.update(build_format_visual_system_v3_semantic_camera(
+            base["panel_beat_role"],
+            scene.get("narration_text"),
+        ))
         pack_payload = {
             "asset_family_id": scene["asset_family_id"],
             "motion_module": base["motion_module"],

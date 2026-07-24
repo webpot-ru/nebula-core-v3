@@ -206,37 +206,151 @@ FORMAT_VISUAL_SYSTEM_V3_PANEL_GRAMMARS = {
         "panel_count": 1,
         "direction": (
             "Use exactly one uninterrupted full-page hero image with no internal panel dividers. "
-            "Let the location and the character's emotional state read immediately."
+            "Place the narrated emotional subject in the left or central dominant area and keep any "
+            "causal counterpoint readable on the right, so one deliberate camera move can clarify "
+            "the moment without inventing another panel."
+        ),
+        "regions": (
+            {
+                "panel_id": "dominant",
+                "semantic_role": "dominant_emotion",
+                "rect": (0.02, 0.02, 0.96, 0.86),
+                "camera": {"scale": 1.18, "x": 170, "y": -16},
+            },
         ),
     },
     "counterpoint_diptych": {
         "panel_count": 2,
         "direction": (
-            "Use exactly two unequal panels: one dominant 70-percent scene and one smaller "
-            "counterpoint, reaction, message or object panel."
+            "Use exactly two unequal panels: one dominant 70-percent scene on the left and one "
+            "smaller counterpoint, reaction, message or object panel on the right."
+        ),
+        "regions": (
+            {
+                "panel_id": "dominant",
+                "semantic_role": "dominant_action",
+                "rect": (0.01, 0.02, 0.71, 0.85),
+                "camera": {"scale": 1.18, "x": 180, "y": -20},
+            },
+            {
+                "panel_id": "counterpoint",
+                "semantic_role": "reaction_or_evidence",
+                "rect": (0.73, 0.02, 0.26, 0.85),
+                "camera": {"scale": 1.52, "x": -480, "y": -20},
+            },
         ),
     },
     "guided_triptych": {
         "panel_count": 3,
         "direction": (
-            "Use exactly three unequal panels: one dominant narrated interaction and two materially "
-            "different supporting details. Never use a symmetric grid."
+            "Use exactly three unequal panels: one dominant narrated interaction on the left and "
+            "two materially different supporting details stacked on the right. Never use a "
+            "symmetric grid."
+        ),
+        "regions": (
+            {
+                "panel_id": "dominant",
+                "semantic_role": "dominant_interaction",
+                "rect": (0.01, 0.02, 0.72, 0.85),
+                "camera": {"scale": 1.18, "x": 180, "y": -20},
+            },
+            {
+                "panel_id": "support_top",
+                "semantic_role": "reaction",
+                "rect": (0.74, 0.02, 0.25, 0.41),
+                "camera": {"scale": 1.52, "x": -480, "y": 230},
+            },
+            {
+                "panel_id": "support_bottom",
+                "semantic_role": "evidence_or_consequence",
+                "rect": (0.74, 0.45, 0.25, 0.42),
+                "camera": {"scale": 1.52, "x": -480, "y": -230},
+            },
         ),
     },
     "escalation_quartet": {
         "panel_count": 4,
         "direction": (
-            "Use exactly four uneven panels: one large escalating confrontation or discovery, then "
-            "three smaller cause, reaction or evidence panels with a clear reading path."
+            "Use exactly four uneven panels: one large escalating confrontation or discovery on "
+            "the left, then three smaller cause, reaction or evidence panels stacked on the right "
+            "with a clear top-to-bottom reading path."
+        ),
+        "regions": (
+            {
+                "panel_id": "dominant",
+                "semantic_role": "escalating_confrontation",
+                "rect": (0.01, 0.02, 0.61, 0.85),
+                "camera": {"scale": 1.20, "x": 225, "y": -20},
+            },
+            {
+                "panel_id": "support_top",
+                "semantic_role": "cause",
+                "rect": (0.63, 0.02, 0.36, 0.27),
+                "camera": {"scale": 1.52, "x": -480, "y": 265},
+            },
+            {
+                "panel_id": "support_middle",
+                "semantic_role": "reaction",
+                "rect": (0.63, 0.30, 0.36, 0.28),
+                "camera": {"scale": 1.52, "x": -480, "y": 0},
+            },
+            {
+                "panel_id": "support_bottom",
+                "semantic_role": "consequence",
+                "rect": (0.63, 0.59, 0.36, 0.28),
+                "camera": {"scale": 1.52, "x": -480, "y": -255},
+            },
         ),
     },
     "climax_mosaic": {
         "panel_count": 5,
         "direction": (
             "Use exactly five asymmetrical panels only for the narrated turning point: one dominant "
-            "emotional image surrounded by four brief, source-supported reaction or consequence fragments."
+            "central emotional image, two brief source-supported fragments stacked on the left and "
+            "two stacked on the right."
+        ),
+        "regions": (
+            {
+                "panel_id": "dominant",
+                "semantic_role": "turning_point",
+                "rect": (0.31, 0.02, 0.38, 0.85),
+                "camera": {"scale": 1.28, "x": 0, "y": -20},
+            },
+            {
+                "panel_id": "left_top",
+                "semantic_role": "context",
+                "rect": (0.01, 0.02, 0.31, 0.40),
+                "camera": {"scale": 1.52, "x": 480, "y": 225},
+            },
+            {
+                "panel_id": "left_bottom",
+                "semantic_role": "witness_or_cause",
+                "rect": (0.01, 0.44, 0.29, 0.43),
+                "camera": {"scale": 1.52, "x": 480, "y": -225},
+            },
+            {
+                "panel_id": "right_top",
+                "semantic_role": "pressure",
+                "rect": (0.69, 0.02, 0.30, 0.42),
+                "camera": {"scale": 1.52, "x": -480, "y": 225},
+            },
+            {
+                "panel_id": "right_bottom",
+                "semantic_role": "reaction_or_consequence",
+                "rect": (0.67, 0.46, 0.32, 0.41),
+                "camera": {"scale": 1.52, "x": -480, "y": -225},
+            },
         ),
     },
+}
+
+FORMAT_VISUAL_SYSTEM_V3_CAMERA_CONTRACT_VERSION = 1
+_FORMAT_VISUAL_SYSTEM_V3_FOCUS_FRACTIONS = {
+    1: (0.08,),
+    2: (0.08, 0.50),
+    3: (0.05, 0.36, 0.67),
+    4: (0.05, 0.28, 0.51, 0.74),
+    5: (0.05, 0.23, 0.41, 0.59, 0.77),
 }
 
 # Each sequence expresses narrative function, not a random visual shuffle. The
@@ -325,6 +439,109 @@ def select_format_visual_system_v3_panel_grammar(
         "grammar_id": grammar_id,
         "panel_count": grammar["panel_count"],
         "direction": grammar["direction"],
+    }
+
+
+def resolve_format_visual_system_v3_panel_grammar(panel_beat_role: object) -> dict[str, object]:
+    """Resolve a prompt-facing beat ID to its canonical panel grammar."""
+
+    normalized = str(panel_beat_role or "").strip()
+    matches = [
+        (format_id, grammar_id)
+        for format_id, beats in FORMAT_VISUAL_SYSTEM_V3_PANEL_BEATS.items()
+        for beat_role, grammar_id in beats
+        if beat_role == normalized
+    ]
+    if len(matches) != 1:
+        raise ValueError("panel_beat_role must identify one v3 panel grammar")
+    format_id, grammar_id = matches[0]
+    grammar = FORMAT_VISUAL_SYSTEM_V3_PANEL_GRAMMARS[grammar_id]
+    return {
+        "id": normalized,
+        "format_id": format_id,
+        "grammar_id": grammar_id,
+        "panel_count": grammar["panel_count"],
+        "direction": grammar["direction"],
+        "regions": grammar["regions"],
+    }
+
+
+def _format_visual_system_v3_narration_chunks(text: object, count: int) -> list[str]:
+    normalized = " ".join(str(text or "").split())
+    words = normalized.split()
+    if not words:
+        raise ValueError("semantic camera narration cannot be empty")
+    if len(words) < count:
+        return [normalized for _ in range(count)]
+    boundaries = [round(index * len(words) / count) for index in range(count + 1)]
+    chunks = [
+        " ".join(words[boundaries[index]:boundaries[index + 1]])
+        for index in range(count)
+    ]
+    if any(not chunk for chunk in chunks) or " ".join(chunks) != normalized:
+        raise ValueError("semantic camera narration partition drifted")
+    return chunks
+
+
+def build_format_visual_system_v3_semantic_camera(
+    panel_beat_role: object, narration_text: object,
+) -> dict[str, object]:
+    """Bind normalized panel coordinates and camera beats to exact narration.
+
+    The page-generation prompt and the renderer consume the same geometry.
+    Camera moves therefore target a named panel associated with a source-text
+    excerpt instead of choosing a direction from a generic animation module.
+    """
+
+    grammar = resolve_format_visual_system_v3_panel_grammar(panel_beat_role)
+    regions = [
+        {
+            "panel_id": str(region["panel_id"]),
+            "semantic_role": str(region["semantic_role"]),
+            "rect": [float(value) for value in region["rect"]],
+            "camera": {
+                "scale": float(region["camera"]["scale"]),
+                "x": int(region["camera"]["x"]),
+                "y": int(region["camera"]["y"]),
+            },
+        }
+        for region in grammar["regions"]
+    ]
+    chunks = _format_visual_system_v3_narration_chunks(narration_text, len(regions))
+    fractions = _FORMAT_VISUAL_SYSTEM_V3_FOCUS_FRACTIONS[len(regions)]
+    camera_path = [{
+        "beat_id": "overview",
+        "kind": "page_overview",
+        "at_fraction": 0.0,
+        "panel_id": None,
+        "semantic_role": "establish_page",
+        "narration_excerpt": "",
+        "transform": {"scale": 1.0, "x": 0, "y": 0},
+    }]
+    for index, (region, excerpt, fraction) in enumerate(
+        zip(regions, chunks, fractions), start=1,
+    ):
+        camera_path.append({
+            "beat_id": f"focus_{index:02d}_{region['panel_id']}",
+            "kind": "semantic_panel_focus",
+            "at_fraction": fraction,
+            "panel_id": region["panel_id"],
+            "semantic_role": region["semantic_role"],
+            "narration_excerpt": excerpt,
+            "transform": dict(region["camera"]),
+        })
+    normalized_text = " ".join(str(narration_text or "").split())
+    return {
+        "camera_contract_version": FORMAT_VISUAL_SYSTEM_V3_CAMERA_CONTRACT_VERSION,
+        "panel_regions": regions,
+        "semantic_focus": {
+            "primary_panel_id": regions[0]["panel_id"],
+            "reading_order": [region["panel_id"] for region in regions],
+            "source_text_sha256": hashlib.sha256(
+                normalized_text.encode("utf-8"),
+            ).hexdigest(),
+        },
+        "camera_path": camera_path,
     }
 EDITORIAL_MOTION_MIN_SCENE_SECONDS = 18.0
 EDITORIAL_MOTION_TARGET_SCENE_SECONDS = 36.0

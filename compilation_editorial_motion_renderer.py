@@ -31,6 +31,7 @@ from acc1_visual_contract import (
     INK_GOUACHE_PAGE_LAYOUTS,
     INK_GOUACHE_STORY_FAMILIES,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+    build_format_visual_system_v3_semantic_camera,
     is_adult_animation_style_profile,
     select_format_visual_system_v3_panel_grammar,
 )
@@ -187,6 +188,25 @@ def preflight_editorial_motion_storyboard(
                 # and let the planner enforce its exact sequence.
                 if not panel_grammar.startswith(expected_grammar["format_id"].lower() + "_"):
                     raise EditorialMotionRenderError(f"{scene_id} has an invalid v3 panel grammar")
+                try:
+                    expected_camera = build_format_visual_system_v3_semantic_camera(
+                        str(scene.get("panel_beat_role") or panel_grammar),
+                        narration,
+                    )
+                except ValueError as exc:
+                    raise EditorialMotionRenderError(
+                        f"{scene_id} has no valid semantic camera contract",
+                    ) from exc
+                for field in (
+                    "camera_contract_version",
+                    "panel_regions",
+                    "semantic_focus",
+                    "camera_path",
+                ):
+                    if scene.get(field) != expected_camera[field]:
+                        raise EditorialMotionRenderError(
+                            f"{scene_id} semantic camera {field} drifted",
+                        )
         elif is_adult_animation_style_profile(profile):
             series = ADULT_ANIMATION_SERIES[profile]
             if (
@@ -249,6 +269,25 @@ def _scene_markup(
     title = html.escape(str(scene.get("story_title") or "ИСТОРИЯ"))
     source = html.escape(str(scene.get("source_label") or "РЕДАКЦИОННАЯ ИЛЛЮСТРАЦИЯ"))
     hero, detail = (html.escape(path, quote=True) for path in copied_assets)
+    semantic_v3 = style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+    if semantic_v3:
+        hero_plate_markup = f'<div class="hero-plate" id="hero-{scene_id}"></div>'
+        portal_markup = f'<div class="portal-shell" id="portal-{scene_id}"></div>'
+        object_markup = f'<div class="object-fragment" id="object-{scene_id}"></div>'
+    else:
+        hero_plate_markup = (
+            f'<img class="hero-plate" id="hero-{scene_id}" src="{hero}" alt="" '
+            'data-layout-allow-overflow>'
+        )
+        portal_markup = (
+            f'<div class="portal-shell" id="portal-{scene_id}" data-layout-allow-overflow>'
+            f'<div class="portal-glow"></div><img src="{detail}" alt="" '
+            'data-layout-allow-overflow><i></i></div>'
+        )
+        object_markup = (
+            f'<div class="object-fragment" id="object-{scene_id}" data-layout-allow-overflow>'
+            f'<img src="{detail}" alt="" data-layout-allow-overflow></div>'
+        )
     adult_style = is_adult_animation_style_profile(style_profile)
     guided_webtoon_style = style_profile in {
         CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
@@ -297,18 +336,14 @@ def _scene_markup(
       <section class="clip motion-scene module-{module} family-{story_family} layout-{page_layout} grammar-{panel_grammar} presentation-{presentation}" id="clip-{scene_id}"
         {timing_attributes}>
         <div class="scene-inner" id="inner-{scene_id}" data-layout-allow-overflow>
-          <img class="hero-plate" id="hero-{scene_id}" src="{hero}" alt="" data-layout-allow-overflow>
+          {hero_plate_markup}
           <div class="scene-grade" id="grade-{scene_id}"></div>
           {color_planes}
           <div class="hero-cutout" id="cutout-{scene_id}" data-layout-allow-overflow>
             <img src="{hero}" alt="" data-layout-allow-overflow>
           </div>
-          <div class="portal-shell" id="portal-{scene_id}" data-layout-allow-overflow>
-            <div class="portal-glow"></div><img src="{detail}" alt="" data-layout-allow-overflow><i></i>
-          </div>
-          <div class="object-fragment" id="object-{scene_id}" data-layout-allow-overflow>
-            <img src="{detail}" alt="" data-layout-allow-overflow>
-          </div>
+          {portal_markup}
+          {object_markup}
           <svg class="story-line" id="line-{scene_id}" viewBox="0 0 1920 1080" aria-hidden="true">
             <path d="M72 640 C330 525 470 610 690 500 S1060 280 1260 410 S1550 720 1870 470"/>
           </svg>
@@ -525,6 +560,133 @@ def _adult_animation_scene_tweens(scene: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _cinematic_webtoon_scene_tweens(scene: dict[str, Any]) -> list[str]:
+    """Read two complete comic pages without rebuilding them as a collage.
+
+    The paid hero and detail assets are already composed webtoon pages.  Each
+    remains intact while the camera establishes it and then moves toward a
+    deterministic narration-relevant region.  The second page crossfades in
+    once, so there is no mechanical push/pull/reset loop.
+    """
+
+    sid = _safe_id(str(scene["scene_id"]))
+    start = float(scene["start_sec"])
+    duration = float(scene["duration_sec"])
+    layout = str(scene.get("page_layout") or "hero_left_details_right")
+    module = str((scene.get("motion") or {}).get("module") or "living_photo_depth")
+    entrance = max(0.0, start - 0.34) if start > 0 else start
+    exit_at = max(start + 0.2, start + duration - 0.30)
+    hero_focus = {
+        "hero_left_details_right": (1.16, 92, -18),
+        "phone_portal_insets": (1.22, -138, -26),
+        "message_cascade": (1.18, 118, -34),
+        "vertical_routine_triptych": (1.20, -42, -20),
+        "evidence_slits": (1.24, -154, 4),
+        "rumor_table_wide": (1.15, 0, -42),
+        "corridor_false_claim": (1.21, 132, -22),
+        "empty_desk_release": (1.14, -70, -20),
+    }.get(layout, (1.16, 0, -20))
+    detail_focus = {
+        "living_photo_depth": (1.18, 74, -20),
+        "evidence_transform": (1.30, -184, -48),
+        "digital_memory_stack": (1.27, -152, -32),
+        "graphic_timeline": (1.22, 108, -38),
+        "dark_semantic_reveal": (1.25, -116, -34),
+        "nested_collage_zoom": (1.32, -210, -54),
+    }.get(module, (1.20, 0, -24))
+    hero_scale, hero_x, hero_y = hero_focus
+    detail_scale, detail_x, detail_y = detail_focus
+    hero_move_at = start + 0.30
+    page_turn_at = start + duration * 0.49
+    detail_move_at = page_turn_at + 0.46
+    hero_move_duration = max(0.4, page_turn_at - hero_move_at)
+    detail_move_duration = max(0.4, exit_at - detail_move_at)
+    return [
+        f"tl.fromTo('#inner-{sid}', {{opacity:0}}, {{opacity:1,duration:.36,ease:'power1.out'}}, {entrance:.3f});",
+        f"tl.to('#inner-{sid}', {{opacity:0,duration:.30,ease:'power1.in'}}, {exit_at:.3f});",
+        f"tl.set('#inner-{sid}', {{opacity:0}}, {start + duration:.3f});",
+        f"tl.set('#hero-{sid}', {{opacity:0}}, {start:.3f});",
+        f"tl.set('#object-{sid}', {{opacity:0}}, {start:.3f});",
+        f"tl.fromTo('#cutout-{sid}', {{opacity:1,scale:1,x:0,y:0}}, {{scale:{hero_scale:.3f},x:{hero_x},y:{hero_y},duration:{hero_move_duration:.3f},ease:'sine.inOut'}}, {hero_move_at:.3f});",
+        f"tl.fromTo('#portal-{sid}', {{opacity:0,scale:1,x:0,y:0}}, {{opacity:1,duration:.46,ease:'power1.inOut'}}, {page_turn_at:.3f});",
+        f"tl.to('#cutout-{sid}', {{opacity:0,duration:.46,ease:'power1.inOut'}}, {page_turn_at:.3f});",
+        f"tl.to('#portal-{sid}', {{scale:{detail_scale:.3f},x:{detail_x},y:{detail_y},duration:{detail_move_duration:.3f},ease:'sine.inOut'}}, {detail_move_at:.3f});",
+    ]
+
+
+def _semantic_webtoon_scene_tweens(scene: dict[str, Any]) -> list[str]:
+    """Animate one complete v3 page through its source-bound panel path."""
+
+    sid = _safe_id(str(scene["scene_id"]))
+    start = float(scene["start_sec"])
+    duration = float(scene["duration_sec"])
+    entrance = max(0.0, start - 0.24) if start > 0 else start
+    exit_at = max(start + 0.2, start + duration - 0.30)
+    camera_path = scene.get("camera_path")
+    if not isinstance(camera_path, list) or len(camera_path) < 2:
+        raise EditorialMotionRenderError(f"{sid} has no semantic camera path")
+    overview = camera_path[0]
+    initial = overview.get("transform") if isinstance(overview, dict) else None
+    if not isinstance(initial, dict):
+        raise EditorialMotionRenderError(f"{sid} semantic overview is invalid")
+    lines = [
+        (
+            f"tl.set('#cutout-{sid}', {{opacity:1,scale:{float(initial['scale']):.3f},"
+            f"x:{int(initial['x'])},y:{int(initial['y'])}}}, {entrance:.3f});"
+        ),
+        f"tl.fromTo('#inner-{sid}', {{opacity:0}}, {{opacity:1,duration:.32,ease:'power1.out'}}, {entrance:.3f});",
+        f"tl.to('#inner-{sid}', {{opacity:0,duration:.30,ease:'power1.in'}}, {exit_at:.3f});",
+        f"tl.set('#inner-{sid}', {{opacity:0}}, {start + duration:.3f});",
+    ]
+    transition_duration = min(1.25, max(0.68, duration * 0.055))
+    first_focus_at = start + duration * float(camera_path[1]["at_fraction"])
+    overview_duration = max(0.25, first_focus_at - start)
+    lines.append(
+        (
+            f"tl.to('#cutout-{sid}', {{scale:{float(initial['scale']) + 0.012:.3f},"
+            f"x:{int(initial['x']) + 3},y:{int(initial['y']) - 2},"
+            f"duration:{overview_duration:.3f},ease:'none'}}, {start:.3f});"
+        ),
+    )
+    focus_beats = camera_path[1:]
+    for index, beat in enumerate(focus_beats):
+        if not isinstance(beat, dict) or not isinstance(beat.get("transform"), dict):
+            raise EditorialMotionRenderError(f"{sid} semantic camera beat is invalid")
+        target = beat["transform"]
+        at = start + duration * float(beat["at_fraction"])
+        role = str(beat.get("semantic_role") or "")
+        if "reaction" in role:
+            ease = "power2.out"
+        elif "evidence" in role or "cause" in role:
+            ease = "power2.inOut"
+        else:
+            ease = "sine.inOut"
+        lines.append(
+            (
+                f"tl.to('#cutout-{sid}', {{scale:{float(target['scale']):.3f},"
+                f"x:{int(target['x'])},y:{int(target['y'])},"
+                f"duration:{transition_duration:.3f},ease:'{ease}'}}, {at:.3f});"
+            ),
+        )
+        next_at = (
+            start + duration * float(focus_beats[index + 1]["at_fraction"])
+            if index + 1 < len(focus_beats)
+            else exit_at
+        )
+        settle_at = at + transition_duration
+        settle_duration = max(0.25, next_at - settle_at)
+        settle_x = int(target["x"]) + (6 if int(target["x"]) >= 0 else -6)
+        settle_y = int(target["y"]) + (3 if int(target["y"]) >= 0 else -3)
+        lines.append(
+            (
+                f"tl.to('#cutout-{sid}', {{scale:{float(target['scale']) + 0.014:.3f},"
+                f"x:{settle_x},y:{settle_y},duration:{settle_duration:.3f},"
+                f"ease:'none'}}, {settle_at:.3f});"
+            ),
+        )
+    return lines
+
+
 def _timeline_script(scenes: list[dict[str, Any]], *, style_profile: str) -> str:
     full_duration = max(float(scene["end_sec"]) for scene in scenes)
     lines = [
@@ -538,10 +700,10 @@ def _timeline_script(scenes: list[dict[str, Any]], *, style_profile: str) -> str
         duration = float(scene["duration_sec"])
         module = str(scene["motion"]["module"])
         tail = max(start + 0.2, start + duration - 0.8)
-        if style_profile in {
-            CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
-            FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
-        }:
+        if style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
+            lines.extend(_semantic_webtoon_scene_tweens(scene))
+            continue
+        if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE:
             lines.extend(_cinematic_webtoon_scene_tweens(scene))
             continue
         if style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE:
@@ -650,6 +812,7 @@ def _composition_html(scenes: list[dict[str, Any]], duration: float, *, style_pr
 #root.profile-cinematic_ink_webtoon_v1 .hero-plate,#root.profile-cinematic_ink_webtoon_v1 .scene-grade,#root.profile-cinematic_ink_webtoon_v1 .color-plane,#root.profile-cinematic_ink_webtoon_v1 .object-fragment,#root.profile-cinematic_ink_webtoon_v1 .story-line,#root.profile-cinematic_ink_webtoon_v1 .story-copy,#root.profile-cinematic_ink_webtoon_v1 .timeline-rig,#root.profile-cinematic_ink_webtoon_v1 .dark-reveal,#root.profile-cinematic_ink_webtoon_v1 .foreground-tear,#root.profile-acc1_format_visual_system_v3 .hero-plate,#root.profile-acc1_format_visual_system_v3 .scene-grade,#root.profile-acc1_format_visual_system_v3 .color-plane,#root.profile-acc1_format_visual_system_v3 .object-fragment,#root.profile-acc1_format_visual_system_v3 .story-line,#root.profile-acc1_format_visual_system_v3 .story-copy,#root.profile-acc1_format_visual_system_v3 .timeline-rig,#root.profile-acc1_format_visual_system_v3 .dark-reveal,#root.profile-acc1_format_visual_system_v3 .foreground-tear{{display:none}}
 #root.profile-cinematic_ink_webtoon_v1 .hero-cutout,#root.profile-cinematic_ink_webtoon_v1 .portal-shell,#root.profile-acc1_format_visual_system_v3 .hero-cutout,#root.profile-acc1_format_visual_system_v3 .portal-shell{{position:absolute;left:18px;right:18px;top:18px;bottom:18px;width:auto;height:auto;border:5px solid var(--webtoon-ink);border-radius:18px;background:var(--webtoon-paper);clip-path:none;box-shadow:none;filter:none;overflow:hidden;padding:0;transform-origin:center center;will-change:transform,opacity;z-index:3}}
 #root.profile-cinematic_ink_webtoon_v1 .portal-shell,#root.profile-acc1_format_visual_system_v3 .portal-shell{{z-index:4}}
+#root.profile-acc1_format_visual_system_v3 .portal-shell{{display:none}}
 #root.profile-cinematic_ink_webtoon_v1 .hero-cutout img,#root.profile-cinematic_ink_webtoon_v1 .portal-shell img,#root.profile-acc1_format_visual_system_v3 .hero-cutout img,#root.profile-acc1_format_visual_system_v3 .portal-shell img{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;filter:none;transform:none}}
 #root.profile-cinematic_ink_webtoon_v1 .portal-shell i,#root.profile-cinematic_ink_webtoon_v1 .portal-glow,#root.profile-acc1_format_visual_system_v3 .portal-shell i,#root.profile-acc1_format_visual_system_v3 .portal-glow{{display:none}}
 /* Adult Animation v1: six original episodic comic series, not a single page skin. */
