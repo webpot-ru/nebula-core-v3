@@ -34,6 +34,13 @@ Last updated: 2026-07-24
   reuses only the five completed pages and the retained narration, repairs that
   verified internal ID relation in its runner copy, rebinds the motion-plan
   checksum, and exposes no VectorEngine or AI33 credential.
+- No-spend recovery run `30064791933` downloaded and verified all five pages
+  plus the retained narration, then stopped before HyperFrames because the
+  split opening narration still carried its pre-split `text_sha256`. It made
+  zero VectorEngine, AI33 and YouTube calls. The recovery now deterministically
+  rebinds both scene identifiers and normalized narration hashes, rebuilds the
+  motion-plan checksum, and passes the complete editorial renderer preflight in
+  the local test suite before cloud execution.
 
 ## Acc1 single-audio + SRT migration (GitHub task submitted; recovery pending)
 
