@@ -8,6 +8,7 @@ performs no provider or YouTube calls.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import shutil
@@ -21,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from acc1_visual_contract import FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+from acc1_editorial_motion import bind_payload
 
 
 SOURCE_RUN_ID = "29975009888"
@@ -88,6 +90,41 @@ def verify_paid_generation_receipt(
             f"source image receipt is not exactly {expected_page_count} completed calls without retries",
         )
     return journal
+
+
+def repair_scene_id_bindings(storyboard: dict[str, Any]) -> dict[str, Any]:
+    """Repair only the historical split-scene ID binding in a copied artifact.
+
+    The failed five-page run already contains five completed image pages.  Its
+    opening beat was split into setup and reveal, but the two copied ``slide_id``
+    values retained the source ID while their ``scene_id`` values changed.  This
+    deterministic recovery fixes that internal relation and rebinds the motion
+    plan; it never changes narration, timing, assets or the provider receipt.
+    """
+
+    result = copy.deepcopy(storyboard)
+    slides = result.get("slides")
+    if not isinstance(slides, list) or not slides:
+        raise RuntimeError("recovery storyboard has no slides")
+    seen: set[str] = set()
+    for scene in slides:
+        if not isinstance(scene, dict):
+            raise RuntimeError("recovery storyboard contains a non-object scene")
+        scene_id = str(scene.get("scene_id") or "")
+        if not scene_id or scene_id in seen:
+            raise RuntimeError("recovery requires unique scene ids")
+        seen.add(scene_id)
+        scene["slide_id"] = scene_id
+    motion_plan = result.get("motion_plan")
+    if not isinstance(motion_plan, dict):
+        raise RuntimeError("recovery storyboard has no motion plan")
+    repaired_plan = dict(motion_plan)
+    repaired_plan.pop("motion_plan_sha256", None)
+    repaired_plan["scene_count"] = len(slides)
+    repaired_plan["scenes"] = copy.deepcopy(slides)
+    result["motion_plan"] = bind_payload(repaired_plan, "motion_plan_sha256")
+    result["motion_plan_sha256"] = result["motion_plan"]["motion_plan_sha256"]
+    return result
 
 
 def resolve_existing_audio(
@@ -375,6 +412,11 @@ def main() -> int:
     parser.add_argument("--source-run-id", default=SOURCE_RUN_ID)
     parser.add_argument("--source-artifact", default=SOURCE_ARTIFACT)
     parser.add_argument("--new-image-calls", type=int, choices=range(0, 6), default=0)
+    parser.add_argument(
+        "--repair-scene-id-bindings",
+        action="store_true",
+        help="Repair only the known historical scene_id/slide_id mismatch in the downloaded artifact.",
+    )
     args = parser.parse_args()
 
     download_root = Path(args.artifact_root).resolve()
@@ -388,6 +430,12 @@ def main() -> int:
         storyboard_path, expected_page_count=args.expected_page_count,
     )
     artifact_root = storyboard_path.parent
+    if args.repair_scene_id_bindings:
+        storyboard = repair_scene_id_bindings(storyboard)
+        storyboard_path.write_text(
+            json.dumps(storyboard, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     audio = artifact_root / "narration-hyperframes-test.mp3"
     resolve_existing_audio(audio_root, storyboard=storyboard, destination=audio)
     branded_storyboard, hidden_intervals = attach_production_branding(storyboard, artifact_root)

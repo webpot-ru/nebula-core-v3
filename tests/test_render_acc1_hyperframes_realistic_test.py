@@ -8,6 +8,7 @@ from scripts.render_acc1_hyperframes_realistic_test import (
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     brand_safe_caption_track,
     normalize_caption_track,
+    repair_scene_id_bindings,
     resolve_generated_storyboard,
     split_caption_cue,
     subtitle_filter,
@@ -15,9 +16,34 @@ from scripts.render_acc1_hyperframes_realistic_test import (
     write_ass,
     write_srt,
 )
+from acc1_editorial_motion import bind_payload
 
 
 class HyperFramesRealisticTestTests(unittest.TestCase):
+    def test_repairs_only_scene_id_bindings_and_rebinds_motion_plan(self):
+        slides = [
+            {"scene_id": "opening-setup", "slide_id": "opening"},
+            {"scene_id": "opening-reveal", "slide_id": "opening"},
+        ]
+        storyboard = {
+            "slides": slides,
+            "motion_plan": bind_payload(
+                {"scene_count": 2, "scenes": slides}, "motion_plan_sha256",
+            ),
+        }
+        storyboard["motion_plan_sha256"] = storyboard["motion_plan"]["motion_plan_sha256"]
+        repaired = repair_scene_id_bindings(storyboard)
+        self.assertEqual(
+            [scene["slide_id"] for scene in repaired["slides"]],
+            ["opening-setup", "opening-reveal"],
+        )
+        self.assertEqual(repaired["motion_plan"]["scenes"], repaired["slides"])
+        self.assertEqual(
+            repaired["motion_plan_sha256"],
+            repaired["motion_plan"]["motion_plan_sha256"],
+        )
+        self.assertEqual(storyboard["slides"][0]["slide_id"], "opening")
+
     def test_resolves_only_exact_four_page_v3_storyboard(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

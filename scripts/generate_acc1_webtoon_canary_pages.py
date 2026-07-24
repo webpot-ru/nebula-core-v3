@@ -118,6 +118,11 @@ def expand_four_scene_canary_to_five(storyboard: dict) -> dict:
     source_id = str(original.get("scene_id") or original.get("slide_id") or "source-opening")
     setup["scene_id"] = f"{source_id}-setup"
     reveal["scene_id"] = f"{source_id}-reveal"
+    # Editorial-motion scenes bind these fields one-to-one.  The split turns
+    # one source beat into two distinct render scenes, so both identifiers
+    # must change together.
+    setup["slide_id"] = setup["scene_id"]
+    reveal["slide_id"] = reveal["scene_id"]
     setup["narration_text"] = setup_text
     reveal["narration_text"] = reveal_text
     setup["semantic_beat"] = "opening_setup"
@@ -131,6 +136,11 @@ def expand_four_scene_canary_to_five(storyboard: dict) -> dict:
     expanded = [setup, reveal, *copy.deepcopy(slides[1:])]
     cursor = 0.0
     for scene in expanded:
+        scene_id = str(scene.get("scene_id") or scene.get("slide_id") or "")
+        if not scene_id:
+            raise RuntimeError("expanded scene has no stable identifier")
+        scene["scene_id"] = scene_id
+        scene["slide_id"] = scene_id
         duration = float(scene["duration_sec"])
         scene["start_sec"] = round(cursor, 3)
         scene["end_sec"] = round(cursor + duration, 3)

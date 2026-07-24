@@ -46,6 +46,10 @@ class WebtoonCanaryPageTests(unittest.TestCase):
         self.assertEqual(four["timeline_duration_sec"], 16.0)
         self.assertEqual(four["slides"][0]["narration_text"], "Она открыла письмо.")
         self.assertEqual(four["slides"][1]["narration_text"], "И увидела подпись.")
+        self.assertTrue(all(
+            scene["scene_id"] == scene["slide_id"]
+            for scene in four["slides"]
+        ))
         self.assertEqual(len(expand_four_scene_canary_to_five({
             **four,
             "slides": slides,
