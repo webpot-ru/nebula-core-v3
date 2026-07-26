@@ -1,5 +1,5 @@
 name: acc1 Daily Episode Factory
-run-name: acc1 daily episode date=${{ inputs.production_date }} pilot=${{ inputs.pilot_id }} mode=${{ inputs.visual_mode }}
+run-name: acc1 daily episode date=${{ inputs.production_date }} pilot=${{ inputs.pilot_id }} mode=${{ inputs.visual_mode }} source_only=${{ inputs.source_only }}
 
 # This workflow can enforce source, packaging, media, and review gates. It
 # cannot guarantee millions of views: audience response is measurable only
@@ -30,6 +30,11 @@ on:
         required: false
         default: ""
         type: string
+      source_only:
+        description: Stop successfully after hash-bound Reddit source evidence; forbids every paid provider and YouTube
+        required: true
+        default: false
+        type: boolean
       visual_mode:
         description: Locked renderer for every new acc1 episode; historical modes use recovery workflows
         required: true
@@ -105,6 +110,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Validate exact source-only no-spend scope
+        if: inputs.source_only
+        env:
+          RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
+          CONFIRM_REDDIT_READ: ${{ inputs.confirm_reddit_read }}
+          CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
+          CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
+          CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
+        run: |
+          set -euo pipefail
+          test -z "$RESUME_SOURCE_RUN_ID"
+          test "$CONFIRM_REDDIT_READ" = "true"
+          test "$CONFIRM_OPENAI_SPEND" = "false"
+          test "$CONFIRM_IMAGE_SPEND" = "false"
+          test "$CONFIRM_AI33_SPEND" = "false"
       - name: Test deterministic planner contract
         run: >-
           python -m unittest
@@ -299,7 +319,59 @@ jobs:
             --candidate-pool "$WORKDIR/candidate-pool.json" \
             --source-queue "$WORKDIR/source-queue.json" \
             --source-review "$WORKDIR/source-review.json"
+      - name: Seal successful source-only evidence
+        if: inputs.source_only
+        env:
+          REDDIT_REQUEST_CAP: ${{ inputs.reddit_request_cap }}
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_episode_factory.py \
+            --plan "$DAILY_PLAN_PATH" \
+            --workdir "$WORKDIR" \
+            --stage source-receipt \
+            --reddit-request-cap "$REDDIT_REQUEST_CAP" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow-path ".github/workflows/acc1_daily_episode.yml" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --head-sha "$GITHUB_SHA"
+          python - "$WORKDIR/source-only-result.json" "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          lines = [
+              "## acc1 source-only result",
+              "",
+              f"- status: `{result['status']}`",
+              f"- episode: `{result['episode_key']}`",
+              f"- format: `{result['format']}`",
+              f"- candidates: `{result['candidate_count']}`",
+              (
+                  "- Reddit HTTP requests: "
+                  f"`{result['reddit_http_requests_observed']}/"
+                  f"{result['reddit_http_request_cap']}`"
+              ),
+              "- paid calls: `OpenAI 0 / VectorEngine 0 / AI33 0`",
+              "- YouTube: `not called`",
+              "",
+              "### Candidate source envelopes",
+              "",
+              "| candidate | responses | response words |",
+              "|---|---:|---:|",
+          ]
+          lines.extend(
+              (
+                  f"| `{item['candidate_id']}` | {item['response_count']} | "
+                  f"{item['aggregate_response_word_count']} |"
+              )
+              for item in result["candidate_metrics"]
+          )
+          with open(sys.argv[2], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY
       - name: Require all paid-provider confirmations after source success
+        if: ${{ !inputs.source_only }}
         env:
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
@@ -310,6 +382,7 @@ jobs:
           test "$CONFIRM_IMAGE_SPEND" = "true"
           test "$CONFIRM_AI33_SPEND" = "true"
       - name: Run source-dependent paid preflight before lease
+        if: ${{ !inputs.source_only }}
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -337,7 +410,7 @@ jobs:
             --confirm-ai33-spend "$CONFIRM_AI33_SPEND" \
             --ai33-call-cap "$AI33_CALL_CAP"
       - name: Create exact source-bound paid spend lease
-        if: inputs.resume_source_run_id == ''
+        if: ${{ !inputs.source_only && inputs.resume_source_run_id == '' }}
         env:
           CONFIRM_REDDIT_READ: ${{ inputs.confirm_reddit_read }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
@@ -372,7 +445,7 @@ jobs:
             --confirm-image-spend "$CONFIRM_IMAGE_SPEND" \
             --confirm-ai33-spend "$CONFIRM_AI33_SPEND"
       - name: Persist paid spend lease before the first paid request
-        if: inputs.resume_source_run_id == ''
+        if: ${{ !inputs.source_only && inputs.resume_source_run_id == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: acc1-paid-lease-${{ github.run_id }}
@@ -380,7 +453,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Create one hash-bound paid resume lock
-        if: inputs.resume_source_run_id != ''
+        if: ${{ !inputs.source_only && inputs.resume_source_run_id != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
@@ -454,7 +527,7 @@ jobs:
             "${PARENT_RESUME_ARGS[@]}" \
             --output "$WORKDIR/resume-spend-lease.json"
       - name: Persist paid resume lock before the first continuation request
-        if: inputs.resume_source_run_id != ''
+        if: ${{ !inputs.source_only && inputs.resume_source_run_id != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: acc1-resume-lease-${{ github.run_id }}
@@ -462,6 +535,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Produce review-ready episode artifact
+        if: ${{ !inputs.source_only }}
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -508,6 +582,7 @@ jobs:
           timeout --signal=TERM --kill-after=60s 18000s \
             python scripts/run_acc1_episode_factory.py "${FACTORY_ARGS[@]}"
       - name: Enforce hash-bound human-review ceiling
+        if: ${{ !inputs.source_only }}
         run: |
           set -euo pipefail
           python - "$WORKDIR/factory-result.json" <<'PY'
