@@ -1,6 +1,28 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-26
+Last updated: 2026-07-27
+
+## 2026-07-27 — Successful source-only workflow mode prepared
+
+- `.github/workflows/acc1_daily_episode.yml` now has an explicit
+  `source_only=true` route for a fresh bounded Reddit read. The route requires
+  `confirm_reddit_read=true`, all three paid-provider confirmations `false`,
+  and an empty paid-resume run ID. Every paid preflight, spend/resume lease,
+  OpenAI, VectorEngine, AI33, production, render and review-ceiling step is
+  skipped; YouTube remains absent from the workflow.
+- A source-only run can finish successfully only after
+  `source-only-result.json` reaches the self-hashed
+  `SOURCE_ONLY_READY` state. The receipt revalidates the exact daily plan,
+  source queue/review/pool/stage hashes, request cap, first-attempt GitHub
+  identity, 3-5 candidate contract and deterministic base-source gate. For
+  THREAD it additionally requires one prompt plus 13-15 responses and
+  3,120-3,900 aggregate response words for every candidate, with each response
+  inside its natural narration envelope.
+- Local no-provider verification passes all 608 unit tests, direct compilation
+  of the changed Python/test modules, workflow YAML parsing and
+  `git diff --check`. This implementation state is local-only until the PR is
+  merged and one separately authorized bounded Reddit canary succeeds; no live
+  source, paid provider or YouTube call is claimed by this entry.
 
 ## 2026-07-26 — Long THREAD contract merged; segmented renderer regression-checked
 

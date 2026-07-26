@@ -53,6 +53,11 @@ from acc1_pronunciation_dictionary import (
     load_acc1_pronunciation_dictionary,
     resolve_acc1_pronunciation_dictionary_id,
 )
+from acc1_thread_collector import (
+    MAX_NATURAL_RESPONSE_WORDS,
+    MIN_NATURAL_RESPONSE_WORDS,
+    verify_manifest as verify_thread_manifest,
+)
 from acc1_thread_source import collect_thread_source_candidates
 from acc1_thread_contract import THREAD_COMIC_PAGE_COUNT
 from acc1_topic_playoff import (
@@ -129,6 +134,7 @@ from vectorengine_client import (
 
 
 FACTORY_VERSION = 2
+SOURCE_ONLY_SCHEMA_VERSION = "acc1_source_only_result_v1"
 MIN_SOURCE_REVIEW_CANDIDATES = 3
 MAX_SOURCE_REVIEW_CANDIDATES = 5
 MIN_PASSING_FINALISTS = 3
@@ -152,6 +158,8 @@ BRAND_OUTRO_ASSET = Path(
     "chonker-talks-youtube-outro-v1.mp4",
 )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+HEAD_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 TRUTH_MODES = {"fiction", "unverified_personal_account"}
 SOURCE_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 MAX_SOURCE_CHARACTERS_PER_WORD = 12
@@ -968,6 +976,226 @@ def run_source_stage(
         _atomic_json(workdir / "bundle-finalists.json", finalists_manifest)
     _atomic_json(workdir / "source-stage.json", source_stage)
     return source_stage
+
+
+def run_source_only_receipt(
+    *,
+    daily_plan: dict[str, Any],
+    workdir: Path,
+    channels_path: Path,
+    reddit_request_cap: int,
+    repository: str,
+    workflow_path: str,
+    run_id: int,
+    run_attempt: int,
+    head_sha: str,
+) -> dict[str, Any]:
+    """Seal a successful Reddit-only source run without authorizing paid work."""
+    validate_daily_plan(daily_plan, channels_path)
+    cap = _positive_cap(reddit_request_cap, "reddit_request_cap", maximum=100)
+    repository = str(repository or "").strip()
+    workflow_path = str(workflow_path or "").strip()
+    head_sha = str(head_sha or "").strip().lower()
+    if not REPOSITORY_RE.fullmatch(repository):
+        raise EpisodeFactoryError("source-only repository identity is invalid")
+    if workflow_path != SPEND_LOCK_WORKFLOW_PATH:
+        raise EpisodeFactoryError("source-only workflow path is invalid")
+    if isinstance(run_id, bool) or not isinstance(run_id, int) or run_id < 1:
+        raise EpisodeFactoryError("source-only run_id must be a positive integer")
+    if run_attempt != 1:
+        raise EpisodeFactoryError("source-only receipt refuses replayed workflow attempts")
+    if not HEAD_SHA_RE.fullmatch(head_sha):
+        raise EpisodeFactoryError("source-only head_sha must be a 40-character commit SHA")
+
+    root = Path(workdir)
+    stored_plan = _read_object(root / "daily-plan.json")
+    source_stage = _read_object(root / "source-stage.json")
+    candidate_pool = _read_object(root / "candidate-pool.json")
+    source_queue = _read_object(root / "source-queue.json")
+    source_review = _read_object(root / "source-review.json")
+    daily_plan_sha256 = canonical_hash(daily_plan)
+    if canonical_hash(stored_plan) != daily_plan_sha256:
+        raise EpisodeFactoryError("source-only stored daily plan does not match dispatch plan")
+    if (
+        source_stage.get("status") != "SOURCE_READY"
+        or source_stage.get("network_accessed") is not True
+        or source_stage.get("network_mode") != "bounded_read_only_reddit"
+        or source_stage.get("publication_authorized") is not False
+        or not _verify_self_hash(source_stage, "source_stage_sha256")
+    ):
+        raise EpisodeFactoryError("source-only source-stage artifact is not valid SOURCE_READY")
+    observed_requests = source_stage.get("reddit_http_requests_observed")
+    if (
+        source_stage.get("reddit_http_request_cap") != cap
+        or isinstance(observed_requests, bool)
+        or not isinstance(observed_requests, int)
+        or not 1 <= observed_requests <= cap
+    ):
+        raise EpisodeFactoryError("source-only Reddit request evidence violates the approved cap")
+    if source_stage.get("daily_plan_sha256") != daily_plan_sha256:
+        raise EpisodeFactoryError("source-only source-stage plan binding mismatch")
+
+    if (
+        candidate_pool.get("status") != "SOURCE_FINALISTS_READY"
+        or candidate_pool.get("publication_authorized") is not False
+        or candidate_pool.get("production_authorized") is not False
+        or not _verify_self_hash(candidate_pool, "candidate_pool_sha256")
+    ):
+        raise EpisodeFactoryError("source-only candidate pool is not self-verifying")
+    if source_stage.get("candidate_pool_sha256") != candidate_pool.get(
+        "candidate_pool_sha256"
+    ):
+        raise EpisodeFactoryError("source-only candidate-pool binding mismatch")
+    if source_stage.get("source_queue_sha256") != canonical_hash(source_queue):
+        raise EpisodeFactoryError("source-only queue binding mismatch")
+    if source_stage.get("source_review_sha256") != canonical_hash(source_review):
+        raise EpisodeFactoryError("source-only review binding mismatch")
+    for label, artifact in (
+        ("source queue", source_queue),
+        ("source review", source_review),
+    ):
+        if artifact.get("publication_authorized") is not False:
+            raise EpisodeFactoryError(f"source-only {label} may not authorize publication")
+
+    candidates = candidate_pool.get("candidates")
+    candidate_count = candidate_pool.get("candidate_count")
+    if (
+        not isinstance(candidates, list)
+        or isinstance(candidate_count, bool)
+        or candidate_count != len(candidates)
+        or source_stage.get("candidate_count") != candidate_count
+        or candidate_pool.get("paid_review_candidate_count") != candidate_count
+        or not MIN_SOURCE_REVIEW_CANDIDATES
+        <= candidate_count
+        <= MAX_SOURCE_REVIEW_CANDIDATES
+    ):
+        raise EpisodeFactoryError("source-only candidate count contract is invalid")
+    _validate_base_candidate_pool(candidates, daily_plan)
+
+    candidate_ids: set[str] = set()
+    candidate_metrics: list[dict[str, Any]] = []
+    format_id = str(daily_plan.get("format") or "")
+    thread_manifests = source_review.get("thread_manifests")
+    if format_id == "THREAD" and (
+        not isinstance(thread_manifests, list)
+        or len(thread_manifests) != candidate_count
+    ):
+        raise EpisodeFactoryError("source-only THREAD review has incomplete manifests")
+
+    for index, candidate in enumerate(candidates):
+        candidate_id = str(candidate.get("candidate_id") or "").strip()
+        if not candidate_id or candidate_id in candidate_ids:
+            raise EpisodeFactoryError("source-only candidate identities must be unique")
+        candidate_ids.add(candidate_id)
+        if (
+            candidate.get("pilot_id") != daily_plan.get("pilot_id")
+            or candidate.get("format") != format_id
+            or candidate.get("pillar") != daily_plan.get("pillar")
+        ):
+            raise EpisodeFactoryError(
+                f"source-only candidate {candidate_id} routing mismatch"
+            )
+        sources = candidate.get("sources")
+        if not isinstance(sources, list) or not sources:
+            raise EpisodeFactoryError(
+                f"source-only candidate {candidate_id} has no source objects"
+            )
+        response_sources = [
+            source
+            for source in sources
+            if isinstance(source, dict) and source.get("source_role") == "response"
+        ]
+        response_word_counts = [
+            len(SOURCE_WORD_RE.findall(str(source.get("body") or "")))
+            for source in response_sources
+        ]
+        metric: dict[str, Any] = {
+            "candidate_id": candidate_id,
+            "source_count": len(sources),
+            "response_count": len(response_sources),
+            "aggregate_response_word_count": sum(response_word_counts),
+        }
+        if format_id == "THREAD":
+            prompt_sources = [
+                source
+                for source in sources
+                if isinstance(source, dict) and source.get("source_role") == "prompt"
+            ]
+            manifest = thread_manifests[index]
+            if (
+                len(prompt_sources) != 1
+                or not verify_thread_manifest(manifest)
+                or candidate.get("thread_manifest_sha256")
+                != manifest.get("manifest_sha256")
+            ):
+                raise EpisodeFactoryError(
+                    f"source-only THREAD candidate {candidate_id} manifest mismatch"
+                )
+            response_range = daily_plan["source_plan"]["response_count"]
+            aggregate_range = daily_plan["source_plan"][
+                "aggregate_response_word_count"
+            ]
+            if (
+                not response_range[0]
+                <= len(response_sources)
+                <= response_range[1]
+                or manifest.get("response_count") != len(response_sources)
+                or manifest.get("aggregate_response_word_count")
+                != metric["aggregate_response_word_count"]
+                or not aggregate_range[0]
+                <= metric["aggregate_response_word_count"]
+                <= aggregate_range[1]
+                or any(
+                    not MIN_NATURAL_RESPONSE_WORDS
+                    <= count
+                    <= MAX_NATURAL_RESPONSE_WORDS
+                    for count in response_word_counts
+                )
+            ):
+                raise EpisodeFactoryError(
+                    f"source-only THREAD candidate {candidate_id} runtime contract mismatch"
+                )
+        candidate_metrics.append(metric)
+
+    result: dict[str, Any] = {
+        "schema_version": SOURCE_ONLY_SCHEMA_VERSION,
+        "status": "SOURCE_ONLY_READY",
+        "source_only": True,
+        "repository": repository,
+        "workflow_path": workflow_path,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+        "head_sha": head_sha,
+        "episode_key": daily_plan["episode_key"],
+        "production_date": daily_plan["production_date"],
+        "pilot_id": daily_plan["pilot_id"],
+        "format": format_id,
+        "pillar": daily_plan["pillar"],
+        "daily_plan_sha256": daily_plan_sha256,
+        "source_stage_sha256": source_stage["source_stage_sha256"],
+        "candidate_pool_sha256": candidate_pool["candidate_pool_sha256"],
+        "source_queue_sha256": source_stage["source_queue_sha256"],
+        "source_review_sha256": source_stage["source_review_sha256"],
+        "candidate_count": candidate_count,
+        "candidate_metrics": candidate_metrics,
+        "reddit_http_request_cap": cap,
+        "reddit_http_requests_observed": observed_requests,
+        "network_mode": "bounded_read_only_reddit",
+        "paid_provider_calls_submitted": {
+            "openai": 0,
+            "vectorengine": 0,
+            "ai33": 0,
+        },
+        "youtube_called": False,
+        "provider_spend_authorized": False,
+        "production_authorized": False,
+        "publication_authorized": False,
+    }
+    result["source_only_result_sha256"] = _self_hash(
+        result, "source_only_result_sha256"
+    )
+    _atomic_json(root / "source-only-result.json", result)
+    return result
 
 
 class CallBudget:
@@ -3109,12 +3337,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--channels", default="channels.json")
     parser.add_argument(
         "--stage",
-        choices=("preflight", "source", "paid-preflight", "produce"),
+        choices=(
+            "preflight",
+            "source",
+            "source-receipt",
+            "paid-preflight",
+            "produce",
+        ),
         required=True,
     )
     parser.add_argument("--confirm-reddit-read", default="false")
     parser.add_argument("--reddit-request-cap", type=int, default=24)
     parser.add_argument("--reserved-source-exclusions")
+    parser.add_argument("--repository", default=os.getenv("GITHUB_REPOSITORY", ""))
+    parser.add_argument("--workflow-path", default=SPEND_LOCK_WORKFLOW_PATH)
+    parser.add_argument("--run-id", type=int, default=0)
+    parser.add_argument("--run-attempt", type=int, default=0)
+    parser.add_argument("--head-sha", default=os.getenv("GITHUB_SHA", ""))
     parser.add_argument("--confirm-openai-spend", default="false")
     parser.add_argument("--openai-call-cap", type=int, default=96)
     parser.add_argument("--openai-token-cap", type=int, default=500_000)
@@ -3154,6 +3393,18 @@ def main(argv: list[str] | None = None) -> int:
                 if args.reserved_source_exclusions
                 else None
             ),
+        )
+    elif args.stage == "source-receipt":
+        result = run_source_only_receipt(
+            daily_plan=plan,
+            workdir=workdir,
+            channels_path=channels,
+            reddit_request_cap=args.reddit_request_cap,
+            repository=args.repository,
+            workflow_path=args.workflow_path,
+            run_id=args.run_id,
+            run_attempt=args.run_attempt,
+            head_sha=args.head_sha,
         )
     elif args.stage == "paid-preflight":
         result = run_paid_preflight(

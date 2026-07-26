@@ -169,6 +169,67 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             self.workflow,
         )
 
+    def test_source_only_is_exact_green_no_spend_scope(self):
+        workflow = self.workflow
+        declaration = workflow.split("      source_only:\n", 1)[1].split(
+            "      visual_mode:\n",
+            1,
+        )[0]
+        self.assertIn("default: false", declaration)
+        self.assertIn("type: boolean", declaration)
+        scope = workflow.split(
+            "- name: Validate exact source-only no-spend scope",
+            1,
+        )[1].split("- name:", 1)[0]
+        self.assertIn("if: inputs.source_only", scope)
+        self.assertIn('test -z "$RESUME_SOURCE_RUN_ID"', scope)
+        self.assertIn('test "$CONFIRM_REDDIT_READ" = "true"', scope)
+        for provider in ("OPENAI", "IMAGE", "AI33"):
+            self.assertIn(
+                f'test "$CONFIRM_{provider}_SPEND" = "false"',
+                scope,
+            )
+        self.assertNotIn("${{ secrets.", scope)
+
+        receipt = workflow.split(
+            "- name: Seal successful source-only evidence",
+            1,
+        )[1].split("- name:", 1)[0]
+        self.assertIn("if: inputs.source_only", receipt)
+        self.assertIn("--stage source-receipt", receipt)
+        self.assertIn('--run-id "$GITHUB_RUN_ID"', receipt)
+        self.assertIn('--run-attempt "$GITHUB_RUN_ATTEMPT"', receipt)
+        self.assertIn('--head-sha "$GITHUB_SHA"', receipt)
+        self.assertIn("source-only-result.json", receipt)
+        self.assertIn("OpenAI 0 / VectorEngine 0 / AI33 0", receipt)
+        self.assertNotIn("${{ secrets.", receipt)
+
+        paid_steps = {
+            "Require all paid-provider confirmations after source success":
+                "if: ${{ !inputs.source_only }}",
+            "Run source-dependent paid preflight before lease":
+                "if: ${{ !inputs.source_only }}",
+            "Create exact source-bound paid spend lease":
+                "if: ${{ !inputs.source_only && inputs.resume_source_run_id == '' }}",
+            "Persist paid spend lease before the first paid request":
+                "if: ${{ !inputs.source_only && inputs.resume_source_run_id == '' }}",
+            "Create one hash-bound paid resume lock":
+                "if: ${{ !inputs.source_only && inputs.resume_source_run_id != '' }}",
+            "Persist paid resume lock before the first continuation request":
+                "if: ${{ !inputs.source_only && inputs.resume_source_run_id != '' }}",
+            "Produce review-ready episode artifact":
+                "if: ${{ !inputs.source_only }}",
+            "Enforce hash-bound human-review ceiling":
+                "if: ${{ !inputs.source_only }}",
+        }
+        for step_name, exact_gate in paid_steps.items():
+            with self.subTest(step=step_name):
+                section = workflow.split(f"- name: {step_name}", 1)[1].split(
+                    "- name:",
+                    1,
+                )[0]
+                self.assertIn(exact_gate, section)
+
     def test_openai_secret_is_scoped_to_paid_preflight_and_produce(self):
         workflow = self.workflow
         secret_binding = "OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}"
@@ -212,6 +273,9 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         source_reservation_scan_index = workflow.index(
             "Refuse cross-date reserved-source overlap before paid stages"
         )
+        source_receipt_index = workflow.index(
+            "Seal successful source-only evidence"
+        )
         paid_confirmation_index = workflow.index(
             "Require all paid-provider confirmations after source success"
         )
@@ -227,7 +291,8 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         self.assertLess(preflight_index, cross_dispatch_scan_index)
         self.assertLess(cross_dispatch_scan_index, source_index)
         self.assertLess(source_index, source_reservation_scan_index)
-        self.assertLess(source_reservation_scan_index, paid_confirmation_index)
+        self.assertLess(source_reservation_scan_index, source_receipt_index)
+        self.assertLess(source_receipt_index, paid_confirmation_index)
         self.assertLess(paid_confirmation_index, paid_preflight_index)
         self.assertLess(paid_preflight_index, lease_create_index)
         self.assertLess(lease_create_index, lease_upload_index)
@@ -237,7 +302,7 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         self.assertIn('AI_QUALITY_CHECK: "0"', workflow)
         self.assertIn('AI_QUALITY_FAIL_OPEN: "0"', workflow)
         self.assertIn('--confirm-reddit-read "$CONFIRM_REDDIT_READ"', workflow)
-        self.assertEqual(workflow.count('--plan "$DAILY_PLAN_PATH"'), 7)
+        self.assertEqual(workflow.count('--plan "$DAILY_PLAN_PATH"'), 8)
         self.assertIn('test "$RUN_ATTEMPT" = "1"', workflow)
         self.assertNotIn("create a fresh workflow dispatch instead", workflow)
         self.assertIn("remains spend-locked for manual adjudication", workflow)
