@@ -1,6 +1,36 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-24
+Last updated: 2026-07-26
+
+## 2026-07-26 — Fixed-release polling recovered; storyboard metadata bridge fixed
+
+- Fixed-release production run
+  [`30102591330`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30102591330)
+  completed all 69 VectorEngine calls and all 61 one-time AI33 submissions.
+  Its immutable GitHub artifact retains 68 scene images, one thumbnail,
+  59 completed audio chunks and two durable submitted AI33 task IDs. The run
+  stopped on transient AI33 polling; render, assembly and YouTube did not run.
+- Commit `b6ee6eb0db70139764e82611d1842ab3c62921ce` replaced the obsolete
+  monolithic recovery with a fail-closed `recover_prepare -> render matrix ->
+  assemble` workflow. It accepts only the exact saved artifact, forbids all
+  new VectorEngine and AI33 submissions, polls only durable task IDs, limits
+  segments to 120 seconds, runs at most eight renders in parallel and exposes
+  no provider or YouTube credentials to render/assembly.
+- The one authorized recovery run
+  [`30185324136`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30185324136)
+  passed exact preflight with `image_calls_reused=69`,
+  `ai33_tasks_reused=61`, `completed_audio_reused=59` and
+  `existing_tasks_to_poll=2`. Both saved tasks reached the completed recovery
+  path without a new POST, after which storyboard preparation failed before
+  the render matrix because `_verified_editorial_assets()` discarded the
+  already-bound v3 `story_family`, `page_layout` and panel metadata.
+- Commit `7e323f9` preserves that verified metadata through the storyboard
+  bridge and adds a regression test. The focused suite passes 54 tests.
+  Recovery artifact `acc1-fixed-first-release-recovery-source-30185324136`
+  remains on GitHub (`388,841,883` bytes); no media was downloaded locally.
+  No new VectorEngine or AI33 submission and no YouTube action occurred.
+- The code fix is pushed but not live-verified. A further recovery dispatch is
+  not authorized and must receive a new exact one-run approval.
 
 ## 2026-07-24 — Landscape image canary recovered and provider contract verified
 
@@ -248,7 +278,7 @@ performs exact-name/rules reuse or one create call plus readback; it refuses to
 overwrite a same-name mismatch. It has not yet been run in GitHub at the time
 of this implementation note.
 
-## Fixed first-release recovery (local implementation, GitHub run failed)
+## Historical fixed first-release recovery
 
 GitHub run `29813098711` on commit `1b84fab` passed the no-provider preflight
 and completed all 69 image calls plus all 61 AI33 task submissions. Its saved
@@ -257,13 +287,9 @@ audio segments. Rendering did not start because polling the already-submitted
 task `1d554c37-8bc8-414d-9a6f-900c66a72bd0` returned transient HTTP 429
 `Task polling temporarily busy`. YouTube was not called.
 
-`scripts/recover_acc1_fixed_first_release.py` and
-`.github/workflows/acc1_fixed_first_release_recovery.yml` implement a
-fail-closed recovery path. The exact saved artifact passes local preflight; the
-path authorizes zero new image calls and zero new AI33 submissions, permits only
-polling the durable task ID, then resumes deterministic storyboard and
-Chrome/HyperFrames rendering. The recovery code is local-only until separately
-committed and pushed; no recovery workflow has been dispatched yet.
+This older single-task recovery was superseded on 2026-07-26 by the exact
+two-task polling and segmented-render workflow documented at the top of this
+file.
 
 ## Acc1 OpenAI daily model budgets (local only)
 
