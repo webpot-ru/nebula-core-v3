@@ -2,6 +2,38 @@
 
 Last updated: 2026-07-26
 
+## 2026-07-26 — First-release YouTube package prepared locally
+
+- The visually accepted captioned master from GitHub run `30187749091` now has
+  a local, source-bound release package at
+  `release-packages/acc1/fixed-first-release-v1/`. It contains deterministic
+  Russian metadata, six valid chapters, all four Reddit source URLs, an
+  explicit unverified-personal-account disclosure, tags, a pinned-comment
+  prompt and three exact title/thumbnail pairs for YouTube Studio testing.
+- Variant A packages the lead conflict, variant B the emotional consequence
+  and variant C the four-story umbrella. All three JPEGs are 1280x720, below
+  2 MiB and use the approved adult editorial comic/screenprint visual
+  language. The primary private-review upload is bound to variant A.
+- `release-package.json` binds the exact source run, artifact name and source
+  revision; the reviewed MP4, SRT, ASS and caption-report hashes; every
+  metadata/thumbnail hash; and the correct acc1 YouTube channel id. Its current
+  raw SHA-256 is
+  `5d35f8be0eb8a7ca9f8cb42b28df42399259d377a09dc2a78dc547b9299d40ea`.
+- A dedicated local workflow,
+  `.github/workflows/acc1_fixed_first_release_private_upload.yml`, verifies
+  that exact package and GitHub artifact, probes the MP4, refuses an existing
+  source-bound upload receipt, repeats the acc1 OAuth/channel preflight and can
+  upload exactly one copy with privacy `private`. It has no Reddit, image,
+  AI33, Gemini or OpenAI credentials and no public/unlisted path. It requires
+  `youtube.upload` plus `youtube.force-ssl`, uploads the exact Russian SRT as a
+  selectable caption track, verifies its language readback and retains it with
+  the private-upload receipt.
+- This state is **local-only**. The workflow and release package have not been
+  committed or pushed, no workflow was dispatched and YouTube was not called.
+  Public-source rights remain unverified; a private review upload does not
+  authorize publication. Commit/push, private upload and later publication
+  each still require separate explicit authorization.
+
 ## 2026-07-26 — Burned-caption recovery visually verified
 
 - Human inspection of downloaded run `30185894253` found that its fixed black

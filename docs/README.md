@@ -916,6 +916,12 @@ SEO/upload handling:
 - Historical blocker: scope-aware audit run `28459324708` proved the then-current `YOUTUBE_REFRESH_TOKEN_ACC1-7` values had only `https://www.googleapis.com/auth/youtube.upload`, so `channels.list(mine=true)` returned `403 insufficient authentication scopes`. Per current user-provided state on 2026-07-02, all seven OAuth credentials/scopes were reissued and verified after that audit. Keep the channel preflight enabled before any spend/upload.
 - Before upload, `uploader.py` repeats the same channel check; a mismatch blocks `videos.insert`.
 - After upload, `uploader.py` calls `videos.list(part=snippet,status)` to read back channel id, privacy, and language.
+- `--caption-file`, `--caption-language` and `--caption-name` add one exact
+  selectable SRT/VTT track after video creation. The uploader hashes the
+  caption before upload, uses `captions.insert`, reads the exact track back
+  with `captions.list`, verifies the video id/language and records caption id,
+  language and hash in the atomic upload receipt. This path requires
+  `youtube.force-ssl`; it does not replace burned-in captions.
 - Public oEmbed readback can confirm the uploaded title and channel handle for unlisted videos, but authenticated YouTube Data API readback is still needed for description, tags, language, and final status.
 
 ### VectorEngine Thumbnail Images
@@ -1028,6 +1034,34 @@ After source success, a no-provider paid preflight validates all paid confirmati
 The lease and journals are fail-closed duplicate-spend detectors, not a full cross-dispatch response cache. AI33 is additionally locally resumable without another POST: it atomically records `SUBMITTING` before transport, submits every missing chunk, persists all returned task IDs before the first poll, then polls the saved IDs with bounded concurrency under one shared deadline. An ambiguous submission never retries automatically. The workflow gives the complete produce step 300 minutes, supplies AI33 an absolute deadline 240 minutes from produce start, reserves the remaining 60 minutes for render/QA, and keeps the job's 360-minute ceiling for setup, source and artifact upload. Maximum Gemini/image caps still do not constitute a proven worst-case completion envelope, and a fresh GitHub runner cannot yet restore every prior provider response automatically. Treat the first live run as a separately approved canary and manually adjudicate every timeout or partial-spend result.
 
 Private YouTube upload is deliberately a separate local-only manual workflow, `.github/workflows/acc1_private_upload.yml`, after the factory artifact has been downloaded and visually reviewed. It is not registered on GitHub `main` and its command must not be run until it has been separately reviewed and merged. Once available, it accepts the successful factory `source_run_id`, `expected_manifest_sha256` equal to the exact reviewed `release_candidate_manifest_sha256`, and `confirm_private_upload=true`; it verifies the bound artifact and acc1 OAuth mapping, uploads exactly one private video, applies the custom thumbnail, and preserves the readback receipt. It contains no Reddit, Gemini, OpenAI, image, AI33, history write, public, or unlisted path.
+
+The recovered first release is a historical fixed-input production run, not an
+`acc1 Daily Episode Factory` artifact, so it must not bypass or weaken that
+general factory gate. Its separate local-only adapter is
+`.github/workflows/acc1_fixed_first_release_private_upload.yml`, with the
+reviewed package in `release-packages/acc1/fixed-first-release-v1/`. The
+workflow accepts only source run `30187749091`, the exact raw SHA-256 of that
+package's `release-package.json`, and `confirm_private_upload=true`. Before any
+YouTube credential is used it verifies the trusted workflow/run revision,
+artifact name, MP4/SRT/ASS/caption-report hashes, burned-caption receipt,
+duration/codecs/resolution, deterministic metadata, all three 1280x720
+title/thumbnail pairs and the absence of any publication/provider authority.
+It refuses a retained receipt for the same source run, repeats acc1 channel
+preflight, uploads the exact captioned master and variant A only as `private`,
+then verifies channel, privacy, video hash and thumbnail hash in the readback
+receipt. The adapter additionally requires `youtube.force-ssl`, uploads the
+exact UTF-8 SRT as the Russian selectable caption track, verifies its
+language/id and preserves it with the receipt. There is no public, unlisted,
+provider-generation or A/B-launch path in this workflow.
+
+The three title/thumbnail pairs are intentionally coupled: A is the lead
+conflict, B is its emotional consequence and C is the four-story episode
+umbrella. The private upload uses A. Once the correct-channel private playback,
+metadata and selectable subtitle track pass human review, a separate public
+authorization may publish the video and start the A/B/C test in desktop
+YouTube Studio. Until then, `release-package.json` keeps
+`publication_authorized=false`, `private_upload_authorized=false` and
+`rights_status=not_verified_for_publication`.
 
 `workflow_dispatch` must already exist on the repository default branch. Therefore the local OpenAI revision, background assets, all-channel `videos_per_day=0` hold, and private-upload workflow must first be reviewed and merged to `main`; `--ref` alone cannot bootstrap them from a feature branch. The following commands are future-only references for that merged revision, not commands for the current GitHub `main`.
 

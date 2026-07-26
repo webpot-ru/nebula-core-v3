@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "package_id": "acc1-fixed-first-release-v1",
+  "status": "PRIVATE_REVIEW_PACKAGE_READY",
+  "channel": {
+    "id": "acc1",
+    "account_index": 1,
+    "handle": "@ChonkerTalksRussia",
+    "youtube_channel_id": "UCNSxg53AGM4WstRjGiQdS8w",
+    "language": "ru",
+    "category_id": "24",
+    "made_for_kids": false
+  },
+  "source_run": {
+    "run_id": "30187749091",
+    "workflow_name": "acc1 Fixed First Release Recovery",
+    "event": "workflow_dispatch",
+    "conclusion": "success",
+    "head_branch": "codex/cloud-sync-20260719",
+    "head_sha": "b22d1e00f7679c08c0253522439d74bdcda90db5",
+    "artifact_name": "acc1-captioned-recovery-30187749091",
+    "artifact_digest": "sha256:e9326ecc9e3492ba0e56023dabb101daaa02af1232db438a2a52dd21c3a7898e",
+    "underlying_recovery_run_id": "30185894253"
+  },
+  "media": {
+    "video_file": "final-output-captioned.mp4",
+    "video_sha256": "933337045776fe86cb8aef2ddad37e09a752525fc99c1b4bd8e6d71aad846f33",
+    "video_size_bytes": 566963354,
+    "duration_sec": 866.271995,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "resolution": [
+      1920,
+      1080
+    ],
+    "caption_srt_file": "editorial-motion-captions.srt",
+    "caption_srt_sha256": "debf5bac0fdb4f6c0aeb6637318978c79459841d40a80472d0174013b9a57edc",
+    "caption_ass_file": "editorial-motion-captions.ass",
+    "caption_ass_sha256": "21065dd40ef6f67d7ce4c9562aa3eea47369350e97d3c8c9d145a47708f9c982",
+    "caption_report_file": "caption-recovery-report.json",
+    "caption_report_sha256": "26dfef70c0ef926882bba6cc01c9343a02543240b141d21414d214d9648f31a6",
+    "caption_cue_count": 263,
+    "captions_burned": true,
+    "selectable_caption_upload": true,
+    "selectable_caption_language": "ru",
+    "selectable_caption_name": "Русский"
+  },
+  "metadata": {
+    "file": "youtube-metadata.json",
+    "sha256": "aa6f01d84e3cce7f7124aa2c85627fc3c996aa1e2bffd9e98ea86de42a882c9b",
+    "primary_variant": "A"
+  },
+  "variants": [
+    {
+      "id": "A",
+      "title": "Моя сестра беременна от моего мужа — семья требует, чтобы я её простила",
+      "thumbnail": "thumbnails/a-sestra-beremenna.jpg",
+      "thumbnail_sha256": "dfe8c937687749dc662d258caec2d3d74ce4a7353b56c5ff9b22940e46d71b05",
+      "thumbnail_size_bytes": 500814,
+      "thumbnail_text": "СЕСТРА БЕРЕМЕННА ОТ МОЕГО МУЖА"
+    },
+    {
+      "id": "B",
+      "title": "Семья выбрала мою сестру после её предательства | Истории Reddit",
+      "thumbnail": "thumbnails/b-semya-vybrala-ee.jpg",
+      "thumbnail_sha256": "fd55336511b30bb4e793deb3585095b07ecdc94d68d651822e69be4a4c86305d",
+      "thumbnail_size_bytes": 435537,
+      "thumbnail_text": "СЕМЬЯ ВЫБРАЛА ЕЁ"
+    },
+    {
+      "id": "C",
+      "title": "Четыре семьи, которые потребовали слишком многого | Истории Reddit",
+      "thumbnail": "thumbnails/c-rodnye-pereshli-granitsu.jpg",
+      "thumbnail_sha256": "bc6a02914f8e2c192acc512a08ed882886925d68dc99ade2315fdc6b4215c076",
+      "thumbnail_size_bytes": 518680,
+      "thumbnail_text": "РОДНЫЕ ПЕРЕШЛИ ГРАНИЦУ"
+    }
+  ],
+  "review": {
+    "owner_visual_review": "accepted",
+    "caption_visibility": "accepted",
+    "audio_review": "accepted",
+    "rights_status": "not_verified_for_publication"
+  },
+  "boundaries": {
+    "private_upload_authorized": false,
+    "publication_authorized": false,
+    "youtube_called": false,
+    "provider_calls_authorized": 0,
+    "public_or_unlisted_path": false
+  }
+}
