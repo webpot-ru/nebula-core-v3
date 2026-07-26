@@ -16,6 +16,7 @@ from typing import Any
 from PIL import Image, UnidentifiedImageError
 
 from acc1_cinematic_shots import write_caption_srt
+from acc1_caption_burn import burn_captions, write_caption_ass
 from acc1_editorial_motion import canonical_hash, verify_bound_payload
 from acc1_visual_contract import (
     ADULT_ANIMATION_SERIES,
@@ -1235,6 +1236,7 @@ def assemble_editorial_motion_segments(
             encoding="utf-8",
         )
         silent_output = temp_root / "joined-silent.mp4"
+        muxed_output = temp_root / "joined-with-audio.mp4"
         _run([
             ffmpeg,
             "-y",
@@ -1270,18 +1272,23 @@ def assemble_editorial_motion_segments(
             "-shortest",
             "-movflags",
             "+faststart",
-            str(output),
+            str(muxed_output),
         ], cwd=temp_root)
+        caption_path = write_caption_srt(
+            storyboard["caption_track"],
+            root / "editorial-motion-captions.srt",
+        )
+        caption_ass_path = write_caption_ass(
+            storyboard["caption_track"],
+            root / "editorial-motion-captions.ass",
+        )
+        burn_captions(muxed_output, caption_ass_path, output)
     if not output.is_file() or output.stat().st_size <= 0:
         raise EditorialMotionRenderError("segment assembly produced no MP4")
     probe = _probe_h264(output, cwd=root)
     expected_duration = float(storyboard["timeline_duration_sec"])
     if abs(float(probe["duration_sec"]) - expected_duration) > 0.35:
         raise EditorialMotionRenderError("assembled MP4 duration drifted")
-    caption_path = write_caption_srt(
-        storyboard["caption_track"],
-        root / "editorial-motion-captions.srt",
-    )
     return {
         "version": 3,
         "status": "PASS",
@@ -1302,8 +1309,11 @@ def assemble_editorial_motion_segments(
         "temporary_frame_workspaces_removed": True,
         "caption_srt": str(caption_path),
         "caption_srt_sha256": _sha256(caption_path),
+        "caption_ass": str(caption_ass_path),
+        "caption_ass_sha256": _sha256(caption_ass_path),
+        "captions_burned": True,
         "audio_sha256": _sha256(audio_path),
-        "audio_mux": "ffmpeg_concat_then_post_render_mux",
+        "audio_mux": "ffmpeg_concat_then_post_render_mux_and_caption_burn",
         "motion_plan_sha256": storyboard["motion_plan_sha256"],
         "caption_track_sha256": storyboard["caption_track_sha256"],
         "module_usage": storyboard["motion_plan"]["module_usage"],
@@ -1347,11 +1357,19 @@ def render_editorial_motion_compilation(
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise EditorialMotionRenderError("ffmpeg is required for narration mux")
+    muxed_output = output.with_name(f"{output.stem}-with-audio.mp4")
     _run([
         ffmpeg, "-y", "-i", str(silent_output), "-i", str(audio_path),
         "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
-        "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(output),
+        "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(muxed_output),
     ], cwd=workspace)
+    caption_path = write_caption_srt(
+        storyboard["caption_track"], root / "editorial-motion-captions.srt",
+    )
+    caption_ass_path = write_caption_ass(
+        storyboard["caption_track"], root / "editorial-motion-captions.ass",
+    )
+    burn_captions(muxed_output, caption_ass_path, output)
     if not output.is_file() or output.stat().st_size <= 0:
         raise EditorialMotionRenderError("HyperFrames produced no MP4")
     probe = _run([
@@ -1376,9 +1394,6 @@ def render_editorial_motion_compilation(
     ):
         raise EditorialMotionRenderError("editorial MP4 geometry, codec, or duration drifted")
 
-    caption_path = write_caption_srt(
-        storyboard["caption_track"], root / "editorial-motion-captions.srt",
-    )
     try:
         check_payload = json.loads(check.stdout or "{}")
     except json.JSONDecodeError:
@@ -1404,8 +1419,11 @@ def render_editorial_motion_compilation(
         "caption_track_sha256": storyboard["caption_track_sha256"],
         "caption_srt": str(caption_path),
         "caption_srt_sha256": _sha256(caption_path),
+        "caption_ass": str(caption_ass_path),
+        "caption_ass_sha256": _sha256(caption_ass_path),
+        "captions_burned": True,
         "audio_sha256": _sha256(audio_path),
-        "audio_mux": "ffmpeg_post_render",
+        "audio_mux": "ffmpeg_post_render_then_caption_burn",
         "silent_hyperframes_output_sha256": _sha256(silent_output),
         "background_video_used": False,
         "factual_text_rendering": "html_svg_only",
