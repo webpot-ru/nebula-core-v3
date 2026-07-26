@@ -9,6 +9,8 @@ from typing import Any
 
 
 PROFILE_CONTRACT_VERSION = 1
+NARRATION_BOUNDARY_CONTRACT_VERSION = 1
+BUNDLE_TRANSITION_SPEED_MULTIPLIER = 0.92
 VOICE_ONLY_TARGET_LUFS = -16.0
 VOICE_ONLY_TOLERANCE_LU = 1.0
 VOICE_ONLY_MAX_TRUE_PEAK_DBTP = -1.5
@@ -210,6 +212,117 @@ def profile_payload(profile: dict[str, Any]) -> dict[str, Any]:
 def verify_narration_profile(profile: dict[str, Any]) -> bool:
     digest = str(profile.get("profile_sha256") or "")
     return len(digest) == 64 and digest == canonical_hash(profile_payload(profile))
+
+
+def resolve_narration_boundary_contract(
+    profile: dict[str, Any],
+    *,
+    episode_format: object,
+    source_count: object,
+) -> dict[str, Any]:
+    """Build the exact format-aware delivery contract for one future episode.
+
+    The pillar profile remains unchanged so historical TTS artifacts keep their
+    original profile checksum.  New factory scripts opt into this separately
+    hashed boundary contract before AI33 planning.
+    """
+
+    if not verify_narration_profile(profile):
+        raise NarrationProfileError(
+            "narration boundary contract requires a canonical narration profile"
+        )
+    normalized_format = str(episode_format or "").strip().upper()
+    if normalized_format not in {"BUNDLE", "SAGA", "THREAD"}:
+        raise NarrationProfileError(
+            "episode_format must be BUNDLE, SAGA, or THREAD"
+        )
+    if (
+        isinstance(source_count, bool)
+        or not isinstance(source_count, int)
+        or source_count <= 0
+    ):
+        raise NarrationProfileError("source_count must be a positive integer")
+    if normalized_format == "BUNDLE" and source_count < 2:
+        raise NarrationProfileError("BUNDLE boundary contract requires at least two stories")
+    if normalized_format == "SAGA" and source_count != 1:
+        raise NarrationProfileError("SAGA boundary contract requires exactly one story")
+    if normalized_format == "THREAD" and source_count < 2:
+        raise NarrationProfileError(
+            "THREAD boundary contract requires one prompt and at least one response"
+        )
+
+    base_speed = float(profile["speed"])
+    pause_contract = profile["pause_after"]
+    story_pause = float(pause_contract["segment_seconds"]["story"])
+    transition_pause = float(pause_contract["segment_seconds"]["transition"])
+    effective_transition_speed = round(
+        base_speed * BUNDLE_TRANSITION_SPEED_MULTIPLIER,
+        4,
+    )
+    if not 0.5 <= effective_transition_speed <= 1.5:
+        raise NarrationProfileError(
+            "effective BUNDLE transition speed is outside the AI33 v3 range"
+        )
+
+    if normalized_format == "BUNDLE":
+        policy = {
+            "policy_id": "acc1_bundle_slow_story_announcement_v1",
+            "spoken_transition_count": source_count - 1,
+            "spoken_transition_required": True,
+            "transition_speed_multiplier": BUNDLE_TRANSITION_SPEED_MULTIPLIER,
+            "effective_transition_speed": effective_transition_speed,
+            "pause_before_announcement_sec": story_pause,
+            "pause_after_announcement_sec": transition_pause,
+            "delivery": (
+                "story pause -> slower narrator announcement -> longer transition pause"
+            ),
+        }
+    elif normalized_format == "SAGA":
+        policy = {
+            "policy_id": "acc1_saga_semantic_breathing_v1",
+            "spoken_transition_count": 0,
+            "spoken_transition_required": False,
+            "semantic_beat_pause_sec": float(pause_contract["beat_seconds"]),
+            "story_to_outro_pause_sec": story_pause,
+            "delivery": "one continuous story with semantic beat breathing",
+        }
+    else:
+        policy = {
+            "policy_id": "acc1_thread_voice_boundary_v1",
+            "spoken_transition_count": 0,
+            "spoken_transition_required": False,
+            "prompt_response_boundary_count": source_count - 1,
+            "prompt_response_pause_sec": story_pause,
+            "response_response_pause_sec": story_pause,
+            "distinct_comment_voice_required": True,
+            "delivery": (
+                "visible question/answer labels, story-segment pauses, and a distinct "
+                "comment voice without repeated spoken announcements"
+            ),
+        }
+
+    payload = {
+        "version": NARRATION_BOUNDARY_CONTRACT_VERSION,
+        "episode_format": normalized_format,
+        "source_count": source_count,
+        "narration_profile_id": profile["profile_id"],
+        "narration_profile_sha256": profile["profile_sha256"],
+        "base_speed": base_speed,
+        "source_text_mutation": False,
+        **policy,
+    }
+    payload["narration_boundary_contract_sha256"] = canonical_hash(payload)
+    return payload
+
+
+def verify_narration_boundary_contract(contract: dict[str, Any]) -> bool:
+    digest = str(contract.get("narration_boundary_contract_sha256") or "")
+    payload = {
+        key: copy.deepcopy(value)
+        for key, value in contract.items()
+        if key != "narration_boundary_contract_sha256"
+    }
+    return len(digest) == 64 and digest == canonical_hash(payload)
 
 
 def resolve_narration_profile(

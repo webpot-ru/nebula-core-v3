@@ -160,7 +160,10 @@ class EpisodeFactoryTests(unittest.TestCase):
             )
         thread_plan = copy.deepcopy(self.plan)
         thread_plan["format"] = "THREAD"
-        with self.assertRaisesRegex(factory.EpisodeFactoryError, "response-card hybrid"):
+        with self.assertRaisesRegex(
+            factory.EpisodeFactoryError,
+            "editorial_motion_v1 response-vignette",
+        ):
             factory.run_produce_stage(
                 daily_plan=thread_plan,
                 visual_mode="cinematic_story_v1",
@@ -672,7 +675,37 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertNotIn("спонсор", script["intro_ru"].casefold())
         self.assertEqual(script["intro_ru"], script["intro_contract"]["intro_ru"])
         self.assertIn("Чью сторону", script["outro_ru"])
+        self.assertIn(
+            "BUNDLE mini-comic 1 of 2",
+            script["stories"][0]["visual_identity_contract"],
+        )
+        self.assertIn(
+            "never reuse its faces",
+            script["stories"][1]["visual_identity_contract"],
+        )
         validate.assert_called_once()
+
+    def test_thread_identity_contract_separates_prompt_and_responses(self):
+        prompt = factory._visual_identity_contract(
+            format_id="THREAD",
+            source={"source_id": "prompt", "role": "prompt"},
+            source_index=1,
+            source_count=10,
+        )
+        response = factory._visual_identity_contract(
+            format_id="THREAD",
+            source={
+                "source_id": "response-1",
+                "role": "response",
+                "editorial_role": "unexpected confession",
+            },
+            source_index=2,
+            source_count=10,
+        )
+        self.assertIn("THREAD prompt anchor", prompt)
+        self.assertIn("THREAD response 1 of 9", response)
+        self.assertIn("unexpected confession", response)
+        self.assertIn("change face, silhouette, pose", response)
 
     def test_malformed_structured_candidate_uses_reserve_without_aborting_transport(self):
         candidates = [
@@ -1295,6 +1328,14 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertEqual(factory._required_image_calls("SAGA", 1), 5)
         self.assertEqual(factory._required_image_calls("BUNDLE", 5), 15)
         self.assertEqual(factory._required_image_calls("THREAD", 16), 3)
+        self.assertEqual(
+            factory._required_image_calls(
+                "THREAD",
+                16,
+                visual_mode="editorial_motion_v1",
+            ),
+            33,
+        )
 
     def test_minimum_tts_budget_is_known_before_paid_text_calls(self):
         self.assertEqual(factory._minimum_tts_calls("SAGA", 1), 3)

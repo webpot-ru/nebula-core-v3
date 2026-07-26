@@ -2,6 +2,37 @@
 
 Last updated: 2026-07-26
 
+## 2026-07-26 — Clean acc1 format-v3 integration prepared from current main
+
+- Clean branch `codex/acc1-format-v3-integration` starts from
+  `origin/main@16d990b`. It preserves the merged first-release private-upload
+  package and the current paid-resume/source-checkpoint architecture instead
+  of reopening the old 159-behind integration branch.
+- New daily acc1 episodes are locked to `editorial_motion_v1` and
+  `acc1_format_visual_system_v3`. `BUNDLE`, `SAGA` and `THREAD` share one
+  adult illustrated graphic-novel universe but use separate page grammars,
+  source-bound identity contracts and meaning-led one-to-five-panel layouts.
+  Historical Reddit-card, cinematic-webtoon, Ink & Gouache and six-series
+  animation profiles remain recovery/history evidence only.
+- The production renderer is bound to HyperFrames segmentation at scene
+  boundaries with a 120-second ceiling, exact segment inventory, deterministic
+  assembly and burned subtitle verification. The checksum-bound intro, CTA and
+  outro are copied into each review artifact; captions are burned again after
+  those overlays so the lower subtitle line remains visible. A separate
+  GitHub-only no-spend canary exposes preparation, independent matrix renders
+  and assembly while reusing frozen pages and narration.
+- Narration profiles now bind a checksum-verified boundary contract. BUNDLE
+  transitions use a slightly slower delivery and deterministic pauses between
+  stories; SAGA and THREAD keep their own format-appropriate boundaries and
+  voice roles. The contract hash is propagated through TTS, pause/audio-mix,
+  scene, creative-review and release evidence.
+- Full local verification currently passes 600 tests plus Python compile and
+  static workflow-contract checks. This branch has not been merged and no
+  GitHub workflow, Reddit read,
+  OpenAI, VectorEngine, AI33 or YouTube action was performed. The integration
+  is therefore local/code-verified only; a separately approved GitHub canary
+  is still required before calling it render-verified.
+
 ## 2026-07-26 — First-release YouTube package prepared locally
 
 - The visually accepted captioned master from GitHub run `30187749091` now has
@@ -158,7 +189,10 @@ only after the intended workflow succeeds and artifact-verified only after the
 exact MP4 is downloaded/read back and visually reviewed. Any paid/provider run
 or upload still requires explicit approval of its exact scope.
 
-## Cloud integration — adult-animation editorial motion
+## Historical cloud integration — adult-animation editorial motion (superseded)
+
+This section records the earlier branch state and is superseded by the
+format-v3 integration entry at the top of this document.
 
 The conflict-free cloud integration branch is based on `origin/main@017934e`.
 It adds the approved six-profile original adult 2D animation contract, the
@@ -185,7 +219,10 @@ single-source SAGA, the current source-break policy places the CTA after that
 source and before the outro; beat-level placement inside one story is follow-up
 work rather than a verified capability.
 
-## Current Shape
+## Historical 2026-07-17 shape (superseded)
+
+This snapshot is retained for audit history; it is not the current execution
+contract.
 
 `/Users/lali/Projects/reddit` is a multilingual YouTube story-entertainment pipeline for the ChonkerTalks channel network.
 

@@ -27,11 +27,13 @@ from acc1_visual_contract import (
     EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS,
     EDITORIAL_MOTION_STYLE_PROFILE,
     EDITORIAL_MOTION_STYLE_PROFILES,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     EDITORIAL_MOTION_MODE,
     EDITORIAL_MOTION_TARGET_SCENE_SECONDS,
     INK_GOUACHE_PAGE_LAYOUTS,
     INK_GOUACHE_STORY_FAMILIES,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+    build_format_visual_system_v3_semantic_camera,
     is_adult_animation_style_profile,
 )
 
@@ -131,7 +133,16 @@ def _group_asset_packs(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
             raise EditorialMotionError(f"asset family {family_id} has invalid motion module")
         story_families = {str(item.get("story_family") or "") for item in family_assets}
         page_layouts = {str(item.get("page_layout") or "") for item in family_assets}
-        if len(story_families) != 1 or len(page_layouts) != 1:
+        panel_grammars = {str(item.get("panel_grammar") or "") for item in family_assets}
+        panel_counts = {item.get("panel_count") for item in family_assets}
+        panel_beat_roles = {str(item.get("panel_beat_role") or "") for item in family_assets}
+        if (
+            len(story_families) != 1
+            or len(page_layouts) != 1
+            or len(panel_grammars) != 1
+            or len(panel_counts) != 1
+            or len(panel_beat_roles) != 1
+        ):
             raise EditorialMotionError(f"asset family {family_id} has inconsistent art direction")
         pack_payload = {
             "asset_family_id": family_id,
@@ -140,6 +151,17 @@ def _group_asset_packs(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "page_layout": next(iter(page_layouts)),
             "assets": family_assets,
         }
+        panel_grammar = next(iter(panel_grammars))
+        if panel_grammar:
+            panel_count = next(iter(panel_counts))
+            panel_beat_role = next(iter(panel_beat_roles))
+            if not isinstance(panel_count, int) or panel_count not in {1, 2, 3, 4, 5} or not panel_beat_role:
+                raise EditorialMotionError(f"asset family {family_id} has invalid panel grammar metadata")
+            pack_payload.update({
+                "panel_grammar": panel_grammar,
+                "panel_count": panel_count,
+                "panel_beat_role": panel_beat_role,
+            })
         packs.append({**pack_payload, "asset_pack_sha256": canonical_hash(pack_payload)})
     return packs
 
@@ -264,12 +286,19 @@ def build_editorial_motion_contract(
 
         if segment_kind == "story":
             packs = story_packs[segment_id]
+            metadata_segment_id = segment_id
             scene_count = (
                 len(packs)
-                if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE
+                if style_profile in {
+                    CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                }
                 else _scene_count(duration, len(packs))
             )
-            if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE and not (
+            if style_profile in {
+                CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            } and not (
                 EDITORIAL_MOTION_MIN_SCENE_SECONDS
                 <= duration / scene_count
                 <= EDITORIAL_MOTION_MAX_SCENE_SECONDS
@@ -285,12 +314,18 @@ def build_editorial_motion_contract(
                 )
             scene_count = 1
             if segment_kind == "intro":
-                packs = [story_packs[story_ids[0]][0]]
-            elif segment_kind in {"mid_story_cta", "outro"}:
-                packs = [story_packs[story_ids[-1]][-1]]
+                metadata_segment_id = story_ids[0]
+                packs = [story_packs[metadata_segment_id][0]]
+            elif segment_kind == "mid_story_cta":
+                metadata_segment_id = story_ids[-1]
+                packs = [story_packs[metadata_segment_id][-1]]
+            elif segment_kind == "outro":
+                metadata_segment_id = story_ids[-1]
+                packs = [story_packs[metadata_segment_id][-1]]
             elif segment_kind == "transition":
                 position = min(completed_story_count, len(story_ids) - 1)
-                packs = [story_packs[story_ids[position]][0]]
+                metadata_segment_id = story_ids[position]
+                packs = [story_packs[metadata_segment_id][0]]
             else:
                 raise EditorialMotionError(f"unsupported segment kind {segment_kind}")
 
@@ -301,9 +336,13 @@ def build_editorial_motion_contract(
             pack = packs[index]
             story_family = str(pack.get("story_family") or "")
             page_layout = str(pack.get("page_layout") or "")
+            panel_grammar = str(pack.get("panel_grammar") or "")
+            panel_count = pack.get("panel_count")
+            panel_beat_role = str(pack.get("panel_beat_role") or "")
             if style_profile in {
                 INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
                 CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+                FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
             }:
                 if (
                     story_family not in INK_GOUACHE_STORY_FAMILIES
@@ -330,7 +369,7 @@ def build_editorial_motion_contract(
                 module = "dark_semantic_reveal"
             scene_id = f"{segment_id}-motion-{index + 1:03d}"
             text = text_parts[index]
-            metadata = story_metadata.get(segment_id, {})
+            metadata = story_metadata.get(metadata_segment_id, {})
             scene_titles = metadata.get("scene_titles")
             if scene_titles is not None and (
                 not isinstance(scene_titles, list)
@@ -347,6 +386,18 @@ def build_editorial_motion_contract(
                 "kind": "editorial_motion_scene",
                 "presentation": segment_kind,
                 "story_index": metadata.get("story_index"),
+                "format_id": metadata.get("format_id"),
+                "scene_number": (
+                    metadata.get("format_scene_number") or index + 1
+                ),
+                "scene_count": (
+                    metadata.get("format_scene_count") or scene_count
+                ),
+                "source_role": metadata.get("source_role"),
+                "thread_response_number": metadata.get(
+                    "thread_response_number",
+                ),
+                "editorial_role": metadata.get("editorial_role"),
                 "voice_role": str(segment.get("voice_role") or ""),
                 "start_sec": round(start, 3),
                 "end_sec": round(end, 3),
@@ -359,11 +410,22 @@ def build_editorial_motion_contract(
                 "assets": pack["assets"],
                 "story_family": story_family or None,
                 "page_layout": page_layout or None,
+                "panel_grammar": panel_grammar or None,
+                "panel_count": panel_count if panel_grammar else None,
+                "panel_beat_role": panel_beat_role or None,
                 "motion": _motion_contract(module),
                 "style_profile": style_profile,
                 "truth_status": "editorial_illustration",
                 "factual_text_rendering": "html_svg_only",
             }
+            if (
+                style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                and panel_grammar
+            ):
+                scene.update(build_format_visual_system_v3_semantic_camera(
+                    panel_beat_role,
+                    text,
+                ))
             for field in ("title", "source_label", "truth_mode"):
                 if metadata.get(field):
                     scene[{"title": "story_title"}.get(field, field)] = str(metadata[field])

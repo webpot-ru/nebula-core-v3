@@ -1,0 +1,9 @@
+{
+  "name": "chonker-talks-format-v3-preview",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "npx --yes hyperframes@0.7.64 check --snapshots --at 1,3.8,7,9.7,13,15.8",
+    "render": "npx --yes hyperframes@0.7.64 render --output renders/acc1-format-v3-preview.mp4 --quality standard"
+  }
+}

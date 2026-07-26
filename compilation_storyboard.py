@@ -35,8 +35,16 @@ from acc1_visual_contract import (
     CINEMATIC_ZOOM_END_MIN,
     CONTRACT_VERSION as VISUAL_CONTRACT_VERSION,
     DEFAULT_VISUAL_MODE,
+    EDITORIAL_MOTION_ASSETS_PER_PACK,
+    EDITORIAL_MOTION_CAPTION_TRACK_VERSION,
+    EDITORIAL_MOTION_MAX_SCENE_SECONDS,
+    EDITORIAL_MOTION_MIN_SCENE_SECONDS,
     EDITORIAL_MOTION_MODE,
+    EDITORIAL_MOTION_MODULES,
+    EDITORIAL_MOTION_PLAN_VERSION,
+    EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS,
     EDITORIAL_MOTION_STYLE_PROFILE,
+    EDITORIAL_MOTION_STYLE_PROFILES,
     MAX_VISUAL_SCENES,
     MIN_VISUAL_SCENES,
     MASCOT_SAFE_X,
@@ -83,6 +91,161 @@ def _sha256(path: Path) -> str:
 
 def _normalized_text(text: str) -> str:
     return " ".join(str(text or "").split())
+
+
+def _attach_brand_sting(
+    storyboard: dict[str, Any],
+    compilation: dict[str, Any],
+    artifact_root: Path,
+) -> dict[str, Any]:
+    raw = compilation.get("brand_sting")
+    if not isinstance(raw, dict):
+        return storyboard
+    asset = _verified_background_video(
+        str(raw.get("local_path") or ""),
+        artifact_root,
+    )
+    expected = str(raw.get("sha256") or "").strip().lower()
+    if not SHA256_RE.fullmatch(expected) or asset["sha256"] != expected:
+        raise CompilationStoryboardError(
+            "brand sting checksum does not match the local asset",
+        )
+    intro_contract = compilation.get("intro_contract")
+    cold_open = (
+        str((intro_contract.get("cold_open") or {}).get("text") or "").strip()
+        if isinstance(intro_contract, dict)
+        else ""
+    )
+    intro_slides = [
+        slide
+        for slide in storyboard.get("slides") or []
+        if str(slide.get("segment_id") or "") == "intro"
+    ]
+    if not cold_open or not intro_slides:
+        raise CompilationStoryboardError(
+            "brand sting requires a timed source-bound cold open",
+        )
+    accumulated: list[str] = []
+    start_sec: float | None = None
+    normalized_cold_open = _normalized_text(cold_open)
+    for slide in intro_slides:
+        accumulated.append(str(slide.get("narration_text") or ""))
+        if _normalized_text(" ".join(accumulated)).startswith(
+            normalized_cold_open,
+        ):
+            start_sec = float(slide["end_sec"])
+            break
+    if start_sec is None:
+        raise CompilationStoryboardError(
+            "cold open timing cannot be resolved for brand sting",
+        )
+    duration_sec = float(raw.get("duration_sec") or 0)
+    if not 0.5 <= duration_sec <= 3.0:
+        raise CompilationStoryboardError(
+            "brand sting duration must be between 0.5 and 3 seconds",
+        )
+    storyboard["brand_sting"] = {
+        "version": 1,
+        "local_path": asset["local_path"],
+        "sha256": expected,
+        "start_sec": round(start_sec, 3),
+        "duration_sec": round(duration_sec, 3),
+        "audio_policy": "discard",
+        "placement": "after_cold_open",
+    }
+    storyboard.setdefault("creative_manifest", {})["brand_sting"] = {
+        "placement": "after_cold_open",
+        "duration_sec": round(duration_sec, 3),
+        "sha256": expected,
+    }
+    return storyboard
+
+
+def _attach_brand_overlays(
+    storyboard: dict[str, Any],
+    compilation: dict[str, Any],
+    artifact_root: Path,
+) -> dict[str, Any]:
+    slides = list(storyboard.get("slides") or [])
+    if not slides:
+        return storyboard
+    timeline_end = max(float(slide.get("end_sec") or 0) for slide in slides)
+    first_story_id = next(
+        (
+            str(slide.get("segment_id") or "")
+            for slide in slides
+            if str(slide.get("segment_id") or "").startswith("story_")
+        ),
+        "",
+    )
+    first_story_slides = [
+        slide
+        for slide in slides
+        if str(slide.get("segment_id") or "") == first_story_id
+    ]
+    definitions = {
+        "brand_cta": (0.5, 4.0, "first_story_midpoint"),
+        "brand_outro": (3.0, 15.0, "timeline_end"),
+    }
+    for field, (minimum, maximum, placement) in definitions.items():
+        raw = compilation.get(field)
+        if not isinstance(raw, dict):
+            continue
+        asset = _verified_background_video(
+            str(raw.get("local_path") or ""),
+            artifact_root,
+        )
+        expected = str(raw.get("sha256") or "").strip().lower()
+        if not SHA256_RE.fullmatch(expected) or asset["sha256"] != expected:
+            raise CompilationStoryboardError(
+                f"{field} checksum does not match the local asset",
+            )
+        duration_sec = float(raw.get("duration_sec") or 0)
+        if not minimum <= duration_sec <= maximum:
+            raise CompilationStoryboardError(f"{field} duration is invalid")
+        if field == "brand_cta":
+            if not first_story_slides:
+                raise CompilationStoryboardError(
+                    "brand CTA requires a timed first story",
+                )
+            story_start = min(
+                float(slide.get("start_sec") or 0)
+                for slide in first_story_slides
+            )
+            story_end = max(
+                float(slide.get("end_sec") or 0)
+                for slide in first_story_slides
+            )
+            start_sec = max(
+                story_start,
+                min(
+                    (story_start + story_end - duration_sec) / 2,
+                    story_end - duration_sec,
+                ),
+            )
+        else:
+            if timeline_end < duration_sec:
+                raise CompilationStoryboardError(
+                    "brand outro is longer than the narration timeline",
+                )
+            start_sec = timeline_end - duration_sec
+        contract = {
+            "version": 1,
+            "local_path": asset["local_path"],
+            "sha256": expected,
+            "start_sec": round(start_sec, 3),
+            "duration_sec": round(duration_sec, 3),
+            "audio_policy": "discard",
+            "placement": placement,
+        }
+        storyboard[field] = contract
+        storyboard.setdefault("creative_manifest", {})[field] = {
+            "placement": placement,
+            "start_sec": contract["start_sec"],
+            "duration_sec": contract["duration_sec"],
+            "sha256": expected,
+        }
+    return storyboard
 
 
 def _canonical_hash(value: Any) -> str:
@@ -1345,7 +1508,18 @@ def _build_editorial_motion_storyboard(
 ) -> dict[str, Any]:
     if background_video:
         raise CompilationStoryboardError(
-            "editorial_motion_v1 rejects background_video",
+            "editorial_motion_v1 owns the full frame and rejects background_video",
+        )
+    if not _complete_narration(compilation):
+        raise CompilationStoryboardError(
+            "editorial_motion_v1 requires complete intro, story, and outro narration",
+        )
+    style_profile = str(
+        compilation.get("style_profile") or EDITORIAL_MOTION_STYLE_PROFILE,
+    ).strip()
+    if style_profile not in EDITORIAL_MOTION_STYLE_PROFILES:
+        raise CompilationStoryboardError(
+            "editorial_motion_v1 received an unsupported style_profile",
         )
     timing_contract = _bound_tts_state(
         compilation, tts_state, pause_map=pause_map,
@@ -1359,32 +1533,73 @@ def _build_editorial_motion_storyboard(
         raise CompilationStoryboardError(str(exc)) from exc
     story_assets: dict[str, list[dict[str, Any]]] = {}
     story_metadata: dict[str, dict[str, Any]] = {}
+    episode_format = str(compilation.get("episode_format") or "").upper()
+    response_number = 0
     for index, story in enumerate(compilation.get("stories") or [], start=1):
         snapshot = story.get("source_snapshot") or {}
         source_id = str(snapshot.get("source_id") or snapshot.get("post_id") or index)
         segment_id = f"story_{source_id}"
+        source_role = str(
+            snapshot.get("source_role") or snapshot.get("role") or "story",
+        ).lower()
+        if source_role == "response":
+            response_number += 1
         story_assets[segment_id] = _verified_editorial_assets(story, artifact_root)
         story_metadata[segment_id] = {
             "story_index": index,
-            "title": str(story.get("title_ru") or snapshot.get("title") or f"История {index}"),
+            "format_id": episode_format,
+            "format_scene_number": (
+                index if episode_format == "THREAD" else None
+            ),
+            "format_scene_count": (
+                len(compilation.get("stories") or [])
+                if episode_format == "THREAD"
+                else None
+            ),
+            "source_role": source_role,
+            "thread_response_number": (
+                response_number if source_role == "response" else None
+            ),
+            "editorial_role": str(snapshot.get("editorial_role") or ""),
+            "title": str(
+                story.get("title_ru")
+                or snapshot.get("title")
+                or f"История {index}"
+            ),
             "source_label": _source_label(snapshot),
             "truth_mode": str(snapshot.get("truth_mode") or ""),
         }
-    duration = float(bindings["final_audio_duration_sec"])
-    style_profile = str(
-        compilation.get("style_profile") or EDITORIAL_MOTION_STYLE_PROFILE,
-    )
+    final_audio_duration = float(bindings["final_audio_duration_sec"])
     try:
         contract = build_editorial_motion_contract(
             narration_segments=narration_segments,
             segment_timings=segment_timings,
             story_assets=story_assets,
             story_metadata=story_metadata,
-            final_audio_duration_sec=duration,
+            final_audio_duration_sec=final_audio_duration,
             style_profile=style_profile,
         )
     except EditorialMotionError as exc:
         raise CompilationStoryboardError(str(exc)) from exc
+
+    scenes = contract["scenes"]
+    expected_text = narration_text(compilation)
+    covered_text = _normalized_text(
+        " ".join(str(scene.get("narration_text") or "") for scene in scenes),
+    )
+    coverage = 1.0 if expected_text and covered_text == expected_text else 0.0
+    if coverage != 1.0:
+        raise CompilationStoryboardError(
+            "editorial motion scenes do not preserve the exact accepted narration",
+        )
+    motion_plan = contract["motion_plan"]
+    caption_track = contract["caption_track"]
+    motion_plan_sha256 = str(motion_plan["motion_plan_sha256"])
+    caption_track_sha256 = str(caption_track["caption_track_sha256"])
+    timing_sources = sorted({
+        str(scene.get("timing_source") or "")
+        for scene in scenes
+    })
     return {
         "version": 4,
         "format": "compilation_16x9",
@@ -1394,12 +1609,46 @@ def _build_editorial_motion_storyboard(
         "style_profile": style_profile,
         **bindings,
         "publication_authorized": False,
-        "timeline_duration_sec": round(duration, 3),
-        "slides": contract["scenes"],
-        "motion_plan": contract["motion_plan"],
-        "motion_plan_sha256": contract["motion_plan"]["motion_plan_sha256"],
-        "caption_track": contract["caption_track"],
-        "caption_track_sha256": contract["caption_track"]["caption_track_sha256"],
+        "timeline_duration_sec": round(final_audio_duration, 3),
+        "slides": scenes,
+        "motion_plan": motion_plan,
+        "motion_plan_sha256": motion_plan_sha256,
+        "caption_track": caption_track,
+        "caption_track_sha256": caption_track_sha256,
+        "creative_manifest": {
+            "version": 1,
+            "mode": EDITORIAL_MOTION_MODE,
+            "style_profile": style_profile,
+            **bindings,
+            "publication_authorized": False,
+            "narration_sha256": narration_sha256(compilation),
+            "narration_characters": len(expected_text),
+            "text_timing_coverage": coverage,
+            "audio_timing_coverage": 1.0,
+            "timing_sources": timing_sources,
+            "scene_count": len(scenes),
+            "background_video_required": False,
+            "thumbnail_required": True,
+            "motion_plan_sha256": motion_plan_sha256,
+            "caption_track_sha256": caption_track_sha256,
+            "module_usage": motion_plan["module_usage"],
+            "visual_contract": {
+                "version": VISUAL_CONTRACT_VERSION,
+                "motion_plan_version": EDITORIAL_MOTION_PLAN_VERSION,
+                "caption_track_version": EDITORIAL_MOTION_CAPTION_TRACK_VERSION,
+                "assets_per_pack": EDITORIAL_MOTION_ASSETS_PER_PACK,
+                "story_scene_min_seconds": EDITORIAL_MOTION_MIN_SCENE_SECONDS,
+                "story_scene_max_seconds": EDITORIAL_MOTION_MAX_SCENE_SECONDS,
+                "service_scene_max_seconds": (
+                    EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS
+                ),
+                "modules": list(EDITORIAL_MOTION_MODULES),
+                "style_profile": style_profile,
+                "factual_text_rendering": "html_svg_only",
+                "full_screen_images": True,
+                "seek_safe": True,
+            },
+        },
     }
 
 
@@ -1425,7 +1674,7 @@ def build_storyboard(
     except ValueError as exc:
         raise CompilationStoryboardError(str(exc)) from exc
     if mode == EDITORIAL_MOTION_MODE:
-        return _build_editorial_motion_storyboard(
+        result = _build_editorial_motion_storyboard(
             compilation,
             Path(artifact_root),
             background_video=background_video,
@@ -1433,8 +1682,8 @@ def build_storyboard(
             pause_map=pause_map,
             audio_mix_report=audio_mix_report,
         )
-    if mode == CINEMATIC_STORY_MODE:
-        return _build_cinematic_storyboard(
+    elif mode == CINEMATIC_STORY_MODE:
+        result = _build_cinematic_storyboard(
             compilation,
             Path(artifact_root),
             background_video=background_video,
@@ -1442,13 +1691,24 @@ def build_storyboard(
             pause_map=pause_map,
             audio_mix_report=audio_mix_report,
         )
-    return _build_reddit_storyboard(
+    else:
+        result = _build_reddit_storyboard(
+            compilation,
+            Path(artifact_root),
+            background_video=background_video,
+            tts_state=tts_state,
+            pause_map=pause_map,
+            audio_mix_report=audio_mix_report,
+        )
+    result = _attach_brand_sting(
+        result,
         compilation,
         Path(artifact_root),
-        background_video=background_video,
-        tts_state=tts_state,
-        pause_map=pause_map,
-        audio_mix_report=audio_mix_report,
+    )
+    return _attach_brand_overlays(
+        result,
+        compilation,
+        Path(artifact_root),
     )
 
 

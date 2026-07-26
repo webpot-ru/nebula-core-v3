@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru" data-resolution="landscape">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920,height=1080">
+  <title>Chonker Talks — format visual system v3</title>
+  <script src="assets/gsap.min.js"></script>
+  <style>
+    :root { --paper:#efe7d7; --ink:#11151a; --muted:#b9ad98; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    html,body { width:1920px; height:1080px; overflow:hidden; background:var(--ink); font-family:Arial,sans-serif; }
+    #preview { position:relative; width:1920px; height:1080px; overflow:hidden; background:var(--ink); }
+    .scene { position:absolute; inset:0; overflow:hidden; background:var(--ink); }
+    .page { position:absolute; inset:0 0 110px; overflow:hidden; background:var(--paper); }
+    .art { position:absolute; width:1920px; height:1080px; object-fit:cover; transform-origin:50% 50%; will-change:transform; }
+    .grade { position:absolute; inset:0; background:linear-gradient(180deg,rgba(6,9,12,.04),rgba(6,9,12,.18)); pointer-events:none; }
+    .format-tag { position:absolute; left:48px; top:42px; padding:12px 18px; border:2px solid rgba(239,231,215,.72); background:rgba(17,21,26,.84); color:var(--paper); font-size:24px; font-weight:900; letter-spacing:.12em; }
+    .subtitle-band { position:absolute; left:0; right:0; bottom:0; height:110px; display:flex; align-items:center; justify-content:center; padding:0 120px; background:#0b0e12; border-top:1px solid rgba(239,231,215,.22); color:#f4efe4; font-size:38px; font-weight:700; text-align:center; }
+    .progress { position:absolute; left:0; bottom:108px; height:3px; width:100%; transform-origin:left center; background:#a8987e; }
+  </style>
+</head>
+<body>
+  <main id="preview" data-composition-id="acc1-format-v3-preview" data-start="0" data-duration="18" data-fps="30" data-width="1920" data-height="1080">
+    <section id="bundle" class="clip scene" data-start="0" data-duration="6" data-track-index="1">
+      <div class="page"><img id="bundle-art" class="art" data-layout-allow-overflow src="assets/bundle-relationships-v1.png" alt="BUNDLE: отдельные мини-комиксы"><div class="grade"></div></div>
+      <div class="format-tag">BUNDLE · НЕСКОЛЬКО ИСТОРИЙ</div>
+      <div class="subtitle-band">Сначала видна вся страница, затем камера читает отдельные истории.</div>
+      <div id="bundle-progress" class="progress"></div>
+    </section>
+    <section id="saga" class="clip scene" data-start="6" data-duration="6" data-track-index="1">
+      <div class="page"><img id="saga-art" class="art" data-layout-allow-overflow src="assets/saga-strange-v1.png" alt="SAGA: одна непрерывная история"><div class="grade"></div></div>
+      <div class="format-tag">SAGA · ОДНА ДЛИННАЯ ИСТОРИЯ</div>
+      <div class="subtitle-band">Панорама задаёт пространство, потом движение ведёт к важному открытию.</div>
+      <div id="saga-progress" class="progress"></div>
+    </section>
+    <section id="thread" class="clip scene" data-start="12" data-duration="6" data-track-index="1">
+      <div class="page"><img id="thread-art" class="art" data-layout-allow-overflow src="assets/thread-confessions-v1.png" alt="THREAD: вопрос и разные ответы"><div class="grade"></div></div>
+      <div class="format-tag">THREAD · ВОПРОС И ОТВЕТЫ</div>
+      <div class="subtitle-band">Центральный вопрос остаётся якорем, ответы читаются зигзагом.</div>
+      <div id="thread-progress" class="progress"></div>
+    </section>
+  </main>
+  <script>
+    window.__timelines = window.__timelines || {};
+    const tl = gsap.timeline({paused:true});
+
+    tl.fromTo('#bundle-art', {scale:1, x:0, y:-55}, {scale:1.03, x:0, y:-55, duration:1.2, ease:'sine.inOut'}, 0);
+    tl.to('#bundle-art', {scale:1.48, x:445, y:10, duration:2.0, ease:'power2.inOut'}, 1.2);
+    tl.to('#bundle-art', {scale:1.45, x:-430, y:-325, duration:2.25, ease:'power2.inOut'}, 3.35);
+    tl.fromTo('#bundle-progress', {scaleX:0}, {scaleX:1, duration:5.8, ease:'none'}, 0);
+
+    tl.fromTo('#saga-art', {scale:1, x:0, y:-55}, {scale:1.06, x:-30, y:-55, duration:1.45, ease:'sine.inOut'}, 6);
+    tl.to('#saga-art', {scale:1.34, x:155, y:-20, duration:2.35, ease:'power1.inOut'}, 7.45);
+    tl.to('#saga-art', {scale:1.68, x:-40, y:-370, duration:1.85, ease:'power2.inOut'}, 9.8);
+    tl.fromTo('#saga-progress', {scaleX:0}, {scaleX:1, duration:5.8, ease:'none'}, 6);
+
+    tl.fromTo('#thread-art', {scale:1, x:0, y:-55}, {scale:1.04, x:0, y:-55, duration:1.2, ease:'sine.inOut'}, 12);
+    tl.to('#thread-art', {scale:1.35, x:0, y:95, duration:1.55, ease:'power2.inOut'}, 13.2);
+    tl.to('#thread-art', {scale:1.62, x:590, y:-135, duration:1.25, ease:'power2.inOut'}, 14.75);
+    tl.to('#thread-art', {scale:1.55, x:-520, y:-345, duration:1.55, ease:'power2.inOut'}, 16.0);
+    tl.fromTo('#thread-progress', {scaleX:0}, {scaleX:1, duration:5.8, ease:'none'}, 12);
+    tl.to({}, {duration:.001}, 18);
+
+    window.__timelines['acc1-format-v3-preview'] = tl;
+    tl.seek(0);
+  </script>
+</body>
+</html>

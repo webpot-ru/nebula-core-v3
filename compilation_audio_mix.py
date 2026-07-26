@@ -15,7 +15,9 @@ from typing import Any, Callable
 from acc1_narration_profiles import (
     NarrationProfileError,
     canonical_hash,
+    resolve_narration_boundary_contract,
     resolve_narration_profile,
+    verify_narration_boundary_contract,
 )
 
 
@@ -72,6 +74,47 @@ def _profile_from_state(tts_state: dict[str, Any]) -> dict[str, Any]:
     return profile
 
 
+def _boundary_contract_from_state(
+    tts_state: dict[str, Any],
+    profile: dict[str, Any],
+) -> dict[str, Any] | None:
+    contract = tts_state.get("narration_boundary_contract")
+    if contract is None:
+        return None
+    if not isinstance(contract, dict) or not verify_narration_boundary_contract(
+        contract,
+    ):
+        raise CompilationAudioMixError(
+            "TTS narration boundary contract checksum is invalid"
+        )
+    try:
+        expected = resolve_narration_boundary_contract(
+            profile,
+            episode_format=tts_state.get("episode_format"),
+            source_count=tts_state.get("boundary_source_count"),
+        )
+    except NarrationProfileError as exc:
+        raise CompilationAudioMixError(str(exc)) from exc
+    if contract != expected:
+        raise CompilationAudioMixError(
+            "TTS narration boundary contract does not match format/profile"
+        )
+    for field, expected_value in (
+        (
+            "narration_boundary_contract_sha256",
+            contract["narration_boundary_contract_sha256"],
+        ),
+        ("narration_boundary_policy_id", contract["policy_id"]),
+        ("episode_format", contract["episode_format"]),
+        ("boundary_source_count", contract["source_count"]),
+    ):
+        if tts_state.get(field) != expected_value:
+            raise CompilationAudioMixError(
+                f"TTS state {field} does not match its narration boundary contract"
+            )
+    return contract
+
+
 def _validate_state_bindings(tts_state: dict[str, Any]) -> None:
     if tts_state.get("status") != "COMPLETE":
         raise CompilationAudioMixError("pause map requires COMPLETE TTS state")
@@ -98,9 +141,22 @@ def build_pause_map(
 
     _validate_state_bindings(tts_state)
     profile = _profile_from_state(tts_state)
+    boundary_contract = _boundary_contract_from_state(tts_state, profile)
     chunks = tts_state.get("chunks")
     if not isinstance(chunks, list) or not chunks:
         raise CompilationAudioMixError("TTS state chunks must be a non-empty list")
+    if boundary_contract is not None:
+        transition_segment_ids = {
+            str(chunk.get("logical_segment_id") or "")
+            for chunk in chunks
+            if chunk.get("logical_segment_kind") == "transition"
+        }
+        if len(transition_segment_ids) != int(
+            boundary_contract["spoken_transition_count"],
+        ):
+            raise CompilationAudioMixError(
+                "TTS transition count violates the narration boundary contract"
+            )
 
     pause_contract = profile["pause_after"]
     segment_pauses = pause_contract["segment_seconds"]
@@ -120,6 +176,43 @@ def build_pause_map(
             raise CompilationAudioMixError(
                 f"{chunk_id} narration profile checksum changed"
             )
+        if boundary_contract is not None:
+            if (
+                chunk.get("narration_boundary_contract_sha256")
+                != boundary_contract["narration_boundary_contract_sha256"]
+                or chunk.get("narration_boundary_policy_id")
+                != boundary_contract["policy_id"]
+                or chunk.get("episode_format")
+                != boundary_contract["episode_format"]
+                or chunk.get("boundary_source_count")
+                != boundary_contract["source_count"]
+            ):
+                raise CompilationAudioMixError(
+                    f"{chunk_id} narration boundary contract changed"
+                )
+            expected_speed = float(profile["speed"])
+            if (
+                boundary_contract["episode_format"] == "BUNDLE"
+                and chunk.get("logical_segment_kind") == "transition"
+            ):
+                expected_speed = float(
+                    boundary_contract["effective_transition_speed"],
+                )
+            try:
+                actual_speed = float(chunk.get("effective_speed"))
+            except (TypeError, ValueError) as exc:
+                raise CompilationAudioMixError(
+                    f"{chunk_id} effective speed is invalid"
+                ) from exc
+            if not math.isclose(
+                actual_speed,
+                expected_speed,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            ):
+                raise CompilationAudioMixError(
+                    f"{chunk_id} effective speed violates the narration boundary contract"
+                )
         audio_sha256 = str(chunk.get("audio_sha256") or "").lower()
         if not SHA256_RE.fullmatch(audio_sha256):
             raise CompilationAudioMixError(f"{chunk_id} audio_sha256 is invalid")
@@ -235,6 +328,16 @@ def build_pause_map(
         "network_used": False,
         "publication_authorized": False,
     }
+    if boundary_contract is not None:
+        payload.update({
+            "narration_boundary_contract": boundary_contract,
+            "narration_boundary_contract_sha256": boundary_contract[
+                "narration_boundary_contract_sha256"
+            ],
+            "narration_boundary_policy_id": boundary_contract["policy_id"],
+            "episode_format": boundary_contract["episode_format"],
+            "boundary_source_count": boundary_contract["source_count"],
+        })
     payload["pause_map_sha256"] = canonical_hash(payload)
     if output_path is not None:
         _atomic_json(Path(output_path), payload)
@@ -484,6 +587,7 @@ def mix_compilation_audio(
 
     _validate_state_bindings(tts_state)
     profile = _profile_from_state(tts_state)
+    boundary_contract = _boundary_contract_from_state(tts_state, profile)
     root = Path(artifact_root).resolve()
     if not root.is_dir():
         raise CompilationAudioMixError("artifact_root must be an existing directory")
@@ -510,6 +614,18 @@ def mix_compilation_audio(
     ):
         if pause_map.get(field) != tts_state.get(field):
             raise CompilationAudioMixError(f"pause map {field} binding changed")
+    if boundary_contract is not None:
+        for field in (
+            "narration_boundary_contract",
+            "narration_boundary_contract_sha256",
+            "narration_boundary_policy_id",
+            "episode_format",
+            "boundary_source_count",
+        ):
+            if pause_map.get(field) != tts_state.get(field):
+                raise CompilationAudioMixError(
+                    f"pause map {field} binding changed"
+                )
     _atomic_json(resolved_pause_path, pause_map)
 
     resolved_output = _resolve_under_root(
@@ -710,6 +826,16 @@ def mix_compilation_audio(
         "network_used": False,
         "publication_authorized": False,
     }
+    if boundary_contract is not None:
+        report.update({
+            "narration_boundary_contract": boundary_contract,
+            "narration_boundary_contract_sha256": boundary_contract[
+                "narration_boundary_contract_sha256"
+            ],
+            "narration_boundary_policy_id": boundary_contract["policy_id"],
+            "episode_format": boundary_contract["episode_format"],
+            "boundary_source_count": boundary_contract["source_count"],
+        })
     report["audio_mix_report_sha256"] = canonical_hash(report)
     _atomic_json(resolved_report, report)
     if failures:

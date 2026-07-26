@@ -22,7 +22,7 @@ from acc1_story_strategy import (
     resolve_pilot_source_plan,
     validate_channel_strategy,
 )
-from acc1_visual_contract import adult_animation_profile_for_pilot
+from acc1_visual_contract import FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
 
 
 PLAN_SCHEMA_VERSION = "acc1_daily_episode_plan_v1"
@@ -146,7 +146,11 @@ def build_daily_plan(
         raise DailyPlanError("internal error: invalid channels config hash")
 
     episode_key = f"acc1/{resolved_date.isoformat()}/{pilot_id}"
-    editorial_motion_style_profile = adult_animation_profile_for_pilot(pilot_id)
+    # Every new episode is bound to the approved shared illustrated universe.
+    # ``format`` and ``pillar`` below select a different BUNDLE/SAGA/THREAD
+    # page grammar and palette inside that universe; the historical first
+    # release or six-series profiles can no longer leak in as a default.
+    editorial_motion_style_profile = FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
     return {
         "schema_version": PLAN_SCHEMA_VERSION,
         "status": "PLANNED_ARTIFACT_ONLY",
@@ -156,9 +160,18 @@ def build_daily_plan(
         "daily_slot": 1,
         "episodes_per_day": 1,
         "pilot_id": pilot_id,
+        "editorial_motion_style_profile": editorial_motion_style_profile,
+        "format_visual_contract": {
+            "version": 3,
+            "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            "format": source_plan["format"],
+            "pillar": source_plan["pillar"],
+            "panel_count_range": [1, 5],
+            "renderer": "hyperframes_segmented",
+            "segment_max_duration_sec": 120,
+        },
         "format": source_plan["format"],
         "pillar": source_plan["pillar"],
-        "editorial_motion_style_profile": editorial_motion_style_profile,
         "episode_key": episode_key,
         "selection": {
             "mode": selection_mode,

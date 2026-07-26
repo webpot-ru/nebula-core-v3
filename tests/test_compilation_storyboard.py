@@ -7,7 +7,12 @@ from PIL import Image
 
 from acc1_cinematic_shots import verify_bound_payload, write_caption_srt
 from acc1_narration_profiles import STRANGE_DARK_UNEXPLAINED_PROFILE_ID
-from acc1_visual_contract import CINEMATIC_STORY_MODE
+from acc1_visual_contract import (
+    CINEMATIC_STORY_MODE,
+    EDITORIAL_MOTION_MODE,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+    select_format_visual_system_v3_panel_grammar,
+)
 from compilation_audio_mix import build_pause_map
 from compilation_storyboard import (
     CompilationStoryboardError,
@@ -206,6 +211,157 @@ class CompilationStoryboardTests(unittest.TestCase):
         self.assertTrue(all(slide["screen_mode"] == "story_title" for slide in intro_slides))
         self.assertTrue(all(slide["screen_title"] == "Сосед постучал ночью" for slide in intro_slides))
         self.assertTrue(all(not slide["show_title"] for slide in story_pages))
+
+    def test_brand_sting_is_checksum_bound_after_cold_open(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sting = root / "brand-sting.mp4"
+            sting.write_bytes(b"local deterministic sting fixture")
+            compilation = self._complete_compilation()
+            compilation["intro_contract"] = {
+                "cold_open": {
+                    "text": "Сегодня читаем одну законченную историю.",
+                    "source_id": "abc",
+                    "source_quote": "A knock",
+                },
+            }
+            compilation["brand_sting"] = {
+                "local_path": sting.name,
+                "sha256": hashlib.sha256(sting.read_bytes()).hexdigest(),
+                "duration_sec": 1.5,
+            }
+            storyboard = build_storyboard(
+                compilation,
+                root,
+                tts_state=self._tts_state(compilation),
+            )
+
+        contract = storyboard["brand_sting"]
+        self.assertEqual(contract["placement"], "after_cold_open")
+        self.assertEqual(contract["audio_policy"], "discard")
+        self.assertEqual(contract["duration_sec"], 1.5)
+        self.assertGreater(contract["start_sec"], 0)
+        self.assertEqual(
+            storyboard["creative_manifest"]["brand_sting"]["sha256"],
+            contract["sha256"],
+        )
+
+    def test_brand_cta_and_outro_are_checksum_bound_to_timeline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cta = root / "brand-cta.webm"
+            outro = root / "brand-outro.mp4"
+            cta.write_bytes(b"local transparent CTA fixture")
+            outro.write_bytes(b"local outro fixture")
+            compilation = self._complete_compilation()
+            compilation["brand_cta"] = {
+                "local_path": cta.name,
+                "sha256": hashlib.sha256(cta.read_bytes()).hexdigest(),
+                "duration_sec": 2.0,
+            }
+            compilation["brand_outro"] = {
+                "local_path": outro.name,
+                "sha256": hashlib.sha256(outro.read_bytes()).hexdigest(),
+                "duration_sec": 6.0,
+            }
+            storyboard = build_storyboard(
+                compilation,
+                root,
+                tts_state=self._tts_state(compilation),
+            )
+
+        cta_contract = storyboard["brand_cta"]
+        outro_contract = storyboard["brand_outro"]
+        first_story = [
+            slide
+            for slide in storyboard["slides"]
+            if slide["segment_id"] == "story_abc"
+        ]
+        timeline_end = max(
+            slide["end_sec"] for slide in storyboard["slides"]
+        )
+        self.assertEqual(cta_contract["placement"], "first_story_midpoint")
+        self.assertGreaterEqual(
+            cta_contract["start_sec"],
+            first_story[0]["start_sec"],
+        )
+        self.assertLessEqual(
+            cta_contract["start_sec"] + cta_contract["duration_sec"],
+            first_story[-1]["end_sec"],
+        )
+        self.assertEqual(outro_contract["placement"], "timeline_end")
+        self.assertAlmostEqual(
+            outro_contract["start_sec"] + outro_contract["duration_sec"],
+            timeline_end,
+            places=3,
+        )
+        self.assertEqual(cta_contract["audio_policy"], "discard")
+        self.assertEqual(outro_contract["audio_policy"], "discard")
+
+    def test_editorial_storyboard_binds_v3_creative_manifest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            grammar = select_format_visual_system_v3_panel_grammar(
+                "BUNDLE",
+                1,
+                1,
+            )
+            assets = []
+            for role, color in (
+                ("hero_plate", "#314159"),
+                ("detail_plate", "#9a3412"),
+            ):
+                image = root / f"{role}.png"
+                Image.new("RGB", (1536, 864), color).save(image)
+                assets.append({
+                    "kind": "generated_image",
+                    "download_status": "verified",
+                    "local_path": image.name,
+                    "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+                    "asset_family_id": "story-abc-pack-001",
+                    "layer_role": role,
+                    "motion_module": "living_photo_depth",
+                    "source_excerpt_sha256": "e" * 64,
+                    "factual_text_allowed": False,
+                    "story_family": "relationships",
+                    "page_layout": "bundle_story_opener",
+                    "panel_grammar": grammar["id"],
+                    "panel_count": grammar["panel_count"],
+                    "panel_beat_role": grammar["beat_role"],
+                })
+            compilation = self._complete_compilation()
+            compilation.update({
+                "visual_mode": EDITORIAL_MOTION_MODE,
+                "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                "episode_format": "BUNDLE",
+            })
+            compilation["stories"][0]["generated_media"] = assets
+            storyboard = build_storyboard(
+                compilation,
+                root,
+                tts_state=self._tts_state(compilation),
+            )
+
+        self.assertEqual(
+            storyboard["visual_mode"],
+            EDITORIAL_MOTION_MODE,
+        )
+        self.assertEqual(
+            storyboard["creative_manifest"]["mode"],
+            EDITORIAL_MOTION_MODE,
+        )
+        self.assertEqual(
+            storyboard["creative_manifest"]["style_profile"],
+            FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+        )
+        self.assertEqual(
+            storyboard["creative_manifest"]["text_timing_coverage"],
+            1.0,
+        )
+        self.assertEqual(
+            storyboard["creative_manifest"]["motion_plan_sha256"],
+            storyboard["motion_plan_sha256"],
+        )
 
     def test_cinematic_storyboard_is_full_screen_continuous_and_hash_bound(self):
         with tempfile.TemporaryDirectory() as temp:

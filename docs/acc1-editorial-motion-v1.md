@@ -2,24 +2,19 @@
 
 Last verified: 2026-07-19
 
-> **Approved visual reference on 2026-07-18.** The original six-series adult
-> animated-comic board below is the current reference. The Ink & Gouache and
-> editorial-collage systems below remain implementation/history evidence, but
-> must not be used for new acc1 visual production. The active target is the
-> six-series original adult animated-comic system in
-> [`assets/acc1-adult-animation-six-series-v1.png`](assets/acc1-adult-animation-six-series-v1.png)
-> (SHA-256 `978511cf7ed8919997533dd4b2bb41802ef6117ce5a92a6d3ecb50f1e1909117`).
-> It locks one different character/page profile per exact pilot lane:
-> relationships/family, work/money/justice, SAGA strange/dark, confessions,
-> professions, and THREAD strange/dark. Do not mix profiles within an episode;
-> SAGA is quiet adult absurdism, explicitly not noir.
+> **Historical renderer evidence only.** On 2026-07-22 every creative
+> reference board described below was superseded by
+> [`acc1-format-visual-system-v3.md`](acc1-format-visual-system-v3.md). Do not
+> use the former six-series, Ink & Gouache or editorial-collage boards in new
+> prompts. This file remains solely to explain legacy renderer behaviour,
+> tests and artifacts.
 
-## Active implementation — six adult animated-comic series
+## Superseded implementation — six adult animated-comic series
 
-The active profiles are implemented in `acc1_visual_contract.py`, not merely
-recorded as style references. The no-spend daily plan carries the exact
-`editorial_motion_style_profile`, and the factory re-derives and checks it from
-the `pilot_id` before an editorial-motion run can spend credits.
+These profiles remain implemented in `acc1_visual_contract.py` only so frozen
+historical artifacts can still be verified. New daily plans always carry
+`acc1_format_visual_system_v3`; the current factory rejects a legacy profile
+before an editorial-motion run can spend credits.
 
 | Pilot | Profile | Repertoire and story behaviour |
 | --- | --- | --- |
@@ -28,7 +23,7 @@ the `pilot_id` before an editorial-motion run can spend credits.
 | 03 SAGA | `adult_animation_saga_absurd_v1` | quiet empty rooms, odd objects and unease without noir treatment |
 | 04 confessions | `adult_animation_confessions_v1` | close emotion, mirrors, phones and memory objects |
 | 05 professions | `adult_animation_professions_v1` | tools, routines, workspaces and observation comedy |
-| 06 THREAD | `adult_animation_daily_weird_v1` | minimal objects and domestic oddness; visual profile is ready, renderer remains blocked pending the dedicated THREAD hybrid |
+| 06 THREAD | `adult_animation_daily_weird_v1` | historical minimal-object experiment; superseded by the v3 prompt/response grammar |
 
 Each profile has ten named layouts. `select_adult_animation_layouts()` derives
 a unique sequence from `SHA-256(profile + source_id)`: one source always gets
@@ -36,15 +31,8 @@ the same ordered layouts, while later videos in the same thematic lane use a
 different composition. No episode silently mixes profiles or relies on random
 layout selection. This is the anti-template contract.
 
-The local no-provider motion proof is:
-
-```bash
-python3 scripts/build_acc1_adult_animation_preview.py \
-  --profile adult_animation_work_v1 \
-  --output-dir build/acc1-adult-animation-work-preview-v2
-```
-
-The captured direct HyperFrames render is
+The former preview builder and creative board were retired to project Trash on
+2026-07-22. The captured direct HyperFrames render remains historical evidence:
 `build/acc1-adult-animation-work-preview-v2/manual-silent.mp4` (48 seconds,
 1920x1080, 30 fps). It reuses crops of the locked reference board only to
 prove distinct panel geometry and seek-safe motion; it is not a final image
@@ -83,27 +71,12 @@ is exact and can be substituted from an approved episode script. No new image,
 AI33, GitHub, upload or YouTube operation occurred. Its JPEG scratch frames and
 Chrome profile were moved to project Trash after visual inspection.
 
-The production script contract now mirrors that shape without using the demo
-copy verbatim. `intro_contract` remains a topic-playoff-bound cold open plus
-truth disclosure and first-source cue. `mid_story_cta_contract` selects one
-exact source anchor at the deterministic source break and produces a short
-discussion/subscription line from the episode format and pillar. `outro_ru`
-stays question-led and grounded in the first source/pillar. The narration
-builder emits the CTA as a separate `mid_story_cta` service segment, and the
-editorial-motion contract renders it as a short HTML/SVG factual-text scene
-using the existing verified story asset pack. This is still artifact-only:
-production defaults, provider spend, GitHub workflows, YouTube upload and
-publication authorization are not changed by the CTA contract.
+## Historical decision
 
-## Decision
-
-`editorial_motion_v1` is the opt-in SAGA/BUNDLE motion-design mode for the
-adult editorial-collage direction. Motion-plan v2 locks the reusable visual
-profile `contemporary_cutup_v1`: photographic material is integrated into
-cobalt/coral/butter torn-paper planes, a detail plate becomes a portal, and
-the camera travels through overlapping virtual layers instead of presenting
-paper cards, dossiers or newspapers. One source-bound system selects semantic
-motion according to the narration:
+The original implementation made `editorial_motion_v1` an opt-in SAGA/BUNDLE
+mode using `contemporary_cutup_v1`. That decision is superseded; current new
+episodes use the v3 fully drawn BUNDLE/SAGA/THREAD system. The following list
+documents the old renderer modules for frozen-artifact compatibility:
 
 - `nested_collage_zoom` for the hook and portal transitions;
 - `living_photo_depth` for observational story beats;
@@ -120,9 +93,9 @@ never accepted as factual evidence.
 
 On 2026-07-18 the user replaced the earlier full-frame / near-photoreal
 graphic-novel target with an adult **Ink & Gouache Reportage** system. The
-canonical visual reference is
-[`assets/acc1-ink-gouache-topic-layouts-v1.png`](assets/acc1-ink-gouache-topic-layouts-v1.png)
-(SHA-256 `c3a18ef4ee2714a7b85537d73e1b3b4a8135cb468a469aaa33cf691801a220f1`).
+former visual board (SHA-256
+`c3a18ef4ee2714a7b85537d73e1b3b4a8135cb468a469aaa33cf691801a220f1`)
+was retired to project Trash on 2026-07-22 and is not an allowed prompt input.
 
 This is not superhero/pop-art, a conventional motion comic, a scrapbook, or a
 fixed four-card template. It uses:

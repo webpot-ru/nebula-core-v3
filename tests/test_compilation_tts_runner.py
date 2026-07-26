@@ -12,6 +12,8 @@ from unittest.mock import patch
 from acc1_narration_profiles import (
     NARRATION_PROFILES,
     STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+    resolve_narration_boundary_contract,
+    resolve_narration_profile,
 )
 from compilation_tts_runner import (
     CompilationTtsError,
@@ -55,6 +57,24 @@ def sample_role_compilation():
     disclosure = "Это художественные истории с Reddit."
     compilation["truth_disclosure_ru"] = disclosure
     compilation["intro_ru"] = f"Начало выпуска. {disclosure}"
+    return compilation
+
+
+def profile_compilation(compilation, episode_format):
+    compilation["pillar"] = "strange_dark_unexplained"
+    compilation["narration_profile_id"] = STRANGE_DARK_UNEXPLAINED_PROFILE_ID
+    compilation["episode_format"] = episode_format
+    profile = resolve_narration_profile(
+        STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+        pillar_id="strange_dark_unexplained",
+    )
+    compilation["narration_boundary_contract"] = (
+        resolve_narration_boundary_contract(
+            profile,
+            episode_format=episode_format,
+            source_count=len(compilation["stories"]),
+        )
+    )
     return compilation
 
 
@@ -693,6 +713,114 @@ class CompilationTtsRunnerTests(unittest.TestCase):
         self.assertEqual(state["pause_map_sha256"], pause_map["pause_map_sha256"])
         self.assertEqual(state["narration_profile_sha256"], profile["profile_sha256"])
         self.assertRegex(state["narration_plan_sha256"], r"^[0-9a-f]{64}$")
+
+    def test_bundle_announcement_uses_slower_checksum_bound_provider_speed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            compilation = sample_compilation("Первая полная история.")
+            compilation["stories"][0]["transition_after_ru"] = (
+                "А теперь — следующая полная история."
+            )
+            compilation["stories"].append({
+                "source_snapshot": {
+                    "post_id": "second",
+                    "truth_mode": "fiction",
+                },
+                "narration_ru": "Вторая полная история.",
+                "narration_role": "narrator",
+            })
+            disclosure = "Это художественные истории с Reddit."
+            compilation["truth_disclosure_ru"] = disclosure
+            compilation["intro_ru"] = f"Начало выпуска. {disclosure}"
+            profile_compilation(compilation, "BUNDLE")
+            posted = []
+
+            def post(**kwargs):
+                posted.append(kwargs)
+                return {
+                    "success": True,
+                    "audio_bytes": b"x",
+                    "model_id": "eleven_v3",
+                }
+
+            def write(_payload, path, _api_key):
+                path.write_bytes(path.name.encode())
+                return True
+
+            def concat(_paths, output):
+                output.write_bytes(b"final")
+
+            state = run_compilation_tts(
+                compilation,
+                output_dir=root,
+                api_key="secret",
+                voice_id="voice",
+                post_task=post,
+                write_payload=write,
+                concat=concat,
+                probe_duration=fake_probe_duration,
+            )
+
+        profile = NARRATION_PROFILES[STRANGE_DARK_UNEXPLAINED_PROFILE_ID]
+        contract = compilation["narration_boundary_contract"]
+        transition_chunks = [
+            item for item in state["chunks"]
+            if item["logical_segment_kind"] == "transition"
+        ]
+        self.assertEqual(len(transition_chunks), 1)
+        self.assertEqual(
+            transition_chunks[0]["effective_speed"],
+            contract["effective_transition_speed"],
+        )
+        self.assertTrue(all(
+            item["effective_speed"] == profile["speed"]
+            for item in state["chunks"]
+            if item["logical_segment_kind"] != "transition"
+        ))
+        posted_speeds = {
+            item["file_name"]: item["speed"] for item in posted
+        }
+        self.assertEqual(
+            posted_speeds[
+                f"{transition_chunks[0]['chunk_id']}.mp3"
+            ],
+            contract["effective_transition_speed"],
+        )
+        self.assertEqual(
+            state["narration_boundary_contract"],
+            contract,
+        )
+
+    def test_boundary_contract_rejects_tampering_and_wrong_thread_transition(self):
+        compilation = profile_compilation(
+            sample_compilation(),
+            "SAGA",
+        )
+        compilation["narration_boundary_contract"]["delivery"] = "tampered"
+        with self.assertRaisesRegex(CompilationTtsError, "checksum is invalid"):
+            build_tts_chunks(compilation, voice_id="voice")
+
+        thread = sample_role_compilation()
+        thread["stories"][0]["transition_after_ru"] = ""
+        profile_compilation(thread, "THREAD")
+        chunks = build_tts_chunks(
+            thread,
+            voice_id="narrator",
+            comment_voice_id="comment",
+        )
+        self.assertFalse(any(
+            item["logical_segment_kind"] == "transition" for item in chunks
+        ))
+        thread["stories"][0]["transition_after_ru"] = "Следующий ответ."
+        with self.assertRaisesRegex(
+            CompilationTtsError,
+            "spoken transition count",
+        ):
+            build_tts_chunks(
+                thread,
+                voice_id="narrator",
+                comment_voice_id="comment",
+            )
 
     def test_profile_request_overrides_fail_closed(self):
         compilation = sample_compilation()

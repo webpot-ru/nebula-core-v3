@@ -11,6 +11,7 @@ from typing import Any
 from PIL import Image, UnidentifiedImageError
 
 from acc1_cinematic_shots import verify_bound_payload
+from acc1_editorial_motion import verify_bound_payload as verify_editorial_payload
 from acc1_episode_manifest import SHA256_RE, validate_episode_manifest
 from acc1_episode_contract import validate_episode_script
 from acc1_episode_packaging import validate_packaging as validate_episode_packaging
@@ -27,6 +28,18 @@ from acc1_visual_contract import (
     CINEMATIC_ZOOM_END_MIN,
     CONTRACT_VERSION as VISUAL_CONTRACT_VERSION,
     DEFAULT_VISUAL_MODE,
+    EDITORIAL_MOTION_ASSETS_PER_PACK,
+    EDITORIAL_MOTION_CAPTION_TRACK_VERSION,
+    EDITORIAL_MOTION_MAX_SCENE_SECONDS,
+    EDITORIAL_MOTION_MIN_SCENE_SECONDS,
+    EDITORIAL_MOTION_MODE,
+    EDITORIAL_MOTION_MODULES,
+    EDITORIAL_MOTION_PLAN_VERSION,
+    EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS,
+    EDITORIAL_MOTION_STYLE_PROFILES,
+    INK_GOUACHE_PAGE_LAYOUTS,
+    INK_GOUACHE_STORY_FAMILIES,
+    INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
     MAX_VISUAL_SCENES,
     MIN_VISUAL_SCENES,
     MASCOT_SAFE_X,
@@ -43,7 +56,12 @@ from compilation_audio_mix import (
     PAUSE_MAP_VERSION,
     verify_self_hash as verify_audio_sidecar_hash,
 )
-from acc1_narration_profiles import NarrationProfileError, canonical_hash, resolve_narration_profile
+from acc1_narration_profiles import (
+    NarrationProfileError,
+    canonical_hash,
+    resolve_narration_profile,
+    verify_narration_boundary_contract,
+)
 from compilation_metadata import validate_metadata
 from compilation_narration import (
     NarrationPreflightError,
@@ -87,6 +105,7 @@ def validate_tts_state(
     expected_comment_voice_id: str | None = None,
     expected_narration_profile_id: str | None = None,
     expected_narration_profile_sha256: str | None = None,
+    expected_narration_boundary_contract: dict[str, Any] | None = None,
 ) -> list[str]:
     failures: list[str] = []
     if state.get("status") != "COMPLETE":
@@ -104,6 +123,23 @@ def validate_tts_state(
             != expected_narration_profile_sha256
         ):
             failures.append("TTS narration profile checksum does not match episode plan")
+    if expected_narration_boundary_contract is not None:
+        contract = expected_narration_boundary_contract
+        if not verify_narration_boundary_contract(contract):
+            failures.append("episode-plan narration boundary contract checksum is invalid")
+        if state.get("narration_boundary_contract") != contract:
+            failures.append("TTS narration boundary contract does not match episode plan")
+        for field, expected in (
+            (
+                "narration_boundary_contract_sha256",
+                contract.get("narration_boundary_contract_sha256"),
+            ),
+            ("narration_boundary_policy_id", contract.get("policy_id")),
+            ("episode_format", contract.get("episode_format")),
+            ("boundary_source_count", contract.get("source_count")),
+        ):
+            if state.get(field) != expected:
+                failures.append(f"TTS {field} does not match episode plan")
     for index, chunk in enumerate(chunks if isinstance(chunks, list) else []):
         if not isinstance(chunk, dict) or chunk.get("status") != "COMPLETE":
             failures.append(f"TTS chunk {index} is not COMPLETE")
@@ -137,6 +173,44 @@ def validate_tts_state(
                 failures.append(
                     f"TTS chunk {index} narration profile checksum changed",
                 )
+        if expected_narration_boundary_contract is not None:
+            contract = expected_narration_boundary_contract
+            if (
+                chunk.get("narration_boundary_contract_sha256")
+                != contract.get("narration_boundary_contract_sha256")
+                or chunk.get("narration_boundary_policy_id")
+                != contract.get("policy_id")
+                or chunk.get("episode_format") != contract.get("episode_format")
+                or chunk.get("boundary_source_count") != contract.get("source_count")
+            ):
+                failures.append(
+                    f"TTS chunk {index} narration boundary contract changed",
+                )
+            expected_speed = _number(contract.get("base_speed"), default=-1)
+            if (
+                contract.get("episode_format") == "BUNDLE"
+                and chunk.get("logical_segment_kind") == "transition"
+            ):
+                expected_speed = _number(
+                    contract.get("effective_transition_speed"),
+                    default=-1,
+                )
+            if abs(_number(chunk.get("effective_speed"), default=-1) - expected_speed) > 1e-9:
+                failures.append(
+                    f"TTS chunk {index} effective speed violates the boundary contract",
+                )
+    if expected_narration_boundary_contract is not None and isinstance(chunks, list):
+        transition_ids = {
+            str(chunk.get("logical_segment_id") or "")
+            for chunk in chunks
+            if isinstance(chunk, dict)
+            and chunk.get("logical_segment_kind") == "transition"
+        }
+        if len(transition_ids) != _integer(
+            expected_narration_boundary_contract.get("spoken_transition_count"),
+            default=-1,
+        ):
+            failures.append("TTS spoken transition count violates the boundary contract")
     if not state.get("final_audio_sha256"):
         failures.append("TTS final audio checksum is missing")
     if not SHA256_RE.fullmatch(str(state.get("narration_plan_sha256") or "")):
@@ -282,14 +356,23 @@ def _validate_audio_mix_chain(
         if audio_mix_report.get("failures") != []:
             failures.append("audio mix report must contain no failures")
 
-    for field in (
+    binding_fields = [
         "episode_plan_sha256",
         "daily_plan_sha256",
         "narration_plan_sha256",
         "timing_contract_sha256",
         "narration_profile_id",
         "narration_profile_sha256",
-    ):
+    ]
+    if tts_state.get("narration_boundary_contract") is not None:
+        binding_fields.extend([
+            "narration_boundary_contract",
+            "narration_boundary_contract_sha256",
+            "narration_boundary_policy_id",
+            "episode_format",
+            "boundary_source_count",
+        ])
+    for field in binding_fields:
         expected = tts_state.get(field)
         if pause_map.get(field) != expected:
             failures.append(f"pause map {field} does not match TTS state")
@@ -429,6 +512,26 @@ def _validate_audio_mix_chain(
             ):
                 failures.append("audio mix loudness/true-peak gate did not pass")
 
+            planned_tts = (episode_plan.get("provider_settings") or {}).get(
+                "tts",
+            )
+            planned_boundary = (
+                planned_tts.get("narration_boundary_contract")
+                if isinstance(planned_tts, dict)
+                else None
+            )
+            if planned_boundary is not None:
+                if not isinstance(planned_boundary, dict) or not (
+                    verify_narration_boundary_contract(planned_boundary)
+                ):
+                    failures.append(
+                        "episode plan narration boundary contract checksum is invalid"
+                    )
+                elif tts_state.get("narration_boundary_contract") != planned_boundary:
+                    failures.append(
+                        "TTS narration boundary contract does not match episode plan"
+                    )
+
         try:
             profile = resolve_narration_profile(
                 str(tts_state.get("narration_profile_id") or ""),
@@ -544,6 +647,21 @@ def _validate_episode_chain(
             failures.append("TTS narration_profile_id does not match episode plan")
         if tts_state.get("narration_profile_sha256") != planned_profile_sha256:
             failures.append("TTS narration profile checksum does not match episode plan")
+        planned_tts = (episode_plan.get("provider_settings") or {}).get("tts")
+        planned_boundary = (
+            planned_tts.get("narration_boundary_contract")
+            if isinstance(planned_tts, dict)
+            else None
+        )
+        if planned_boundary is not None:
+            if compilation.get("narration_boundary_contract") != planned_boundary:
+                failures.append(
+                    "script narration boundary contract does not match episode plan"
+                )
+            if tts_state.get("narration_boundary_contract") != planned_boundary:
+                failures.append(
+                    "TTS narration boundary contract does not match episode plan"
+                )
 
     downstream = {
         "script": compilation,
@@ -1108,6 +1226,229 @@ def _validate_cinematic_creative_contract(
     return failures
 
 
+def _validate_editorial_motion_creative_contract(
+    compilation: dict[str, Any],
+    storyboard: dict[str, Any],
+    render_report: dict[str, Any],
+    creative_manifest: dict[str, Any] | None,
+    scenes: list[dict[str, Any]],
+    artifact_root: Path,
+) -> list[str]:
+    failures: list[str] = []
+    if not isinstance(creative_manifest, dict):
+        return ["editorial motion requires creative_manifest"]
+    style_profile = str(storyboard.get("style_profile") or "").strip()
+    if style_profile not in EDITORIAL_MOTION_STYLE_PROFILES:
+        failures.append("editorial motion style profile is unsupported")
+    if (
+        storyboard.get("visual_mode") != EDITORIAL_MOTION_MODE
+        or creative_manifest.get("mode") != EDITORIAL_MOTION_MODE
+        or render_report.get("visual_mode") != EDITORIAL_MOTION_MODE
+    ):
+        failures.append("editorial motion visual_mode must match across artifacts")
+    if storyboard.get("background_video") not in (None, ""):
+        failures.append("editorial motion must not use a background video")
+    if creative_manifest.get("background_video_required") is not False:
+        failures.append("editorial motion creative manifest must reject background video")
+    if render_report.get("background_video_used") is not False:
+        failures.append("editorial motion render unexpectedly used background video")
+    renderer = str(render_report.get("renderer") or "")
+    if (
+        renderer not in {"hyperframes", "hyperframes_segmented"}
+        or render_report.get("hyperframes_check_passed") is not True
+    ):
+        failures.append("editorial motion requires a passing HyperFrames check")
+    if renderer == "hyperframes_segmented":
+        segment_count = _integer(render_report.get("segment_count"))
+        segment_ceiling = _number(
+            render_report.get("segment_max_duration_sec"),
+        )
+        segment_reports = render_report.get("segments")
+        if (
+            segment_count < 1
+            or not 0 < segment_ceiling <= 120
+            or not isinstance(segment_reports, list)
+            or len(segment_reports) != segment_count
+        ):
+            failures.append(
+                "editorial segmented render requires a complete <=120s segment inventory",
+            )
+        else:
+            for index, segment in enumerate(segment_reports, start=1):
+                if (
+                    not isinstance(segment, dict)
+                    or _number(segment.get("duration_sec")) <= 0
+                    or _number(segment.get("duration_sec")) > segment_ceiling + 0.12
+                ):
+                    failures.append(
+                        f"editorial render segment {index} violates the bounded duration",
+                    )
+        if render_report.get("captions_burned") is not True:
+            failures.append("editorial segmented render must burn the approved captions")
+    if render_report.get("factual_text_rendering") != "html_svg_only":
+        failures.append("editorial factual text must be rendered by HTML/SVG")
+
+    expected_contract = {
+        "version": VISUAL_CONTRACT_VERSION,
+        "motion_plan_version": EDITORIAL_MOTION_PLAN_VERSION,
+        "caption_track_version": EDITORIAL_MOTION_CAPTION_TRACK_VERSION,
+        "assets_per_pack": EDITORIAL_MOTION_ASSETS_PER_PACK,
+        "story_scene_min_seconds": EDITORIAL_MOTION_MIN_SCENE_SECONDS,
+        "story_scene_max_seconds": EDITORIAL_MOTION_MAX_SCENE_SECONDS,
+        "service_scene_max_seconds": EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS,
+        "modules": list(EDITORIAL_MOTION_MODULES),
+        "style_profile": style_profile,
+        "factual_text_rendering": "html_svg_only",
+        "full_screen_images": True,
+        "seek_safe": True,
+    }
+    if creative_manifest.get("visual_contract") != expected_contract:
+        failures.append("editorial motion visual contract drifted")
+
+    motion_plan = storyboard.get("motion_plan")
+    captions = storyboard.get("caption_track")
+    if not verify_editorial_payload(motion_plan, "motion_plan_sha256"):
+        failures.append("editorial motion plan self-hash is invalid")
+        motion_plan = {}
+    if not verify_editorial_payload(captions, "caption_track_sha256"):
+        failures.append("editorial caption track self-hash is invalid")
+        captions = {}
+    motion_hash = str((motion_plan or {}).get("motion_plan_sha256") or "")
+    caption_hash = str((captions or {}).get("caption_track_sha256") or "")
+    if (motion_plan or {}).get("scenes") != scenes:
+        failures.append("editorial motion plan does not exactly match storyboard scenes")
+    for label, payload in (
+        ("storyboard", storyboard),
+        ("creative manifest", creative_manifest),
+        ("render report", render_report),
+    ):
+        if payload.get("motion_plan_sha256") != motion_hash:
+            failures.append(f"{label} motion_plan_sha256 changed")
+        if payload.get("caption_track_sha256") != caption_hash:
+            failures.append(f"{label} caption_track_sha256 changed")
+    if int((motion_plan or {}).get("version") or 0) != EDITORIAL_MOTION_PLAN_VERSION:
+        failures.append("editorial motion plan version is invalid")
+    if (
+        (motion_plan or {}).get("style_profile") != style_profile
+        or creative_manifest.get("style_profile") != style_profile
+        or render_report.get("style_profile") != style_profile
+    ):
+        failures.append("editorial motion style profile drifted")
+    if int((captions or {}).get("version") or 0) != EDITORIAL_MOTION_CAPTION_TRACK_VERSION:
+        failures.append("editorial caption track version is invalid")
+    if int((motion_plan or {}).get("scene_count") or 0) != len(scenes):
+        failures.append("editorial motion plan scene count is wrong")
+    if int(render_report.get("scene_count") or 0) != len(scenes):
+        failures.append("editorial render scene count is wrong")
+
+    try:
+        expected_text = narration_text(compilation)
+    except Exception as exc:
+        failures.append(f"accepted narration cannot be read for editorial QA: {exc}")
+        expected_text = ""
+    covered_text = " ".join(
+        " ".join(str(scene.get("narration_text") or "").split())
+        for scene in scenes
+    ).strip()
+    if not expected_text or covered_text != expected_text:
+        failures.append("editorial scenes do not cover accepted narration exactly")
+
+    root = Path(artifact_root).resolve()
+    cursor = 0.0
+    family_ids: set[str] = set()
+    module_usage = {module: 0 for module in EDITORIAL_MOTION_MODULES}
+    for index, scene in enumerate(scenes):
+        if scene.get("kind") != "editorial_motion_scene":
+            failures.append(f"editorial scene {index} has invalid kind")
+            continue
+        try:
+            start = float(scene.get("start_sec") or 0)
+            end = float(scene.get("end_sec") or 0)
+            duration = float(scene.get("duration_sec") or 0)
+        except (TypeError, ValueError):
+            failures.append(f"editorial scene {index} timing is invalid")
+            continue
+        if abs(start - cursor) > 0.001 or end <= start or abs(end - start - duration) > 0.002:
+            failures.append(f"editorial scene {index} has a timing gap or overlap")
+        cursor = end
+        presentation = str(scene.get("presentation") or "")
+        if presentation == "story" and not (
+            EDITORIAL_MOTION_MIN_SCENE_SECONDS - 0.002
+            <= duration
+            <= EDITORIAL_MOTION_MAX_SCENE_SECONDS + 0.002
+        ):
+            failures.append(f"editorial story scene {index} violates duration bounds")
+        if presentation != "story" and duration > EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS + 0.002:
+            failures.append(f"editorial service scene {index} is too long")
+        module = str((scene.get("motion") or {}).get("module") or "")
+        if module not in module_usage or (scene.get("motion") or {}).get("seek_safe") is not True:
+            failures.append(f"editorial scene {index} has invalid or unsafe motion")
+        else:
+            module_usage[module] += 1
+        if scene.get("factual_text_rendering") != "html_svg_only":
+            failures.append(f"editorial scene {index} permits AI-rendered factual text")
+        if scene.get("style_profile") != style_profile:
+            failures.append(f"editorial scene {index} style profile drifted")
+        if style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE and (
+            scene.get("story_family") not in INK_GOUACHE_STORY_FAMILIES
+            or scene.get("page_layout") not in INK_GOUACHE_PAGE_LAYOUTS
+        ):
+            failures.append(
+                f"editorial scene {index} has invalid Ink & Gouache art direction",
+            )
+        assets = scene.get("assets")
+        if not isinstance(assets, list) or len(assets) != EDITORIAL_MOTION_ASSETS_PER_PACK:
+            failures.append(f"editorial scene {index} asset pack is incomplete")
+            continue
+        roles = [str(asset.get("layer_role") or "") for asset in assets]
+        if roles != ["hero_plate", "detail_plate"]:
+            failures.append(f"editorial scene {index} asset roles are invalid")
+        family_id = str(scene.get("asset_family_id") or "")
+        if not family_id:
+            failures.append(f"editorial scene {index} has no asset family")
+        family_ids.add(family_id)
+        for asset in assets:
+            raw = str(asset.get("local_path") or "")
+            candidate = Path(raw).expanduser()
+            path = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+            expected = str(asset.get("sha256") or "").lower()
+            if (
+                path == root
+                or root not in path.parents
+                or not path.is_file()
+                or not SHA256_RE.fullmatch(expected)
+                or _sha256_file(path) != expected
+            ):
+                failures.append(f"editorial scene {index} asset checksum/path is invalid")
+    if module_usage != (motion_plan or {}).get("module_usage"):
+        failures.append("editorial module usage does not match bound plan")
+    if int(render_report.get("asset_pack_count") or 0) != len(family_ids):
+        failures.append("editorial render asset pack count is wrong")
+    try:
+        planned_duration = float(storyboard.get("timeline_duration_sec") or 0)
+        rendered_duration = float(render_report.get("duration_sec") or 0)
+    except (TypeError, ValueError):
+        planned_duration = rendered_duration = 0
+    if abs(cursor - planned_duration) > 0.002 or abs(rendered_duration - planned_duration) > 0.35:
+        failures.append("editorial render duration does not match its bound timeline")
+
+    caption_path_raw = str(render_report.get("caption_srt") or "")
+    caption_path = (
+        Path(caption_path_raw).resolve()
+        if Path(caption_path_raw).is_absolute()
+        else (root / caption_path_raw).resolve()
+    )
+    if (
+        not caption_path_raw
+        or caption_path == root
+        or root not in caption_path.parents
+        or not caption_path.is_file()
+        or render_report.get("caption_srt_sha256") != _sha256_file(caption_path)
+    ):
+        failures.append("editorial caption SRT is missing or invalid")
+    return failures
+
+
 def _validate_creative_contract(
     compilation: dict[str, Any],
     storyboard: dict[str, Any],
@@ -1136,6 +1477,15 @@ def _validate_creative_contract(
             slides,
             artifact_root,
         ))
+    elif mode == EDITORIAL_MOTION_MODE:
+        failures.extend(_validate_editorial_motion_creative_contract(
+            compilation,
+            storyboard,
+            render_report,
+            creative_manifest,
+            slides,
+            artifact_root,
+        ))
     else:
         failures.extend(_validate_reddit_creative_contract(
             compilation,
@@ -1144,6 +1494,51 @@ def _validate_creative_contract(
             creative_manifest,
             slides,
         ))
+    brand_fields_present: list[str] = []
+    for field in ("brand_sting", "brand_cta", "brand_outro"):
+        contract = storyboard.get(field)
+        if not isinstance(contract, dict):
+            continue
+        brand_fields_present.append(field)
+        expected = str(contract.get("sha256") or "").strip().lower()
+        manifest_contract = (
+            creative_manifest.get(field)
+            if isinstance(creative_manifest, dict) else None
+        )
+        if not isinstance(manifest_contract, dict):
+            failures.append(f"creative manifest is missing {field}")
+            continue
+        if manifest_contract.get("sha256") != expected:
+            failures.append(f"creative manifest {field} checksum mismatch")
+        if render_report.get(f"{field}_used") is not True:
+            failures.append(f"render report must confirm {field} compositing")
+        if render_report.get(f"{field}_sha256") != expected:
+            failures.append(f"render report {field} checksum mismatch")
+        if render_report.get(f"{field}_audio_discarded") is not True:
+            failures.append(f"render report must confirm {field} audio discard")
+        if field == "brand_cta" and render_report.get(
+            "brand_cta_alpha_decoder",
+        ) != "libvpx-vp9":
+            failures.append("render report must confirm alpha-safe CTA decoding")
+        for timing_field in ("start_sec", "duration_sec"):
+            try:
+                actual = float(render_report.get(f"{field}_{timing_field}"))
+                declared = float(contract.get(timing_field))
+            except (TypeError, ValueError):
+                failures.append(f"render report {field} timing is malformed")
+                break
+            if abs(actual - declared) > 0.001:
+                failures.append(f"render report {field} {timing_field} mismatch")
+    if (
+        mode == EDITORIAL_MOTION_MODE
+        and brand_fields_present
+        and render_report.get(
+            "captions_reburned_after_brand_overlays",
+        ) is not True
+    ):
+        failures.append(
+            "editorial brand overlays must preserve captions in the final composite",
+        )
     return failures
 
 
@@ -1217,6 +1612,7 @@ def run_qa(
         failures.extend(validate_metadata(metadata, compilation))
     expected_profile_id: str | None = None
     expected_profile_sha256: str | None = None
+    expected_boundary_contract: dict[str, Any] | None = None
     if isinstance(episode_plan, dict) and _integer(episode_plan.get("version") or 1, default=0) >= 2:
         expected_profile_id = str(
             episode_plan.get("narration_profile_id") or "",
@@ -1224,12 +1620,21 @@ def run_qa(
         expected_profile_sha256 = str(
             episode_plan.get("narration_profile_sha256") or "",
         )
+        planned_tts = (episode_plan.get("provider_settings") or {}).get("tts")
+        if isinstance(planned_tts, dict) and isinstance(
+            planned_tts.get("narration_boundary_contract"),
+            dict,
+        ):
+            expected_boundary_contract = planned_tts[
+                "narration_boundary_contract"
+            ]
     failures.extend(validate_tts_state(
         tts_state,
         expected_voice_id=expected_voice_id,
         expected_comment_voice_id=expected_comment_voice_id,
         expected_narration_profile_id=expected_profile_id,
         expected_narration_profile_sha256=expected_profile_sha256,
+        expected_narration_boundary_contract=expected_boundary_contract,
     ))
     try:
         slides = preflight_storyboard(storyboard, artifact_root)

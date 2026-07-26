@@ -9,12 +9,14 @@ import re
 import shutil
 import subprocess
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, UnidentifiedImageError
 
 from acc1_cinematic_shots import write_caption_srt
+from acc1_caption_burn import burn_captions, write_caption_ass
 from acc1_editorial_motion import canonical_hash, verify_bound_payload
 from acc1_visual_contract import (
     ADULT_ANIMATION_SERIES,
@@ -27,14 +29,18 @@ from acc1_visual_contract import (
     EDITORIAL_MOTION_MODULES,
     EDITORIAL_MOTION_STYLE_PROFILE,
     EDITORIAL_MOTION_STYLE_PROFILES,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     INK_GOUACHE_PAGE_LAYOUTS,
     INK_GOUACHE_STORY_FAMILIES,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+    build_format_visual_system_v3_semantic_camera,
     is_adult_animation_style_profile,
+    select_format_visual_system_v3_panel_grammar,
 )
 
 
 HYPERFRAMES_VERSION = "0.7.61"
+DEFAULT_SEGMENT_MAX_DURATION_SEC = 120.0
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -119,6 +125,8 @@ def preflight_editorial_motion_storyboard(
     checked: list[dict[str, Any]] = []
     previous_end = 0.0
     seen: set[str] = set()
+    thread_story_roles: list[str] = []
+    thread_response_numbers: list[int] = []
     for index, source in enumerate(scenes):
         if not isinstance(source, dict):
             raise EditorialMotionRenderError(f"editorial scene {index} is invalid")
@@ -160,9 +168,12 @@ def preflight_editorial_motion_storyboard(
             raise EditorialMotionRenderError(f"{scene_id} asset roles are invalid")
         story_family = str(scene.get("story_family") or "")
         page_layout = str(scene.get("page_layout") or "")
+        panel_grammar = str(scene.get("panel_grammar") or "")
+        format_id = str(scene.get("format_id") or "").upper()
         if profile in {
             INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
             CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+            FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
         }:
             if (
                 story_family not in INK_GOUACHE_STORY_FAMILIES
@@ -171,6 +182,77 @@ def preflight_editorial_motion_storyboard(
                 raise EditorialMotionRenderError(
                     f"{scene_id} has no supported ink-and-gouache family/layout",
                 )
+            if profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE and panel_grammar:
+                resolved_format_id = format_id or "BUNDLE"
+                expected_grammar = select_format_visual_system_v3_panel_grammar(
+                    resolved_format_id,
+                    int(scene.get("scene_number") or 1),
+                    int(scene.get("scene_count") or 1),
+                )
+                # Existing frozen artifacts do not contain panel grammar. New
+                # artifacts do, but may use segment-local metadata instead of
+                # these optional renderer fields, so validate the ID shape here
+                # and let the planner enforce its exact sequence.
+                if not panel_grammar.startswith(expected_grammar["format_id"].lower() + "_"):
+                    raise EditorialMotionRenderError(f"{scene_id} has an invalid v3 panel grammar")
+                if (
+                    scene.get("presentation") == "story"
+                    and format_id
+                    and panel_grammar != expected_grammar["id"]
+                ):
+                    raise EditorialMotionRenderError(
+                        f"{scene_id} v3 panel grammar does not match its format sequence",
+                    )
+                try:
+                    expected_camera = build_format_visual_system_v3_semantic_camera(
+                        str(scene.get("panel_beat_role") or panel_grammar),
+                        narration,
+                    )
+                except ValueError as exc:
+                    raise EditorialMotionRenderError(
+                        f"{scene_id} has no valid semantic camera contract",
+                    ) from exc
+                for field in (
+                    "camera_contract_version",
+                    "panel_regions",
+                    "semantic_focus",
+                    "camera_path",
+                ):
+                    if scene.get(field) != expected_camera[field]:
+                        raise EditorialMotionRenderError(
+                            f"{scene_id} semantic camera {field} drifted",
+                        )
+            if (
+                profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                and format_id == "THREAD"
+                and scene.get("presentation") == "story"
+            ):
+                source_role = str(scene.get("source_role") or "").lower()
+                voice_role = str(scene.get("voice_role") or "").lower()
+                if source_role not in {"prompt", "response"}:
+                    raise EditorialMotionRenderError(
+                        f"{scene_id} THREAD source role is invalid",
+                    )
+                if (
+                    source_role == "prompt" and voice_role != "narrator"
+                ) or (
+                    source_role == "response" and voice_role != "comment"
+                ):
+                    raise EditorialMotionRenderError(
+                        f"{scene_id} THREAD source and voice roles drifted",
+                    )
+                thread_story_roles.append(source_role)
+                if source_role == "response":
+                    response_number = scene.get("thread_response_number")
+                    if (
+                        isinstance(response_number, bool)
+                        or not isinstance(response_number, int)
+                        or response_number < 1
+                    ):
+                        raise EditorialMotionRenderError(
+                            f"{scene_id} THREAD response number is invalid",
+                        )
+                    thread_response_numbers.append(response_number)
         elif is_adult_animation_style_profile(profile):
             series = ADULT_ANIMATION_SERIES[profile]
             if (
@@ -190,11 +272,41 @@ def preflight_editorial_motion_storyboard(
             "page_layout": str(assets[0].get("page_layout") or ""),
             "assets": assets,
         }
+        asset_panel_grammar = str(assets[0].get("panel_grammar") or "")
+        if asset_panel_grammar:
+            asset_panel_count = assets[0].get("panel_count")
+            asset_panel_beat_role = str(assets[0].get("panel_beat_role") or "")
+            if (
+                any(str(asset.get("panel_grammar") or "") != asset_panel_grammar for asset in assets)
+                or any(asset.get("panel_count") != asset_panel_count for asset in assets)
+                or any(str(asset.get("panel_beat_role") or "") != asset_panel_beat_role for asset in assets)
+            ):
+                raise EditorialMotionRenderError(f"{scene_id} asset panel grammar drift")
+            pack_payload.update({
+                "panel_grammar": asset_panel_grammar,
+                "panel_count": asset_panel_count,
+                "panel_beat_role": asset_panel_beat_role,
+            })
         if canonical_hash(pack_payload) != scene.get("asset_pack_sha256"):
             raise EditorialMotionRenderError(f"{scene_id} asset pack checksum mismatch")
         scene["verified_assets"] = verified_assets
         checked.append(scene)
         previous_end = end
+    if thread_story_roles:
+        if thread_story_roles[0] != "prompt" or thread_story_roles.count("prompt") != 1:
+            raise EditorialMotionRenderError(
+                "THREAD must contain exactly one first prompt scene",
+            )
+        if not thread_response_numbers:
+            raise EditorialMotionRenderError(
+                "THREAD must contain at least one numbered response scene",
+            )
+        if thread_response_numbers != list(
+            range(1, len(thread_response_numbers) + 1),
+        ):
+            raise EditorialMotionRenderError(
+                "THREAD response scenes must be numbered consecutively",
+            )
     final_duration = float(storyboard.get("timeline_duration_sec") or 0)
     if abs(previous_end - final_duration) > 0.002:
         raise EditorialMotionRenderError("editorial scenes do not cover timeline duration")
@@ -213,16 +325,41 @@ def _scene_markup(
     story_family = _safe_id(str(scene.get("story_family") or "neutral"))
     raw_page_layout = str(scene.get("page_layout") or "continuous-cutup")
     page_layout = _safe_id(raw_page_layout)
+    panel_grammar = _safe_id(str(scene.get("panel_grammar") or "legacy"))
     presentation = _safe_id(str(scene.get("presentation") or "story"))
+    format_id = _safe_id(str(scene.get("format_id") or "legacy").lower())
     title = html.escape(str(scene.get("story_title") or "ИСТОРИЯ"))
     source = html.escape(str(scene.get("source_label") or "РЕДАКЦИОННАЯ ИЛЛЮСТРАЦИЯ"))
     hero, detail = (html.escape(path, quote=True) for path in copied_assets)
+    semantic_v3 = style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+    if semantic_v3:
+        hero_plate_markup = f'<div class="hero-plate" id="hero-{scene_id}"></div>'
+        portal_markup = f'<div class="portal-shell" id="portal-{scene_id}"></div>'
+        object_markup = f'<div class="object-fragment" id="object-{scene_id}"></div>'
+    else:
+        hero_plate_markup = (
+            f'<img class="hero-plate" id="hero-{scene_id}" src="{hero}" alt="" '
+            'data-layout-allow-overflow>'
+        )
+        portal_markup = (
+            f'<div class="portal-shell" id="portal-{scene_id}" data-layout-allow-overflow>'
+            f'<div class="portal-glow"></div><img src="{detail}" alt="" '
+            'data-layout-allow-overflow><i></i></div>'
+        )
+        object_markup = (
+            f'<div class="object-fragment" id="object-{scene_id}" data-layout-allow-overflow>'
+            f'<img src="{detail}" alt="" data-layout-allow-overflow></div>'
+        )
     adult_style = is_adult_animation_style_profile(style_profile)
+    guided_webtoon_style = style_profile in {
+        CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
+        FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+    }
     quote_words = str(scene.get("narration_text") or "").split()[:18]
     # Speech bubbles are reserved for short source-backed direct lines.  The
     # normal narration remains in captions, rather than being printed as a
     # fake character quote inside a comic panel.
-    quote = "" if adult_style else html.escape(
+    quote = "" if adult_style or guided_webtoon_style else html.escape(
         " ".join(quote_words) + ("…" if len(quote_words) == 18 else ""),
     )
     module_labels = {
@@ -234,6 +371,24 @@ def _scene_markup(
         "nested_collage_zoom": "ПОГРУЖЕНИЕ",
     }
     module_label = module_labels[str(scene["motion"]["module"])]
+    thread_card = ""
+    if (
+        semantic_v3
+        and format_id == "thread"
+        and presentation == "story"
+    ):
+        source_role = str(scene.get("source_role") or "").lower()
+        if source_role == "prompt":
+            thread_label = "ВОПРОС"
+            thread_role_class = "prompt"
+        else:
+            response_number = int(scene.get("thread_response_number") or 0)
+            thread_label = f"ОТВЕТ {response_number:02d}"
+            thread_role_class = "response"
+        thread_card = (
+            f'<div class="thread-card thread-card-{thread_role_class}" '
+            f'id="thread-{scene_id}"><span>{thread_label}</span></div>'
+        )
     start = float(scene["start_sec"])
     duration = float(scene["duration_sec"])
     ink_layout = raw_page_layout in INK_GOUACHE_PAGE_LAYOUTS
@@ -258,21 +413,18 @@ def _scene_markup(
             'data-track-index="1"'
         )
     return f"""
-      <section class="clip motion-scene module-{module} family-{story_family} layout-{page_layout} presentation-{presentation}" id="clip-{scene_id}"
+      <section class="clip motion-scene module-{module} family-{story_family} layout-{page_layout} grammar-{panel_grammar} presentation-{presentation} format-{format_id}" id="clip-{scene_id}"
         {timing_attributes}>
         <div class="scene-inner" id="inner-{scene_id}" data-layout-allow-overflow>
-          <img class="hero-plate" id="hero-{scene_id}" src="{hero}" alt="" data-layout-allow-overflow>
+          {hero_plate_markup}
           <div class="scene-grade" id="grade-{scene_id}"></div>
+          {thread_card}
           {color_planes}
           <div class="hero-cutout" id="cutout-{scene_id}" data-layout-allow-overflow>
             <img src="{hero}" alt="" data-layout-allow-overflow>
           </div>
-          <div class="portal-shell" id="portal-{scene_id}" data-layout-allow-overflow>
-            <div class="portal-glow"></div><img src="{detail}" alt="" data-layout-allow-overflow><i></i>
-          </div>
-          <div class="object-fragment" id="object-{scene_id}" data-layout-allow-overflow>
-            <img src="{detail}" alt="" data-layout-allow-overflow>
-          </div>
+          {portal_markup}
+          {object_markup}
           <svg class="story-line" id="line-{scene_id}" viewBox="0 0 1920 1080" aria-hidden="true">
             <path d="M72 640 C330 525 470 610 690 500 S1060 280 1260 410 S1550 720 1870 470"/>
           </svg>
@@ -489,6 +641,133 @@ def _adult_animation_scene_tweens(scene: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _cinematic_webtoon_scene_tweens(scene: dict[str, Any]) -> list[str]:
+    """Read two complete comic pages without rebuilding them as a collage.
+
+    The paid hero and detail assets are already composed webtoon pages.  Each
+    remains intact while the camera establishes it and then moves toward a
+    deterministic narration-relevant region.  The second page crossfades in
+    once, so there is no mechanical push/pull/reset loop.
+    """
+
+    sid = _safe_id(str(scene["scene_id"]))
+    start = float(scene["start_sec"])
+    duration = float(scene["duration_sec"])
+    layout = str(scene.get("page_layout") or "hero_left_details_right")
+    module = str((scene.get("motion") or {}).get("module") or "living_photo_depth")
+    entrance = max(0.0, start - 0.34) if start > 0 else start
+    exit_at = max(start + 0.2, start + duration - 0.30)
+    hero_focus = {
+        "hero_left_details_right": (1.16, 92, -18),
+        "phone_portal_insets": (1.22, -138, -26),
+        "message_cascade": (1.18, 118, -34),
+        "vertical_routine_triptych": (1.20, -42, -20),
+        "evidence_slits": (1.24, -154, 4),
+        "rumor_table_wide": (1.15, 0, -42),
+        "corridor_false_claim": (1.21, 132, -22),
+        "empty_desk_release": (1.14, -70, -20),
+    }.get(layout, (1.16, 0, -20))
+    detail_focus = {
+        "living_photo_depth": (1.18, 74, -20),
+        "evidence_transform": (1.30, -184, -48),
+        "digital_memory_stack": (1.27, -152, -32),
+        "graphic_timeline": (1.22, 108, -38),
+        "dark_semantic_reveal": (1.25, -116, -34),
+        "nested_collage_zoom": (1.32, -210, -54),
+    }.get(module, (1.20, 0, -24))
+    hero_scale, hero_x, hero_y = hero_focus
+    detail_scale, detail_x, detail_y = detail_focus
+    hero_move_at = start + 0.30
+    page_turn_at = start + duration * 0.49
+    detail_move_at = page_turn_at + 0.46
+    hero_move_duration = max(0.4, page_turn_at - hero_move_at)
+    detail_move_duration = max(0.4, exit_at - detail_move_at)
+    return [
+        f"tl.fromTo('#inner-{sid}', {{opacity:0}}, {{opacity:1,duration:.36,ease:'power1.out'}}, {entrance:.3f});",
+        f"tl.to('#inner-{sid}', {{opacity:0,duration:.30,ease:'power1.in'}}, {exit_at:.3f});",
+        f"tl.set('#inner-{sid}', {{opacity:0}}, {start + duration:.3f});",
+        f"tl.set('#hero-{sid}', {{opacity:0}}, {start:.3f});",
+        f"tl.set('#object-{sid}', {{opacity:0}}, {start:.3f});",
+        f"tl.fromTo('#cutout-{sid}', {{opacity:1,scale:1,x:0,y:0}}, {{scale:{hero_scale:.3f},x:{hero_x},y:{hero_y},duration:{hero_move_duration:.3f},ease:'sine.inOut'}}, {hero_move_at:.3f});",
+        f"tl.fromTo('#portal-{sid}', {{opacity:0,scale:1,x:0,y:0}}, {{opacity:1,duration:.46,ease:'power1.inOut'}}, {page_turn_at:.3f});",
+        f"tl.to('#cutout-{sid}', {{opacity:0,duration:.46,ease:'power1.inOut'}}, {page_turn_at:.3f});",
+        f"tl.to('#portal-{sid}', {{scale:{detail_scale:.3f},x:{detail_x},y:{detail_y},duration:{detail_move_duration:.3f},ease:'sine.inOut'}}, {detail_move_at:.3f});",
+    ]
+
+
+def _semantic_webtoon_scene_tweens(scene: dict[str, Any]) -> list[str]:
+    """Animate one complete v3 page through its source-bound panel path."""
+
+    sid = _safe_id(str(scene["scene_id"]))
+    start = float(scene["start_sec"])
+    duration = float(scene["duration_sec"])
+    entrance = max(0.0, start - 0.24) if start > 0 else start
+    exit_at = max(start + 0.2, start + duration - 0.30)
+    camera_path = scene.get("camera_path")
+    if not isinstance(camera_path, list) or len(camera_path) < 2:
+        raise EditorialMotionRenderError(f"{sid} has no semantic camera path")
+    overview = camera_path[0]
+    initial = overview.get("transform") if isinstance(overview, dict) else None
+    if not isinstance(initial, dict):
+        raise EditorialMotionRenderError(f"{sid} semantic overview is invalid")
+    lines = [
+        (
+            f"tl.set('#cutout-{sid}', {{opacity:1,scale:{float(initial['scale']):.3f},"
+            f"x:{int(initial['x'])},y:{int(initial['y'])}}}, {entrance:.3f});"
+        ),
+        f"tl.fromTo('#inner-{sid}', {{opacity:0}}, {{opacity:1,duration:.32,ease:'power1.out'}}, {entrance:.3f});",
+        f"tl.to('#inner-{sid}', {{opacity:0,duration:.30,ease:'power1.in'}}, {exit_at:.3f});",
+        f"tl.set('#inner-{sid}', {{opacity:0}}, {start + duration:.3f});",
+    ]
+    transition_duration = min(1.25, max(0.68, duration * 0.055))
+    first_focus_at = start + duration * float(camera_path[1]["at_fraction"])
+    overview_duration = max(0.25, first_focus_at - start)
+    lines.append(
+        (
+            f"tl.to('#cutout-{sid}', {{scale:{float(initial['scale']) + 0.012:.3f},"
+            f"x:{int(initial['x']) + 3},y:{int(initial['y']) - 2},"
+            f"duration:{overview_duration:.3f},ease:'none'}}, {start:.3f});"
+        ),
+    )
+    focus_beats = camera_path[1:]
+    for index, beat in enumerate(focus_beats):
+        if not isinstance(beat, dict) or not isinstance(beat.get("transform"), dict):
+            raise EditorialMotionRenderError(f"{sid} semantic camera beat is invalid")
+        target = beat["transform"]
+        at = start + duration * float(beat["at_fraction"])
+        role = str(beat.get("semantic_role") or "")
+        if "reaction" in role:
+            ease = "power2.out"
+        elif "evidence" in role or "cause" in role:
+            ease = "power2.inOut"
+        else:
+            ease = "sine.inOut"
+        lines.append(
+            (
+                f"tl.to('#cutout-{sid}', {{scale:{float(target['scale']):.3f},"
+                f"x:{int(target['x'])},y:{int(target['y'])},"
+                f"duration:{transition_duration:.3f},ease:'{ease}'}}, {at:.3f});"
+            ),
+        )
+        next_at = (
+            start + duration * float(focus_beats[index + 1]["at_fraction"])
+            if index + 1 < len(focus_beats)
+            else exit_at
+        )
+        settle_at = at + transition_duration
+        settle_duration = max(0.25, next_at - settle_at)
+        settle_x = int(target["x"]) + (6 if int(target["x"]) >= 0 else -6)
+        settle_y = int(target["y"]) + (3 if int(target["y"]) >= 0 else -3)
+        lines.append(
+            (
+                f"tl.to('#cutout-{sid}', {{scale:{float(target['scale']) + 0.014:.3f},"
+                f"x:{settle_x},y:{settle_y},duration:{settle_duration:.3f},"
+                f"ease:'none'}}, {settle_at:.3f});"
+            ),
+        )
+    return lines
+
+
 def _timeline_script(scenes: list[dict[str, Any]], *, style_profile: str) -> str:
     full_duration = max(float(scene["end_sec"]) for scene in scenes)
     lines = [
@@ -502,10 +781,13 @@ def _timeline_script(scenes: list[dict[str, Any]], *, style_profile: str) -> str
         duration = float(scene["duration_sec"])
         module = str(scene["motion"]["module"])
         tail = max(start + 0.2, start + duration - 0.8)
-        if style_profile in {
-            INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
-            CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
-        }:
+        if style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
+            lines.extend(_semantic_webtoon_scene_tweens(scene))
+            continue
+        if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE:
+            lines.extend(_cinematic_webtoon_scene_tweens(scene))
+            continue
+        if style_profile == INK_GOUACHE_STORY_PAGES_STYLE_PROFILE:
             lines.extend(_ink_gouache_scene_tweens(scene))
             continue
         if is_adult_animation_style_profile(style_profile):
@@ -603,6 +885,25 @@ def _composition_html(scenes: list[dict[str, Any]], duration: float, *, style_pr
 .module-graphic_timeline .dark-reveal{{opacity:0}}.module-graphic_timeline .hero-cutout{{left:880px;top:100px;width:900px;height:680px}}.module-graphic_timeline .portal-shell{{left:130px;right:auto;top:125px;width:620px;height:500px;border-radius:28px;clip-path:polygon(0 4%,100% 0,96% 96%,4% 100%)}}.module-graphic_timeline .story-copy{{left:920px;top:75px}}.module-graphic_timeline .timeline-rig{{left:120px;right:120px;bottom:115px}}
 .module-dark_semantic_reveal .timeline-rig{{opacity:0}}.module-dark_semantic_reveal .plane-blue{{background:#10243c}}.module-dark_semantic_reveal .plane-coral{{background:#6f2e31}}.module-dark_semantic_reveal .plane-yellow{{background:#b48729}}.module-dark_semantic_reveal .hero-cutout{{left:760px;top:55px;width:1040px;height:940px}}.module-dark_semantic_reveal .portal-shell{{left:170px;right:auto;top:200px;width:520px;height:650px;border-radius:10px}}.module-dark_semantic_reveal .story-copy{{left:105px;top:78px;width:700px}}
 .module-nested_collage_zoom .timeline-rig,.module-nested_collage_zoom .dark-reveal{{opacity:0}}.module-nested_collage_zoom .hero-cutout{{left:330px;top:100px;width:1260px;height:860px}}.module-nested_collage_zoom .portal-shell{{right:560px;top:220px;width:520px;height:520px;border-radius:50%}}.module-nested_collage_zoom .story-copy{{left:95px;top:70px;width:590px}}
+/* Cinematic Webtoon v2: paid assets are complete pages, never collage parts. */
+#root.profile-cinematic_ink_webtoon_v1,#root.profile-acc1_format_visual_system_v3{{--webtoon-ink:#111317;--webtoon-paper:#e8dfcb;--webtoon-band:#090b0f}}
+#root.profile-cinematic_ink_webtoon_v1 #root-fill,#root.profile-acc1_format_visual_system_v3 #root-fill{{background:var(--webtoon-ink)}}
+#root.profile-cinematic_ink_webtoon_v1 .scene-inner,#root.profile-acc1_format_visual_system_v3 .scene-inner{{background:var(--webtoon-ink);isolation:isolate}}
+#root.profile-cinematic_ink_webtoon_v1 .scene-inner:after,#root.profile-acc1_format_visual_system_v3 .scene-inner:after{{content:'';position:absolute;left:0;right:0;bottom:0;height:130px;background:rgba(9,11,15,.94);z-index:20;pointer-events:none}}
+#root.profile-cinematic_ink_webtoon_v1 .hero-plate,#root.profile-cinematic_ink_webtoon_v1 .scene-grade,#root.profile-cinematic_ink_webtoon_v1 .color-plane,#root.profile-cinematic_ink_webtoon_v1 .object-fragment,#root.profile-cinematic_ink_webtoon_v1 .story-line,#root.profile-cinematic_ink_webtoon_v1 .story-copy,#root.profile-cinematic_ink_webtoon_v1 .timeline-rig,#root.profile-cinematic_ink_webtoon_v1 .dark-reveal,#root.profile-cinematic_ink_webtoon_v1 .foreground-tear,#root.profile-acc1_format_visual_system_v3 .hero-plate,#root.profile-acc1_format_visual_system_v3 .scene-grade,#root.profile-acc1_format_visual_system_v3 .color-plane,#root.profile-acc1_format_visual_system_v3 .object-fragment,#root.profile-acc1_format_visual_system_v3 .story-line,#root.profile-acc1_format_visual_system_v3 .story-copy,#root.profile-acc1_format_visual_system_v3 .timeline-rig,#root.profile-acc1_format_visual_system_v3 .dark-reveal,#root.profile-acc1_format_visual_system_v3 .foreground-tear{{display:none}}
+#root.profile-cinematic_ink_webtoon_v1 .hero-cutout,#root.profile-cinematic_ink_webtoon_v1 .portal-shell,#root.profile-acc1_format_visual_system_v3 .hero-cutout,#root.profile-acc1_format_visual_system_v3 .portal-shell{{position:absolute;left:18px;right:18px;top:18px;bottom:18px;width:auto;height:auto;border:5px solid var(--webtoon-ink);border-radius:18px;background:var(--webtoon-paper);clip-path:none;box-shadow:none;filter:none;overflow:hidden;padding:0;transform-origin:center center;will-change:transform,opacity;z-index:3}}
+#root.profile-cinematic_ink_webtoon_v1 .portal-shell,#root.profile-acc1_format_visual_system_v3 .portal-shell{{z-index:4}}
+#root.profile-acc1_format_visual_system_v3 .portal-shell{{display:none}}
+#root.profile-cinematic_ink_webtoon_v1 .hero-cutout img,#root.profile-cinematic_ink_webtoon_v1 .portal-shell img,#root.profile-acc1_format_visual_system_v3 .hero-cutout img,#root.profile-acc1_format_visual_system_v3 .portal-shell img{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center;filter:none;transform:none}}
+#root.profile-cinematic_ink_webtoon_v1 .portal-shell i,#root.profile-cinematic_ink_webtoon_v1 .portal-glow,#root.profile-acc1_format_visual_system_v3 .portal-shell i,#root.profile-acc1_format_visual_system_v3 .portal-glow{{display:none}}
+.thread-card{{display:none}}
+#root.profile-acc1_format_visual_system_v3 .format-thread .thread-card{{position:absolute;display:flex;left:54px;top:48px;z-index:16;align-items:center;min-width:210px;height:66px;padding:0 24px;border:4px solid #111317;border-radius:15px;background:#f3ead8;box-shadow:8px 9px 0 rgba(17,19,23,.82);color:#111317}}
+#root.profile-acc1_format_visual_system_v3 .format-thread .thread-card span{{font:900 25px/1 Arial,sans-serif;letter-spacing:.12em}}
+#root.profile-acc1_format_visual_system_v3 .family-confessions .thread-card{{background:#d8bed8;color:#39243e}}
+#root.profile-acc1_format_visual_system_v3 .family-professions .thread-card{{background:#b9d9d8;color:#143c44}}
+#root.profile-acc1_format_visual_system_v3 .family-strange .thread-card{{background:#263a54;color:#f2eadc;border-color:#d0ae6b}}
+#root.profile-acc1_format_visual_system_v3 .format-thread .thread-card-prompt{{min-width:250px;height:76px}}
+#root.profile-acc1_format_visual_system_v3 .format-thread .thread-card-response{{left:auto;right:54px}}
 /* Adult Animation v1: six original episodic comic series, not a single page skin. */
 #root[class^="profile-adult_animation_"]{{--series-bg:#f1e1ca;--series-ink:#202325;--series-paper:#fff7e7;--series-accent:#ca5a43;--series-accent-two:#5c8b83;--series-line:5px}}
 #root.profile-adult_animation_family_v1{{--series-bg:#e6c8ae;--series-ink:#283032;--series-paper:#fff2dc;--series-accent:#c76853;--series-accent-two:#78937b;--series-line:5px}}
@@ -695,8 +996,13 @@ def _composition_html(scenes: list[dict[str, Any]], duration: float, *, style_pr
 
 def _write_workspace(
     scenes: list[dict[str, Any]], artifact_root: Path, audio: Path, duration: float, *, style_profile: str,
+    workspace_path: Path | None = None,
 ) -> Path:
-    workspace = artifact_root / "editorial-motion-hyperframes"
+    workspace = (
+        Path(workspace_path).resolve()
+        if workspace_path is not None
+        else artifact_root / "editorial-motion-hyperframes"
+    )
     assets_dir = workspace / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     if not GSAP_RUNTIME.is_file():
@@ -769,6 +1075,343 @@ def _hyperframes_cli() -> list[str]:
     return [npx, "--yes", f"hyperframes@{HYPERFRAMES_VERSION}"]
 
 
+def _render_segment_plan(
+    scenes: list[dict[str, Any]], *,
+    max_duration_sec: float = DEFAULT_SEGMENT_MAX_DURATION_SEC,
+) -> list[dict[str, Any]]:
+    """Split contiguous scenes without cutting scenes or changing their duration."""
+
+    if max_duration_sec <= 0:
+        raise EditorialMotionRenderError("segment duration must be positive")
+    groups: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    group_start = 0.0
+    for scene in scenes:
+        start = float(scene["start_sec"])
+        end = float(scene["end_sec"])
+        if current and end - group_start > max_duration_sec:
+            groups.append(current)
+            current = []
+        if not current:
+            group_start = start
+        current.append(scene)
+    if current:
+        groups.append(current)
+
+    plan: list[dict[str, Any]] = []
+    for index, group in enumerate(groups, start=1):
+        source_start = float(group[0]["start_sec"])
+        source_end = float(group[-1]["end_sec"])
+        duration = source_end - source_start
+        if duration > max_duration_sec + 0.001:
+            raise EditorialMotionRenderError(
+                f"scene group {index} exceeds the {max_duration_sec:.3f}s render ceiling",
+            )
+        local_scenes: list[dict[str, Any]] = []
+        for scene in group:
+            local_start = float(scene["start_sec"]) - source_start
+            local_end = float(scene["end_sec"]) - source_start
+            local_scenes.append({
+                **scene,
+                "start_sec": round(local_start, 6),
+                "end_sec": round(local_end, 6),
+                "duration_sec": round(local_end - local_start, 6),
+            })
+        plan.append({
+            "index": index,
+            "source_start_sec": round(source_start, 6),
+            "source_end_sec": round(source_end, 6),
+            "duration_sec": round(duration, 6),
+            "scene_ids": [str(scene["scene_id"]) for scene in group],
+            "scenes": local_scenes,
+        })
+    return plan
+
+
+def build_editorial_render_segment_plan(
+    storyboard: dict[str, Any],
+    artifact_root: Path,
+    *,
+    max_duration_sec: float = DEFAULT_SEGMENT_MAX_DURATION_SEC,
+) -> dict[str, Any]:
+    """Return the public path-free plan consumed by the GitHub render matrix."""
+
+    scenes = preflight_editorial_motion_storyboard(
+        storyboard,
+        Path(artifact_root).resolve(),
+    )
+    segments = _render_segment_plan(scenes, max_duration_sec=max_duration_sec)
+    return {
+        "version": 2,
+        "renderer": "hyperframes_segmented",
+        "max_duration_sec": max_duration_sec,
+        "timeline_duration_sec": float(storyboard["timeline_duration_sec"]),
+        "segment_count": len(segments),
+        "segments": [
+            {key: value for key, value in segment.items() if key != "scenes"}
+            for segment in segments
+        ],
+    }
+
+
+def _probe_h264(path: Path, *, cwd: Path) -> dict[str, Any]:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise EditorialMotionRenderError("ffprobe is required")
+    probe = _run([
+        ffprobe,
+        "-v",
+        "error",
+        "-show_entries",
+        "stream=codec_type,codec_name,width,height,avg_frame_rate:format=duration",
+        "-of",
+        "json",
+        str(path),
+    ], cwd=cwd)
+    try:
+        payload = json.loads(probe.stdout)
+        stream = next(
+            item for item in payload.get("streams") or []
+            if item.get("codec_type") == "video"
+        )
+        duration = float((payload.get("format") or {}).get("duration") or 0)
+    except (ValueError, StopIteration, json.JSONDecodeError) as exc:
+        raise EditorialMotionRenderError("ffprobe could not verify editorial MP4") from exc
+    if (
+        stream.get("codec_name") != "h264"
+        or [stream.get("width"), stream.get("height")]
+        != [CANVAS_WIDTH, CANVAS_HEIGHT]
+    ):
+        raise EditorialMotionRenderError("editorial MP4 geometry or codec drifted")
+    return {"stream": stream, "duration_sec": duration}
+
+
+def render_editorial_motion_segment(
+    storyboard: dict[str, Any],
+    artifact_root: Path,
+    segment_index: int,
+    output: Path,
+    *,
+    max_duration_sec: float = DEFAULT_SEGMENT_MAX_DURATION_SEC,
+) -> dict[str, Any]:
+    """Render one bounded silent segment and discard its frame workspace."""
+
+    root = Path(artifact_root).resolve()
+    scenes = preflight_editorial_motion_storyboard(storyboard, root)
+    segments = _render_segment_plan(scenes, max_duration_sec=max_duration_sec)
+    if segment_index < 1 or segment_index > len(segments):
+        raise EditorialMotionRenderError("segment index is outside the deterministic plan")
+    segment = segments[segment_index - 1]
+    output = Path(output).resolve()
+    if output == root or root not in output.parents:
+        raise EditorialMotionRenderError("segment output must remain under artifact_root")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    cli = _hyperframes_cli()
+    style_profile = str(storyboard["style_profile"])
+    print(
+        f"render segment {segment_index}/{len(segments)} "
+        f"({segment['duration_sec']:.3f}s, {len(segment['scenes'])} scenes)",
+        flush=True,
+    )
+    with tempfile.TemporaryDirectory(
+        prefix=f".hf-segment-{segment_index:03d}-",
+        dir=root,
+    ) as temp:
+        workspace = Path(temp) / "workspace"
+        _write_workspace(
+            segment["scenes"],
+            root,
+            root / "episode-script.json",
+            float(segment["duration_sec"]),
+            style_profile=style_profile,
+            workspace_path=workspace,
+        )
+        check = _run([*cli, "check", "--json"], cwd=workspace)
+        _run([
+            *cli,
+            "render",
+            "--quality",
+            "high",
+            "--workers",
+            "1",
+            "--output",
+            str(output),
+        ], cwd=workspace)
+        if not output.is_file() or output.stat().st_size <= 0:
+            raise EditorialMotionRenderError("HyperFrames produced no segment MP4")
+        probe = _probe_h264(output, cwd=workspace)
+    if abs(float(probe["duration_sec"]) - float(segment["duration_sec"])) > 0.12:
+        raise EditorialMotionRenderError("segment duration drifted")
+    try:
+        check_payload = json.loads(check.stdout or "{}")
+    except json.JSONDecodeError:
+        check_payload = {"raw": check.stdout[-2000:]}
+    return {
+        "version": 2,
+        "status": "PASS",
+        "segment_index": segment_index,
+        "segment_count": len(segments),
+        "segment_max_duration_sec": max_duration_sec,
+        "source_start_sec": segment["source_start_sec"],
+        "source_end_sec": segment["source_end_sec"],
+        "duration_sec": round(float(probe["duration_sec"]), 3),
+        "scene_ids": segment["scene_ids"],
+        "output": output.name,
+        "output_sha256": _sha256(output),
+        "output_bytes": output.stat().st_size,
+        "hyperframes_check_passed": True,
+        "hyperframes_check": check_payload,
+        "temporary_workspace_removed": True,
+        "provider_calls": 0,
+        "youtube_called": False,
+    }
+
+
+def assemble_editorial_motion_segments(
+    storyboard: dict[str, Any],
+    artifact_root: Path,
+    segment_paths: list[Path],
+    output: Path,
+    *,
+    audio: Path,
+    max_duration_sec: float = DEFAULT_SEGMENT_MAX_DURATION_SEC,
+) -> dict[str, Any]:
+    """Concatenate verified silent segments and mux the existing narration."""
+
+    root = Path(artifact_root).resolve()
+    scenes = preflight_editorial_motion_storyboard(storyboard, root)
+    plan = _render_segment_plan(scenes, max_duration_sec=max_duration_sec)
+    if len(segment_paths) != len(plan):
+        raise EditorialMotionRenderError(
+            "segment file count does not match deterministic plan",
+        )
+    verified_paths: list[Path] = []
+    segment_reports: list[dict[str, Any]] = []
+    for segment, raw_path in zip(plan, segment_paths, strict=True):
+        path = _under_root(raw_path, root, label="editorial segment")
+        probe = _probe_h264(path, cwd=root)
+        if abs(float(probe["duration_sec"]) - float(segment["duration_sec"])) > 0.12:
+            raise EditorialMotionRenderError(
+                "segment duration does not match deterministic plan",
+            )
+        verified_paths.append(path)
+        segment_reports.append({
+            "index": segment["index"],
+            "duration_sec": round(float(probe["duration_sec"]), 3),
+            "sha256": _sha256(path),
+            "bytes": path.stat().st_size,
+        })
+
+    audio_path = _under_root(audio, root, label="editorial narration audio")
+    output = Path(output).resolve()
+    if output == root or root not in output.parents:
+        raise EditorialMotionRenderError("editorial output must remain under artifact_root")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise EditorialMotionRenderError("ffmpeg is required for segment assembly")
+    with tempfile.TemporaryDirectory(prefix=".hf-assembly-", dir=root) as temp:
+        temp_root = Path(temp)
+        concat_list = temp_root / "segments.txt"
+        concat_lines = []
+        for path in verified_paths:
+            escaped = str(path).replace("'", "'\\''")
+            concat_lines.append("file '" + escaped + "'\n")
+        concat_list.write_text(
+            "".join(concat_lines),
+            encoding="utf-8",
+        )
+        silent_output = temp_root / "joined-silent.mp4"
+        muxed_output = temp_root / "joined-with-audio.mp4"
+        _run([
+            ffmpeg,
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_list),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(silent_output),
+        ], cwd=temp_root)
+        _run([
+            ffmpeg,
+            "-y",
+            "-i",
+            str(silent_output),
+            "-i",
+            str(audio_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            str(muxed_output),
+        ], cwd=temp_root)
+        caption_path = write_caption_srt(
+            storyboard["caption_track"],
+            root / "editorial-motion-captions.srt",
+        )
+        caption_ass_path = write_caption_ass(
+            storyboard["caption_track"],
+            root / "editorial-motion-captions.ass",
+        )
+        burn_captions(muxed_output, caption_ass_path, output)
+    if not output.is_file() or output.stat().st_size <= 0:
+        raise EditorialMotionRenderError("segment assembly produced no MP4")
+    probe = _probe_h264(output, cwd=root)
+    expected_duration = float(storyboard["timeline_duration_sec"])
+    if abs(float(probe["duration_sec"]) - expected_duration) > 0.35:
+        raise EditorialMotionRenderError("assembled MP4 duration drifted")
+    return {
+        "version": 3,
+        "status": "PASS",
+        "visual_mode": EDITORIAL_MOTION_MODE,
+        "style_profile": str(storyboard["style_profile"]),
+        "renderer": "hyperframes_segmented",
+        "hyperframes_version": HYPERFRAMES_VERSION,
+        "hyperframes_check_passed": True,
+        "publication_authorized": False,
+        "output_sha256": _sha256(output),
+        "video_codec": "h264",
+        "resolution": [CANVAS_WIDTH, CANVAS_HEIGHT],
+        "fps": CANVAS_FPS,
+        "duration_sec": round(float(probe["duration_sec"]), 3),
+        "scene_count": len(scenes),
+        "segment_count": len(plan),
+        "segments": segment_reports,
+        "segment_max_duration_sec": max_duration_sec,
+        "temporary_frame_workspaces_removed": True,
+        "caption_srt": str(caption_path),
+        "caption_srt_sha256": _sha256(caption_path),
+        "caption_ass": str(caption_ass_path),
+        "caption_ass_sha256": _sha256(caption_ass_path),
+        "captions_burned": True,
+        "audio_sha256": _sha256(audio_path),
+        "audio_mux": "ffmpeg_concat_then_post_render_mux_and_caption_burn",
+        "motion_plan_sha256": storyboard["motion_plan_sha256"],
+        "caption_track_sha256": storyboard["caption_track_sha256"],
+        "module_usage": storyboard["motion_plan"]["module_usage"],
+        "asset_pack_count": len({scene["asset_family_id"] for scene in scenes}),
+        "background_video_used": False,
+        "factual_text_rendering": "html_svg_only",
+        "provider_calls": 0,
+        "youtube_called": False,
+    }
+
+
 def render_editorial_motion_compilation(
     storyboard: dict[str, Any],
     artifact_root: Path,
@@ -776,93 +1419,60 @@ def render_editorial_motion_compilation(
     *,
     audio: Path | None = None,
 ) -> dict[str, Any]:
+    """Render every editorial episode as bounded parts before final assembly.
+
+    This is the safe direct-call path used by the general episode factory.
+    GitHub workflows may fan the same segment calls out as a matrix, but no
+    caller is allowed to fall back to one full-duration browser render.
+    """
+
     root = Path(artifact_root).resolve()
-    scenes = preflight_editorial_motion_storyboard(storyboard, root)
+    preflight_editorial_motion_storyboard(storyboard, root)
     if audio is None:
         raise EditorialMotionRenderError("editorial motion requires final narration audio")
     audio_path = _under_root(audio, root, label="editorial narration audio")
-    duration = float(storyboard["timeline_duration_sec"])
     output = Path(output).resolve()
     if output == root or root not in output.parents:
         raise EditorialMotionRenderError("editorial output must remain under artifact_root")
     output.parent.mkdir(parents=True, exist_ok=True)
-    style_profile = str(storyboard["style_profile"])
-    workspace = _write_workspace(scenes, root, audio_path, duration, style_profile=style_profile)
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        raise EditorialMotionRenderError("ffprobe is required")
-    cli = _hyperframes_cli()
-    check = _run([*cli, "check", "--json"], cwd=workspace)
-    silent_output = output.with_name(f"{output.stem}-hyperframes-silent.mp4")
-    _run(
-        [*cli, "render", "--quality", "high", "--output", str(silent_output)],
-        cwd=workspace,
-    )
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise EditorialMotionRenderError("ffmpeg is required for narration mux")
-    _run([
-        ffmpeg, "-y", "-i", str(silent_output), "-i", str(audio_path),
-        "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
-        "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(output),
-    ], cwd=workspace)
-    if not output.is_file() or output.stat().st_size <= 0:
-        raise EditorialMotionRenderError("HyperFrames produced no MP4")
-    probe = _run([
-        ffprobe, "-v", "error", "-show_entries",
-        "stream=codec_name,width,height,avg_frame_rate:format=duration",
-        "-of", "json", str(output),
-    ], cwd=workspace)
-    try:
-        probe_payload = json.loads(probe.stdout)
-        video_stream = next(
-            item for item in probe_payload.get("streams") or []
-            if item.get("codec_name")
+    with tempfile.TemporaryDirectory(prefix=".hf-bounded-parts-", dir=root) as temp:
+        segment_root = Path(temp)
+        public_plan = build_editorial_render_segment_plan(
+            storyboard,
+            root,
+            max_duration_sec=DEFAULT_SEGMENT_MAX_DURATION_SEC,
         )
-        rendered_duration = float((probe_payload.get("format") or {}).get("duration") or 0)
-    except (ValueError, StopIteration, json.JSONDecodeError) as exc:
-        raise EditorialMotionRenderError("ffprobe could not verify editorial MP4") from exc
-    if (
-        video_stream.get("codec_name") != "h264"
-        or [video_stream.get("width"), video_stream.get("height")]
-        != [CANVAS_WIDTH, CANVAS_HEIGHT]
-        or abs(rendered_duration - duration) > 0.35
-    ):
-        raise EditorialMotionRenderError("editorial MP4 geometry, codec, or duration drifted")
-
-    caption_path = write_caption_srt(
-        storyboard["caption_track"], root / "editorial-motion-captions.srt",
-    )
-    try:
-        check_payload = json.loads(check.stdout or "{}")
-    except json.JSONDecodeError:
-        check_payload = {"raw": check.stdout[-2000:]}
-    return {
-        "version": 1,
-        "status": "PASS",
-        "visual_mode": EDITORIAL_MOTION_MODE,
-        "style_profile": style_profile,
-        "renderer": "hyperframes",
-        "hyperframes_version": HYPERFRAMES_VERSION,
+        segment_paths: list[Path] = []
+        for segment in public_plan["segments"]:
+            index = int(segment["index"])
+            segment_path = segment_root / f"segment-{index:03d}.mp4"
+            report = render_editorial_motion_segment(
+                storyboard,
+                root,
+                index,
+                segment_path,
+                max_duration_sec=DEFAULT_SEGMENT_MAX_DURATION_SEC,
+            )
+            if (
+                report.get("status") != "PASS"
+                or report.get("temporary_workspace_removed") is not True
+            ):
+                raise EditorialMotionRenderError(
+                    f"editorial segment {index} did not pass its isolated render",
+                )
+            segment_paths.append(segment_path)
+        report = assemble_editorial_motion_segments(
+            storyboard,
+            root,
+            segment_paths,
+            output,
+            audio=audio_path,
+            max_duration_sec=DEFAULT_SEGMENT_MAX_DURATION_SEC,
+        )
+    report.update({
         "hyperframes_check_passed": True,
-        "hyperframes_check": check_payload,
-        "publication_authorized": False,
-        "output_sha256": _sha256(output),
-        "video_codec": "h264",
-        "resolution": [CANVAS_WIDTH, CANVAS_HEIGHT],
-        "fps": CANVAS_FPS,
-        "duration_sec": round(rendered_duration, 3),
-        "scene_count": len(scenes),
-        "module_usage": storyboard["motion_plan"]["module_usage"],
-        "motion_plan_sha256": storyboard["motion_plan_sha256"],
-        "caption_track_sha256": storyboard["caption_track_sha256"],
-        "caption_srt": str(caption_path),
-        "caption_srt_sha256": _sha256(caption_path),
-        "audio_sha256": _sha256(audio_path),
-        "audio_mux": "ffmpeg_post_render",
-        "silent_hyperframes_output_sha256": _sha256(silent_output),
-        "background_video_used": False,
-        "factual_text_rendering": "html_svg_only",
-        "asset_pack_count": len({scene["asset_family_id"] for scene in scenes}),
-        "workspace": str(workspace),
-    }
+        "render_strategy": "bounded_segments_then_assembly",
+        "segment_plan_renderer": public_plan["renderer"],
+        "monolithic_browser_render_forbidden": True,
+    })
+    return report

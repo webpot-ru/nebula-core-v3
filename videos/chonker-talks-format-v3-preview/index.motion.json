@@ -1,0 +1,12 @@
+{
+  "duration": 18,
+  "maxStaticSec": 1.5,
+  "assertions": [
+    {"kind": "staysInFrame", "selector": "#bundle .subtitle-band"},
+    {"kind": "staysInFrame", "selector": "#saga .subtitle-band"},
+    {"kind": "staysInFrame", "selector": "#thread .subtitle-band"},
+    {"kind": "before", "a": "#bundle-art", "b": "#saga-art"},
+    {"kind": "before", "a": "#saga-art", "b": "#thread-art"},
+    {"kind": "keepsMoving", "withinSelector": "#preview"}
+  ]
+}
