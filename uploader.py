@@ -221,7 +221,8 @@ def append_hashtags(description, hashtags):
 
 def upload_video(video_file, title, description, account_index="1", category_id="24",
                  privacy_status="public", tags=None, language=None,
-                 verify_channel=True, thumbnail_file=None, result_path=None):
+                 verify_channel=True, thumbnail_file=None, caption_file=None,
+                 caption_language=None, caption_name=None, result_path=None):
     try:
         from googleapiclient.http import MediaFileUpload
     except ImportError as exc:
@@ -237,6 +238,22 @@ def upload_video(video_file, title, description, account_index="1", category_id=
     if verify_channel:
         expected_channel = load_expected_channel(account_index)
         channel_info = verify_account_channel(youtube, expected_channel, account_index)
+
+    thumbnail_path = None
+    if thumbnail_file:
+        thumbnail_path = Path(thumbnail_file)
+        if not thumbnail_path.is_file():
+            raise UploadError(f"Thumbnail file not found: {thumbnail_file}")
+
+    caption_path = None
+    if caption_file:
+        caption_path = Path(caption_file)
+        if not caption_path.is_file():
+            raise UploadError(f"Caption file not found: {caption_file}")
+        caption_language = str(caption_language or language or "").strip()
+        if not caption_language:
+            raise UploadError("Caption language is required when a caption file is provided.")
+        caption_name = str(caption_name or caption_language).strip()[:150]
 
     if tags is None:
         tags = ["reddit", "redditstories", "askreddit", "viral", "shorts"]
@@ -285,6 +302,9 @@ def upload_video(video_file, title, description, account_index="1", category_id=
         "thumbnail_sha256": (
             _sha256_file(thumbnail_file) if thumbnail_file else None
         ),
+        "caption_sha256": (
+            _sha256_file(caption_file) if caption_file else None
+        ),
     }
     _write_upload_state(result_path, state)
 
@@ -310,16 +330,51 @@ def upload_video(video_file, title, description, account_index="1", category_id=
             )
 
     thumbnail_response = None
-    if thumbnail_file:
-        thumbnail_path = Path(thumbnail_file)
-        if not thumbnail_path.is_file():
-            raise UploadError(f"Thumbnail file not found: {thumbnail_file}")
+    if thumbnail_path:
         thumbnail_response = youtube.thumbnails().set(
             videoId=video_id,
             media_body=MediaFileUpload(str(thumbnail_path), resumable=False),
         ).execute()
         if not isinstance(thumbnail_response, dict):
             raise UploadError("YouTube thumbnail upload returned an invalid response.")
+
+    caption_id = None
+    caption_readback = None
+    if caption_path:
+        caption_response = youtube.captions().insert(
+            part="snippet",
+            body={
+                "snippet": {
+                    "videoId": video_id,
+                    "language": caption_language,
+                    "name": caption_name,
+                    "isDraft": False,
+                },
+            },
+            media_body=MediaFileUpload(
+                str(caption_path),
+                mimetype="application/octet-stream",
+                resumable=False,
+            ),
+        ).execute()
+        caption_id = (caption_response or {}).get("id")
+        if not caption_id:
+            raise UploadError("YouTube caption upload response did not contain a caption id.")
+        caption_items = youtube.captions().list(
+            part="snippet",
+            videoId=video_id,
+            id=caption_id,
+        ).execute().get("items") or []
+        if not caption_items:
+            raise UploadError("YouTube caption readback returned no matching track.")
+        caption_readback = caption_items[0].get("snippet") or {}
+        if caption_readback.get("videoId") != video_id:
+            raise UploadError("YouTube caption readback resolved to another video.")
+        if caption_readback.get("language") != caption_language:
+            raise UploadError(
+                "YouTube caption language mismatch: "
+                f"readback={caption_readback.get('language')} requested={caption_language}."
+            )
 
     snippet_readback = (readback or {}).get("snippet") or {}
     status_readback = (readback or {}).get("status") or {}
@@ -328,6 +383,11 @@ def upload_video(video_file, title, description, account_index="1", category_id=
         "channel_id": snippet_readback.get("channelId"),
         "privacy_status_readback": status_readback.get("privacyStatus"),
         "thumbnail_uploaded": thumbnail_file is not None,
+        "caption_uploaded": caption_file is not None,
+        "caption_id": caption_id,
+        "caption_language_readback": (
+            caption_readback.get("language") if caption_readback else None
+        ),
     })
     _write_upload_state(result_path, state)
     return response
@@ -383,6 +443,9 @@ def parse_args(argv):
     parser.add_argument("--category-id", default="24")
     parser.add_argument("--metadata-file", help="Exact metadata JSON to upload.")
     parser.add_argument("--thumbnail-file", help="Exact custom thumbnail to upload after the video.")
+    parser.add_argument("--caption-file", help="Exact SRT/VTT caption track to upload after the video.")
+    parser.add_argument("--caption-language", help="BCP-47 language for --caption-file.")
+    parser.add_argument("--caption-name", help="Viewer-facing name for --caption-file.")
     parser.add_argument("--result", help="Atomically persist upload id, hashes, privacy, and readback state.")
     parser.add_argument(
         "--check-channel-only",
@@ -449,6 +512,9 @@ if __name__ == '__main__':
             language=video_language,
             verify_channel=not args.skip_channel_check,
             thumbnail_file=args.thumbnail_file,
+            caption_file=args.caption_file,
+            caption_language=args.caption_language,
+            caption_name=args.caption_name,
             result_path=args.result,
         )
     except UploadError as exc:

@@ -1,0 +1,443 @@
+name: acc1 Fixed First Release Private Upload
+run-name: acc1 fixed release private upload source_run=${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Exact successful captioned-recovery run already reviewed by the owner
+        required: true
+        default: "30187749091"
+        type: string
+      expected_package_manifest_sha256:
+        description: Exact raw SHA-256 of release-package.json from the reviewed revision
+        required: true
+        type: string
+      confirm_private_upload:
+        description: Explicitly authorize one private YouTube upload for acc1
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: acc1-fixed-first-release-private-upload
+  cancel-in-progress: false
+
+env:
+  PACKAGE_ROOT: release-packages/acc1/fixed-first-release-v1
+  WORK_ROOT: build/acc1-fixed-first-release-private-upload
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Require exact one-time private-upload authorization
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_PACKAGE_MANIFEST_SHA256: ${{ inputs.expected_package_manifest_sha256 }}
+          CONFIRM_PRIVATE_UPLOAD: ${{ inputs.confirm_private_upload }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_RUN_ID" = "30187749091"
+          test "$CONFIRM_PRIVATE_UPLOAD" = "true"
+          test "$RUN_ATTEMPT" = "1"
+          [[ "$EXPECTED_PACKAGE_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify the exact repository release package
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_PACKAGE_MANIFEST_SHA256: ${{ inputs.expected_package_manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK_ROOT"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          package_root = Path(os.environ["PACKAGE_ROOT"])
+          manifest_path = package_root / "release-package.json"
+
+          def file_sha256(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          expected_manifest = os.environ["EXPECTED_PACKAGE_MANIFEST_SHA256"]
+          if file_sha256(manifest_path) != expected_manifest:
+              raise SystemExit("release package manifest does not match the explicitly reviewed hash")
+
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          if manifest.get("package_id") != "acc1-fixed-first-release-v1":
+              raise SystemExit("unexpected release package id")
+          if manifest.get("status") != "PRIVATE_REVIEW_PACKAGE_READY":
+              raise SystemExit("release package is not private-review ready")
+          if str(manifest.get("source_run", {}).get("run_id")) != os.environ["SOURCE_RUN_ID"]:
+              raise SystemExit("release package is bound to another source run")
+          if manifest.get("source_run", {}).get("workflow_name") != (
+              "acc1 Fixed First Release Recovery"
+          ):
+              raise SystemExit("release package is bound to another workflow")
+          if manifest.get("source_run", {}).get("artifact_name") != (
+              f"acc1-captioned-recovery-{os.environ['SOURCE_RUN_ID']}"
+          ):
+              raise SystemExit("release package is bound to another artifact")
+
+          channel = manifest.get("channel") or {}
+          if channel.get("id") != "acc1" or channel.get("account_index") != 1:
+              raise SystemExit("release package channel binding drifted")
+          if channel.get("youtube_channel_id") != "UCNSxg53AGM4WstRjGiQdS8w":
+              raise SystemExit("release package YouTube channel id drifted")
+          if channel.get("made_for_kids") is not False:
+              raise SystemExit("release package audience setting drifted")
+
+          boundaries = manifest.get("boundaries") or {}
+          required_false = (
+              "private_upload_authorized",
+              "publication_authorized",
+              "youtube_called",
+              "public_or_unlisted_path",
+          )
+          if any(boundaries.get(field) is not False for field in required_false):
+              raise SystemExit("release package authorization ceiling drifted")
+          if boundaries.get("provider_calls_authorized") != 0:
+              raise SystemExit("release package unexpectedly authorizes provider calls")
+
+          metadata_info = manifest.get("metadata") or {}
+          metadata_path = package_root / str(metadata_info.get("file") or "")
+          if file_sha256(metadata_path) != metadata_info.get("sha256"):
+              raise SystemExit("YouTube metadata hash mismatch")
+          metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+          variants = manifest.get("variants") or []
+          if [item.get("id") for item in variants] != ["A", "B", "C"]:
+              raise SystemExit("release package must contain exact A/B/C variants")
+          if metadata_info.get("primary_variant") != "A":
+              raise SystemExit("private upload must use variant A")
+          if metadata.get("youtube_title") != variants[0].get("title"):
+              raise SystemExit("primary metadata/title pair drifted")
+          metadata_variants = metadata.get("ab_test_variants") or []
+          if [
+              (item.get("id"), item.get("title"), item.get("thumbnail"))
+              for item in metadata_variants
+          ] != [
+              (item.get("id"), item.get("title"), item.get("thumbnail"))
+              for item in variants
+          ]:
+              raise SystemExit("metadata A/B/C pairs drifted from the manifest")
+
+          titles = []
+          for item in variants:
+              title = str(item.get("title") or "")
+              if not title or len(title) > 100 or title in titles:
+                  raise SystemExit("A/B/C titles must be unique and no longer than 100 characters")
+              titles.append(title)
+              thumbnail = package_root / str(item.get("thumbnail") or "")
+              if not thumbnail.is_file():
+                  raise SystemExit(f"missing thumbnail {thumbnail}")
+              if file_sha256(thumbnail) != item.get("thumbnail_sha256"):
+                  raise SystemExit(f"thumbnail hash mismatch for variant {item.get('id')}")
+              if thumbnail.stat().st_size != item.get("thumbnail_size_bytes"):
+                  raise SystemExit(f"thumbnail size mismatch for variant {item.get('id')}")
+              if thumbnail.stat().st_size >= 2 * 1024 * 1024:
+                  raise SystemExit(f"thumbnail exceeds 2 MiB for variant {item.get('id')}")
+
+          description = str(metadata.get("youtube_description") or "")
+          required_description_tokens = (
+              "00:00 ",
+              "00:10 ",
+              "04:07 ",
+              "07:41 ",
+              "10:59 ",
+              "14:20 ",
+              "не подтверждены независимо",
+              "reddit.com/r/relationship_advice/comments/1uw7804/",
+              "reddit.com/r/offmychest/comments/1v0l1ei/",
+              "reddit.com/r/relationship_advice/comments/1uy2j23/",
+              "reddit.com/r/AmItheAsshole/comments/1uviexk/",
+          )
+          if any(token not in description for token in required_description_tokens):
+              raise SystemExit("YouTube description lost a chapter, disclosure, or source")
+          if len(description) > 4800:
+              raise SystemExit("YouTube description leaves no safe room for hashtags")
+          if metadata.get("language") != "ru":
+              raise SystemExit("YouTube metadata language drifted")
+
+          Path(os.environ["WORK_ROOT"], "package-validation.json").write_text(
+              json.dumps({
+                  "status": "PACKAGE_VALIDATED",
+                  "source_run_id": os.environ["SOURCE_RUN_ID"],
+                  "package_manifest_sha256": expected_manifest,
+                  "primary_variant": "A",
+                  "publication_authorized": False,
+                  "youtube_called": False,
+              }, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+      - name: Refuse a duplicate upload receipt for this source run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          name = f"acc1-fixed-private-upload-source-{os.environ['SOURCE_RUN_ID']}"
+          payload = json.loads(subprocess.check_output([
+              "gh", "api", "--method", "GET",
+              f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts",
+              "-f", f"name={name}",
+              "-f", "per_page=100",
+          ], text=True))
+          active = [
+              item for item in payload.get("artifacts", [])
+              if item.get("name") == name and not item.get("expired")
+          ]
+          if active:
+              raise SystemExit(
+                  f"an upload receipt artifact already exists for source run "
+                  f"{os.environ['SOURCE_RUN_ID']}; duplicate upload blocked"
+              )
+          PY
+      - name: Verify the successful source run and download its exact artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json workflowName,conclusion,event,headSha,headBranch \
+            > "$WORK_ROOT/source-run.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path(os.environ["PACKAGE_ROOT"], "release-package.json")
+              .read_text(encoding="utf-8")
+          )
+          expected = manifest["source_run"]
+          actual = json.loads(
+              Path(os.environ["WORK_ROOT"], "source-run.json")
+              .read_text(encoding="utf-8")
+          )
+          pairs = {
+              "workflowName": "workflow_name",
+              "conclusion": "conclusion",
+              "event": "event",
+              "headSha": "head_sha",
+              "headBranch": "head_branch",
+          }
+          for actual_key, expected_key in pairs.items():
+              if actual.get(actual_key) != expected.get(expected_key):
+                  raise SystemExit(
+                      f"source run {actual_key} does not match the reviewed package"
+                  )
+          PY
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "acc1-captioned-recovery-$SOURCE_RUN_ID" \
+            --dir "$WORK_ROOT/source-artifact"
+      - name: Install deterministic media dependency
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffprobe -hide_banner -version
+      - name: Verify the exact reviewed video, captions and report
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          package = json.loads(
+              Path(os.environ["PACKAGE_ROOT"], "release-package.json")
+              .read_text(encoding="utf-8")
+          )
+          media = package["media"]
+          root = Path(os.environ["WORK_ROOT"], "source-artifact")
+
+          def file_sha256(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          paths = {
+              "video_sha256": root / media["video_file"],
+              "caption_srt_sha256": root / media["caption_srt_file"],
+              "caption_ass_sha256": root / media["caption_ass_file"],
+              "caption_report_sha256": root / media["caption_report_file"],
+          }
+          for field, path in paths.items():
+              if not path.is_file() or file_sha256(path) != media[field]:
+                  raise SystemExit(f"reviewed artifact hash mismatch: {field}")
+          if paths["video_sha256"].stat().st_size != media["video_size_bytes"]:
+              raise SystemExit("reviewed video size mismatch")
+
+          report = json.loads(paths["caption_report_sha256"].read_text(encoding="utf-8"))
+          if report.get("status") != "READY_FOR_HUMAN_REVIEW":
+              raise SystemExit("caption report is not review-ready")
+          if str(report.get("source_run_id")) != package["source_run"]["underlying_recovery_run_id"]:
+              raise SystemExit("caption report is bound to another recovery run")
+          if report.get("captioned_video_sha256") != media["video_sha256"]:
+              raise SystemExit("caption report video hash drifted")
+          if report.get("caption_srt_sha256") != media["caption_srt_sha256"]:
+              raise SystemExit("caption report SRT hash drifted")
+          if report.get("caption_ass_sha256") != media["caption_ass_sha256"]:
+              raise SystemExit("caption report ASS hash drifted")
+          if report.get("captions_burned") is not True:
+              raise SystemExit("captions are not declared burned into the reviewed master")
+          if report.get("caption_cue_count") != media["caption_cue_count"]:
+              raise SystemExit("caption cue count drifted")
+          if media.get("selectable_caption_upload") is not True:
+              raise SystemExit("release package did not bind selectable caption upload")
+          if media.get("selectable_caption_language") != "ru":
+              raise SystemExit("release package selectable caption language drifted")
+          for field in ("provider_calls", "new_image_calls", "new_ai33_task_submissions"):
+              if report.get(field) != 0:
+                  raise SystemExit(f"unexpected provider activity in caption report: {field}")
+          if report.get("publication_authorized") is not False:
+              raise SystemExit("caption report publication ceiling drifted")
+          if report.get("youtube_called") is not False:
+              raise SystemExit("caption recovery unexpectedly called YouTube")
+
+          probe = json.loads(subprocess.check_output([
+              "ffprobe", "-v", "error",
+              "-show_entries", "format=duration:stream=codec_type,codec_name,width,height",
+              "-of", "json", str(paths["video_sha256"]),
+          ], text=True))
+          duration = float(probe["format"]["duration"])
+          if abs(duration - float(media["duration_sec"])) > 0.05:
+              raise SystemExit("reviewed video duration drifted")
+          video = next(
+              stream for stream in probe["streams"]
+              if stream.get("codec_type") == "video"
+          )
+          audio = next(
+              stream for stream in probe["streams"]
+              if stream.get("codec_type") == "audio"
+          )
+          if [video.get("width"), video.get("height")] != media["resolution"]:
+              raise SystemExit("reviewed video resolution drifted")
+          if video.get("codec_name") != media["video_codec"]:
+              raise SystemExit("reviewed video codec drifted")
+          if audio.get("codec_name") != media["audio_codec"]:
+              raise SystemExit("reviewed audio codec drifted")
+          PY
+      - name: Install YouTube client dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify exact acc1 channel and caption OAuth scope without upload
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN_ACC1: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC1 }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from uploader import check_channel_mapping, get_youtube_oauth_scopes
+
+          scopes = set(get_youtube_oauth_scopes("1"))
+          full_scope = "https://www.googleapis.com/auth/youtube"
+          upload_scope = "https://www.googleapis.com/auth/youtube.upload"
+          force_ssl_scope = "https://www.googleapis.com/auth/youtube.force-ssl"
+          if full_scope not in scopes and not {upload_scope, force_ssl_scope}.issubset(scopes):
+              raise SystemExit(
+                  "acc1 OAuth token lacks youtube.upload + youtube.force-ssl "
+                  "required for the private video and selectable SRT track"
+              )
+          channel = check_channel_mapping("1")
+          if channel.get("id") != "UCNSxg53AGM4WstRjGiQdS8w":
+              raise SystemExit("acc1 OAuth token resolves to the wrong exact YouTube channel id")
+          PY
+      - name: Upload exact reviewed master, variant A and Russian SRT as private
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN_ACC1: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC1 }}
+        run: |
+          set -euo pipefail
+          python uploader.py \
+            "$WORK_ROOT/source-artifact/final-output-captioned.mp4" 1 \
+            --privacy-status private \
+            --category-id 24 \
+            --metadata-file "$PACKAGE_ROOT/youtube-metadata.json" \
+            --thumbnail-file "$PACKAGE_ROOT/thumbnails/a-sestra-beremenna.jpg" \
+            --caption-file "$WORK_ROOT/source-artifact/editorial-motion-captions.srt" \
+            --caption-language ru \
+            --caption-name "Русский" \
+            --result "$WORK_ROOT/youtube-private-upload.json"
+      - name: Verify private readback and exact uploaded hashes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          package = json.loads(
+              Path(os.environ["PACKAGE_ROOT"], "release-package.json")
+              .read_text(encoding="utf-8")
+          )
+          receipt = json.loads(
+              Path(os.environ["WORK_ROOT"], "youtube-private-upload.json")
+              .read_text(encoding="utf-8")
+          )
+          if receipt.get("status") != "COMPLETE":
+              raise SystemExit("private upload receipt is incomplete")
+          if receipt.get("privacy_status_requested") != "private":
+              raise SystemExit("private upload request status drifted")
+          if receipt.get("privacy_status_readback") != "private":
+              raise SystemExit("YouTube readback is not private")
+          if receipt.get("channel_id") != package["channel"]["youtube_channel_id"]:
+              raise SystemExit("YouTube readback resolved to the wrong channel")
+          if receipt.get("thumbnail_uploaded") is not True:
+              raise SystemExit("variant A thumbnail was not uploaded")
+          if receipt.get("caption_uploaded") is not True:
+              raise SystemExit("selectable Russian caption track was not uploaded")
+          if receipt.get("caption_language_readback") != "ru":
+              raise SystemExit("selectable caption language readback drifted")
+          if not receipt.get("caption_id"):
+              raise SystemExit("selectable caption receipt is missing its YouTube id")
+          if receipt.get("video_sha256") != package["media"]["video_sha256"]:
+              raise SystemExit("uploaded video hash drifted")
+          if receipt.get("thumbnail_sha256") != package["variants"][0]["thumbnail_sha256"]:
+              raise SystemExit("uploaded thumbnail hash drifted")
+          if receipt.get("caption_sha256") != package["media"]["caption_srt_sha256"]:
+              raise SystemExit("uploaded SRT hash drifted")
+          PY
+      - name: Preserve source-bound private-upload receipt and SRT
+        if: ${{ always() && hashFiles('build/acc1-fixed-first-release-private-upload/youtube-private-upload.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-fixed-private-upload-source-${{ inputs.source_run_id }}
+          path: |
+            ${{ env.WORK_ROOT }}/youtube-private-upload.json
+            ${{ env.WORK_ROOT }}/source-run.json
+            ${{ env.WORK_ROOT }}/package-validation.json
+            ${{ env.WORK_ROOT }}/source-artifact/editorial-motion-captions.srt
+            ${{ env.PACKAGE_ROOT }}/release-package.json
+            ${{ env.PACKAGE_ROOT }}/youtube-metadata.json
+          if-no-files-found: error
+          retention-days: 30
