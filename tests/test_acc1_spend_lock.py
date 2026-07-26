@@ -17,6 +17,7 @@ from scripts.acc1_spend_lock import (
     main,
     scan_leases,
     self_hash,
+    validate_lease,
     validate_lease_for_production,
 )
 
@@ -351,6 +352,52 @@ class Acc1SpendLockTests(unittest.TestCase):
         )
         self.assertFalse(report["source_reservation_checked"])
         self.assertFalse(report["publication_authorized"])
+
+    def test_historical_provider_drift_keeps_source_reservation_but_not_production_authority(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            lease = copy.deepcopy(valid_lease())
+            lease["provider_contract"]["openai"]["service_tier"] = "historical-tier"
+            lease["lease_sha256"] = self_hash(lease, "lease_sha256")
+            with self.assertRaisesRegex(
+                SpendLockError,
+                "provider/model contract is incompatible",
+            ):
+                validate_lease(
+                    lease,
+                    expected_repository=REPOSITORY,
+                    expected_workflow_path=WORKFLOW,
+                )
+            store_artifact(root, lease, run_id=101)
+            report = scan_leases(
+                plan=source_contract("acc1/2026-07-15/pilot_04")[0],
+                leases_root=root,
+                repository=REPOSITORY,
+                workflow_path=WORKFLOW,
+                current_run_id=202,
+            )
+        self.assertEqual(report["status"], "SPEND_LOCK_CLEAR")
+        self.assertEqual(report["inspected_leases"], 1)
+        self.assertEqual(report["prior_reserved_source_count"], 5)
+
+    def test_historical_source_reservation_rejects_unknown_provider_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            lease = copy.deepcopy(valid_lease())
+            lease["provider_contract"]["image"]["provider"] = "unknown-provider"
+            lease["lease_sha256"] = self_hash(lease, "lease_sha256")
+            store_artifact(root, lease, run_id=101)
+            with self.assertRaisesRegex(
+                SpendLockError,
+                "historical image provider identity is invalid",
+            ):
+                scan_leases(
+                    plan=source_contract("acc1/2026-07-15/pilot_04")[0],
+                    leases_root=root,
+                    repository=REPOSITORY,
+                    workflow_path=WORKFLOW,
+                    current_run_id=202,
+                )
 
     def test_same_reserved_source_on_a_different_date_is_blocked_before_paid_spend(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -307,6 +307,39 @@ def _exact_confirmation(value: Any, label: str) -> bool:
     raise SpendLockError(f"{label} requires exact true confirmation")
 
 
+def _validate_reservation_provider_contract(value: Any) -> None:
+    """Validate immutable provider provenance without requiring today's model."""
+    if not isinstance(value, dict) or set(value) != {"openai", "image", "ai33"}:
+        raise SpendLockError(
+            "spend lease historical provider contract is incomplete or unknown"
+        )
+    expected_identities = {
+        "openai": ("provider", "openai", "model"),
+        "image": ("provider", "vectorengine", "model"),
+        "ai33": ("provider", "ai33", "model_id"),
+    }
+    for lane, (
+        provider_field,
+        expected_provider,
+        model_field,
+    ) in expected_identities.items():
+        contract = value.get(lane)
+        if (
+            not isinstance(contract, dict)
+            or contract.get(provider_field) != expected_provider
+            or not isinstance(contract.get(model_field), str)
+            or not str(contract.get(model_field)).strip()
+        ):
+            raise SpendLockError(
+                f"spend lease historical {lane} provider identity is invalid"
+            )
+    for lane in ("openai", "image"):
+        if value[lane].get("automatic_retries") != 0:
+            raise SpendLockError(
+                f"spend lease historical {lane} retry policy is invalid"
+            )
+
+
 def _validate_episode_identity(episode_key: Any, production_date: Any, pilot_id: Any) -> None:
     date_value = str(production_date or "")
     pilot_value = str(pilot_id or "")
@@ -502,6 +535,7 @@ def validate_lease(
     *,
     expected_repository: str,
     expected_workflow_path: str,
+    require_current_provider_contract: bool = True,
 ) -> None:
     if set(lease) != LEASE_KEYS:
         raise SpendLockError("spend lease fields are incomplete or unknown")
@@ -532,7 +566,11 @@ def validate_lease(
         raise SpendLockError("spend lease retention policy is incompatible")
     if lease.get("lock_scope") != LOCK_SCOPE:
         raise SpendLockError("spend lease scope is incompatible")
-    if lease.get("provider_contract") != PROVIDER_CONTRACT:
+    _validate_reservation_provider_contract(lease.get("provider_contract"))
+    if (
+        require_current_provider_contract
+        and lease.get("provider_contract") != PROVIDER_CONTRACT
+    ):
         raise SpendLockError("spend lease provider/model contract is incompatible")
     bindings = lease.get("source_bindings")
     if not isinstance(bindings, dict) or set(bindings) != BINDING_KEYS:
@@ -696,6 +734,11 @@ def scan_leases(
             lease,
             expected_repository=repository,
             expected_workflow_path=workflow_path,
+            # Historical leases must keep reserving their source identities
+            # after an intentional model/service-tier change. They remain
+            # unusable for new paid production, whose validator still requires
+            # the exact current provider contract.
+            require_current_provider_contract=False,
         )
         if lease.get("run_id") != owner_run_id:
             raise SpendLockError("spend lease run id does not match GitHub artifact provenance")
