@@ -164,7 +164,10 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
         self.assertEqual(third["source_word_count"], [2340, 3900])
         self.assertEqual(fourth["format"], "THREAD")
         self.assertEqual(fourth["subreddits"], ["AskReddit"])
-        self.assertEqual(fourth["response_count"], [8, 15])
+        self.assertEqual(fourth["target_duration_minutes"], [24, 30])
+        self.assertEqual(fourth["response_count"], [13, 15])
+        self.assertEqual(fourth["aggregate_response_word_count"], [3120, 3900])
+        self.assertEqual(fourth["comic_page_count"], [16, 20])
         self.assertEqual(
             fourth["source_status"],
             "local_contract_ready_github_canary_required",
@@ -228,10 +231,10 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
         with self.assertRaises(acc1_story_strategy.StrategyContractError):
             acc1_story_strategy.resolve_comment_plan("BUNDLE", "question_prompt")
 
-    def test_thread_requires_question_and_eight_to_fifteen_responses(self):
+    def test_thread_requires_question_and_thirteen_to_fifteen_responses(self):
         plan = acc1_story_strategy.resolve_comment_plan("THREAD", "question_prompt")
         self.assertEqual(plan["mode"], "required_responses")
-        self.assertEqual(plan["count"], [8, 15])
+        self.assertEqual(plan["count"], [13, 15])
         with self.assertRaises(acc1_story_strategy.StrategyContractError):
             acc1_story_strategy.resolve_comment_plan("THREAD", "narrative_story")
 
@@ -310,17 +313,17 @@ class Acc1GreenlightTests(unittest.TestCase):
         payload = valid_greenlight()
         payload["format"] = "THREAD"
         payload["source"].pop("primary_story_count")
-        payload["source"].update({"response_count": 7, "responses_are_diverse": False})
+        payload["source"].update({"response_count": 12, "responses_are_diverse": False})
         report = acc1_story_strategy.validate_greenlight(payload)
         self.assertEqual(report["status"], "BLOCKED")
-        self.assertTrue(any("8-15" in item for item in report["failures"]))
+        self.assertTrue(any("13-15" in item for item in report["failures"]))
 
     def test_thread_greenlight_accepts_the_local_collector_contract(self):
         payload = valid_greenlight()
         payload["format"] = "THREAD"
         payload["pillar"] = "confessions_awkward_taboo"
         payload["source"].pop("primary_story_count")
-        payload["source"].update({"response_count": 8, "responses_are_diverse": True})
+        payload["source"].update({"response_count": 13, "responses_are_diverse": True})
         config = json.loads((ROOT / "channels.json").read_text(encoding="utf-8"))
         channel = next(item for item in config["channels"] if item["id"] == "acc1")
         report = acc1_story_strategy.validate_greenlight(payload, channel=channel)

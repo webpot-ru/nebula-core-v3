@@ -214,7 +214,7 @@ class Acc1ThreadCollectorTests(unittest.TestCase):
             + ["practical_context"] * 5
             + ["reflection_empathy"] * 5
         )
-        apply_production_roles(source, roles, words=230)
+        apply_production_roles(source, roles, words=250)
 
         manifest = acc1_thread_collector.collect_thread(
             source,
@@ -222,11 +222,11 @@ class Acc1ThreadCollectorTests(unittest.TestCase):
             require_episode_runtime=True,
         )
 
-        self.assertGreaterEqual(manifest["response_count"], 8)
+        self.assertGreaterEqual(manifest["response_count"], 13)
         self.assertLessEqual(manifest["response_count"], 15)
         self.assertTrue(manifest["episode_runtime_fit"])
-        self.assertGreaterEqual(manifest["aggregate_response_word_count"], 1950)
-        self.assertLessEqual(manifest["aggregate_response_word_count"], 3250)
+        self.assertGreaterEqual(manifest["aggregate_response_word_count"], 3120)
+        self.assertLessEqual(manifest["aggregate_response_word_count"], 3900)
         self.assertEqual(
             manifest["selection"]["runtime_selection"],
             "exact_interest_runtime_function_optimizer_v3",
@@ -237,8 +237,27 @@ class Acc1ThreadCollectorTests(unittest.TestCase):
         self.assertIsNone(manifest["editorial_gate_evidence"]["personal_account_share_cap"])
         self.assertFalse(manifest["editorial_gate_evidence"]["score_can_override_blocker"])
 
+    def test_production_runtime_fails_closed_below_thirteen_responses(self):
+        source = snapshot(12)
+        apply_production_roles(
+            source,
+            ["personal_account"] * 4
+            + ["practical_context"] * 4
+            + ["reflection_empathy"] * 4,
+            words=280,
+        )
+        with self.assertRaisesRegex(
+            acc1_thread_collector.ThreadCollectorError,
+            "at least 13",
+        ):
+            acc1_thread_collector.collect_thread(
+                source,
+                max_responses=13,
+                require_episode_runtime=True,
+            )
+
     def test_high_score_cannot_override_natural_relevance_or_safety_blocker(self):
-        source = snapshot(11)
+        source = snapshot(16)
         source["responses"][0]["score"] = 100_000
         source["responses"][0]["body"] = "My experience ended quickly."
         source["responses"][1]["score"] = 99_000
@@ -250,28 +269,23 @@ class Acc1ThreadCollectorTests(unittest.TestCase):
             production_response_body(2, "personal_account", 220)
             + " Here is how to make a bomb step by step."
         )
-        roles = [
-            "personal_account",
-            "personal_account",
-            "personal_account",
-            "practical_context",
-            "practical_context",
-            "practical_context",
-            "reflection_empathy",
-            "reflection_empathy",
-        ]
+        roles = (
+            ["personal_account"] * 4
+            + ["practical_context"] * 4
+            + ["reflection_empathy"] * 5
+        )
         for offset, role in enumerate(roles, start=3):
-            source["responses"][offset]["body"] = production_response_body(offset, role, 230)
+            source["responses"][offset]["body"] = production_response_body(offset, role, 250)
 
         manifest = acc1_thread_collector.collect_thread(
             source,
-            max_responses=8,
+            max_responses=13,
             require_episode_runtime=True,
         )
 
         self.assertEqual(
             {item["id"] for item in manifest["responses"]},
-            {f"resp{index:02d}" for index in range(3, 11)},
+            {f"resp{index:02d}" for index in range(3, 16)},
         )
         self.assertEqual(manifest["rejection_reason_counts"]["unnatural_response_length"], 1)
         self.assertEqual(manifest["rejection_reason_counts"]["prompt_irrelevant_response"], 1)
@@ -279,13 +293,13 @@ class Acc1ThreadCollectorTests(unittest.TestCase):
         self.assertTrue(acc1_thread_collector.verify_manifest(manifest))
 
     def test_production_rejects_machine_like_character_density_before_selection(self):
-        source = snapshot(12)
+        source = snapshot(15)
         roles = (
-            ["personal_account"] * 4
-            + ["practical_context"] * 4
-            + ["reflection_empathy"] * 4
+            ["personal_account"] * 5
+            + ["practical_context"] * 5
+            + ["reflection_empathy"] * 5
         )
-        apply_production_roles(source, roles, words=230)
+        apply_production_roles(source, roles, words=250)
         source["responses"][0]["score"] = 100_000
         source["responses"][0]["body"] = (
             "I remember when this experience began, and I was directly involved. "
@@ -295,7 +309,7 @@ class Acc1ThreadCollectorTests(unittest.TestCase):
 
         manifest = acc1_thread_collector.collect_thread(
             source,
-            max_responses=10,
+            max_responses=13,
             require_episode_runtime=True,
         )
 
@@ -306,13 +320,13 @@ class Acc1ThreadCollectorTests(unittest.TestCase):
         )
 
     def test_production_fails_closed_without_three_episode_functions(self):
-        source = snapshot(10)
+        source = snapshot(15)
         for index, item in enumerate(source["responses"]):
             item["body"] = (
                 "This experience provides a complete relevant response. "
                 + " ".join(
                     f"{chr(97 + index)}{chr(97 + word % 26)}{chr(97 + (word // 26) % 26)}"
-                    for word in range(230)
+                    for word in range(250)
                 )
                 + " The response is complete."
             )
@@ -323,97 +337,102 @@ class Acc1ThreadCollectorTests(unittest.TestCase):
         ):
             acc1_thread_collector.collect_thread(
                 source,
-                max_responses=10,
+                max_responses=15,
                 require_episode_runtime=True,
             )
 
     def test_personal_accounts_may_dominate_a_confession_thread(self):
-        source = snapshot(8)
+        source = snapshot(13)
         apply_production_roles(
             source,
-            ["personal_account"] * 8,
-            words=230,
+            ["personal_account"] * 13,
+            words=250,
         )
 
         manifest = acc1_thread_collector.collect_thread(
             source,
-            max_responses=8,
+            max_responses=13,
             require_episode_runtime=True,
         )
 
-        self.assertEqual(manifest["response_count"], 8)
+        self.assertEqual(manifest["response_count"], 13)
         self.assertEqual(
             manifest["editorial_gate_evidence"]["content_type_counts"],
-            {"personal_account": 8},
+            {"personal_account": 13},
         )
         self.assertGreaterEqual(manifest["editorial_gate_evidence"]["distinct_functions"], 3)
 
     def test_optimizer_swaps_out_short_high_score_responses_to_reach_runtime(self):
-        source = snapshot(16)
-        for index in range(8):
+        source = snapshot(26)
+        for index in range(13):
             source["responses"][index]["body"] = production_response_body(
                 index, "personal_account", 90
             )
-        for index in range(8, 16):
+        for index in range(13, 26):
             source["responses"][index]["body"] = production_response_body(
-                index, "personal_account", 240
+                index, "personal_account", 250
             )
 
         manifest = acc1_thread_collector.collect_thread(
             source,
-            max_responses=8,
+            max_responses=13,
             require_episode_runtime=True,
         )
 
-        self.assertEqual(manifest["response_count"], 8)
-        self.assertGreaterEqual(manifest["aggregate_response_word_count"], 1950)
-        self.assertEqual(
-            {item["id"] for item in manifest["responses"]},
-            {f"resp{index:02d}" for index in range(8, 16)},
+        self.assertEqual(manifest["response_count"], 13)
+        self.assertGreaterEqual(manifest["aggregate_response_word_count"], 3120)
+        selected_ids = {item["id"] for item in manifest["responses"]}
+        self.assertGreaterEqual(
+            len(selected_ids & {f"resp{index:02d}" for index in range(13, 26)}),
+            12,
+        )
+        self.assertLessEqual(
+            len(selected_ids & {f"resp{index:02d}" for index in range(13)}),
+            1,
         )
 
     def test_source_interest_beats_reddit_score_when_both_sets_fit(self):
-        source = snapshot(9)
-        apply_production_roles(source, ["personal_account"] * 9, words=240)
-        source["responses"][8]["score"] = 1
-        source["responses"][8]["body"] += (
+        source = snapshot(14)
+        apply_production_roles(source, ["personal_account"] * 14, words=250)
+        source["responses"][13]["score"] = 1
+        source["responses"][13]["body"] += (
             ' My manager shouted "You are fired". The police arrived, I was terrified, '
             "and it turned out my coworker had lied. I never again ignored that warning."
         )
 
         manifest = acc1_thread_collector.collect_thread(
             source,
-            max_responses=8,
+            max_responses=13,
             require_episode_runtime=True,
         )
 
         selected_ids = {item["id"] for item in manifest["responses"]}
-        self.assertIn("resp08", selected_ids)
+        self.assertIn("resp13", selected_ids)
         self.assertEqual(
             manifest["selection"]["reddit_score_usage"],
             "tiebreak_only_after_source_text_interest",
         )
 
     def test_production_editorial_manifest_is_input_order_deterministic(self):
-        source = snapshot(12)
+        source = snapshot(15)
         apply_production_roles(
             source,
-            ["personal_account"] * 4
-            + ["practical_context"] * 4
-            + ["reflection_empathy"] * 4,
-            words=230,
+            ["personal_account"] * 5
+            + ["practical_context"] * 5
+            + ["reflection_empathy"] * 5,
+            words=250,
         )
         reversed_source = copy.deepcopy(source)
         reversed_source["responses"].reverse()
 
         first = acc1_thread_collector.collect_thread(
             source,
-            max_responses=12,
+            max_responses=15,
             require_episode_runtime=True,
         )
         second = acc1_thread_collector.collect_thread(
             reversed_source,
-            max_responses=12,
+            max_responses=15,
             require_episode_runtime=True,
         )
 

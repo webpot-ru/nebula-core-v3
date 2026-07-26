@@ -311,6 +311,87 @@ class EpisodeImageTests(unittest.TestCase):
             ],
         )
 
+    def test_long_thread_allocates_sixteen_to_twenty_meaning_led_pages(self):
+        thread_stories = []
+        for index in range(14):
+            source_story = story(f"thread-{index}", words=50)
+            source_story["source_snapshot"]["role"] = (
+                "prompt" if index == 0 else "response"
+            )
+            source_story["visual_identity_contract"] = (
+                f"THREAD source {index} has one stable and distinct adult cast, "
+                "wardrobe, setting, props and emotional purpose for both paired plates."
+            )
+            thread_stories.append(source_story)
+        plan = image_plan({
+            "episode_format": "THREAD",
+            "visual_mode": EDITORIAL_MOTION_MODE,
+            "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            "pillar": "confessions_awkward_taboo",
+            "comic_page_count_target": [16, 20],
+            "stories": thread_stories,
+        })
+        heroes = [item for item in plan if item["layer_role"] == "hero_plate"]
+        self.assertEqual(len(heroes), 16)
+        self.assertEqual(len(plan), 32)
+        self.assertEqual(
+            [item["format_scene_number"] for item in heroes],
+            list(range(1, 17)),
+        )
+        self.assertEqual({item["format_scene_count"] for item in heroes}, {16})
+        self.assertTrue(all(1 <= int(item["panel_count"]) <= 5 for item in heroes))
+        self.assertEqual(
+            len({item["asset_family_id"] for item in heroes}),
+            len(heroes),
+        )
+
+    def test_long_thread_visuals_fail_closed_below_thirteen_responses(self):
+        thread_stories = []
+        for index in range(13):
+            source_story = story(f"short-thread-{index}", words=50)
+            source_story["source_snapshot"]["role"] = (
+                "prompt" if index == 0 else "response"
+            )
+            source_story["visual_identity_contract"] = (
+                f"THREAD source {index} keeps one distinct adult cast and setting "
+                "stable across the paired plates for this response only."
+            )
+            thread_stories.append(source_story)
+        with self.assertRaisesRegex(EpisodeImageError, "13-15 responses"):
+            image_plan({
+                "episode_format": "THREAD",
+                "visual_mode": EDITORIAL_MOTION_MODE,
+                "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                "pillar": "confessions_awkward_taboo",
+                "comic_page_count_target": [16, 20],
+                "stories": thread_stories,
+            })
+
+    def test_long_thread_page_allocation_caps_at_twenty_pages(self):
+        thread_stories = []
+        for index in range(16):
+            source_story = story(f"long-thread-{index}", words=80)
+            source_story["source_snapshot"]["role"] = (
+                "prompt" if index == 0 else "response"
+            )
+            source_story["visual_identity_contract"] = (
+                f"THREAD source {index} has a distinct stable adult cast, "
+                "wardrobe, location and emotional role across its paired plates."
+            )
+            thread_stories.append(source_story)
+        plan = image_plan({
+            "episode_format": "THREAD",
+            "visual_mode": EDITORIAL_MOTION_MODE,
+            "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            "pillar": "professions_human_experience",
+            "comic_page_count_target": [16, 20],
+            "stories": thread_stories,
+        })
+        heroes = [item for item in plan if item["layer_role"] == "hero_plate"]
+        self.assertEqual(len(heroes), 20)
+        self.assertEqual(len(plan), 40)
+        self.assertEqual({item["format_scene_count"] for item in heroes}, {20})
+
     def test_explicit_release_image_targets_must_be_even(self):
         source_story = story("odd-target", words=120)
         source_story["image_target"] = 17

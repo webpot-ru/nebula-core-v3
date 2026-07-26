@@ -1,5 +1,5 @@
 {
-  "strategy_version": "2026-07-13-acc1-broad-reddit-stories-v3",
+  "strategy_version": "2026-07-26-acc1-broad-reddit-stories-v4",
   "strategy_goal": "Build distinct channel franchises optimized for engaged views, retention, comments, shares, and returning viewers; topic_mix remains candidate-scouting input until source and audience gates pass.",
   "channels": [
     {
@@ -23,7 +23,7 @@
       ],
       "forbidden_bets": ["random high-metric Reddit filler", "incomplete story", "weak or missing payoff", "screenshot or link dependent source", "politics", "factual claim based only on Reddit", "fiction presented as real"],
       "evidence_policy": "Preserve Reddit provenance and meaning. Label r/nosleep as fiction and other personal accounts as unverified; never present a Reddit-only claim as independently confirmed fact.",
-      "render_contract": "Use acc1_format_visual_system_v3 for every new long episode. BUNDLE is a sequence of separate mini-comics with isolated casts, SAGA is one continuous recurring-cast story, and THREAD is one prompt plus visually distinct response vignettes with deterministic question/answer labels and the female comment voice. HyperFrames must render in bounded segments no longer than 120 seconds. The copper Chonker is limited to brand intro, CTA and outro; no fictional-as-real framing.",
+      "render_contract": "Use acc1_format_visual_system_v3 for every new long episode. BUNDLE is a sequence of separate mini-comics with isolated casts, SAGA is one continuous recurring-cast story, and THREAD is one prompt plus 13-15 visually distinct responses distributed across 16-20 meaning-led comic page packs with deterministic question/answer labels and the female comment voice. HyperFrames must render in bounded segments no longer than 120 seconds. The copper Chonker is limited to brand intro, CTA and outro; no fictional-as-real framing.",
       "producer_brief": {
         "must_feel_like": "specific, emotionally legible, easy to package in one sentence, complete, and worth discussing after the ending",
         "winning_bets": "relationship and family conflict, work and justice, confessions, unusual professions, human absurdity, and strange or dark incidents with a clear payoff",
@@ -32,7 +32,7 @@
       "cadence_plan": {
         "mode": "fixed_six_slot_saga_bundle_thread_pilot_local_only",
         "pilot_long_videos": 6,
-        "target_duration_minutes": [15, 30],
+        "target_duration_minutes": [18, 30],
         "shorts": "trailer_after_long_only",
         "pilot_cycle_order": ["pilot_01", "pilot_04", "pilot_02", "pilot_05", "pilot_03", "pilot_06"],
         "selection_policy": "exact_cycle_slot_then_topic_playoff_no_cross_pillar_fallback"
@@ -49,7 +49,7 @@
       "episode_formats": {
         "SAGA": {"target_duration_minutes": [18, 30], "source_status": "manual_source_review_available"},
         "BUNDLE": {"target_duration_minutes": [18, 30], "story_count": [2, 5], "aggregate_source_word_count": [2340, 3900], "source_status": "local_selector_implemented_live_unverified"},
-        "THREAD": {"target_duration_minutes": [15, 25], "response_count": [8, 15], "source_status": "local_contract_ready_github_canary_required"}
+        "THREAD": {"target_duration_minutes": [24, 30], "response_count": [13, 15], "aggregate_response_word_count": [3120, 3900], "comic_page_count": [16, 20], "source_status": "local_contract_ready_github_canary_required"}
       },
       "pilot_matrix": [
         {"id": "pilot_01", "format": "BUNDLE", "pillar": "relationships_family", "story_count": [2, 3]},

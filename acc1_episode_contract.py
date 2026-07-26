@@ -10,6 +10,11 @@ from typing import Any
 from acc1_language_gate import is_russian_text
 
 from acc1_episode_manifest import disclosure_for_truth_mode, validate_episode_manifest
+from acc1_thread_contract import (
+    THREAD_AGGREGATE_RESPONSE_WORD_COUNT,
+    THREAD_RESPONSE_COUNT,
+    in_closed_range,
+)
 
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -89,8 +94,15 @@ def _episode_promise_ru(
         return f"Сегодня — {phrase} с Reddit."
     if format_id == "THREAD":
         count_word = _RESPONSE_COUNT_WORDS.get(response_count)
-        if source_count != response_count + 1 or not count_word:
-            raise ValueError("THREAD intro requires one prompt and eight to fifteen responses")
+        if (
+            source_count != response_count + 1
+            or not count_word
+            or not in_closed_range(response_count, THREAD_RESPONSE_COUNT)
+        ):
+            raise ValueError(
+                "THREAD intro requires one prompt and "
+                f"{THREAD_RESPONSE_COUNT[0]}-{THREAD_RESPONSE_COUNT[1]} responses"
+            )
         return f"Сегодня — одна тема и {count_word} полных ответов с Reddit."
     raise ValueError("intro episode_format must be SAGA, BUNDLE, or THREAD")
 
@@ -566,15 +578,29 @@ def validate_episode_script(
         source_roles = [_text(source.get("source_role") or "response").lower() for source in normalized_sources]
         prompt_indexes = [index for index, role in enumerate(source_roles) if role == "prompt"]
         response_indexes = [index for index, role in enumerate(source_roles) if role == "response"]
-        if prompt_indexes != [0] or not 8 <= len(response_indexes) <= 15:
-            failures.append("THREAD requires one first prompt and 8-15 response sources")
+        if (
+            prompt_indexes != [0]
+            or not in_closed_range(len(response_indexes), THREAD_RESPONSE_COUNT)
+        ):
+            failures.append(
+                "THREAD requires one first prompt and "
+                f"{THREAD_RESPONSE_COUNT[0]}-{THREAD_RESPONSE_COUNT[1]} "
+                "response sources"
+            )
         if story_roles and story_roles[0] != "narrator":
             failures.append("THREAD prompt must use the narrator voice role")
         if any(story_roles[index] != "comment" for index in response_indexes if index < len(story_roles)):
             failures.append("THREAD responses must use the comment voice role")
         response_words = sum(normalized_sources[index]["word_count"] for index in response_indexes)
-        if not 1950 <= response_words <= 3250:
-            failures.append("THREAD responses must contain 1950-3250 source words")
+        if not in_closed_range(
+            response_words,
+            THREAD_AGGREGATE_RESPONSE_WORD_COUNT,
+        ):
+            failures.append(
+                "THREAD responses must contain "
+                f"{THREAD_AGGREGATE_RESPONSE_WORD_COUNT[0]}-"
+                f"{THREAD_AGGREGATE_RESPONSE_WORD_COUNT[1]} source words"
+            )
     elif format_id == "SAGA":
         if len(stories_raw) != 1:
             failures.append("SAGA requires exactly one story")

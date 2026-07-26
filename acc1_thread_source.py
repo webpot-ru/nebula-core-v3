@@ -19,6 +19,10 @@ from typing import Any, Iterable
 from acc1_thread_collector import (
     MAX_RESPONSES,
     MIN_RESPONSES,
+    MAX_EPISODE_RESPONSE_WORDS,
+    MIN_EPISODE_RESPONSE_WORDS,
+    PRODUCTION_MAX_RESPONSES,
+    PRODUCTION_MIN_RESPONSES,
     TRUTH_MODES,
     ThreadCollectorError,
     collect_thread,
@@ -225,7 +229,12 @@ def snapshot_submission(
     return snapshot
 
 
-def _submission_rejection(submission: Any, expected_subreddit: str) -> list[str]:
+def _submission_rejection(
+    submission: Any,
+    expected_subreddit: str,
+    *,
+    minimum_comments: int = MIN_RESPONSES,
+) -> list[str]:
     reasons: list[str] = []
     prompt_id = _text(getattr(submission, "id", None))
     title = _text(getattr(submission, "title", None))
@@ -250,7 +259,7 @@ def _submission_rejection(submission: Any, expected_subreddit: str) -> list[str]
         reasons.append("deleted_or_removed_prompt")
     if comments is None:
         reasons.append("missing_comment_count")
-    elif comments < MIN_RESPONSES:
+    elif comments < minimum_comments:
         reasons.append("insufficient_comment_count")
     return sorted(set(reasons))
 
@@ -363,6 +372,13 @@ def collect_thread_source_candidates(
         raise ThreadSourceError(
             f"max_responses must be between {MIN_RESPONSES} and {MAX_RESPONSES}"
         )
+    if require_episode_runtime and not (
+        PRODUCTION_MIN_RESPONSES <= max_responses <= PRODUCTION_MAX_RESPONSES
+    ):
+        raise ThreadSourceError(
+            "production max_responses must be between "
+            f"{PRODUCTION_MIN_RESPONSES} and {PRODUCTION_MAX_RESPONSES}"
+        )
     if max_responses > response_scan_limit:
         raise ThreadSourceError("max_responses cannot exceed response_scan_limit")
     if truth_mode not in TRUTH_MODES:
@@ -388,7 +404,15 @@ def collect_thread_source_candidates(
         if candidate_id.casefold() in excluded:
             failures.append(f"{candidate_id}: excluded_by_publication_history")
             continue
-        rejection = _submission_rejection(submission, subreddit_name)
+        rejection = _submission_rejection(
+            submission,
+            subreddit_name,
+            minimum_comments=(
+                PRODUCTION_MIN_RESPONSES
+                if require_episode_runtime
+                else MIN_RESPONSES
+            ),
+        )
         if rejection:
             failures.append(f"{candidate_id}: {','.join(rejection)}")
             continue
@@ -466,7 +490,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--require-episode-runtime",
         action="store_true",
-        help="Require 1950-3250 aggregate response words for a production THREAD",
+        help=(
+            "Require "
+            f"{PRODUCTION_MIN_RESPONSES}-{PRODUCTION_MAX_RESPONSES} responses "
+            f"and {MIN_EPISODE_RESPONSE_WORDS}-{MAX_EPISODE_RESPONSE_WORDS} "
+            "aggregate response words for a production THREAD"
+        ),
     )
     parser.add_argument("--snapshot-output", required=True)
     parser.add_argument("--manifest-output", required=True)

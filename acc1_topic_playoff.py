@@ -16,6 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from acc1_language_gate import is_russian_text
+from acc1_thread_contract import (
+    THREAD_AGGREGATE_RESPONSE_WORD_COUNT,
+    THREAD_RESPONSE_COUNT,
+    in_closed_range,
+)
 from compilation_narration import narration_preflight
 
 
@@ -223,11 +228,27 @@ def _validate_format_sources(
         if not 2340 <= total_words <= 3900:
             _fail(failures, "BUNDLE aggregate source words must be between 2340 and 3900")
     elif format_id == "THREAD":
-        if story_sources or len(prompts) != 1 or not 8 <= len(responses) <= 15:
-            _fail(failures, "THREAD requires one prompt and 8-15 responses")
+        if (
+            story_sources
+            or len(prompts) != 1
+            or not in_closed_range(len(responses), THREAD_RESPONSE_COUNT)
+        ):
+            _fail(
+                failures,
+                "THREAD requires one prompt and "
+                f"{THREAD_RESPONSE_COUNT[0]}-{THREAD_RESPONSE_COUNT[1]} responses",
+            )
         response_words = sum(source["word_count"] for source in responses)
-        if not 1950 <= response_words <= 3250:
-            _fail(failures, "THREAD response words must be between 1950 and 3250")
+        if not in_closed_range(
+            response_words,
+            THREAD_AGGREGATE_RESPONSE_WORD_COUNT,
+        ):
+            _fail(
+                failures,
+                "THREAD response words must be between "
+                f"{THREAD_AGGREGATE_RESPONSE_WORD_COUNT[0]} and "
+                f"{THREAD_AGGREGATE_RESPONSE_WORD_COUNT[1]}",
+            )
 
     if format_id in {"SAGA", "BUNDLE"}:
         truth_modes = {source["truth_mode"] for source in story_sources}

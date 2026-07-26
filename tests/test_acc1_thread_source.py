@@ -158,12 +158,12 @@ class Acc1ThreadSourceTests(unittest.TestCase):
                         f"{role_openings[response_index % len(role_openings)]} "
                         + " ".join(
                             f"detail {alpha_token(prompt_index * 300 + response_index * 50 + word)} gradually changed the final outcome"
-                            for word in range(40)
+                            for word in range(39)
                         )
                         + f" Eventually I saw the complete outcome of experience {response_index}."
                     ),
                 )
-                for response_index in range(8)
+                for response_index in range(13)
             ]
             submissions.append(FakeSubmission(
                 prompt_id,
@@ -174,8 +174,8 @@ class Acc1ThreadSourceTests(unittest.TestCase):
             FakeReddit(submissions),
             candidate_limit=5,
             finalist_limit=5,
-            response_scan_limit=8,
-            max_responses=8,
+            response_scan_limit=13,
+            max_responses=13,
             require_episode_runtime=True,
         )
         self.assertEqual(len(results), 5)

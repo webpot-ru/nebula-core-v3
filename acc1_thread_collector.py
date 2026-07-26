@@ -3,7 +3,9 @@
 
 The collector is deliberately network-free.  It accepts one JSON snapshot with
 one Reddit prompt and its top-level responses, validates the snapshot, selects
-8-15 complete and distinct responses, and emits a tamper-evident manifest.
+a bounded response set, and emits a tamper-evident manifest. Production
+selection uses the canonical long THREAD envelope; the eight-response floor is
+retained only for deterministic inspection of legacy snapshots.
 """
 
 from __future__ import annotations
@@ -26,12 +28,18 @@ from source_text_quality import (
     source_text_quality_evidence,
 )
 from source_safety import source_safety_evidence
+from acc1_thread_contract import (
+    THREAD_AGGREGATE_RESPONSE_WORD_COUNT,
+    THREAD_RESPONSE_COUNT,
+)
 
 
 MIN_RESPONSES = 8
 MAX_RESPONSES = 15
-MIN_EPISODE_RESPONSE_WORDS = 1950
-MAX_EPISODE_RESPONSE_WORDS = 3250
+PRODUCTION_MIN_RESPONSES, PRODUCTION_MAX_RESPONSES = THREAD_RESPONSE_COUNT
+MIN_EPISODE_RESPONSE_WORDS, MAX_EPISODE_RESPONSE_WORDS = (
+    THREAD_AGGREGATE_RESPONSE_WORD_COUNT
+)
 MIN_NATURAL_RESPONSE_WORDS = 80
 MAX_NATURAL_RESPONSE_WORDS = 650
 MAX_SOURCE_CHARACTERS_PER_WORD = 12
@@ -854,7 +862,7 @@ def _select_production_responses(
                     states[count][key] = candidate_state
 
     finalists: list[tuple[tuple[float, int, int, int, int, tuple[int, ...]], tuple[int, ...]]] = []
-    for count in range(MIN_RESPONSES, len(states)):
+    for count in range(PRODUCTION_MIN_RESPONSES, len(states)):
         for (words, mask), state in states[count].items():
             distinct_functions = mask.bit_count()
             if words < MIN_EPISODE_RESPONSE_WORDS:
@@ -889,7 +897,7 @@ def _select_production_responses(
     )
     raise ThreadCollectorError(
         "THREAD production editorial/runtime selection cannot satisfy all hard gates: "
-        f"responses={MIN_RESPONSES}-{max_responses}, "
+        f"responses={PRODUCTION_MIN_RESPONSES}-{max_responses}, "
         f"words={MIN_EPISODE_RESPONSE_WORDS}-{MAX_EPISODE_RESPONSE_WORDS}, "
         f"editorial_functions>={MIN_EDITORIAL_FUNCTIONS}, "
         f"function_supply={dict(sorted(function_supply.items()))}"
@@ -959,6 +967,13 @@ def collect_thread(
         raise ThreadCollectorError(
             f"max_responses must be between {MIN_RESPONSES} and {MAX_RESPONSES}"
         )
+    if require_episode_runtime and not (
+        PRODUCTION_MIN_RESPONSES <= max_responses <= PRODUCTION_MAX_RESPONSES
+    ):
+        raise ThreadCollectorError(
+            "production max_responses must be between "
+            f"{PRODUCTION_MIN_RESPONSES} and {PRODUCTION_MAX_RESPONSES}"
+        )
 
     truth_mode = _truth_mode(snapshot)
     prompt = _normalize_prompt(snapshot)
@@ -980,7 +995,10 @@ def collect_thread(
             rejections.append(rejection)
 
     eligible = _deduplicate_candidates(candidates, rejections)
-    if len(eligible) < MIN_RESPONSES:
+    minimum_required = (
+        PRODUCTION_MIN_RESPONSES if require_episode_runtime else MIN_RESPONSES
+    )
+    if len(eligible) < minimum_required:
         reason_counts = Counter(
             reason for item in rejections for reason in item.get("reason_codes") or []
         )
@@ -988,7 +1006,7 @@ def collect_thread(
             f"{reason}={count}" for reason, count in sorted(reason_counts.items())
         ) or "no valid responses"
         raise ThreadCollectorError(
-            f"THREAD requires at least {MIN_RESPONSES} complete distinct responses; "
+            f"THREAD requires at least {minimum_required} complete distinct responses; "
             f"found {len(eligible)} ({summary})"
         )
 
@@ -1050,7 +1068,7 @@ def collect_thread(
         "episode_runtime_fit": episode_runtime_fit,
         "responses": public_responses,
         "selection": {
-            "minimum_required": MIN_RESPONSES,
+            "minimum_required": minimum_required,
             "maximum_allowed": MAX_RESPONSES,
             "selection_limit": max_responses,
             "eligible_distinct_count": len(eligible),
@@ -1174,12 +1192,19 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         choices=range(MIN_RESPONSES, MAX_RESPONSES + 1),
         default=MAX_RESPONSES,
-        help="Deterministic response cap (8-15; default: 15)",
+        help=(
+            "Deterministic response cap (8-15 for legacy inspection; "
+            f"{PRODUCTION_MIN_RESPONSES}-{PRODUCTION_MAX_RESPONSES} in production)"
+        ),
     )
     parser.add_argument(
         "--require-episode-runtime",
         action="store_true",
-        help="Require 1950-3250 aggregate response words for a production episode",
+        help=(
+            "Require "
+            f"{MIN_EPISODE_RESPONSE_WORDS}-{MAX_EPISODE_RESPONSE_WORDS} "
+            "aggregate response words for a production episode"
+        ),
     )
     args = parser.parse_args(argv)
 
