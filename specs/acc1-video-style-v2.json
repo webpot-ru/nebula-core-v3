@@ -9,21 +9,23 @@
   },
   "renderer": {
     "required_id": "chrome_guided_webtoon_v2",
-    "production_entrypoint": "scripts/run_acc1_fixed_first_release.py",
-    "production_workflow": ".github/workflows/acc1_fixed_first_release.yml",
-    "production_render_strategy": "hyperframes_segmented_matrix",
-    "segment_count_min": 2,
-    "segment_count_max": 16,
+    "production_entrypoint": "compilation_renderer.py",
+    "segmented_renderer_entrypoint": "compilation_editorial_motion_renderer.py",
+    "production_workflow": ".github/workflows/acc1_daily_episode.yml",
+    "production_render_strategy": "bounded_segments_then_assembly",
     "segment_max_duration_sec": 120,
-    "matrix_max_parallel": 8,
+    "canary_entrypoint": "scripts/run_acc1_segmented_no_spend_canary.py",
+    "canary_workflow": ".github/workflows/acc1_segmented_no_spend_canary.yml",
+    "canary_render_strategy": "hyperframes_segmented_matrix",
+    "canary_segment_count_min": 2,
+    "canary_segment_count_max": 4,
+    "matrix_max_parallel": 4,
     "required_segmented_actions": [
-      "build_chrome_guided_segment_plan(",
-      "render_chrome_guided_segment(",
-      "assemble_chrome_guided_segments("
+      "build_editorial_render_segment_plan(",
+      "render_editorial_motion_segment(",
+      "assemble_editorial_motion_segments("
     ],
     "forbidden_imports": [
-      "from compilation_renderer import",
-      "render_compilation(",
       "render_chrome_guided_webtoon("
     ],
     "forbidden_visual_patterns": [

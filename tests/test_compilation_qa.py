@@ -8,9 +8,18 @@ from unittest.mock import patch
 from PIL import Image
 
 import acc1_episode_manifest
-from acc1_visual_contract import MASCOT_SAFE_X
+from acc1_visual_contract import (
+    EDITORIAL_MOTION_MODE,
+    INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+    MASCOT_SAFE_X,
+)
+from acc1_editorial_motion import bind_payload as bind_editorial_payload
 from compilation_narration import build_compilation_segments
-from compilation_qa import run_qa, validate_tts_state
+from compilation_qa import (
+    _validate_editorial_motion_creative_contract,
+    run_qa,
+    validate_tts_state,
+)
 from compilation_storyboard import build_storyboard
 from compilation_tts_runner import _canonical_hash, _state_timing_contract
 from compilation_audio_mix import build_pause_map, canonical_hash as audio_canonical_hash

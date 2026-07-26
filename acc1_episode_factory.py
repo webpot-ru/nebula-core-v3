@@ -138,6 +138,18 @@ TTS_MODEL_ID = "eleven_v3"
 TTS_MAX_CHARS = 4_500
 BACKGROUND_ASSET = Path("assets/acc1/video/chonker-reading-loop-v1.mp4")
 BACKGROUND_MANIFEST = Path("assets/acc1/video/chonker-reading-loop-v1.json")
+BRAND_STING_ASSET = Path(
+    "videos/chonker-talks-intro/renders/"
+    "chonker-talks-editorial-intro-preview-v2.mp4",
+)
+BRAND_CTA_ASSET = Path(
+    "videos/chonker-talks-cta/renders/"
+    "chonker-talks-midroll-cta-v2.webm",
+)
+BRAND_OUTRO_ASSET = Path(
+    "videos/chonker-talks-outro/renders/"
+    "chonker-talks-youtube-outro-v1.mp4",
+)
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 TRUTH_MODES = {"fiction", "unverified_personal_account"}
 SOURCE_WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
@@ -2680,6 +2692,29 @@ def run_produce_stage(
     except CompilationAudioMixError as exc:
         raise EpisodeFactoryError(f"voice-only audio mix blocked: {exc}") from exc
     audio_path = workdir / str(audio_mix_report["output_path"])
+
+    brand_assets = {
+        "brand_sting": (BRAND_STING_ASSET, 1.5, "after_cold_open"),
+        "brand_cta": (BRAND_CTA_ASSET, 3.0, "first_story_midpoint"),
+        "brand_outro": (BRAND_OUTRO_ASSET, 6.0, "timeline_end"),
+    }
+    for field, (source_asset, duration_sec, placement) in brand_assets.items():
+        source = source_asset.resolve()
+        if not source.is_file():
+            raise EpisodeFactoryError(
+                f"verified {field} is missing: {source_asset}",
+            )
+        artifact_path = workdir / "branding" / source_asset.name
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, artifact_path)
+        script[field] = {
+            "local_path": artifact_path.relative_to(workdir).as_posix(),
+            "sha256": _sha256_file(artifact_path),
+            "duration_sec": duration_sec,
+            "placement": placement,
+            "audio_policy": "discard",
+        }
+    _atomic_json(workdir / "episode-script.json", script)
 
     background_path: Path | None = None
     if resolved_visual_mode == DEFAULT_VISUAL_MODE:

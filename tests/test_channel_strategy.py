@@ -25,7 +25,12 @@ class ChannelStrategyConfigTests(unittest.TestCase):
 
     def test_strategy_fields_are_complete_and_fail_closed(self):
         valid_lanes = {"reddit_fiction", "reddit_first_person", "evidence_dossier"}
-        valid_readiness = {"ready", "pilot", "blocked"}
+        valid_readiness = {
+            "ready",
+            "pilot",
+            "blocked",
+            "local_contract_ready_github_canary_required",
+        }
         for channel in self.channels:
             self.assertIs(channel.get("automation_enabled"), False, channel["id"])
             self.assertEqual(channel.get("videos_per_day"), 0, channel["id"])

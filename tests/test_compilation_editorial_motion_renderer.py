@@ -8,6 +8,7 @@ from PIL import Image
 from acc1_editorial_motion import build_editorial_motion_contract
 from acc1_visual_contract import (
     ADULT_ANIMATION_WORK_STYLE_PROFILE,
+    CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     EDITORIAL_MOTION_MODE,
     EDITORIAL_MOTION_STYLE_PROFILE,
     FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
@@ -16,6 +17,7 @@ from acc1_visual_contract import (
 )
 from compilation_editorial_motion_renderer import (
     EditorialMotionRenderError,
+    _cinematic_webtoon_scene_tweens,
     _composition_html,
     _ink_gouache_scene_tweens,
     _render_segment_plan,

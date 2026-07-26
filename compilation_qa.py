@@ -11,6 +11,7 @@ from typing import Any
 from PIL import Image, UnidentifiedImageError
 
 from acc1_cinematic_shots import verify_bound_payload
+from acc1_editorial_motion import verify_bound_payload as verify_editorial_payload
 from acc1_episode_manifest import SHA256_RE, validate_episode_manifest
 from acc1_episode_contract import validate_episode_script
 from acc1_episode_packaging import validate_packaging as validate_episode_packaging
@@ -27,6 +28,18 @@ from acc1_visual_contract import (
     CINEMATIC_ZOOM_END_MIN,
     CONTRACT_VERSION as VISUAL_CONTRACT_VERSION,
     DEFAULT_VISUAL_MODE,
+    EDITORIAL_MOTION_ASSETS_PER_PACK,
+    EDITORIAL_MOTION_CAPTION_TRACK_VERSION,
+    EDITORIAL_MOTION_MAX_SCENE_SECONDS,
+    EDITORIAL_MOTION_MIN_SCENE_SECONDS,
+    EDITORIAL_MOTION_MODE,
+    EDITORIAL_MOTION_MODULES,
+    EDITORIAL_MOTION_PLAN_VERSION,
+    EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS,
+    EDITORIAL_MOTION_STYLE_PROFILES,
+    INK_GOUACHE_PAGE_LAYOUTS,
+    INK_GOUACHE_STORY_FAMILIES,
+    INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
     MAX_VISUAL_SCENES,
     MIN_VISUAL_SCENES,
     MASCOT_SAFE_X,
@@ -1464,6 +1477,15 @@ def _validate_creative_contract(
             slides,
             artifact_root,
         ))
+    elif mode == EDITORIAL_MOTION_MODE:
+        failures.extend(_validate_editorial_motion_creative_contract(
+            compilation,
+            storyboard,
+            render_report,
+            creative_manifest,
+            slides,
+            artifact_root,
+        ))
     else:
         failures.extend(_validate_reddit_creative_contract(
             compilation,
@@ -1472,6 +1494,51 @@ def _validate_creative_contract(
             creative_manifest,
             slides,
         ))
+    brand_fields_present: list[str] = []
+    for field in ("brand_sting", "brand_cta", "brand_outro"):
+        contract = storyboard.get(field)
+        if not isinstance(contract, dict):
+            continue
+        brand_fields_present.append(field)
+        expected = str(contract.get("sha256") or "").strip().lower()
+        manifest_contract = (
+            creative_manifest.get(field)
+            if isinstance(creative_manifest, dict) else None
+        )
+        if not isinstance(manifest_contract, dict):
+            failures.append(f"creative manifest is missing {field}")
+            continue
+        if manifest_contract.get("sha256") != expected:
+            failures.append(f"creative manifest {field} checksum mismatch")
+        if render_report.get(f"{field}_used") is not True:
+            failures.append(f"render report must confirm {field} compositing")
+        if render_report.get(f"{field}_sha256") != expected:
+            failures.append(f"render report {field} checksum mismatch")
+        if render_report.get(f"{field}_audio_discarded") is not True:
+            failures.append(f"render report must confirm {field} audio discard")
+        if field == "brand_cta" and render_report.get(
+            "brand_cta_alpha_decoder",
+        ) != "libvpx-vp9":
+            failures.append("render report must confirm alpha-safe CTA decoding")
+        for timing_field in ("start_sec", "duration_sec"):
+            try:
+                actual = float(render_report.get(f"{field}_{timing_field}"))
+                declared = float(contract.get(timing_field))
+            except (TypeError, ValueError):
+                failures.append(f"render report {field} timing is malformed")
+                break
+            if abs(actual - declared) > 0.001:
+                failures.append(f"render report {field} {timing_field} mismatch")
+    if (
+        mode == EDITORIAL_MOTION_MODE
+        and brand_fields_present
+        and render_report.get(
+            "captions_reburned_after_brand_overlays",
+        ) is not True
+    ):
+        failures.append(
+            "editorial brand overlays must preserve captions in the final composite",
+        )
     return failures
 
 

@@ -8,7 +8,7 @@ from scripts.run_acc1_segmented_no_spend_canary import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github/workflows/acc1_single_audio_recovery.yml"
+WORKFLOW = ROOT / ".github/workflows/acc1_segmented_no_spend_canary.yml"
 SCRIPT = ROOT / "scripts/run_acc1_segmented_no_spend_canary.py"
 
 

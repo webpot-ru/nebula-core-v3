@@ -1,0 +1,276 @@
+name: acc1 Segmented No-Spend Canary
+run-name: acc1 segmented existing-media canary from ${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Exact retained v3 canary run to reuse
+        required: true
+        default: "29975009888"
+        type: string
+      confirm_no_spend_existing_media:
+        description: Reuse existing pages and narration; no provider or YouTube calls
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  segmented_prepare:
+    if: ${{ inputs.confirm_no_spend_existing_media }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE: build/acc1-hyperframes-source
+      WORKDIR: build/acc1-segmented-canary
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Require exact no-spend scope
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIRM_REUSE_ONLY: ${{ inputs.confirm_no_spend_existing_media }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_RUN_ID" = "29975009888"
+          test "$CONFIRM_REUSE_ONLY" = "true"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install preparation dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffprobe -version
+      - name: Download four completed v3 pages and existing narration
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-format-v3-canary-29975009888
+          path: ${{ env.SOURCE }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 29975009888
+      - name: Prepare immutable segmented source without provider calls
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_segmented_no_spend_canary.py \
+            --source-root "$SOURCE" \
+            --workdir "$WORKDIR" \
+            --source-run-id "${{ inputs.source_run_id }}" \
+            --prepare \
+            --confirm-no-spend-existing-media
+      - name: Export a real multi-job matrix
+        id: plan
+        run: |
+          set -euo pipefail
+          python - "$WORKDIR/segmented-canary-plan.json" "$WORKDIR/segmented-canary-preparation.json" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+
+          plan = json.load(open(sys.argv[1], encoding="utf-8"))
+          receipt = json.load(open(sys.argv[2], encoding="utf-8"))
+          segments = plan["segments"]
+          indices = [int(item["index"]) for item in segments]
+          ceiling = float(plan["max_duration_sec"])
+          assert plan["renderer"] == "hyperframes_segmented"
+          assert plan["segment_count"] == len(indices)
+          assert 2 <= len(indices) <= 4
+          assert indices == list(range(1, len(indices) + 1))
+          assert 0 < ceiling <= 120.0
+          assert all(
+              0 < float(item["duration_sec"]) <= ceiling + 0.001
+              for item in segments
+          )
+          assert receipt["status"] == "SEGMENTED_NO_SPEND_PREPARED"
+          assert receipt["render_strategy"] == "hyperframes_segmented_matrix"
+          assert receipt["segment_indices"] == indices
+          assert receipt["new_image_calls"] == 0
+          assert receipt["new_ai33_calls"] == 0
+          assert receipt["provider_calls"] == 0
+          assert receipt["youtube_called"] is False
+          with open(sys.argv[3], "a", encoding="utf-8") as output:
+              output.write(
+                  "matrix="
+                  + json.dumps({"segment": indices}, separators=(",", ":"))
+                  + "\n"
+              )
+          PY
+      - name: Upload immutable prepared source
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-segmented-no-spend-source-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  segmented_render:
+    if: ${{ inputs.confirm_no_spend_existing_media }}
+    needs: segmented_prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      WORKDIR: build/acc1-segmented-canary
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.segmented_prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install deterministic HyperFrames dependencies
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          npx --yes hyperframes@0.7.61 info
+          npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+            --path "$RUNNER_TEMP/hyperframes-browsers"
+          browser_path="$(find "$RUNNER_TEMP/hyperframes-browsers" \
+            -type f -name chrome-headless-shell -perm -111 | head -n 1)"
+          test -x "$browser_path"
+          echo "HYPERFRAMES_BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
+      - name: Download immutable prepared source
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-segmented-no-spend-source-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+      - name: Render one isolated segment
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_segmented_no_spend_canary.py \
+            --workdir "$WORKDIR" \
+            --render-segment "${{ matrix.segment }}"
+      - name: Verify isolated no-spend segment
+        env:
+          SEGMENT: ${{ matrix.segment }}
+        run: |
+          set -euo pipefail
+          python - "$WORKDIR" "$SEGMENT" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          index = int(sys.argv[2])
+          report = json.load(
+              open(
+                  root / "render-segments" / f"segment-{index:03d}.json",
+                  encoding="utf-8",
+              )
+          )
+          plan = json.load(
+              open(root / "segmented-canary-plan.json", encoding="utf-8")
+          )
+          assert report["status"] == "PASS"
+          assert report["segment_index"] == index
+          assert report["segment_count"] == plan["segment_count"]
+          assert report["duration_sec"] <= float(plan["max_duration_sec"]) + 0.12
+          assert report["render_strategy"] == "hyperframes_segmented_matrix"
+          assert report["temporary_workspace_removed"] is True
+          assert report["new_image_calls"] == 0
+          assert report["new_ai33_calls"] == 0
+          assert report["provider_calls"] == 0
+          assert report["youtube_called"] is False
+          assert (
+              root / "render-segments" / f"segment-{index:03d}.mp4"
+          ).stat().st_size > 0
+          PY
+      - name: Upload only this rendered segment
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-segmented-no-spend-segment-${{ matrix.segment }}-${{ github.run_id }}
+          path: |
+            ${{ env.WORKDIR }}/render-segments/segment-*.mp4
+            ${{ env.WORKDIR }}/render-segments/segment-*.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  segmented_assemble:
+    if: ${{ inputs.confirm_no_spend_existing_media }}
+    needs: [segmented_prepare, segmented_render]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      WORKDIR: build/acc1-segmented-canary
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deterministic assembly dependencies
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Download immutable prepared source
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-segmented-no-spend-source-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+      - name: Download every independent segment
+        uses: actions/download-artifact@v4
+        with:
+          pattern: acc1-segmented-no-spend-segment-*-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}/render-segments
+          merge-multiple: true
+      - name: Assemble without video re-encoding
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_segmented_no_spend_canary.py \
+            --workdir "$WORKDIR" \
+            --assemble
+      - name: Verify final multi-segment review
+        run: |
+          set -euo pipefail
+          test -s "$WORKDIR/acc1-segmented-no-spend-canary.mp4"
+          python - "$WORKDIR/segmented-canary-result.json" "$WORKDIR/segmented-canary-plan.json" <<'PY'
+          import json
+          import sys
+
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          plan = json.load(open(sys.argv[2], encoding="utf-8"))
+          assert result["status"] == "PASS"
+          assert result["render_strategy"] == "hyperframes_segmented_matrix"
+          assert result["render_segment_count"] == plan["segment_count"]
+          assert 2 <= result["render_segment_count"] <= 4
+          assert result["temporary_frame_workspaces_removed"] is True
+          assert result["new_image_calls"] == 0
+          assert result["new_ai33_calls"] == 0
+          assert result["provider_calls"] == 0
+          assert result["youtube_called"] is False
+          assert result["publication_authorized"] is False
+          PY
+          ffprobe -v error -show_entries \
+            stream=codec_name,width,height,avg_frame_rate:format=duration \
+            -of json "$WORKDIR/acc1-segmented-no-spend-canary.mp4"
+      - name: Upload GitHub-only segmented review
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-segmented-no-spend-canary-${{ github.run_id }}
+          path: |
+            ${{ env.WORKDIR }}/acc1-segmented-no-spend-canary.mp4
+            ${{ env.WORKDIR }}/editorial-motion-captions.srt
+            ${{ env.WORKDIR }}/segmented-canary-plan.json
+            ${{ env.WORKDIR }}/segmented-canary-preparation.json
+            ${{ env.WORKDIR }}/render-report.json
+            ${{ env.WORKDIR }}/segmented-canary-result.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

@@ -359,7 +359,7 @@ def _scene_markup(
     # Speech bubbles are reserved for short source-backed direct lines.  The
     # normal narration remains in captions, rather than being printed as a
     # fake character quote inside a comic panel.
-    quote = "" if adult_style else html.escape(
+    quote = "" if adult_style or guided_webtoon_style else html.escape(
         " ".join(quote_words) + ("…" if len(quote_words) == 18 else ""),
     )
     module_labels = {

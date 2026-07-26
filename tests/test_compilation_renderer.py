@@ -4,11 +4,16 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image, ImageChops, ImageDraw
 
 from acc1_cinematic_shots import build_cinematic_contract, canonical_hash
-from acc1_visual_contract import CINEMATIC_STORY_MODE, MASCOT_SAFE_X
+from acc1_visual_contract import (
+    CINEMATIC_STORY_MODE,
+    EDITORIAL_MOTION_MODE,
+    MASCOT_SAFE_X,
+)
 from compilation_cinematic_renderer import (
     _service_overlay_slide,
     render_cinematic_frame,
@@ -61,6 +66,113 @@ class CompilationRendererTests(unittest.TestCase):
             ],
         }
         return storyboard, image
+
+    @patch(
+        "compilation_editorial_motion_renderer."
+        "render_editorial_motion_compilation",
+    )
+    def test_routes_editorial_mode_to_bounded_hyperframes_renderer(
+        self,
+        render_editorial,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / "narration.wav"
+            audio.write_bytes(b"audio")
+            output = root / "final.mp4"
+            storyboard = {
+                "visual_mode": EDITORIAL_MOTION_MODE,
+                "slides": [],
+            }
+            render_editorial.return_value = {
+                "renderer": "hyperframes_segmented",
+                "render_strategy": "bounded_segments_then_assembly",
+            }
+
+            report = render_compilation(
+                storyboard,
+                root,
+                output,
+                audio=audio,
+            )
+
+        self.assertEqual(report["renderer"], "hyperframes_segmented")
+        render_editorial.assert_called_once_with(
+            storyboard,
+            root,
+            output,
+            audio=audio,
+        )
+
+    @patch("compilation_renderer._probe_duration", return_value=30.0)
+    @patch("compilation_renderer.burn_captions")
+    @patch("compilation_renderer.subprocess.run")
+    @patch(
+        "compilation_editorial_motion_renderer."
+        "render_editorial_motion_compilation",
+    )
+    def test_reburns_editorial_captions_after_brand_overlay(
+        self,
+        render_editorial,
+        run,
+        burn,
+        _probe,
+    ):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / "narration.wav"
+            audio.write_bytes(b"audio")
+            caption_ass = root / "captions.ass"
+            caption_ass.write_text("[Events]\n", encoding="utf-8")
+            caption_srt = root / "captions.srt"
+            caption_srt.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\nТекст\n",
+                encoding="utf-8",
+            )
+            cta = root / "cta.webm"
+            cta.write_bytes(b"cta")
+            output = root / "final.mp4"
+            storyboard = {
+                "visual_mode": EDITORIAL_MOTION_MODE,
+                "slides": [],
+                "brand_cta": {
+                    "local_path": cta.name,
+                    "sha256": hashlib.sha256(cta.read_bytes()).hexdigest(),
+                    "start_sec": 10.0,
+                    "duration_sec": 3.0,
+                    "audio_policy": "discard",
+                },
+            }
+
+            def render_base(_storyboard, _root, base_output, *, audio):
+                del audio
+                Path(base_output).write_bytes(b"base")
+                return {
+                    "renderer": "hyperframes_segmented",
+                    "caption_ass": str(caption_ass),
+                    "caption_srt": str(caption_srt),
+                }
+
+            def composite(command, **_kwargs):
+                Path(command[-1]).write_bytes(b"composite")
+
+            def reburn(_source, _captions, final_output):
+                Path(final_output).write_bytes(b"captioned")
+
+            render_editorial.side_effect = render_base
+            run.side_effect = composite
+            burn.side_effect = reburn
+
+            report = render_compilation(
+                storyboard,
+                root,
+                output,
+                audio=audio,
+            )
+
+        self.assertTrue(report["captions_reburned_after_brand_overlays"])
+        self.assertTrue(report["brand_cta_used"])
+        burn.assert_called_once()
 
     def _reddit_fixture(
         self, root: Path, *, background: Path | None = None,

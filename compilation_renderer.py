@@ -25,6 +25,7 @@ from acc1_visual_contract import (
     CANVAS_WIDTH as WIDTH,
     CINEMATIC_STORY_MODE,
     DEFAULT_VISUAL_MODE,
+    EDITORIAL_MOTION_MODE,
     MASCOT_SAFE_X,
     READABILITY_SHADE_ALPHA,
     STORY_VISUAL_BRIGHTNESS,
@@ -35,6 +36,7 @@ from acc1_visual_contract import (
     VISUAL_MODES,
     resolve_visual_mode,
 )
+from acc1_caption_burn import CaptionBurnError, burn_captions
 from compilation_storyboard import (
     CompilationStoryboardError,
     compilation_text_layout_states,
@@ -253,6 +255,16 @@ def preflight_storyboard(
         try:
             return preflight_cinematic_storyboard(storyboard, artifact_root)
         except CinematicRenderError as exc:
+            raise CompilationRenderError(str(exc)) from exc
+    if mode == EDITORIAL_MOTION_MODE:
+        from compilation_editorial_motion_renderer import (
+            EditorialMotionRenderError,
+            preflight_editorial_motion_storyboard,
+        )
+
+        try:
+            return preflight_editorial_motion_storyboard(storyboard, artifact_root)
+        except EditorialMotionRenderError as exc:
             raise CompilationRenderError(str(exc)) from exc
     return _preflight_reddit_storyboard(storyboard, artifact_root)
 
@@ -798,6 +810,22 @@ def render_compilation(
     *,
     audio: Path | None = None,
 ) -> dict[str, Any]:
+    brand_overlay_fields = ("brand_sting", "brand_cta", "brand_outro")
+    brand_overlays = [
+        (field, storyboard[field])
+        for field in brand_overlay_fields
+        if isinstance(storyboard.get(field), dict)
+    ]
+    render_output = output
+    temp_dir: tempfile.TemporaryDirectory[str] | None = None
+    if brand_overlays:
+        artifact_temp_root = Path(artifact_root).resolve()
+        artifact_temp_root.mkdir(parents=True, exist_ok=True)
+        temp_dir = tempfile.TemporaryDirectory(
+            prefix="compilation-brand-overlay-",
+            dir=artifact_temp_root,
+        )
+        render_output = Path(temp_dir.name) / "base.mp4"
     mode = _storyboard_visual_mode(storyboard)
     if mode == CINEMATIC_STORY_MODE:
         from compilation_cinematic_renderer import (
@@ -806,20 +834,192 @@ def render_compilation(
         )
 
         try:
-            return render_cinematic_compilation(
+            report = render_cinematic_compilation(
                 storyboard,
                 artifact_root,
-                output,
+                render_output,
                 audio=audio,
             )
         except CinematicRenderError as exc:
             raise CompilationRenderError(str(exc)) from exc
-    return _render_reddit_compilation(
-        storyboard,
-        artifact_root,
-        output,
-        audio=audio,
-    )
+    elif mode == EDITORIAL_MOTION_MODE:
+        from compilation_editorial_motion_renderer import (
+            EditorialMotionRenderError,
+            render_editorial_motion_compilation,
+        )
+
+        try:
+            report = render_editorial_motion_compilation(
+                storyboard,
+                artifact_root,
+                render_output,
+                audio=audio,
+            )
+        except EditorialMotionRenderError as exc:
+            raise CompilationRenderError(str(exc)) from exc
+    else:
+        report = _render_reddit_compilation(
+            storyboard,
+            artifact_root,
+            render_output,
+            audio=audio,
+        )
+    if not brand_overlays:
+        return report
+    try:
+        root = Path(artifact_root).resolve()
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            raise CompilationRenderError(
+                "ffmpeg is required for brand overlay compositing",
+            )
+        output = Path(output).resolve()
+        if output == root or root not in output.parents:
+            raise CompilationRenderError(
+                "brand-composited output must remain under artifact_root",
+            )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        command = [ffmpeg, "-y", "-v", "error", "-i", str(render_output)]
+        resolved: list[tuple[str, Path, str, float, float]] = []
+        for field, contract in brand_overlays:
+            raw_path = str(contract.get("local_path") or "")
+            asset_path = (root / raw_path).resolve()
+            if (
+                asset_path == root
+                or root not in asset_path.parents
+                or not asset_path.is_file()
+            ):
+                raise CompilationRenderError(
+                    f"{field} must be a local artifact file",
+                )
+            expected = str(contract.get("sha256") or "").strip().lower()
+            if (
+                not SHA256_RE.fullmatch(expected)
+                or _sha256(asset_path) != expected
+            ):
+                raise CompilationRenderError(f"{field} checksum mismatch")
+            start = float(contract.get("start_sec") or 0)
+            duration = float(contract.get("duration_sec") or 0)
+            if start < 0 or not 0.5 <= duration <= 15.0:
+                raise CompilationRenderError(f"{field} timing is invalid")
+            if contract.get("audio_policy") != "discard":
+                raise CompilationRenderError(
+                    f"{field} must discard asset audio",
+                )
+            if field == "brand_cta":
+                if asset_path.suffix.casefold() != ".webm":
+                    raise CompilationRenderError(
+                        "brand_cta must be a transparent WebM",
+                    )
+                command += ["-c:v", "libvpx-vp9"]
+            command += ["-i", str(asset_path)]
+            resolved.append((field, asset_path, expected, start, duration))
+
+        filters: list[str] = []
+        previous = "0:v"
+        for index, (
+            _field,
+            _path,
+            _expected,
+            start,
+            duration,
+        ) in enumerate(resolved, start=1):
+            asset_label = f"brand{index}"
+            output_label = "v" if index == len(resolved) else f"base{index}"
+            end = start + duration
+            filters.append(
+                f"[{index}:v]scale={WIDTH}:{HEIGHT}:"
+                "force_original_aspect_ratio=increase,"
+                f"crop={WIDTH}:{HEIGHT},fps={FPS},format=rgba,"
+                f"trim=duration={duration:.6f},"
+                f"setpts=PTS-STARTPTS+{start:.6f}/TB[{asset_label}]",
+            )
+            filters.append(
+                f"[{previous}][{asset_label}]overlay=0:0:"
+                f"enable='between(t,{start:.6f},{end:.6f})':"
+                f"eof_action=pass[{output_label}]",
+            )
+            previous = output_label
+
+        composite_output = Path(temp_dir.name) / "branded.mp4"
+        command += [
+            "-filter_complex",
+            ";".join(filters),
+            "-map",
+            "[v]",
+            "-map",
+            "0:a?",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            str(FPS),
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(composite_output),
+        ]
+        subprocess.run(command, check=True)
+
+        caption_ass_raw = str(report.get("caption_ass") or "").strip()
+        captions_reburned = False
+        if caption_ass_raw:
+            caption_ass = Path(caption_ass_raw)
+            caption_ass = (
+                caption_ass.resolve()
+                if caption_ass.is_absolute()
+                else (root / caption_ass).resolve()
+            )
+            if (
+                caption_ass == root
+                or root not in caption_ass.parents
+                or not caption_ass.is_file()
+            ):
+                raise CompilationRenderError(
+                    "brand overlay caption ASS is missing or outside artifact root",
+                )
+            try:
+                burn_captions(composite_output, caption_ass, output)
+            except CaptionBurnError as exc:
+                raise CompilationRenderError(str(exc)) from exc
+            captions_reburned = True
+        else:
+            shutil.move(str(composite_output), str(output))
+
+        caption_source_raw = str(report.get("caption_srt") or "").strip()
+        if caption_source_raw:
+            caption_source = Path(caption_source_raw)
+            if caption_source.is_file():
+                caption_output = output.with_suffix(".srt")
+                if caption_source.resolve() != caption_output.resolve():
+                    shutil.copy2(caption_source, caption_output)
+                report["caption_srt"] = str(caption_output)
+                report["caption_srt_sha256"] = _sha256(caption_output)
+        report.update({
+            "output": str(output),
+            "video_sha256": _sha256(output),
+            "duration_sec": _probe_duration(
+                shutil.which("ffprobe") or "ffprobe",
+                output,
+            ),
+            "captions_reburned_after_brand_overlays": captions_reburned,
+        })
+        for field, _path, expected, start, duration in resolved:
+            report.update({
+                f"{field}_used": True,
+                f"{field}_sha256": expected,
+                f"{field}_start_sec": round(start, 3),
+                f"{field}_duration_sec": round(duration, 3),
+                f"{field}_audio_discarded": True,
+            })
+            if field == "brand_cta":
+                report["brand_cta_alpha_decoder"] = "libvpx-vp9"
+        return report
+    finally:
+        if temp_dir is not None:
+            temp_dir.cleanup()
 
 
 def build_parser() -> argparse.ArgumentParser:
