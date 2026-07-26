@@ -58,7 +58,7 @@ from acc1_thread_collector import (
     MIN_NATURAL_RESPONSE_WORDS,
     verify_manifest as verify_thread_manifest,
 )
-from acc1_thread_source import collect_thread_source_candidates
+from acc1_thread_source import ThreadSourceError, collect_thread_source_candidates
 from acc1_thread_contract import THREAD_COMIC_PAGE_COUNT
 from acc1_topic_playoff import (
     HARD_VETOES,
@@ -138,7 +138,8 @@ SOURCE_ONLY_SCHEMA_VERSION = "acc1_source_only_result_v1"
 MIN_SOURCE_REVIEW_CANDIDATES = 3
 MAX_SOURCE_REVIEW_CANDIDATES = 5
 MIN_PASSING_FINALISTS = 3
-THREAD_PROMPT_CANDIDATE_LIMIT = 20
+THREAD_PROMPT_CANDIDATE_LIMIT = 19
+THREAD_REDDIT_OAUTH_REQUEST_BUDGET = 1
 NARRATOR_VOICE_ID = "elevenlabs_JBFqnCBsd6RMkjVDRZzb"
 COMMENT_VOICE_ID = "elevenlabs_MOgsVr0EwwxqQs5cNDhu"
 TTS_MODEL_ID = "eleven_v3"
@@ -844,23 +845,68 @@ def run_source_stage(
                 raise
     else:
         source_plan = daily_plan["source_plan"]
-        results = collect_thread_source_candidates(
-            reddit,
-            subreddit_name=source_plan["subreddits"][0],
-            time_filter="year",
-            candidate_limit=THREAD_PROMPT_CANDIDATE_LIMIT,
-            response_scan_limit=60,
-            max_responses=15,
-            truth_mode="unverified_personal_account",
-            search_query=source_plan["search_query"],
-            finalist_limit=MAX_SOURCE_REVIEW_CANDIDATES,
-            require_episode_runtime=True,
-            # Prompt IDs are Reddit source IDs too. Response-level overlap is
-            # still enforced by the post-source reservation scan.
-            excluded_prompt_ids=(
-                set(history_posts(load_history()).keys()) | excluded_source_ids
-            ),
+        search_queries = source_plan.get("search_queries")
+        if (
+            not isinstance(search_queries, list)
+            or not search_queries
+            or any(not isinstance(query, str) or not query.strip() for query in search_queries)
+        ):
+            raise EpisodeFactoryError("THREAD source plan requires search_queries")
+        request_upper_bound = (
+            THREAD_REDDIT_OAUTH_REQUEST_BUDGET
+            + len(search_queries)
+            + THREAD_PROMPT_CANDIDATE_LIMIT
         )
+        if request_upper_bound > cap:
+            raise EpisodeFactoryError(
+                "THREAD discovery request envelope exceeds reddit_request_cap: "
+                f"{THREAD_REDDIT_OAUTH_REQUEST_BUDGET} OAuth read + "
+                f"{len(search_queries)} listing reads + "
+                f"{THREAD_PROMPT_CANDIDATE_LIMIT} comment-tree reads = "
+                f"{request_upper_bound} > {cap}"
+            )
+        try:
+            results = collect_thread_source_candidates(
+                reddit,
+                subreddit_name=source_plan["subreddits"][0],
+                time_filter="year",
+                candidate_limit=THREAD_PROMPT_CANDIDATE_LIMIT,
+                response_scan_limit=60,
+                max_responses=15,
+                truth_mode="unverified_personal_account",
+                search_queries=search_queries,
+                search_sort=source_plan["search_sort"],
+                finalist_limit=MAX_SOURCE_REVIEW_CANDIDATES,
+                require_episode_runtime=True,
+                # Prompt IDs are Reddit source IDs too. Response-level overlap is
+                # still enforced by the post-source reservation scan.
+                excluded_prompt_ids=(
+                    set(history_posts(load_history()).keys()) | excluded_source_ids
+                ),
+            )
+        except ThreadSourceError as exc:
+            source_diagnostics = {
+                "version": 1,
+                "status": "BLOCKED_THREAD_SOURCE_DISCOVERY",
+                "channel_id": "acc1",
+                "episode_key": daily_plan["episode_key"],
+                "pilot_id": daily_plan["pilot_id"],
+                "format": format_id,
+                "pillar": daily_plan["pillar"],
+                "daily_plan_sha256": canonical_hash(daily_plan),
+                "failure": str(exc),
+                "reddit_http_request_cap": cap,
+                "reddit_http_requests_observed": _reddit_request_count(reddit),
+                "planned_reddit_request_upper_bound": request_upper_bound,
+                "thread_source_diagnostics": exc.diagnostics,
+                "production_authorized": False,
+                "publication_authorized": False,
+            }
+            source_diagnostics["source_diagnostics_sha256"] = _self_hash(
+                source_diagnostics, "source_diagnostics_sha256",
+            )
+            _atomic_json(workdir / "source-diagnostics.json", source_diagnostics)
+            raise EpisodeFactoryError(str(exc)) from exc
         candidates, queue, review = _thread_candidates(results, daily_plan)
 
     if not MIN_SOURCE_REVIEW_CANDIDATES <= len(candidates) <= MAX_SOURCE_REVIEW_CANDIDATES:

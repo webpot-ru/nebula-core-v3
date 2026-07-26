@@ -1,5 +1,5 @@
 {
-  "strategy_version": "2026-07-26-acc1-broad-reddit-stories-v4",
+  "strategy_version": "2026-07-27-acc1-broad-reddit-stories-v5",
   "strategy_goal": "Build distinct channel franchises optimized for engaged views, retention, comments, shares, and returning viewers; topic_mix remains candidate-scouting input until source and audience gates pass.",
   "channels": [
     {
@@ -55,9 +55,9 @@
         {"id": "pilot_01", "format": "BUNDLE", "pillar": "relationships_family", "story_count": [2, 3]},
         {"id": "pilot_02", "format": "BUNDLE", "pillar": "work_money_justice", "story_count": [3, 5]},
         {"id": "pilot_03", "format": "SAGA", "pillar": "strange_dark_unexplained"},
-        {"id": "pilot_04", "format": "THREAD", "pillar": "confessions_awkward_taboo", "search_query": "(confession OR secret OR embarrassing OR awkward)"},
-        {"id": "pilot_05", "format": "THREAD", "pillar": "professions_human_experience", "search_query": "(job OR profession OR workplace OR career)"},
-        {"id": "pilot_06", "format": "THREAD", "pillar": "strange_dark_unexplained", "search_query": "(creepy OR unexplained OR strange OR terrifying)"}
+        {"id": "pilot_04", "format": "THREAD", "pillar": "confessions_awkward_taboo", "search_queries": ["confession AND (story OR experience OR happened OR moment OR situation)", "secret AND (story OR experience OR happened OR moment OR situation)", "embarrassing AND (story OR experience OR happened OR moment OR situation)", "awkward AND (story OR experience OR happened OR moment OR situation)"], "search_sort": "comments"},
+        {"id": "pilot_05", "format": "THREAD", "pillar": "professions_human_experience", "search_queries": ["job AND (story OR experience OR happened OR moment OR situation)", "workplace AND (story OR experience OR happened OR moment OR situation)", "profession AND (story OR experience OR happened OR moment OR situation)", "career AND (story OR experience OR happened OR moment OR situation)"], "search_sort": "comments"},
+        {"id": "pilot_06", "format": "THREAD", "pillar": "strange_dark_unexplained", "search_queries": ["creepy AND (story OR experience OR happened OR moment OR situation)", "unexplained AND (story OR experience OR happened OR moment OR situation)", "strange AND (story OR experience OR happened OR moment OR situation)", "terrifying AND (story OR experience OR happened OR moment OR situation)"], "search_sort": "comments"}
       ],
       "source_family_plan": [
         {"format": "BUNDLE", "scraper_family": "human_drama", "status": "local_selector_implemented_live_unverified"},

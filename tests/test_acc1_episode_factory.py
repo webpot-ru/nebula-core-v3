@@ -300,8 +300,13 @@ class EpisodeFactoryTests(unittest.TestCase):
                 (workdir / "source-diagnostics.json").read_text(encoding="utf-8")
             )
 
-        self.assertEqual(captured["candidate_limit"], 20)
+        self.assertEqual(captured["candidate_limit"], 19)
         self.assertEqual(captured["response_scan_limit"], 60)
+        self.assertEqual(
+            captured["search_queries"],
+            thread_plan["source_plan"]["search_queries"],
+        )
+        self.assertEqual(captured["search_sort"], "comments")
         self.assertEqual(diagnostics["candidate_count"], 2)
         self.assertEqual(diagnostics["reddit_http_requests_observed"], 17)
         self.assertEqual(
@@ -312,6 +317,78 @@ class EpisodeFactoryTests(unittest.TestCase):
                 diagnostics, "source_diagnostics_sha256"
             )
         )
+        self.assertFalse(diagnostics["publication_authorized"])
+
+    def test_thread_collector_failure_persists_exact_reviewable_diagnostics(self):
+        thread_plan = build_daily_plan(
+            ROOT / "channels.json",
+            production_date="2026-07-15",
+            pilot_override="pilot_04",
+        )
+        fake_reddit = mock.Mock()
+        fake_reddit._core._requestor.request_count = 24
+        nested_diagnostics = {
+            "version": 1,
+            "status": "BLOCKED_NO_VALID_THREAD",
+            "search_queries": thread_plan["source_plan"]["search_queries"],
+            "candidate_outcomes": [
+                {
+                    "prompt_id": "near-one",
+                    "status": "COLLECTOR_REJECTED",
+                    "eligible_response_count": 12,
+                    "snapshot": {
+                        "prompt": {"id": "near-one"},
+                        "responses": [{"id": "response-one", "body": "full source"}],
+                    },
+                }
+            ],
+        }
+        collector_error = factory.ThreadSourceError(
+            "no bounded prompt produced a valid THREAD",
+            diagnostics=nested_diagnostics,
+        )
+
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch("scraper.AI_QUALITY_ENABLED", False),
+            mock.patch("scraper.AI_QUALITY_FAIL_OPEN", False),
+            mock.patch.object(
+                factory,
+                "collect_thread_source_candidates",
+                side_effect=collector_error,
+            ),
+        ):
+            workdir = Path(temp)
+            with self.assertRaisesRegex(
+                factory.EpisodeFactoryError,
+                "no bounded prompt",
+            ):
+                factory.run_source_stage(
+                    daily_plan=thread_plan,
+                    workdir=workdir,
+                    channels_path=ROOT / "channels.json",
+                    confirm_reddit_read=True,
+                    reddit_request_cap=24,
+                    reddit_factory=lambda **_kwargs: fake_reddit,
+                )
+            diagnostics = json.loads(
+                (workdir / "source-diagnostics.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(
+            diagnostics["status"],
+            "BLOCKED_THREAD_SOURCE_DISCOVERY",
+        )
+        self.assertEqual(diagnostics["reddit_http_requests_observed"], 24)
+        self.assertEqual(diagnostics["planned_reddit_request_upper_bound"], 24)
+        self.assertEqual(
+            diagnostics["thread_source_diagnostics"],
+            nested_diagnostics,
+        )
+        self.assertTrue(
+            factory._verify_self_hash(diagnostics, "source_diagnostics_sha256")
+        )
+        self.assertFalse(diagnostics["production_authorized"])
         self.assertFalse(diagnostics["publication_authorized"])
 
     def test_bundle_selector_failure_persists_exact_source_diagnostics(self):

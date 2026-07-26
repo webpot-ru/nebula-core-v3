@@ -88,29 +88,40 @@ class FakeSubmission:
 
 
 class FakeSubreddit:
-    def __init__(self, submissions):
+    def __init__(self, submissions, search_results=None):
         self.submissions = list(submissions)
+        self.search_results = {
+            str(query): list(items)
+            for query, items in (search_results or {}).items()
+        }
         self.calls = []
 
     def top(self, *, time_filter, limit):
         self.calls.append({"time_filter": time_filter, "limit": limit})
         return list(self.submissions[:limit])
 
-    def search(self, query, *, sort, time_filter, limit):
+    def search(self, query, *, sort, syntax, time_filter, limit):
         self.calls.append({
             "query": query,
             "sort": sort,
+            "syntax": syntax,
             "time_filter": time_filter,
             "limit": limit,
         })
-        return list(self.submissions[:limit])
+        return list(self.search_results.get(query, self.submissions)[:limit])
 
 
 class FakeReddit:
-    def __init__(self, submissions, subreddit_submissions=None):
+    def __init__(
+        self,
+        submissions,
+        subreddit_submissions=None,
+        search_results=None,
+    ):
         self.submissions = {item.id: item for item in submissions}
         self.fake_subreddit = FakeSubreddit(
-            subreddit_submissions if subreddit_submissions is not None else submissions
+            subreddit_submissions if subreddit_submissions is not None else submissions,
+            search_results=search_results,
         )
         self.submission_calls = []
         self.subreddit_calls = []
@@ -257,7 +268,8 @@ class Acc1ThreadSourceTests(unittest.TestCase):
             reddit.fake_subreddit.calls,
             [{
                 "query": '("job" OR "profession")',
-                "sort": "top",
+                "sort": "comments",
+                "syntax": "lucene",
                 "time_filter": "year",
                 "limit": 1,
             }],
@@ -265,6 +277,102 @@ class Acc1ThreadSourceTests(unittest.TestCase):
         self.assertEqual(snapshot["query"]["mode"], "subreddit_search")
         self.assertEqual(snapshot["query"]["search_query"], '("job" OR "profession")')
         self.assertEqual(manifest["prompt"]["id"], "search22")
+
+    def test_search_portfolio_is_bounded_deduplicated_and_preserves_provenance(self):
+        queries = (
+            "confession AND story",
+            "secret AND story",
+            "embarrassing AND experience",
+            "awkward AND situation",
+        )
+        repeated = submission_with_comments(
+            "repeat22", count=8, score=6000, num_comments=500,
+        )
+        repeated.title = "What confession story happened to you?"
+        shallow = submission_with_comments(
+            "shallow1", count=8, score=9000, num_comments=20_000,
+        )
+        shallow.title = "Without saying what it is, name one word"
+        alternate = submission_with_comments(
+            "other222", count=8, score=5000, num_comments=300,
+        )
+        alternate.title = "What awkward situation happened to you?"
+        reddit = FakeReddit(
+            [repeated, shallow, alternate],
+            search_results={
+                queries[0]: [repeated, shallow],
+                queries[1]: [repeated],
+                queries[2]: [alternate],
+                queries[3]: [alternate, shallow],
+            },
+        )
+
+        snapshot, manifest = acc1_thread_source.collect_thread_source(
+            reddit,
+            search_queries=queries,
+            candidate_limit=3,
+            response_scan_limit=8,
+            max_responses=8,
+            time_filter="year",
+        )
+
+        self.assertEqual(len(reddit.fake_subreddit.calls), 4)
+        self.assertTrue(all(call["limit"] == 3 for call in reddit.fake_subreddit.calls))
+        self.assertTrue(all(call["sort"] == "comments" for call in reddit.fake_subreddit.calls))
+        self.assertTrue(all(call["syntax"] == "lucene" for call in reddit.fake_subreddit.calls))
+        self.assertEqual(manifest["prompt"]["id"], "repeat22")
+        self.assertEqual(snapshot["query"]["mode"], "subreddit_search_portfolio")
+        self.assertEqual(snapshot["query"]["search_queries"], list(queries))
+        self.assertEqual(
+            snapshot["query"]["matched_search_queries"],
+            [queries[0], queries[1]],
+        )
+        self.assertEqual(snapshot["query"]["listing_request_budget"], 4)
+        self.assertEqual(snapshot["query"]["oauth_request_budget"], 1)
+        self.assertEqual(snapshot["query"]["total_request_upper_bound"], 8)
+        self.assertIsNone(shallow.comment_limit)
+
+    def test_search_portfolio_over_four_queries_fails_before_reddit(self):
+        reddit = FakeReddit([])
+        with self.assertRaisesRegex(
+            acc1_thread_source.ThreadSourceError,
+            "cannot exceed 4",
+        ):
+            acc1_thread_source.collect_thread_source_candidates(
+                reddit,
+                search_queries=[f"query-{index}" for index in range(5)],
+                candidate_limit=5,
+                response_scan_limit=8,
+                max_responses=8,
+                require_episode_runtime=False,
+            )
+        self.assertEqual(reddit.subreddit_calls, [])
+
+    def test_story_prompt_ranking_rejects_shallow_high_comment_prompt_first(self):
+        shallow = submission_with_comments(
+            "shallow1", count=8, score=20_000, num_comments=50_000,
+        )
+        shallow.title = "Without saying your job, name one word"
+        narrative = submission_with_comments(
+            "story222", count=8, score=100, num_comments=100,
+        )
+        narrative.title = "What workplace story happened to you?"
+        reddit = FakeReddit(
+            [shallow, narrative],
+            subreddit_submissions=[shallow, narrative],
+        )
+
+        snapshot, manifest = acc1_thread_source.collect_thread_source(
+            reddit,
+            candidate_limit=2,
+            response_scan_limit=8,
+            max_responses=8,
+        )
+
+        self.assertEqual(snapshot["prompt"]["id"], "story222")
+        self.assertEqual(manifest["prompt"]["id"], "story222")
+        self.assertIsNone(shallow.comment_limit)
+        self.assertFalse(snapshot["query"]["ranking_evidence"]["shallow_prompt"])
 
     def test_published_prompt_ids_are_skipped_before_comment_collection(self):
         published = submission_with_comments("used111", count=8, score=9000)
@@ -364,6 +472,31 @@ class Acc1ThreadSourceTests(unittest.TestCase):
                 response_scan_limit=8,
                 max_responses=8,
             )
+
+    def test_failed_pool_carries_reviewable_snapshot_diagnostics(self):
+        submission = submission_with_comments("near111", count=7, num_comments=100)
+        reddit = FakeReddit([submission])
+
+        with self.assertRaises(acc1_thread_source.ThreadSourceError) as raised:
+            acc1_thread_source.collect_thread_source_candidates(
+                reddit,
+                search_queries=["confession AND story"],
+                candidate_limit=1,
+                response_scan_limit=8,
+                max_responses=8,
+                require_episode_runtime=False,
+            )
+
+        diagnostics = raised.exception.diagnostics
+        self.assertEqual(diagnostics["status"], "BLOCKED_NO_VALID_THREAD")
+        self.assertEqual(diagnostics["search_queries"], ["confession AND story"])
+        self.assertEqual(diagnostics["total_request_upper_bound"], 3)
+        self.assertEqual(diagnostics["evaluated_candidate_count"], 1)
+        outcome = diagnostics["candidate_outcomes"][0]
+        self.assertEqual(outcome["status"], "COLLECTOR_REJECTED")
+        self.assertEqual(outcome["eligible_response_count"], 7)
+        self.assertEqual(outcome["snapshot"]["prompt"]["id"], "near111")
+        self.assertEqual(len(outcome["snapshot"]["responses"]), 7)
 
     def test_cli_refuses_reddit_client_without_explicit_confirmation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
