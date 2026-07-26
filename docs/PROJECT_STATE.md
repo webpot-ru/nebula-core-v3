@@ -2,6 +2,37 @@
 
 Last updated: 2026-07-26
 
+## 2026-07-26 — Burned-caption recovery visually verified
+
+- Human inspection of downloaded run `30185894253` found that its fixed black
+  subtitle band was empty. The checksum-bound SRT contained all cues, but the
+  segmented assembly only wrote it as a sidecar and copied the H.264 stream;
+  it never applied a subtitle filter. The former `READY_FOR_HUMAN_REVIEW`
+  receipt therefore described a technically complete package, not a visually
+  accepted video.
+- Commits `b399787` and `b22d1e0` add one shared ASS burn-in pass for both
+  monolithic and segmented HyperFrames assembly, preserve the editable SRT,
+  require `captions_burned=true`, and expose an exact no-spend recovery mode
+  through the already registered fixed-release recovery workflow.
+- Authorized GitHub run
+  [`30187749091`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30187749091)
+  reused only `final-output.mp4`, the bound storyboard and SRT from successful
+  run `30185894253`. It made zero VectorEngine calls, zero AI33 submissions
+  and no YouTube action. The obsolete provider-poll, segment-render and
+  assembly jobs were skipped.
+- The resulting `final-output-captioned.mp4` is H.264/AAC 1920x1080 at 30 fps,
+  `866.271995` seconds and `566,963,354` bytes. Its SHA-256 is
+  `933337045776fe86cb8aef2ddad37e09a752525fc99c1b4bd8e6d71aad846f33`.
+  The report binds 263 cues, the unchanged source audio codec, SRT/ASS hashes
+  and three extracted review frames.
+- All three downloaded frames were visually inspected: the first, midpoint
+  and final cue each appear as one centred Russian line inside the stationary
+  130 px black band without covering the comic. GitHub artifact
+  `acc1-captioned-recovery-30187749091` is `577,897,531` bytes with digest
+  `sha256:e9326ecc9e3492ba0e56023dabb101daaa02af1232db438a2a52dd21c3a7898e`.
+  The verified local review copy is
+  `build/review/run-30187749091/final-output-captioned.mp4`.
+
 ## 2026-07-26 — Fixed release recovered and rendered as nine GitHub segments
 
 - Fixed-release production run
@@ -55,7 +86,8 @@ Last updated: 2026-07-26
 - GitHub artifact `acc1-fixed-first-release-recovered-30185894253` is
   `1,074,625,588` bytes with artifact digest
   `sha256:23f91d8196e3a9afbaf011f6cb6e66e610968f280f167ecf6769ee7870afa755`.
-  It remains on GitHub and was not downloaded locally. This run made zero new
+  It remains on GitHub. It was later downloaded for human review, which found
+  the missing burned-caption defect documented above. This run made zero new
   VectorEngine calls, zero new AI33 submissions and no YouTube action.
 
 ## 2026-07-24 — Landscape image canary recovered and provider contract verified
