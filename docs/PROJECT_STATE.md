@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-26
 
-## 2026-07-26 — Fixed-release polling recovered; storyboard metadata bridge fixed
+## 2026-07-26 — Fixed release recovered and rendered as nine GitHub segments
 
 - Fixed-release production run
   [`30102591330`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30102591330)
@@ -29,8 +29,34 @@ Last updated: 2026-07-26
   Recovery artifact `acc1-fixed-first-release-recovery-source-30185324136`
   remains on GitHub (`388,841,883` bytes); no media was downloaded locally.
   No new VectorEngine or AI33 submission and no YouTube action occurred.
-- The code fix is pushed but not live-verified. A further recovery dispatch is
-  not authorized and must receive a new exact one-run approval.
+- Recovery run
+  [`30185667345`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30185667345)
+  verified the metadata bridge, then stopped before rendering because the
+  historical fixed-input script predated the required source-bound
+  `intro_contract.cold_open`. It again made zero new provider submissions and
+  no YouTube action.
+- Commit `a2c7563` restores that historical intro contract from the frozen
+  first-story source ID, title and exact already-spoken cold-open text. It
+  does not alter `intro_ru` or the saved TTS plan. The focused suite passes 66
+  tests and the style validator remains `PRODUCTION_READY`.
+- No-spend recovery run
+  [`30185894253`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30185894253)
+  completed successfully from `a2c7563`. Preparation reused all 69 image calls
+  and all 61 AI33 task records, polled only the two durable task IDs and
+  confirmed `intro_contract_restored=true`. It created nine contiguous
+  HyperFrames jobs with a 120-second ceiling and at most eight running in
+  parallel; every segment passed independently.
+- Assembly concatenated those nine H.264 segments without re-encoding video,
+  muxed the existing narration and produced `final-output.mp4` with H.264
+  1920x1080 video plus AAC audio. The verified timeline is `866.299` seconds
+  (`14:26.299`) and the video SHA-256 is
+  `7a963ee4d65be619bb4aa9f73823230a495dd008ff59ff9315f741230c2f2a7a`.
+  Final status is `READY_FOR_HUMAN_REVIEW`.
+- GitHub artifact `acc1-fixed-first-release-recovered-30185894253` is
+  `1,074,625,588` bytes with artifact digest
+  `sha256:23f91d8196e3a9afbaf011f6cb6e66e610968f280f167ecf6769ee7870afa755`.
+  It remains on GitHub and was not downloaded locally. This run made zero new
+  VectorEngine calls, zero new AI33 submissions and no YouTube action.
 
 ## 2026-07-24 — Landscape image canary recovered and provider contract verified
 
