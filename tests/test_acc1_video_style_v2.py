@@ -24,7 +24,21 @@ class Acc1VideoStyleV2Tests(unittest.TestCase):
             "hyperframes_segmented_matrix",
         )
         self.assertEqual(contract["renderer"]["canary_segment_count_min"], 2)
-        self.assertEqual(contract["renderer"]["canary_segment_count_max"], 4)
+        self.assertEqual(contract["renderer"]["canary_segment_count_max"], 5)
+        self.assertEqual(
+            contract["renderer"]["canary_frozen_media"],
+            {
+                "pages": {
+                    "run_id": "30063115374",
+                    "artifact": "acc1-panel-grammar-canary-30063115374",
+                    "page_count": 5,
+                },
+                "audio": {
+                    "run_id": "29975009888",
+                    "artifact": "acc1-format-v3-canary-29975009888",
+                },
+            },
+        )
         self.assertEqual(contract["renderer"]["segment_max_duration_sec"], 120)
         self.assertEqual(contract["renderer"]["matrix_max_parallel"], 4)
         self.assertIn(
