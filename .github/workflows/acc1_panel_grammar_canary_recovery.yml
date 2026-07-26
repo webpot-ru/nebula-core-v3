@@ -1,5 +1,5 @@
 name: acc1 Five-Page Panel Grammar Canary Recovery
-run-name: acc1 no-spend recovery for five pages from ${{ inputs.source_run_id }}
+run-name: acc1 semantic-camera caption-safe recovery from ${{ inputs.source_run_id }}
 
 on:
   workflow_dispatch:
@@ -31,7 +31,7 @@ jobs:
       - name: Check out the exact recovery implementation
         uses: actions/checkout@v4
         with:
-          ref: f532d12c4ec1d0c389596bc29b16e4d25dfc236f
+          ref: 4761246ef088eebed36c9adf1bd3a6d85ecb8452
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -112,8 +112,13 @@ jobs:
           test -s "$OUTPUT/captions-brand-safe.ass"
           test "$(find "$OUTPUT/frames" -type f -name 'frame-*.png' | wc -l)" -eq 5
           python - "$OUTPUT/render-report.json" <<'PY'
-          import json,sys
-          report=json.load(open(sys.argv[1]))
+          import json
+          import pathlib
+          import sys
+
+          report_path = pathlib.Path(sys.argv[1])
+          root = report_path.parent
+          report = json.loads(report_path.read_text())
           assert report['status'] == 'PASS'
           assert report['renderer'] == 'hyperframes'
           assert report['hyperframes_check_passed'] is True
@@ -121,12 +126,54 @@ jobs:
           assert report['source_image_retries'] == 0
           assert report['new_image_calls'] == 0 and report['new_ai33_calls'] == 0
           assert report['youtube_called'] is False
+          assert report['captions_burned'] is True
+          assert report['brand_safe_caption_cues'] > 0
+          assert report['brand_sting_used'] is True
+          assert report['brand_cta_used'] is True
+          assert report['brand_outro_used'] is True
+
+          storyboard = json.loads((root / 'storyboard-generated.json').read_text())
+          assert len(storyboard['slides']) == 5
+          for scene in storyboard['slides']:
+              assert scene['camera_contract_version'] == 1
+              assert len(scene['panel_regions']) == scene['panel_count']
+              assert len(scene['camera_path']) == scene['panel_count'] + 1
+              assert scene['camera_path'][0]['kind'] == 'page_overview'
+              reading_order = scene['semantic_focus']['reading_order']
+              assert reading_order == [
+                  panel['panel_id'] for panel in scene['panel_regions']
+              ]
+
+          contract = json.loads(
+              pathlib.Path('specs/acc1-video-style-v2.json').read_text()
+          )
+          assert contract['subtitles']['visibility_during_brand_inserts'] == {
+              'intro': 'visible',
+              'subscribe_cta': 'visible',
+              'outro': 'visible',
+          }
           PY
+          ffmpeg -v error \
+            -i "$OUTPUT/acc1-hyperframes-realistic-test.mp4" \
+            -f null -
+      - name: Extract brand-caption review frames in GitHub
+        run: |
+          mkdir -p "$OUTPUT/brand-review-frames"
+          ffmpeg -v error -ss 5.0 \
+            -i "$OUTPUT/acc1-hyperframes-realistic-test.mp4" \
+            -frames:v 1 "$OUTPUT/brand-review-frames/intro-caption.png"
+          ffmpeg -v error -ss 42.5 \
+            -i "$OUTPUT/acc1-hyperframes-realistic-test.mp4" \
+            -frames:v 1 "$OUTPUT/brand-review-frames/subscribe-cta-caption.png"
+          ffmpeg -v error -ss 103.0 \
+            -i "$OUTPUT/acc1-hyperframes-realistic-test.mp4" \
+            -frames:v 1 "$OUTPUT/brand-review-frames/outro-caption.png"
+          test "$(find "$OUTPUT/brand-review-frames" -type f -name '*.png' | wc -l)" -eq 3
       - name: Upload no-spend recovery review only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: acc1-panel-grammar-recovery-${{ github.run_id }}
+          name: acc1-semantic-camera-caption-safe-${{ github.run_id }}
           path: ${{ env.OUTPUT }}
           if-no-files-found: error
           retention-days: 14
