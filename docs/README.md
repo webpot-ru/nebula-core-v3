@@ -836,6 +836,12 @@ SEO/upload handling:
 - Historical blocker: scope-aware audit run `28459324708` proved the then-current `YOUTUBE_REFRESH_TOKEN_ACC1-7` values had only `https://www.googleapis.com/auth/youtube.upload`, so `channels.list(mine=true)` returned `403 insufficient authentication scopes`. Per current user-provided state on 2026-07-02, all seven OAuth credentials/scopes were reissued and verified after that audit. Keep the channel preflight enabled before any spend/upload.
 - Before upload, `uploader.py` repeats the same channel check; a mismatch blocks `videos.insert`.
 - After upload, `uploader.py` calls `videos.list(part=snippet,status)` to read back channel id, privacy, and language.
+- `--caption-file`, `--caption-language` and `--caption-name` add one exact
+  selectable SRT/VTT track after video creation. The uploader hashes the
+  caption before upload, uses `captions.insert`, reads the exact track back
+  with `captions.list`, verifies the video id/language and records caption id,
+  language and hash in the atomic upload receipt. This path requires
+  `youtube.force-ssl`; it does not replace burned-in captions.
 - Public oEmbed readback can confirm the uploaded title and channel handle for unlisted videos, but authenticated YouTube Data API readback is still needed for description, tags, language, and final status.
 
 ### VectorEngine Thumbnail Images
@@ -961,7 +967,35 @@ Private YouTube upload is deliberately separated into two manual workflows after
 
 Live readback on 2026-07-17 found the older active `acc1 Private Artifact Upload` on `main` (workflow id `313326356`) still accepts `READY_FOR_HUMAN_REVIEW` without the new rights/release receipt, while `acc1 Release Review Gate` is not registered. Do not dispatch that old workflow. The local hardened chain must be merged and registered first; the old workflow should remain disabled while the PR is pending.
 
-`workflow_dispatch` exists on the repository default branch for both the factory and private-upload workflow. The base OpenAI factory, background assets, and all-channel `videos_per_day=0` hold are merged to `main`; PR #5 adds the unverified Flex contract described above. Before any dispatch, verify that the exact reviewed PR revision is on `main`. The following factory command remains a paid operation and requires separate exact approval.
+The recovered first release is a historical fixed-input production run, not an
+`acc1 Daily Episode Factory` artifact, so it must not bypass or weaken that
+general factory gate. Its separate local-only adapter is
+`.github/workflows/acc1_fixed_first_release_private_upload.yml`, with the
+reviewed package in `release-packages/acc1/fixed-first-release-v1/`. The
+workflow accepts only source run `30187749091`, the exact raw SHA-256 of that
+package's `release-package.json`, and `confirm_private_upload=true`. Before any
+YouTube credential is used it verifies the trusted workflow/run revision,
+artifact name, MP4/SRT/ASS/caption-report hashes, burned-caption receipt,
+duration/codecs/resolution, deterministic metadata, all three 1280x720
+title/thumbnail pairs and the absence of any publication/provider authority.
+It refuses a retained receipt for the same source run, repeats acc1 channel
+preflight, uploads the exact captioned master and variant A only as `private`,
+then verifies channel, privacy, video hash and thumbnail hash in the readback
+receipt. The adapter additionally requires `youtube.force-ssl`, uploads the
+exact UTF-8 SRT as the Russian selectable caption track, verifies its
+language/id and preserves it with the receipt. There is no public, unlisted,
+provider-generation or A/B-launch path in this workflow.
+
+The three title/thumbnail pairs are intentionally coupled: A is the lead
+conflict, B is its emotional consequence and C is the four-story episode
+umbrella. The private upload uses A. Once the correct-channel private playback,
+metadata and selectable subtitle track pass human review, a separate public
+authorization may publish the video and start the A/B/C test in desktop
+YouTube Studio. Until then, `release-package.json` keeps
+`publication_authorized=false`, `private_upload_authorized=false` and
+`rights_status=not_verified_for_publication`.
+
+`workflow_dispatch` exists on the repository default branch for both the factory and private-upload workflow. The base OpenAI factory, background assets, and all-channel `videos_per_day=0` hold are merged to `main`; PR #5 adds the unverified Flex contract described above. Before any dispatch, verify that the exact reviewed PR revision is on `main`. The fixed-first-release adapter must likewise be merged to the default branch before it can be dispatched. The following factory command remains a paid operation and requires separate exact approval.
 
 ```bash
 gh workflow run acc1_daily_episode.yml \
