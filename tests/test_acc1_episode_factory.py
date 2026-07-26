@@ -1334,7 +1334,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 16,
                 visual_mode="editorial_motion_v1",
             ),
-            33,
+            41,
         )
 
     def test_minimum_tts_budget_is_known_before_paid_text_calls(self):
@@ -1343,8 +1343,8 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertEqual(factory._minimum_tts_calls("THREAD", 9), 11)
 
     def test_ai33_budget_covers_accepted_translation_expansion_before_gemini(self):
-        # Sixteen 200-word sources remain inside the collector's 3,250-word
-        # episode envelope while exercising the accepted character expansion.
+        # Sixteen 200-word sources remain inside the long THREAD response-word
+        # envelope while exercising the accepted character expansion.
         source_body = " ".join(["source"] * 200)
         candidates = [
             {
@@ -1405,7 +1405,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                         f"asked witness{source_index}x{step}, checked record{source_index}x{step}, "
                         f"and explained outcome{source_index}x{step}."
                     )
-                    for step in range(18)
+                    for step in range(24)
                 )
             source_id = f"source-{source_index}"
             return {
@@ -1431,7 +1431,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                 "pillar": thread_plan["pillar"],
                 "sources": [thread_source(0, "prompt")] + [
                     thread_source(source_index, "response")
-                    for source_index in range(1, 12)
+                    for source_index in range(1, 14)
                 ],
             }
             for candidate_index in range(5)
@@ -1457,7 +1457,7 @@ class EpisodeFactoryTests(unittest.TestCase):
                         openai_call_cap=128,
                         openai_token_cap=500_000,
                         confirm_image_spend=True,
-                        image_call_cap=16,
+                        image_call_cap=69,
                         confirm_ai33_spend=True,
                         ai33_call_cap=32,
                         openai_provider=lambda **kwargs: gemini_calls.append(kwargs),

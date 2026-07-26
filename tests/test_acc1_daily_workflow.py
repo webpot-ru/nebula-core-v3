@@ -159,6 +159,15 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             '        options: ["100000", "250000", "500000", "750000"]\n',
             self.workflow,
         )
+        self.assertIn(
+            '      image_call_cap:\n'
+            '        description: Hard cap for image-generation calls in this episode run\n'
+            '        required: true\n'
+            '        default: "16"\n'
+            '        type: choice\n'
+            '        options: ["8", "12", "16", "20", "41", "69"]\n',
+            self.workflow,
+        )
 
     def test_openai_secret_is_scoped_to_paid_preflight_and_produce(self):
         workflow = self.workflow

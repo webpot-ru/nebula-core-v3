@@ -14,6 +14,14 @@ import re
 from pathlib import Path
 from typing import Any
 
+from acc1_thread_contract import (
+    THREAD_AGGREGATE_RESPONSE_WORD_COUNT,
+    THREAD_COMIC_PAGE_COUNT,
+    THREAD_RESPONSE_COUNT,
+    THREAD_TARGET_DURATION_MINUTES,
+    in_closed_range,
+)
+
 
 PILLAR_IDS = (
     "relationships_family",
@@ -35,8 +43,12 @@ FORMAT_CONTRACTS = {
         "source_status": "local_selector_implemented_live_unverified",
     },
     "THREAD": {
-        "target_duration_minutes": [15, 25],
-        "response_count": [8, 15],
+        "target_duration_minutes": list(THREAD_TARGET_DURATION_MINUTES),
+        "response_count": list(THREAD_RESPONSE_COUNT),
+        "aggregate_response_word_count": list(
+            THREAD_AGGREGATE_RESPONSE_WORD_COUNT
+        ),
+        "comic_page_count": list(THREAD_COMIC_PAGE_COUNT),
         "source_status": "local_contract_ready_github_canary_required",
     },
 }
@@ -163,7 +175,7 @@ def resolve_comment_plan(format_id: str, source_mode: str) -> dict[str, Any]:
         return {
             "mode": "required_responses",
             "required": True,
-            "count": [8, 15],
+            "count": list(THREAD_RESPONSE_COUNT),
             "use_comment_voice": True,
         }
     if normalized_format == "BUNDLE" and normalized_source != "narrative_story":
@@ -485,6 +497,10 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
         plan.update({
             "source_mode": "question_prompt",
             "response_count": list(format_contract["response_count"]),
+            "aggregate_response_word_count": list(
+                format_contract["aggregate_response_word_count"]
+            ),
+            "comic_page_count": list(format_contract["comic_page_count"]),
             "collector_contract": "bounded_top_level_full_body_v1",
             "search_query": search_query,
         })
@@ -656,8 +672,16 @@ def validate_greenlight(
         )
     if format_id == "THREAD":
         response_count = source.get("response_count")
-        if not isinstance(response_count, int) or not 8 <= response_count <= 15:
-            failures.append("THREAD requires 8-15 complete responses")
+        if (
+            not isinstance(response_count, int)
+            or isinstance(response_count, bool)
+            or not in_closed_range(response_count, THREAD_RESPONSE_COUNT)
+        ):
+            failures.append(
+                "THREAD requires "
+                f"{THREAD_RESPONSE_COUNT[0]}-{THREAD_RESPONSE_COUNT[1]} "
+                "complete responses"
+            )
         if source.get("responses_are_diverse") is not True:
             failures.append("THREAD responses_are_diverse must be true")
         thread_status = ""

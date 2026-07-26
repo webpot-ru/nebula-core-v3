@@ -33,6 +33,12 @@ from acc1_visual_contract import (
     select_format_visual_system_v3_panel_grammar,
     select_adult_animation_layouts,
 )
+from acc1_thread_contract import (
+    THREAD_COMIC_PAGE_COUNT,
+    THREAD_RESPONSE_COUNT,
+    THREAD_TARGET_NARRATION_WORDS_PER_PAGE,
+    in_closed_range,
+)
 from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
 
 
@@ -325,6 +331,79 @@ def _editorial_pack_allocations(stories: list[dict[str, Any]]) -> dict[int, int]
     return allocations
 
 
+def _thread_editorial_pack_allocations(
+    stories: list[dict[str, Any]],
+    page_count_target: object,
+) -> dict[int, int]:
+    """Allocate 16-20 long-THREAD page packs without template repetition."""
+
+    if (
+        not isinstance(page_count_target, (list, tuple))
+        or list(page_count_target) != list(THREAD_COMIC_PAGE_COUNT)
+    ):
+        raise EpisodeImageError(
+            "production THREAD comic_page_count_target must equal "
+            f"{list(THREAD_COMIC_PAGE_COUNT)}"
+        )
+    roles: list[str] = []
+    for story in stories:
+        snapshot = story.get("source_snapshot")
+        if not isinstance(snapshot, dict):
+            raise EpisodeImageError(
+                "production THREAD visuals require source snapshots"
+            )
+        roles.append(
+            str(snapshot.get("role") or snapshot.get("source_role") or "")
+            .strip()
+            .lower()
+        )
+    response_count = sum(role == "response" for role in roles)
+    if (
+        not roles
+        or roles[0] != "prompt"
+        or any(role != "response" for role in roles[1:])
+        or not in_closed_range(response_count, THREAD_RESPONSE_COUNT)
+    ):
+        raise EpisodeImageError(
+            "production THREAD visuals require one prompt followed by "
+            f"{THREAD_RESPONSE_COUNT[0]}-{THREAD_RESPONSE_COUNT[1]} responses"
+        )
+
+    word_counts = [
+        max(1, len(str(story.get("narration_ru") or "").split()))
+        for story in stories
+    ]
+    target_pages = math.ceil(
+        sum(word_counts) / THREAD_TARGET_NARRATION_WORDS_PER_PAGE
+    )
+    target_pages = max(
+        THREAD_COMIC_PAGE_COUNT[0],
+        min(THREAD_COMIC_PAGE_COUNT[1], target_pages),
+        len(stories),
+    )
+    allocations = {index: 1 for index in range(len(stories))}
+    while sum(allocations.values()) < target_pages:
+        candidates = [
+            index
+            for index, count in allocations.items()
+            if index > 0 and count < 2
+        ]
+        if not candidates:
+            raise EpisodeImageError(
+                "production THREAD page allocation cannot reach its target"
+            )
+        candidate = max(
+            candidates,
+            key=lambda index: (
+                word_counts[index] / allocations[index],
+                word_counts[index],
+                -index,
+            ),
+        )
+        allocations[candidate] += 1
+    return allocations
+
+
 def _editorial_motion_module(excerpt: str, pack_index: int, pack_count: int) -> str:
     lowered = excerpt.casefold()
     if any(token in lowered for token in ("сообщен", "телефон", "написал", "переписк")):
@@ -398,7 +477,12 @@ def image_plan(
                 "THREAD editorial motion requires acc1_format_visual_system_v3",
             )
         if format_id == "THREAD":
-            allocations = {index: 1 for index in range(len(stories))}
+            page_count_target = script.get("comic_page_count_target")
+            allocations = (
+                _thread_editorial_pack_allocations(stories, page_count_target)
+                if page_count_target is not None
+                else {index: 1 for index in range(len(stories))}
+            )
             if sum(allocations.values()) > EDITORIAL_MOTION_MAX_PACKS:
                 raise EpisodeImageError("THREAD responses exceed the image-call ceiling")
         else:
@@ -440,8 +524,14 @@ def image_plan(
         visual_identity_contract = " ".join(
             str(story.get("visual_identity_contract") or "").split(),
         )
-        format_scene_count = len(stories) if format_id == "THREAD" else scene_count
-        format_scene_number = story_index + 1 if format_id == "THREAD" else None
+        format_scene_count = (
+            sum(allocations.values()) if format_id == "THREAD" else scene_count
+        )
+        format_scene_start = (
+            1 + sum(allocations[index] for index in range(story_index))
+            if format_id == "THREAD"
+            else None
+        )
         if mode == EDITORIAL_MOTION_MODE and active_style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
             if len(visual_identity_contract) < 40:
                 raise EpisodeImageError(
@@ -454,14 +544,22 @@ def image_plan(
                 editorial_layouts = [
                     _v3_layout(
                         format_id,
-                        format_scene_number or scene_index,
+                        (
+                            format_scene_start + scene_index - 1
+                            if format_scene_start is not None
+                            else scene_index
+                        ),
                     )
                     for scene_index in range(1, scene_count + 1)
                 ]
             expected_panel_grammars = [
                 select_format_visual_system_v3_panel_grammar(
                     format_id,
-                    format_scene_number or scene_index,
+                    (
+                        format_scene_start + scene_index - 1
+                        if format_scene_start is not None
+                        else scene_index
+                    ),
                     format_scene_count,
                 )["id"]
                 for scene_index in range(1, scene_count + 1)
@@ -545,6 +643,11 @@ def image_plan(
             if editorial_families is None:
                 editorial_families = [str(series["story_family"])] * scene_count
         for scene_index in range(1, scene_count + 1):
+            format_scene_number = (
+                format_scene_start + scene_index - 1
+                if format_scene_start is not None
+                else None
+            )
             excerpt = _scene_excerpt(story, scene_index, scene_count)
             if mode == EDITORIAL_MOTION_MODE:
                 module = (

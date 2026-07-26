@@ -191,8 +191,8 @@ class EpisodeContractTests(unittest.TestCase):
             cold_open=self._intro_cold_open(),
             episode_format="THREAD",
             pillar="confessions_awkward_taboo",
-            source_count=9,
-            response_count=8,
+            source_count=14,
+            response_count=13,
             first_title_ru="Какую тайну вы скрывали годами?",
             truth_disclosure=(
                 "Это личный рассказ пользователя Reddit, не подтверждённый независимо."

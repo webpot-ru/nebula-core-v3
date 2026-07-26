@@ -54,6 +54,7 @@ from acc1_pronunciation_dictionary import (
     resolve_acc1_pronunciation_dictionary_id,
 )
 from acc1_thread_source import collect_thread_source_candidates
+from acc1_thread_contract import THREAD_COMIC_PAGE_COUNT
 from acc1_topic_playoff import (
     HARD_VETOES,
     SCORE_MAXIMA,
@@ -443,9 +444,10 @@ def _required_image_calls(
 ) -> int:
     if visual_mode == EDITORIAL_MOTION_MODE:
         if format_id == "THREAD":
-            # One two-plate visual pack for the prompt and every selected
-            # response, plus the separately generated thumbnail.
-            return source_count * 2 + 1
+            # Long THREAD episodes reserve their full 20-page ceiling before
+            # any paid call. Every page uses a paired hero/detail plate; the
+            # separately generated thumbnail remains part of the leased cap.
+            return THREAD_COMIC_PAGE_COUNT[1] * 2 + 1
         # Paid preflight only proves a safe floor. The exact narration-bound
         # plan is calculated before the first image call and may require a
         # higher explicitly leased cap, up to the canonical 69-call ceiling.
@@ -1747,6 +1749,15 @@ def _translate_script(
         "editorial_review": {"verdict": "PASS", "issues": []},
         "publication_authorized": False,
     }
+    if daily_plan["format"] == "THREAD":
+        comic_page_count = (
+            daily_plan.get("source_plan") or {}
+        ).get("comic_page_count")
+        if comic_page_count != list(THREAD_COMIC_PAGE_COUNT):
+            raise EpisodeFactoryError(
+                "THREAD daily plan must carry the canonical comic-page target"
+            )
+        script["comic_page_count_target"] = list(comic_page_count)
     report = validate_episode_script(script, plan=episode_plan, playoff=playoff)
     if report["status"] != "PASS":
         raise EpisodeFactoryError("episode script contract blocked: " + "; ".join(report["failures"]))
