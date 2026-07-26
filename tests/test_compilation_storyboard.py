@@ -12,6 +12,7 @@ from compilation_audio_mix import build_pause_map
 from compilation_storyboard import (
     CompilationStoryboardError,
     _timed_chunks,
+    _verified_editorial_assets,
     build_storyboard,
     narration_sha256,
 )
@@ -359,6 +360,33 @@ class CompilationStoryboardTests(unittest.TestCase):
                     visual_mode=CINEMATIC_STORY_MODE,
                     tts_state=self._tts_state(compilation),
                 )
+
+    def test_verified_editorial_assets_preserve_v3_panel_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            image = root / "scene.png"
+            Image.new("RGB", (1536, 864), "#314159").save(image)
+            assets = _verified_editorial_assets({
+                "generated_media": [{
+                    "download_status": "verified",
+                    "local_path": "scene.png",
+                    "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+                    "asset_family_id": "story-01-pack-001",
+                    "layer_role": "hero_plate",
+                    "motion_module": "living_photo_depth",
+                    "story_family": "relationships",
+                    "page_layout": "bundle_story_opener",
+                    "panel_grammar": "hero_single",
+                    "panel_count": 1,
+                    "panel_beat_role": "hero_single",
+                }],
+            }, root)
+
+        self.assertEqual(assets[0]["story_family"], "relationships")
+        self.assertEqual(assets[0]["page_layout"], "bundle_story_opener")
+        self.assertEqual(assets[0]["panel_grammar"], "hero_single")
+        self.assertEqual(assets[0]["panel_count"], 1)
+        self.assertEqual(assets[0]["panel_beat_role"], "hero_single")
 
     def test_cinematic_storyboard_binds_exact_pause_and_mix_timeline(self):
         with tempfile.TemporaryDirectory() as temp:
