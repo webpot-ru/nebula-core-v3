@@ -147,7 +147,7 @@ Operational split:
 
 | Channel | Owned viewer promise | Production lane | Status |
 |---|---|---|---|
-| `acc1` Russian | compelling Reddit stories, confessions, and discussions in Russian | BUNDLE (2-5 complete stories), SAGA (one complete story), or THREAD (13-15 responses); horror is one series | daily factory active on GitHub `main`; BUNDLE/THREAD source routes and GPT-5.4 Flex transport are live-verified, while the long THREAD contract remains local-only until a dedicated canary |
+| `acc1` Russian | compelling Reddit stories, confessions, and discussions in Russian | BUNDLE (2-5 complete stories), SAGA (one complete story), or THREAD (13-15 responses); horror is one series | daily factory and the 24-30-minute long THREAD contract are merged on GitHub `main`; the segmented frozen-media regression canary passes, while live 13-15-response source availability and a new 16-20-page provider-backed episode remain unverified |
 | `acc2` English | high-concept internet case file: what happened, why people cared, what changed | evidence dossier | evidence lane required |
 | `acc3` German | precise explanation of digital systems, scams, privacy, and tech consequences | evidence dossier | evidence lane required |
 | `acc4` LATAM Spanish | intimate moral conflict with two sides and a verdict-changing turn | Reddit story card | Reddit pilot candidate |
@@ -1239,7 +1239,7 @@ ffprobe final_output.mp4
 - [x] Verified GitHub dry-run rendering (`chonkertalks-dry-run-video` artifact generated)
 
 ### 🔄 Next Steps (Priority Order)
-- [ ] **1. Review and merge the clean format-v3 integration PR, then run one separately approved no-spend segmented canary** - verify the matrix/assembly and actual MP4 before any new provider-backed daily episode.
+- [x] **1. Merge the clean format-v3 and long-THREAD integrations, then run separately approved no-spend segmented canaries** - the matrix/assembly and actual frozen-media MP4 pass on GitHub without provider or YouTube calls.
 - [ ] **2. Complete human creative and rights review for that exact hash-bound artifact** - only then use the separate release gate, initially for unlisted review.
 - [ ] **3. Validate distinct Reddit-native pilots** for `acc4` and `acc7`; keep every channel automation-disabled until its gate passes.
 - [ ] **4. Build the evidence-dossier lane** for `acc2`, `acc3`, `acc5`, and `acc6` with independent sources, original scripts, timelines, and evidence visuals.
