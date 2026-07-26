@@ -1,0 +1,151 @@
+name: Temporary acc1 OAuth Exchange
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_exact_acc1_recovery:
+        description: Exchange the approved acc1 code and return GitHub-only ciphertext
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  exchange:
+    if: ${{ inputs.confirm_exact_acc1_recovery == true }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      EXPECTED_BRANCH: codex/oauth-acc1-recovery-20260726
+      EXPECTED_CHANNEL_ID: UCNSxg53AGM4WstRjGiQdS8w
+      GITHUB_SECRETS_KEY_ID: "3380204578043523366"
+      GITHUB_SECRETS_PUBLIC_KEY: "J7NxI8sNIK1YOmxi5brfk5hgL4dXyqHLN1k6xb+toGE="
+      OAUTH_EXCHANGE_PAYLOAD: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC1 }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+
+    steps:
+      - name: Verify recovery boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "${EXPECTED_BRANCH}"
+          test -n "${OAUTH_EXCHANGE_PAYLOAD}"
+          test -n "${YOUTUBE_CLIENT_SECRET}"
+
+      - name: Install sealed-box helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install \
+            --disable-pip-version-check \
+            --quiet \
+            --user \
+            "PyNaCl==1.5.0"
+
+      - name: Exchange code and seal refresh token for GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p oauth-result
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          from nacl.public import PublicKey, SealedBox
+
+          required_scopes = {
+              "https://www.googleapis.com/auth/youtube.upload",
+              "https://www.googleapis.com/auth/youtube.readonly",
+              "https://www.googleapis.com/auth/youtube.force-ssl",
+          }
+          payload = json.loads(os.environ["OAUTH_EXCHANGE_PAYLOAD"])
+          required_payload_keys = {
+              "client_id",
+              "code",
+              "code_verifier",
+              "redirect_uri",
+          }
+          if set(payload) != required_payload_keys:
+              raise SystemExit("OAuth exchange payload has an unexpected shape")
+          if payload["redirect_uri"] != "https://developers.google.com/oauthplayground":
+              raise SystemExit("Unexpected OAuth redirect URI")
+
+          token_request = urllib.request.Request(
+              "https://oauth2.googleapis.com/token",
+              data=urllib.parse.urlencode(
+                  {
+                      "client_id": payload["client_id"],
+                      "client_secret": os.environ["YOUTUBE_CLIENT_SECRET"],
+                      "code": payload["code"],
+                      "code_verifier": payload["code_verifier"],
+                      "redirect_uri": payload["redirect_uri"],
+                      "grant_type": "authorization_code",
+                  }
+              ).encode("utf-8"),
+              method="POST",
+              headers={"Content-Type": "application/x-www-form-urlencoded"},
+          )
+          with urllib.request.urlopen(token_request, timeout=30) as response:
+              token_data = json.load(response)
+
+          refresh_token = str(token_data.get("refresh_token") or "")
+          access_token = str(token_data.get("access_token") or "")
+          granted_scopes = set(str(token_data.get("scope") or "").split())
+          if not refresh_token or not access_token:
+              raise SystemExit("Google token exchange returned incomplete credentials")
+          if not required_scopes.issubset(granted_scopes):
+              raise SystemExit("Google token exchange returned incomplete YouTube scopes")
+
+          channels_request = urllib.request.Request(
+              "https://www.googleapis.com/youtube/v3/channels"
+              "?part=id,snippet&mine=true&maxResults=1",
+              headers={"Authorization": f"Bearer {access_token}"},
+          )
+          with urllib.request.urlopen(channels_request, timeout=30) as response:
+              channels_data = json.load(response)
+          items = channels_data.get("items") or []
+          if len(items) != 1:
+              raise SystemExit("Expected exactly one authorized YouTube channel")
+          channel = items[0]
+          channel_id = str(channel.get("id") or "")
+          if channel_id != os.environ["EXPECTED_CHANNEL_ID"]:
+              raise SystemExit("Authorized Google identity is not acc1")
+
+          github_public_key = PublicKey(
+              base64.b64decode(os.environ["GITHUB_SECRETS_PUBLIC_KEY"], validate=True)
+          )
+          encrypted_value = base64.b64encode(
+              SealedBox(github_public_key).encrypt(refresh_token.encode("utf-8"))
+          ).decode("ascii")
+
+          result = {
+              "encrypted_value": encrypted_value,
+              "key_id": os.environ["GITHUB_SECRETS_KEY_ID"],
+              "channel_id": channel_id,
+              "channel_title": str(channel.get("snippet", {}).get("title") or ""),
+              "granted_scopes": sorted(granted_scopes),
+              "token_endpoint": "https://oauth2.googleapis.com/token",
+              "contains_plaintext_credentials": False,
+          }
+          Path("oauth-result/github-secret-ciphertext.json").write_text(
+              json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(
+              "OAuth exchange verified for expected acc1 channel; "
+              "artifact contains GitHub-only ciphertext."
+          )
+          PY
+
+      - name: Upload GitHub-only ciphertext
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-github-secret-ciphertext-${{ github.run_id }}
+          path: oauth-result/github-secret-ciphertext.json
+          if-no-files-found: error
+          retention-days: 1
