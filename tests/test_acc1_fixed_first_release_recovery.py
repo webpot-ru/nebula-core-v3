@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 
 from acc1_pronunciation_dictionary import load_acc1_pronunciation_dictionary
-from scripts.recover_acc1_fixed_first_release import RecoveryError, validate_recovery_artifact
+from scripts.recover_acc1_fixed_first_release import (
+    RecoveryError,
+    _restore_intro_contract,
+    validate_recovery_artifact,
+)
+from scripts.run_acc1_fixed_first_release import FIXED_COLD_OPEN_RU, STORY_CONFIG
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +18,21 @@ WORKFLOW = ROOT / ".github/workflows/acc1_fixed_first_release_recovery.yml"
 
 
 class FixedFirstReleaseRecoveryTests(unittest.TestCase):
+    @staticmethod
+    def _fixed_script() -> dict:
+        disclosure = "Это пересказ личных историй пользователей Reddit."
+        return {
+            "intro_ru": f"{FIXED_COLD_OPEN_RU} {disclosure}",
+            "truth_disclosure_ru": disclosure,
+            "stories": [{
+                "title_ru": STORY_CONFIG[0]["title"],
+                "source_snapshot": {
+                    "source_id": STORY_CONFIG[0]["post_id"],
+                    "title": STORY_CONFIG[0]["title"],
+                },
+            }],
+        }
+
     def _fixture(self, root: Path, *, submitted_count: int = 1) -> None:
         (root / "provider-attempts").mkdir(parents=True)
         (root / "tts/segments").mkdir(parents=True)
@@ -98,6 +118,28 @@ class FixedFirstReleaseRecoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(RecoveryError, "duplicate"):
                 validate_recovery_artifact(root)
 
+    def test_restores_exact_source_bound_intro_without_changing_spoken_text(self):
+        script = self._fixed_script()
+        spoken = script["intro_ru"]
+
+        self.assertTrue(_restore_intro_contract(script))
+        self.assertEqual(script["intro_ru"], spoken)
+        self.assertEqual(
+            script["intro_contract"]["cold_open"],
+            {
+                "text": FIXED_COLD_OPEN_RU,
+                "source_id": STORY_CONFIG[0]["post_id"],
+                "source_quote": STORY_CONFIG[0]["title"],
+            },
+        )
+        self.assertFalse(_restore_intro_contract(script))
+
+    def test_intro_recovery_rejects_spoken_text_drift(self):
+        script = self._fixed_script()
+        script["intro_ru"] += " Новые неподтверждённые слова."
+        with self.assertRaisesRegex(RecoveryError, "frozen cold open"):
+            _restore_intro_contract(script)
+
     def test_registered_workflow_is_segmented_and_has_no_submission_secret(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn('default: "30102591330"', workflow)
@@ -109,6 +151,7 @@ class FixedFirstReleaseRecoveryTests(unittest.TestCase):
         self.assertIn("2 <= len(indices) <= 16", workflow)
         self.assertIn("new_image_calls\"] == 0", workflow)
         self.assertIn("new_ai33_task_submissions\"] == 0", workflow)
+        self.assertEqual(workflow.count('intro_contract_restored"] is True'), 2)
         self.assertNotIn("VECTORENGINE_API_KEY", workflow)
         self.assertNotIn("YOUTUBE_", workflow)
         self.assertEqual(workflow.count("secrets.AI33_API_KEY"), 1)

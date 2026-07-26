@@ -99,6 +99,7 @@ jobs:
           assert result["ai33_task_submissions"] == 61
           assert result["new_image_calls"] == 0
           assert result["new_ai33_task_submissions"] == 0
+          assert result["intro_contract_restored"] is True
           assert 1 <= result["existing_tasks_to_poll"] <= 61
           assert result["youtube_called"] is False
           assert result["publication_authorized"] is False
@@ -242,6 +243,7 @@ jobs:
           assert result["ai33_task_submissions"] == 61
           assert result["new_image_calls"] == 0
           assert result["new_ai33_task_submissions"] == 0
+          assert result["intro_contract_restored"] is True
           assert result["render_segment_count"] == plan["segment_count"]
           assert result["render_strategy"] == "hyperframes_segmented_matrix"
           assert result["temporary_frame_workspaces_removed"] is True

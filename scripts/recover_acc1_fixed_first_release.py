@@ -27,6 +27,7 @@ from scripts.run_acc1_fixed_first_release import (
     IMAGE_CAP,
     PROFILE_ID,
     TTS_CAP,
+    _fixed_intro_contract,
     _validate_segment_plan,
     sha256_file,
     write_json,
@@ -133,10 +134,30 @@ def _refuse_post(**_: Any) -> dict[str, Any]:
     raise RecoveryError("recovery is forbidden from creating a new AI33 task")
 
 
+def _restore_intro_contract(script: dict[str, Any]) -> bool:
+    stories = script.get("stories") or []
+    if not stories or not isinstance(stories[0], dict):
+        raise RecoveryError("fixed release recovery requires its first source-bound story")
+    try:
+        expected = _fixed_intro_contract(
+            intro_ru=str(script.get("intro_ru") or ""),
+            truth_disclosure_ru=str(script.get("truth_disclosure_ru") or ""),
+            first_story=stories[0],
+        )
+    except RuntimeError as exc:
+        raise RecoveryError(str(exc)) from exc
+    existing = script.get("intro_contract")
+    if existing is not None and existing != expected:
+        raise RecoveryError("saved intro contract differs from the fixed-input source binding")
+    script["intro_contract"] = expected
+    return existing is None
+
+
 def prepare_segmented_recovery(root: Path, *, source_run_id: str) -> dict[str, Any]:
     root = root.resolve()
     preflight = validate_recovery_artifact(root)
     script = _read(root / "episode-script.json")
+    intro_contract_restored = _restore_intro_contract(script)
     profile = resolve_narration_profile(PROFILE_ID, pillar_id="relationships_family")
     tts_state = run_compilation_tts(
         script,
@@ -197,6 +218,7 @@ def prepare_segmented_recovery(root: Path, *, source_run_id: str) -> dict[str, A
         "segment_max_duration_sec": segment_plan["max_duration_sec"],
         "new_image_calls": 0,
         "new_ai33_task_submissions": 0,
+        "intro_contract_restored": intro_contract_restored,
         "youtube_called": False,
         "publication_authorized": False,
     }

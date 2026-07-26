@@ -60,6 +60,9 @@ SCENE_IMAGE_COUNT = 68
 TTS_CAP = 61
 MIN_RENDER_SEGMENTS = 2
 MAX_RENDER_SEGMENTS = 16
+FIXED_COLD_OPEN_RU = (
+    "Моя сестра забеременела от моего мужа, но семья требует, чтобы я её простила."
+)
 
 STORY_CONFIG = (
     {
@@ -125,6 +128,37 @@ def _section(text: str, heading: str, next_heading: str | None) -> str:
     return text[start:end].strip()
 
 
+def _fixed_intro_contract(
+    *,
+    intro_ru: str,
+    truth_disclosure_ru: str,
+    first_story: dict,
+) -> dict:
+    snapshot = first_story.get("source_snapshot") or {}
+    source_id = str(snapshot.get("source_id") or snapshot.get("post_id") or "").strip()
+    source_quote = str(snapshot.get("title") or first_story.get("title_ru") or "").strip()
+    expected_intro = f"{FIXED_COLD_OPEN_RU} {truth_disclosure_ru}".strip()
+    if intro_ru != expected_intro:
+        raise RuntimeError("fixed release intro no longer matches its frozen cold open")
+    if source_id != STORY_CONFIG[0]["post_id"] or source_quote != STORY_CONFIG[0]["title"]:
+        raise RuntimeError("fixed release cold-open source binding drifted")
+    return {
+        "version": 1,
+        "cold_open": {
+            "text": FIXED_COLD_OPEN_RU,
+            "source_id": source_id,
+            "source_quote": source_quote,
+        },
+        "parts": [
+            {"kind": "cold_open", "text": FIXED_COLD_OPEN_RU},
+            {"kind": "truth_disclosure", "text": truth_disclosure_ru},
+        ],
+        "intro_ru": intro_ru,
+        "legacy_fixed_input_recovery": True,
+        "verified_supporter_manifest": None,
+    }
+
+
 def build_script() -> dict:
     markdown = NARRATION_PATH.read_text(encoding="utf-8")
     plan = json.loads(PLAN_PATH.read_text(encoding="utf-8"))
@@ -167,13 +201,16 @@ def build_script() -> dict:
             },
         })
     disclosure = truth_disclosure_ru({"unverified_personal_account"}, source_count=4)
+    intro_ru = f"{FIXED_COLD_OPEN_RU} {disclosure}"
     script = {
         "version": 1,
         "episode_format": "BUNDLE",
         "title_ru": "Четыре семьи, которые требуют слишком многого",
-        "intro_ru": (
-            "Моя сестра забеременела от моего мужа, но семья требует, чтобы я её простила. "
-            + disclosure
+        "intro_ru": intro_ru,
+        "intro_contract": _fixed_intro_contract(
+            intro_ru=intro_ru,
+            truth_disclosure_ru=disclosure,
+            first_story=stories[0],
         ),
         "truth_disclosure_ru": disclosure,
         "mid_story_cta_ru": "Если вам близок такой формат, подпишитесь на Chonker Talks.",
