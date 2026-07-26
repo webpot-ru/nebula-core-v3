@@ -38,9 +38,19 @@ Last updated: 2026-07-26
   exactly five completed pages from run `30063115374` plus existing narration
   from run `29975009888`, with 2–5 independent render jobs, at most four in
   parallel. Both run IDs, artifact names, page count, zero retry count and
-  no-spend receipts fail closed. A single explicitly approved retry remains
-  required before this merged format-v3 path can be called GitHub-render
-  verified.
+  no-spend receipts fail closed.
+- The single approved retry, run `30206166510` at code commit `06f9b91`,
+  completed successfully: preparation passed, four independent render jobs
+  passed, and deterministic assembly produced a 1920x1080 H.264/AAC 30 fps
+  review MP4 lasting `104.465011` seconds. The result reports five reused image
+  calls, zero source retries, zero new image/AI33/provider calls and
+  `youtube_called=false`. GitHub uploaded artifact
+  `acc1-segmented-no-spend-canary-30206166510` (71,177,161 artifact bytes);
+  the contained MP4 is 71,145,990 bytes with SHA-256
+  `221f1ae684c3e773523d9284245f6a0376e32ecdc14816c5557d816eae563ea3`.
+  The segmented canary path is therefore GitHub-run and artifact-metadata
+  verified. The artifact was not downloaded locally, and this technical proof
+  is not a publication or provider-spend authorization.
 
 ## 2026-07-26 — First-release YouTube package prepared locally
 
