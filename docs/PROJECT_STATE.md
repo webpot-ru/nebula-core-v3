@@ -2,12 +2,13 @@
 
 Last updated: 2026-07-26
 
-## 2026-07-26 — Clean acc1 format-v3 integration prepared from current main
+## 2026-07-26 — acc1 format-v3 integration merged; five-page canary recovery
 
-- Clean branch `codex/acc1-format-v3-integration` starts from
-  `origin/main@16d990b`. It preserves the merged first-release private-upload
-  package and the current paid-resume/source-checkpoint architecture instead
-  of reopening the old 159-behind integration branch.
+- PR `#79` merged the clean `codex/acc1-format-v3-integration` branch as
+  `6b4d1f9c30cd0dd9efbb5e31cfb7926f61001596`. It preserves the merged
+  first-release private-upload package and the current
+  paid-resume/source-checkpoint architecture instead of reopening the old
+  159-behind integration branch.
 - New daily acc1 episodes are locked to `editorial_motion_v1` and
   `acc1_format_visual_system_v3`. `BUNDLE`, `SAGA` and `THREAD` share one
   adult illustrated graphic-novel universe but use separate page grammars,
@@ -26,12 +27,30 @@ Last updated: 2026-07-26
   stories; SAGA and THREAD keep their own format-appropriate boundaries and
   voice roles. The contract hash is propagated through TTS, pause/audio-mix,
   scene, creative-review and release evidence.
-- Full local verification currently passes 600 tests plus Python compile and
-  static workflow-contract checks. This branch has not been merged and no
-  GitHub workflow, Reddit read,
-  OpenAI, VectorEngine, AI33 or YouTube action was performed. The integration
-  is therefore local/code-verified only; a separately approved GitHub canary
-  is still required before calling it render-verified.
+- Full local verification for the merged integration passed 600 tests plus
+  Python compile and static workflow-contract checks. The first dedicated
+  no-spend canary, run `30205233819`, stopped in `segmented_prepare` before
+  any render matrix job because its workflow had accidentally selected the
+  obsolete four-page source `29975009888`; the new semantic camera guard
+  correctly rejected those repeated old camera paths. No Reddit, OpenAI,
+  VectorEngine, AI33, other provider or YouTube action ran.
+- The recovery restores the previously GitHub-proven two-artifact topology:
+  exactly five completed pages from run `30063115374` plus existing narration
+  from run `29975009888`, with 2–5 independent render jobs, at most four in
+  parallel. Both run IDs, artifact names, page count, zero retry count and
+  no-spend receipts fail closed.
+- The single approved retry, run `30206166510` at code commit `06f9b91`,
+  completed successfully: preparation passed, four independent render jobs
+  passed, and deterministic assembly produced a 1920x1080 H.264/AAC 30 fps
+  review MP4 lasting `104.465011` seconds. The result reports five reused image
+  calls, zero source retries, zero new image/AI33/provider calls and
+  `youtube_called=false`. GitHub uploaded artifact
+  `acc1-segmented-no-spend-canary-30206166510` (71,177,161 artifact bytes);
+  the contained MP4 is 71,145,990 bytes with SHA-256
+  `221f1ae684c3e773523d9284245f6a0376e32ecdc14816c5557d816eae563ea3`.
+  The segmented canary path is therefore GitHub-run and artifact-metadata
+  verified. The artifact was not downloaded locally, and this technical proof
+  is not a publication or provider-spend authorization.
 
 ## 2026-07-26 — First-release YouTube package prepared locally
 

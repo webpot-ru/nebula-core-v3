@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Exercise the production segmented renderer with frozen acc1 media only.
 
-The GitHub workflow downloads an existing four-page v3 artifact and its
-existing narration.  Preparation copies that immutable source into a canonical
-artifact root, chooses a short canary-only render ceiling that guarantees more
-than one matrix job, and records checksums.  Rendering and assembly never call
-VectorEngine, AI33, Reddit, OpenAI, Gemini or YouTube.
+The GitHub workflow downloads an existing five-page v3 artifact and its
+separately retained narration. Preparation copies those immutable sources into
+a canonical artifact root, chooses a short canary-only render ceiling that
+guarantees more than one matrix job, and records checksums. Rendering and
+assembly never call VectorEngine, AI33, Reddit, OpenAI, Gemini or YouTube.
 """
 
 from __future__ import annotations
@@ -33,15 +33,18 @@ from compilation_editorial_motion_renderer import (
     preflight_editorial_motion_storyboard,
 )
 from scripts.render_acc1_hyperframes_realistic_test import (
+    repair_scene_bindings,
     resolve_existing_audio,
     resolve_generated_storyboard,
     verify_paid_generation_receipt,
 )
 
 
-SOURCE_RUN_ID = "29975009888"
-SOURCE_ARTIFACT = f"acc1-format-v3-canary-{SOURCE_RUN_ID}"
-EXPECTED_PAGE_COUNT = 4
+SOURCE_RUN_ID = "30063115374"
+SOURCE_ARTIFACT = f"acc1-panel-grammar-canary-{SOURCE_RUN_ID}"
+AUDIO_RUN_ID = "29975009888"
+AUDIO_ARTIFACT = f"acc1-format-v3-canary-{AUDIO_RUN_ID}"
+EXPECTED_PAGE_COUNT = 5
 MIN_SEGMENTS = 2
 MAX_SEGMENTS = EXPECTED_PAGE_COUNT
 PREPARATION_FILE = "segmented-canary-preparation.json"
@@ -119,15 +122,19 @@ def validate_segment_plan(plan: dict[str, Any]) -> list[int]:
 
 def prepare(
     source_root: Path,
+    audio_root: Path,
     workdir: Path,
     *,
     source_run_id: str = SOURCE_RUN_ID,
     source_artifact: str = SOURCE_ARTIFACT,
 ) -> dict[str, Any]:
     source_root = source_root.resolve()
+    audio_root = audio_root.resolve()
     workdir = workdir.resolve()
     if source_run_id != SOURCE_RUN_ID or source_artifact != SOURCE_ARTIFACT:
         raise RuntimeError("segmented canary is locked to the approved frozen artifact")
+    if source_root == audio_root:
+        raise RuntimeError("segmented canary requires separate frozen page and audio roots")
     source_storyboard_path, storyboard = resolve_generated_storyboard(
         source_root,
         expected_page_count=EXPECTED_PAGE_COUNT,
@@ -136,6 +143,7 @@ def prepare(
         source_storyboard_path,
         expected_page_count=EXPECTED_PAGE_COUNT,
     )
+    storyboard = repair_scene_bindings(storyboard)
     if workdir == source_storyboard_path.parent or workdir in source_storyboard_path.parents:
         raise RuntimeError("prepared output must be separate from the downloaded source")
     workdir.mkdir(parents=True, exist_ok=True)
@@ -143,7 +151,7 @@ def prepare(
 
     storyboard_path = _write_object(workdir / STORYBOARD_FILE, storyboard)
     audio_path = resolve_existing_audio(
-        source_root,
+        audio_root,
         storyboard=storyboard,
         destination=workdir / AUDIO_FILE,
     )
@@ -163,6 +171,8 @@ def prepare(
         "status": "SEGMENTED_NO_SPEND_PREPARED",
         "source_run_id": source_run_id,
         "source_artifact": source_artifact,
+        "audio_run_id": AUDIO_RUN_ID,
+        "audio_artifact": AUDIO_ARTIFACT,
         "source_storyboard_sha256": _sha256(source_storyboard_path),
         "storyboard": STORYBOARD_FILE,
         "storyboard_sha256": _sha256(storyboard_path),
@@ -202,6 +212,8 @@ def _load_preparation(
         preparation.get("status") != "SEGMENTED_NO_SPEND_PREPARED"
         or preparation.get("source_run_id") != SOURCE_RUN_ID
         or preparation.get("source_artifact") != SOURCE_ARTIFACT
+        or preparation.get("audio_run_id") != AUDIO_RUN_ID
+        or preparation.get("audio_artifact") != AUDIO_ARTIFACT
         or preparation.get("storyboard_sha256") != _sha256(storyboard_path)
         or preparation.get("segment_plan_sha256") != _sha256(plan_path)
         or preparation.get("audio_sha256") != _sha256(audio)
@@ -309,6 +321,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workdir", required=True)
     parser.add_argument("--source-root")
+    parser.add_argument("--audio-root")
     parser.add_argument("--source-run-id", default=SOURCE_RUN_ID)
     parser.add_argument("--source-artifact", default=SOURCE_ARTIFACT)
     actions = parser.add_mutually_exclusive_group(required=True)
@@ -322,20 +335,21 @@ def main() -> int:
     if args.prepare:
         if not args.confirm_no_spend_existing_media:
             raise SystemExit("preparation requires --confirm-no-spend-existing-media")
-        if not args.source_root:
-            raise SystemExit("preparation requires --source-root")
+        if not args.source_root or not args.audio_root:
+            raise SystemExit("preparation requires --source-root and --audio-root")
         result = prepare(
             Path(args.source_root),
+            Path(args.audio_root),
             workdir,
             source_run_id=args.source_run_id,
             source_artifact=args.source_artifact,
         )
     elif args.render_segment is not None:
-        if args.source_root or args.confirm_no_spend_existing_media:
+        if args.source_root or args.audio_root or args.confirm_no_spend_existing_media:
             raise SystemExit("render jobs accept only the frozen prepared artifact")
         result = render_segment(workdir, args.render_segment)
     else:
-        if args.source_root or args.confirm_no_spend_existing_media:
+        if args.source_root or args.audio_root or args.confirm_no_spend_existing_media:
             raise SystemExit("assembly accepts only the frozen prepared artifact")
         result = assemble(workdir)
     print(json.dumps(result, ensure_ascii=False, indent=2))

@@ -18,7 +18,18 @@
     "canary_workflow": ".github/workflows/acc1_segmented_no_spend_canary.yml",
     "canary_render_strategy": "hyperframes_segmented_matrix",
     "canary_segment_count_min": 2,
-    "canary_segment_count_max": 4,
+    "canary_segment_count_max": 5,
+    "canary_frozen_media": {
+      "pages": {
+        "run_id": "30063115374",
+        "artifact": "acc1-panel-grammar-canary-30063115374",
+        "page_count": 5
+      },
+      "audio": {
+        "run_id": "29975009888",
+        "artifact": "acc1-format-v3-canary-29975009888"
+      }
+    },
     "matrix_max_parallel": 4,
     "required_segmented_actions": [
       "build_editorial_render_segment_plan(",

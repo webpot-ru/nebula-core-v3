@@ -55,6 +55,17 @@ def validate_contract(*, require_production_ready: bool = False) -> dict:
         checked_assets[name] = actual
 
     renderer = contract.get("renderer", {})
+    expected_canary_media = {
+        "pages": {
+            "run_id": "30063115374",
+            "artifact": "acc1-panel-grammar-canary-30063115374",
+            "page_count": 5,
+        },
+        "audio": {
+            "run_id": "29975009888",
+            "artifact": "acc1-format-v3-canary-29975009888",
+        },
+    }
     if (
         renderer.get("production_render_strategy")
         != "bounded_segments_then_assembly"
@@ -62,7 +73,8 @@ def validate_contract(*, require_production_ready: bool = False) -> dict:
         or renderer.get("canary_render_strategy")
         != "hyperframes_segmented_matrix"
         or renderer.get("canary_segment_count_min") != 2
-        or renderer.get("canary_segment_count_max") != 4
+        or renderer.get("canary_segment_count_max") != 5
+        or renderer.get("canary_frozen_media") != expected_canary_media
         or renderer.get("matrix_max_parallel") != 4
     ):
         raise StyleContractError("segmented production limits drifted")
@@ -121,6 +133,11 @@ def validate_contract(*, require_production_ready: bool = False) -> dict:
         "matrix: ${{ fromJSON(needs.segmented_prepare.outputs.matrix) }}",
         "max-parallel: 4",
         "merge-multiple: true",
+        "acc1-panel-grammar-canary-30063115374",
+        "acc1-format-v3-canary-29975009888",
+        "--audio-root",
+        "2 <= len(indices) <= 5",
+        "2 <= result[\"render_segment_count\"] <= 5",
     ]
     missing_canary_workflow_tokens = [
         token

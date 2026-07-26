@@ -2,6 +2,11 @@ import unittest
 from pathlib import Path
 
 from scripts.run_acc1_segmented_no_spend_canary import (
+    AUDIO_ARTIFACT,
+    AUDIO_RUN_ID,
+    EXPECTED_PAGE_COUNT,
+    SOURCE_ARTIFACT,
+    SOURCE_RUN_ID,
     choose_canary_segment_ceiling,
     validate_segment_plan,
 )
@@ -30,7 +35,7 @@ class Acc1SegmentedNoSpendCanaryTests(unittest.TestCase):
             ],
         }
         self.assertEqual(validate_segment_plan(plan), [1, 2, 3])
-        with self.assertRaisesRegex(RuntimeError, "2-4"):
+        with self.assertRaisesRegex(RuntimeError, "2-5"):
             validate_segment_plan({
                 **plan,
                 "segment_count": 1,
@@ -48,7 +53,13 @@ class Acc1SegmentedNoSpendCanaryTests(unittest.TestCase):
         )
         self.assertIn("--render-segment", workflow)
         self.assertIn("--assemble", workflow)
-        self.assertIn("2 <= len(indices) <= 4", workflow)
+        self.assertIn("2 <= len(indices) <= 5", workflow)
+        self.assertIn("--audio-root", workflow)
+        self.assertIn(SOURCE_RUN_ID, workflow)
+        self.assertIn(SOURCE_ARTIFACT, workflow)
+        self.assertIn(AUDIO_RUN_ID, workflow)
+        self.assertIn(AUDIO_ARTIFACT, workflow)
+        self.assertEqual(EXPECTED_PAGE_COUNT, 5)
         self.assertIn("merge-multiple: true", workflow)
         no_spend_jobs = workflow.split("\n  segmented_prepare:\n", 1)[1]
         for forbidden in (
