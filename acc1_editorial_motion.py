@@ -286,6 +286,7 @@ def build_editorial_motion_contract(
 
         if segment_kind == "story":
             packs = story_packs[segment_id]
+            metadata_segment_id = segment_id
             scene_count = (
                 len(packs)
                 if style_profile in {
@@ -313,12 +314,18 @@ def build_editorial_motion_contract(
                 )
             scene_count = 1
             if segment_kind == "intro":
-                packs = [story_packs[story_ids[0]][0]]
-            elif segment_kind in {"mid_story_cta", "outro"}:
-                packs = [story_packs[story_ids[-1]][-1]]
+                metadata_segment_id = story_ids[0]
+                packs = [story_packs[metadata_segment_id][0]]
+            elif segment_kind == "mid_story_cta":
+                metadata_segment_id = story_ids[-1]
+                packs = [story_packs[metadata_segment_id][-1]]
+            elif segment_kind == "outro":
+                metadata_segment_id = story_ids[-1]
+                packs = [story_packs[metadata_segment_id][-1]]
             elif segment_kind == "transition":
                 position = min(completed_story_count, len(story_ids) - 1)
-                packs = [story_packs[story_ids[position]][0]]
+                metadata_segment_id = story_ids[position]
+                packs = [story_packs[metadata_segment_id][0]]
             else:
                 raise EditorialMotionError(f"unsupported segment kind {segment_kind}")
 
@@ -362,7 +369,7 @@ def build_editorial_motion_contract(
                 module = "dark_semantic_reveal"
             scene_id = f"{segment_id}-motion-{index + 1:03d}"
             text = text_parts[index]
-            metadata = story_metadata.get(segment_id, {})
+            metadata = story_metadata.get(metadata_segment_id, {})
             scene_titles = metadata.get("scene_titles")
             if scene_titles is not None and (
                 not isinstance(scene_titles, list)
@@ -379,6 +386,18 @@ def build_editorial_motion_contract(
                 "kind": "editorial_motion_scene",
                 "presentation": segment_kind,
                 "story_index": metadata.get("story_index"),
+                "format_id": metadata.get("format_id"),
+                "scene_number": (
+                    metadata.get("format_scene_number") or index + 1
+                ),
+                "scene_count": (
+                    metadata.get("format_scene_count") or scene_count
+                ),
+                "source_role": metadata.get("source_role"),
+                "thread_response_number": metadata.get(
+                    "thread_response_number",
+                ),
+                "editorial_role": metadata.get("editorial_role"),
                 "voice_role": str(segment.get("voice_role") or ""),
                 "start_sec": round(start, 3),
                 "end_sec": round(end, 3),

@@ -45,6 +45,7 @@ from acc1_episode_packaging import generate_packaging, validate_packaging
 from acc1_narration_profiles import (
     NARRATION_PROFILE_IDS_BY_PILLAR,
     NarrationProfileError,
+    resolve_narration_boundary_contract,
     resolve_narration_profile,
 )
 from acc1_pronunciation_dictionary import (
@@ -63,6 +64,8 @@ from acc1_topic_playoff import (
 from acc1_visual_contract import (
     CINEMATIC_STORY_MODE,
     DEFAULT_VISUAL_MODE,
+    EDITORIAL_MOTION_MODE,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     VISUAL_MODES,
     resolve_visual_mode,
 )
@@ -421,7 +424,21 @@ def _validate_base_candidate_pool(
             )
 
 
-def _required_image_calls(format_id: str, source_count: int) -> int:
+def _required_image_calls(
+    format_id: str,
+    source_count: int,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
+) -> int:
+    if visual_mode == EDITORIAL_MOTION_MODE:
+        if format_id == "THREAD":
+            # One two-plate visual pack for the prompt and every selected
+            # response, plus the separately generated thumbnail.
+            return source_count * 2 + 1
+        # Paid preflight only proves a safe floor. The exact narration-bound
+        # plan is calculated before the first image call and may require a
+        # higher explicitly leased cap, up to the canonical 69-call ceiling.
+        scene_count = 4 if format_id == "SAGA" else 2 * source_count
+        return scene_count * 2 + 1
     if format_id == "SAGA":
         scene_count = 5
     elif format_id == "BUNDLE":
@@ -607,6 +624,7 @@ def _thread_source(source: dict[str, Any], *, role: str, plan: dict[str, Any], p
         "depends_on_screenshot_or_link": False,
         "fictional_as_real": False,
         "score": source.get("score"),
+        "editorial_role": source.get("editorial_role"),
         "num_comments": None,
         "source_media": [],
         "source_discovery_signals": {
@@ -1556,6 +1574,56 @@ def _transition_after(format_id: str, index: int, source_count: int) -> str:
     return ""
 
 
+def _visual_identity_contract(
+    *,
+    format_id: str,
+    source: dict[str, Any],
+    source_index: int,
+    source_count: int,
+) -> str:
+    """Bind format-specific visual continuity without inventing source facts."""
+
+    source_id = str(source.get("source_id") or source.get("post_id") or source_index)
+    identity_token = hashlib.sha256(
+        f"{format_id}\n{source_index}\n{source_id}".encode("utf-8"),
+    ).hexdigest()[:12]
+    if format_id == "SAGA":
+        return (
+            f"SAGA identity lock {identity_token}: this is one continuous illustrated story. "
+            "Keep every source-supported recurring adult, face, body shape, hair, wardrobe, "
+            "location, prop and time-of-day relationship stable across all page packs. "
+            "Do not invent age, ethnicity, kinship, occupation, danger, evidence or emotion."
+        )
+    if format_id == "BUNDLE":
+        return (
+            f"BUNDLE mini-comic {source_index} of {source_count}, identity lock {identity_token}: "
+            "keep this source's supported adult cast, silhouettes, wardrobe, location and props "
+            "stable inside this mini-comic only. Give it a distinct supporting accent and panel "
+            "rhythm, and never reuse its faces, clothing or story motif in another story. "
+            "Do not invent demographic, relationship, evidence or outcome details."
+        )
+    source_role = str(
+        source.get("source_role") or source.get("role") or "response",
+    ).lower()
+    if source_role == "prompt":
+        return (
+            f"THREAD prompt anchor {identity_token}: create one neutral community-question anchor "
+            "from only the prompt's supported setting and objects. Avoid assigning a specific "
+            "identity, demographic or personal backstory that the prompt does not state. Keep the "
+            "paired plates coherent and visibly different from every response vignette."
+        )
+    response_number = max(1, source_index - 1)
+    editorial_role = str(source.get("editorial_role") or "distinct viewpoint")
+    return (
+        f"THREAD response {response_number} of {max(1, source_count - 1)}, identity lock "
+        f"{identity_token}, editorial role {editorial_role}: use one anonymous illustrative adult "
+        "or source-supported group and one compact situation unique to this response. Keep the "
+        "paired plates consistent, but change face, silhouette, pose, wardrobe palette, environment "
+        "fragment and emotional function from every other response. Do not infer ethnicity, age, "
+        "occupation, relationship, evidence or outcome beyond the exact response."
+    )
+
+
 def _translate_script(
     winner: dict[str, Any],
     *,
@@ -1590,6 +1658,12 @@ def _translate_script(
                 daily_plan["format"], index, len(sources),
             ),
             "narration_role": role,
+            "visual_identity_contract": _visual_identity_contract(
+                format_id=str(daily_plan["format"]),
+                source=source,
+                source_index=index,
+                source_count=len(sources),
+            ),
             "source_snapshot": copy.deepcopy(source),
             "translation_audit": translated["translation_audit"],
             "ending_preserved_evidence": source["body"][-600:].strip(),
@@ -1735,6 +1809,7 @@ def _paid_candidate_cap_contract(
     openai_token_cap: int,
     image_call_cap: int,
     ai33_call_cap: int,
+    visual_mode: str = DEFAULT_VISUAL_MODE,
 ) -> dict[str, int]:
     openai_cap = _positive_cap(openai_call_cap, "openai_call_cap", maximum=256)
     openai_tokens = _positive_cap(openai_token_cap, "openai_token_cap", maximum=1_000_000)
@@ -1743,7 +1818,10 @@ def _paid_candidate_cap_contract(
     _validate_base_candidate_pool(candidates, daily_plan)
     source_counts = [len(item.get("sources") or []) for item in candidates]
     format_id = str(daily_plan["format"])
-    image_floor = max(_required_image_calls(format_id, count) for count in source_counts)
+    image_floor = max(
+        _required_image_calls(format_id, count, visual_mode)
+        for count in source_counts
+    )
     tts_ceiling = _required_ai33_calls(candidates, format_id)
     required_openai_calls = _required_openai_calls(candidates)
     if openai_cap < required_openai_calls:
@@ -1795,9 +1873,18 @@ def _paid_preflight_contract(
         and str(daily_plan.get("format") or "").upper() == "THREAD"
     ):
         raise EpisodeFactoryError(
-            "cinematic_story_v1 supports SAGA/BUNDLE; THREAD requires its "
-            "separate response-card hybrid contract",
+            "cinematic_story_v1 supports SAGA/BUNDLE; THREAD uses the approved "
+            "editorial_motion_v1 response-vignette contract",
         )
+    if resolved_visual_mode == EDITORIAL_MOTION_MODE:
+        style_profile = str(
+            daily_plan.get("editorial_motion_style_profile") or "",
+        ).strip()
+        if style_profile != FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
+            raise EpisodeFactoryError(
+                "daily plan editorial_motion_style_profile must use the "
+                "approved v3 format system",
+            )
 
     pillar_id = str(daily_plan.get("pillar") or "").strip()
     try:
@@ -1821,6 +1908,7 @@ def _paid_preflight_contract(
         openai_token_cap=openai_token_cap,
         image_call_cap=image_call_cap,
         ai33_call_cap=ai33_call_cap,
+        visual_mode=resolved_visual_mode,
     )
     try:
         get_vectorengine_api_key()
@@ -2195,9 +2283,19 @@ def run_produce_stage(
         and str(daily_plan.get("format") or "").upper() == "THREAD"
     ):
         raise EpisodeFactoryError(
-            "cinematic_story_v1 supports SAGA/BUNDLE; THREAD requires its "
-            "separate response-card hybrid contract",
+            "cinematic_story_v1 supports SAGA/BUNDLE; THREAD uses the approved "
+            "editorial_motion_v1 response-vignette contract",
         )
+    style_profile: str | None = None
+    if resolved_visual_mode == EDITORIAL_MOTION_MODE:
+        style_profile = str(
+            daily_plan.get("editorial_motion_style_profile") or "",
+        ).strip()
+        if style_profile != FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
+            raise EpisodeFactoryError(
+                "daily plan editorial_motion_style_profile must use the "
+                "approved v3 format system",
+            )
     pillar_id = str(daily_plan.get("pillar") or "").strip()
     narration_profile_id = NARRATION_PROFILE_IDS_BY_PILLAR.get(pillar_id, "")
     try:
@@ -2328,8 +2426,18 @@ def run_produce_stage(
         raise EpisodeFactoryError("topic playoff winner is absent from bound finalists")
     if playoff["winner"].get("candidate_contract_sha256") != canonical_hash(winner):
         raise EpisodeFactoryError("topic playoff winner contract does not match the exact finalist")
+    try:
+        narration_boundary_contract = resolve_narration_boundary_contract(
+            narration_profile,
+            episode_format=daily_plan["format"],
+            source_count=len(winner["sources"]),
+        )
+    except NarrationProfileError as exc:
+        raise EpisodeFactoryError(str(exc)) from exc
     required_image_calls = _required_image_calls(
-        str(daily_plan["format"]), len(winner["sources"]),
+        str(daily_plan["format"]),
+        len(winner["sources"]),
+        resolved_visual_mode,
     )
     if images.cap < required_image_calls:
         raise EpisodeFactoryError(
@@ -2371,6 +2479,12 @@ def run_produce_stage(
             "comment_voice_id": COMMENT_VOICE_ID,
             "narration_profile_id": narration_profile["profile_id"],
             "narration_profile_sha256": narration_profile["profile_sha256"],
+            "narration_boundary_contract": copy.deepcopy(
+                narration_boundary_contract,
+            ),
+            "narration_boundary_contract_sha256": narration_boundary_contract[
+                "narration_boundary_contract_sha256"
+            ],
             "speed": narration_profile["speed"],
             "voice_settings_json": narration_profile["voice_settings_json"],
             "emotion_tags": False,
@@ -2405,8 +2519,13 @@ def run_produce_stage(
         checkpoint_dir=workdir / "translation-checkpoints",
     )
     script["visual_mode"] = resolved_visual_mode
+    if style_profile:
+        script["style_profile"] = style_profile
     script["narration_profile_id"] = narration_profile["profile_id"]
     script["narration_profile_sha256"] = narration_profile["profile_sha256"]
+    script["narration_boundary_contract"] = copy.deepcopy(
+        narration_boundary_contract,
+    )
     script["pillar"] = pillar_id
     if resolved_visual_mode == DEFAULT_VISUAL_MODE:
         try:
@@ -2493,6 +2612,9 @@ def run_produce_stage(
         "visual_mode": resolved_visual_mode,
         "narration_profile_id": narration_profile["profile_id"],
         "narration_profile_sha256": narration_profile["profile_sha256"],
+        "narration_boundary_contract_sha256": narration_boundary_contract[
+            "narration_boundary_contract_sha256"
+        ],
         "assets": scene_assets,
         "publication_authorized": False,
     })
@@ -2572,7 +2694,11 @@ def run_produce_stage(
     storyboard = build_storyboard(
         script,
         workdir,
-        background_video=background_path.relative_to(workdir),
+        background_video=(
+            background_path.relative_to(workdir)
+            if background_path is not None
+            else None
+        ),
         tts_state=tts_state,
         visual_mode=resolved_visual_mode,
         pause_map=pause_map,
@@ -2647,6 +2773,9 @@ def run_produce_stage(
     creative_review["narration_profile_sha256"] = narration_profile[
         "profile_sha256"
     ]
+    creative_review["narration_boundary_contract_sha256"] = (
+        narration_boundary_contract["narration_boundary_contract_sha256"]
+    )
     creative_review["audio_sha256"] = audio_mix_report["output_sha256"]
     creative_review["pause_map_sha256"] = pause_map["pause_map_sha256"]
     creative_review["audio_mix_report_sha256"] = audio_mix_report[
@@ -2714,6 +2843,9 @@ def run_produce_stage(
         "visual_mode": resolved_visual_mode,
         "narration_profile_id": narration_profile["profile_id"],
         "narration_profile_sha256": narration_profile["profile_sha256"],
+        "narration_boundary_contract_sha256": narration_boundary_contract[
+            "narration_boundary_contract_sha256"
+        ],
         "winner_candidate_id": winner_id,
         "episode_plan_sha256": episode_plan["episode_plan_sha256"],
         "daily_plan_sha256": episode_plan["daily_plan_sha256"],
@@ -2763,6 +2895,9 @@ def run_produce_stage(
         "visual_mode": resolved_visual_mode,
         "narration_profile_id": narration_profile["profile_id"],
         "narration_profile_sha256": narration_profile["profile_sha256"],
+        "narration_boundary_contract_sha256": narration_boundary_contract[
+            "narration_boundary_contract_sha256"
+        ],
         "episode_plan_sha256": episode_plan["episode_plan_sha256"],
         "release_candidate_manifest_sha256": release_manifest["release_candidate_manifest_sha256"],
         "pause_map_sha256": pause_map["pause_map_sha256"],
@@ -2797,9 +2932,18 @@ def run_preflight(
         and str(daily_plan.get("format") or "").upper() == "THREAD"
     ):
         raise EpisodeFactoryError(
-            "cinematic_story_v1 supports SAGA/BUNDLE; THREAD requires its "
-            "separate response-card hybrid contract",
+            "cinematic_story_v1 supports SAGA/BUNDLE; THREAD uses the approved "
+            "editorial_motion_v1 response-vignette contract",
         )
+    if resolved_visual_mode == EDITORIAL_MOTION_MODE:
+        style_profile = str(
+            daily_plan.get("editorial_motion_style_profile") or "",
+        ).strip()
+        if style_profile != FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
+            raise EpisodeFactoryError(
+                "daily plan editorial_motion_style_profile must use the "
+                "approved v3 format system",
+            )
 
     pillar_id = str(daily_plan.get("pillar") or "").strip()
     try:

@@ -1345,7 +1345,18 @@ def _build_editorial_motion_storyboard(
 ) -> dict[str, Any]:
     if background_video:
         raise CompilationStoryboardError(
-            "editorial_motion_v1 rejects background_video",
+            "editorial_motion_v1 owns the full frame and rejects background_video",
+        )
+    if not _complete_narration(compilation):
+        raise CompilationStoryboardError(
+            "editorial_motion_v1 requires complete intro, story, and outro narration",
+        )
+    style_profile = str(
+        compilation.get("style_profile") or EDITORIAL_MOTION_STYLE_PROFILE,
+    ).strip()
+    if style_profile not in EDITORIAL_MOTION_STYLE_PROFILES:
+        raise CompilationStoryboardError(
+            "editorial_motion_v1 received an unsupported style_profile",
         )
     timing_contract = _bound_tts_state(
         compilation, tts_state, pause_map=pause_map,
@@ -1359,14 +1370,39 @@ def _build_editorial_motion_storyboard(
         raise CompilationStoryboardError(str(exc)) from exc
     story_assets: dict[str, list[dict[str, Any]]] = {}
     story_metadata: dict[str, dict[str, Any]] = {}
+    episode_format = str(compilation.get("episode_format") or "").upper()
+    response_number = 0
     for index, story in enumerate(compilation.get("stories") or [], start=1):
         snapshot = story.get("source_snapshot") or {}
         source_id = str(snapshot.get("source_id") or snapshot.get("post_id") or index)
         segment_id = f"story_{source_id}"
+        source_role = str(
+            snapshot.get("source_role") or snapshot.get("role") or "story",
+        ).lower()
+        if source_role == "response":
+            response_number += 1
         story_assets[segment_id] = _verified_editorial_assets(story, artifact_root)
         story_metadata[segment_id] = {
             "story_index": index,
-            "title": str(story.get("title_ru") or snapshot.get("title") or f"История {index}"),
+            "format_id": episode_format,
+            "format_scene_number": (
+                index if episode_format == "THREAD" else None
+            ),
+            "format_scene_count": (
+                len(compilation.get("stories") or [])
+                if episode_format == "THREAD"
+                else None
+            ),
+            "source_role": source_role,
+            "thread_response_number": (
+                response_number if source_role == "response" else None
+            ),
+            "editorial_role": str(snapshot.get("editorial_role") or ""),
+            "title": str(
+                story.get("title_ru")
+                or snapshot.get("title")
+                or f"История {index}"
+            ),
             "source_label": _source_label(snapshot),
             "truth_mode": str(snapshot.get("truth_mode") or ""),
         }

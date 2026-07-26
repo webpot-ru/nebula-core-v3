@@ -94,9 +94,14 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
     def test_visual_mode_is_explicit_defaulted_and_forwarded_to_all_media_gates(self):
         workflow = self.workflow
         self.assertIn("      visual_mode:\n", workflow)
-        self.assertIn("        default: reddit_pages\n", workflow)
-        self.assertIn("          - reddit_pages\n", workflow)
-        self.assertIn("          - cinematic_story_v1\n", workflow)
+        self.assertIn("        default: editorial_motion_v1\n", workflow)
+        self.assertIn("          - editorial_motion_v1\n", workflow)
+        visual_input = workflow.split("      visual_mode:\n", 1)[1].split(
+            "      confirm_reddit_read:\n",
+            1,
+        )[0]
+        self.assertNotIn("reddit_pages", visual_input)
+        self.assertNotIn("cinematic_story_v1", visual_input)
         self.assertIn("VISUAL_MODE: ${{ inputs.visual_mode }}", workflow)
         self.assertEqual(
             workflow.count('--visual-mode "$VISUAL_MODE"'),
@@ -285,6 +290,12 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             '"shot_plan": root / "shot-plan.json"',
             '"caption_track": root / "caption-track.json"',
             '"caption_srt": root / "final-output.srt"',
+            'elif visual_mode == "editorial_motion_v1":',
+            '"motion_plan": root / "motion-plan.json"',
+            '"caption_srt": root / "editorial-motion-captions.srt"',
+            'render_report.get("renderer") != "hyperframes_segmented"',
+            'not 0 < float(segment_ceiling) <= 120',
+            '"motion_plan_sha256": {"editorial_motion_v1"}',
             '"narration_profile_sha256"',
             '"audio_mix_report_sha256"',
             '"caption_srt_sha256"',
