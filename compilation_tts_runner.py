@@ -16,6 +16,8 @@ from typing import Any, Callable
 from acc1_narration_profiles import (
     NarrationProfileError,
     canonicalize_voice_settings_json,
+    resolve_narration_boundary_contract,
+    verify_narration_boundary_contract,
 )
 from compilation_narration import (
     build_compilation_segments,
@@ -318,6 +320,84 @@ def _plan_bindings(compilation: dict[str, Any]) -> dict[str, str]:
     return bindings
 
 
+def _resolve_declared_boundary_contract(
+    compilation: dict[str, Any],
+    profile: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Verify an opt-in future-episode delivery contract without touching legacy runs."""
+
+    declared = compilation.get("narration_boundary_contract")
+    if declared is None:
+        return None
+    if profile is None:
+        raise CompilationTtsError(
+            "narration boundary contract requires a canonical narration profile"
+        )
+    if not isinstance(declared, dict) or not verify_narration_boundary_contract(
+        declared,
+    ):
+        raise CompilationTtsError(
+            "narration boundary contract checksum is invalid"
+        )
+    stories = compilation.get("stories")
+    if not isinstance(stories, list) or not stories:
+        raise CompilationTtsError(
+            "narration boundary contract requires a non-empty stories list"
+        )
+    try:
+        expected = resolve_narration_boundary_contract(
+            profile,
+            episode_format=compilation.get("episode_format"),
+            source_count=len(stories),
+        )
+    except NarrationProfileError as exc:
+        raise CompilationTtsError(str(exc)) from exc
+    if declared != expected:
+        raise CompilationTtsError(
+            "narration boundary contract does not match format, source count, or profile"
+        )
+    return expected
+
+
+def _validate_boundary_segments(
+    logical_segments: list[dict[str, Any]],
+    contract: dict[str, Any],
+) -> None:
+    """Fail before provider submission when spoken boundaries drift from format."""
+
+    format_id = str(contract["episode_format"])
+    stories = [
+        item for item in logical_segments if item.get("kind") == "story"
+    ]
+    transitions = [
+        item for item in logical_segments if item.get("kind") == "transition"
+    ]
+    if len(stories) != int(contract["source_count"]):
+        raise CompilationTtsError(
+            "narration boundary contract source count does not match logical stories"
+        )
+    if len(transitions) != int(contract["spoken_transition_count"]):
+        raise CompilationTtsError(
+            f"{format_id} spoken transition count violates the narration boundary contract"
+        )
+    if any(item.get("voice_role") != "narrator" for item in transitions):
+        raise CompilationTtsError(
+            "spoken story transitions must use the narrator voice"
+        )
+    if format_id == "THREAD":
+        roles = [str(item.get("voice_role") or "") for item in stories]
+        if not roles or roles[0] != "narrator" or any(
+            role != "comment" for role in roles[1:]
+        ):
+            raise CompilationTtsError(
+                "THREAD requires narrator prompt followed by distinct comment-role responses"
+            )
+    elif any(item.get("voice_role") != "narrator" for item in stories):
+        raise CompilationTtsError(
+            f"{format_id} story narration must use the narrator voice"
+        )
+
+
 def build_tts_chunks(
     compilation: dict[str, Any],
     *,
@@ -386,10 +466,16 @@ def build_tts_chunks(
             max_chars, int(profile["semantic_chunk_policy"]["max_chars"]),
         )
 
+    boundary_contract = _resolve_declared_boundary_contract(
+        compilation,
+        profile,
+    )
     logical_segments = build_compilation_segments(
         compilation,
         profile["profile_id"] if profile is not None else None,
     )
+    if boundary_contract is not None:
+        _validate_boundary_segments(logical_segments, boundary_contract)
     needs_comment_voice = any(
         item.get("voice_role") == "comment" for item in logical_segments
     )
@@ -406,6 +492,15 @@ def build_tts_chunks(
     chunks: list[dict[str, Any]] = []
     for logical in logical_segments:
         voice_role = str(logical.get("voice_role") or "")
+        chunk_effective_speed = effective_speed
+        if (
+            boundary_contract is not None
+            and boundary_contract["episode_format"] == "BUNDLE"
+            and logical.get("kind") == "transition"
+        ):
+            chunk_effective_speed = float(
+                boundary_contract["effective_transition_speed"],
+            )
         selected_voice_id = (
             resolved_comment_voice if voice_role == "comment" else str(voice_id).strip()
         )
@@ -448,11 +543,18 @@ def build_tts_chunks(
                 "voice_id": selected_voice_id,
                 "voice_role": voice_role,
                 "model_id": model_id,
-                "speed": effective_speed,
+                "speed": chunk_effective_speed,
                 "voice_settings_json": effective_voice_settings_json,
                 "with_transcript": with_transcript,
                 "context_chaining": context_chaining,
             }
+            if boundary_contract is not None:
+                request_contract.update({
+                    "narration_boundary_contract_sha256": boundary_contract[
+                        "narration_boundary_contract_sha256"
+                    ],
+                    "narration_boundary_policy_id": boundary_contract["policy_id"],
+                })
             if pronunciation_dictionary_id is not None:
                 request_contract.update({
                     "pronunciation_dictionary_id": pronunciation_dictionary_id,
@@ -486,7 +588,7 @@ def build_tts_chunks(
                     "narration_profile_id": profile["profile_id"],
                     "narration_profile_sha256": profile["profile_sha256"],
                     "narration_pillar_id": profile["pillar_id"],
-                    "effective_speed": effective_speed,
+                    "effective_speed": chunk_effective_speed,
                     "effective_voice_settings_json": effective_voice_settings_json,
                     "effective_with_transcript": bool(with_transcript),
                     "effective_context_chaining": bool(context_chaining),
@@ -503,6 +605,17 @@ def build_tts_chunks(
                     "semantic_boundary_source": semantic_part["boundary_source"],
                     "semantic_part_index": semantic_part["part_index"],
                 })
+                if boundary_contract is not None:
+                    chunk.update({
+                        "narration_boundary_contract_sha256": boundary_contract[
+                            "narration_boundary_contract_sha256"
+                        ],
+                        "narration_boundary_policy_id": boundary_contract[
+                            "policy_id"
+                        ],
+                        "episode_format": boundary_contract["episode_format"],
+                        "boundary_source_count": boundary_contract["source_count"],
+                    })
             segment_chunks.append(chunk)
 
         if profile is not None:
@@ -522,7 +635,11 @@ def build_tts_chunks(
     return chunks
 
 
-def _new_state(chunks: list[dict[str, Any]], bindings: dict[str, str]) -> dict[str, Any]:
+def _new_state(
+    chunks: list[dict[str, Any]],
+    bindings: dict[str, str],
+    boundary_contract: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     profile_id = str(
         (chunks[0].get("narration_profile_id") if chunks else "") or "",
     ).strip()
@@ -553,6 +670,10 @@ def _new_state(chunks: list[dict[str, Any]], bindings: dict[str, str]) -> dict[s
             "chunks": chunk_identity,
             "narration_profile_sha256": profile_sha256,
         }
+        if boundary_contract is not None:
+            narration_plan_identity["narration_boundary_contract_sha256"] = (
+                boundary_contract["narration_boundary_contract_sha256"]
+            )
     narration_plan_sha256 = _canonical_hash(narration_plan_identity)
     state = {
         "version": STATE_VERSION,
@@ -573,13 +694,26 @@ def _new_state(chunks: list[dict[str, Any]], bindings: dict[str, str]) -> dict[s
                 "semantic_chunk_policy_sha256"
             ],
         })
+        if boundary_contract is not None:
+            state.update({
+                "narration_boundary_contract": boundary_contract,
+                "narration_boundary_contract_sha256": boundary_contract[
+                    "narration_boundary_contract_sha256"
+                ],
+                "narration_boundary_policy_id": boundary_contract["policy_id"],
+                "episode_format": boundary_contract["episode_format"],
+                "boundary_source_count": boundary_contract["source_count"],
+            })
     return state
 
 
 def _load_or_create_state(
-    path: Path, planned: list[dict[str, Any]], bindings: dict[str, str],
+    path: Path,
+    planned: list[dict[str, Any]],
+    bindings: dict[str, str],
+    boundary_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    expected = _new_state(planned, bindings)
+    expected = _new_state(planned, bindings, boundary_contract)
     if not path.exists():
         _atomic_json(path, expected)
         return expected
@@ -607,6 +741,22 @@ def _load_or_create_state(
         if field not in expected and state.get(field):
             raise CompilationTtsError(
                 "profile-aware TTS state cannot be reused without its profile"
+            )
+    boundary_fields = (
+        "narration_boundary_contract",
+        "narration_boundary_contract_sha256",
+        "narration_boundary_policy_id",
+        "episode_format",
+        "boundary_source_count",
+    )
+    for field in boundary_fields:
+        if field in expected and state.get(field) != expected[field]:
+            raise CompilationTtsError(
+                f"TTS state {field} changed; refusing to submit"
+            )
+        if field not in expected and state.get(field):
+            raise CompilationTtsError(
+                "boundary-aware TTS state cannot be reused without its contract"
             )
     if state.get("plan_sha256") != expected["plan_sha256"]:
         raise CompilationTtsError("TTS request plan changed; refusing to reuse or resubmit")
@@ -772,7 +922,25 @@ def run_compilation_tts(
         pronunciation_dictionary_id=pronunciation_dictionary_id,
         pronunciation_dictionary_sha256=pronunciation_dictionary_sha256,
     )
-    state = _load_or_create_state(state_path, planned, bindings)
+    try:
+        resolved_profile = resolve_compilation_narration_profile(
+            compilation,
+            narration_profile_id,
+        )
+        boundary_contract = _resolve_declared_boundary_contract(
+            compilation,
+            resolved_profile,
+        )
+    except Exception as exc:
+        if isinstance(exc, CompilationTtsError):
+            raise
+        raise CompilationTtsError(str(exc)) from exc
+    state = _load_or_create_state(
+        state_path,
+        planned,
+        bindings,
+        boundary_contract,
+    )
 
     audio_paths: list[Path] = []
     chunk_audio: list[tuple[dict[str, Any], Path]] = []

@@ -135,9 +135,9 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
             ["pilot_01", "pilot_04", "pilot_02", "pilot_05", "pilot_03", "pilot_06"],
         )
 
-    def test_thread_is_explicitly_source_blocked(self):
+    def test_thread_contract_is_artifact_ready_but_not_live_verified(self):
         report = acc1_story_strategy.validate_channel_strategy(self.channel)
-        self.assertFalse(report["thread_source_ready"])
+        self.assertTrue(report["thread_source_ready"])
 
     def test_automation_cannot_be_enabled_by_strategy_change(self):
         channel = copy.deepcopy(self.channel)
@@ -165,7 +165,11 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
         self.assertEqual(fourth["format"], "THREAD")
         self.assertEqual(fourth["subreddits"], ["AskReddit"])
         self.assertEqual(fourth["response_count"], [8, 15])
-        self.assertEqual(fourth["source_status"], "local_collector_implemented_live_unverified")
+        self.assertEqual(
+            fourth["source_status"],
+            "local_contract_ready_github_canary_required",
+        )
+        self.assertTrue(fourth["artifact_ready"])
         self.assertFalse(fourth["live_source_verified"])
         self.assertFalse(fourth["production_ready"])
 
@@ -201,6 +205,8 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
             plan["search_query"],
             "(confession OR secret OR embarrassing OR awkward)",
         )
+        self.assertTrue(plan["artifact_ready"])
+        self.assertFalse(plan["live_source_verified"])
         self.assertFalse(plan["production_ready"])
 
     def test_narrative_saga_does_not_append_comments(self):
@@ -309,7 +315,7 @@ class Acc1GreenlightTests(unittest.TestCase):
         self.assertEqual(report["status"], "BLOCKED")
         self.assertTrue(any("8-15" in item for item in report["failures"]))
 
-    def test_thread_greenlight_stays_blocked_by_channel_collector_status(self):
+    def test_thread_greenlight_accepts_the_local_collector_contract(self):
         payload = valid_greenlight()
         payload["format"] = "THREAD"
         payload["pillar"] = "confessions_awkward_taboo"
@@ -319,7 +325,7 @@ class Acc1GreenlightTests(unittest.TestCase):
         channel = next(item for item in config["channels"] if item["id"] == "acc1")
         report = acc1_story_strategy.validate_greenlight(payload, channel=channel)
         self.assertEqual(report["status"], "BLOCKED")
-        self.assertTrue(any("collector is not ready" in item for item in report["failures"]))
+        self.assertFalse(any("collector is not ready" in item for item in report["failures"]))
 
     def test_weak_total_score_blocks(self):
         payload = valid_greenlight()

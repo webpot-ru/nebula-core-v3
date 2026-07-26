@@ -17,13 +17,13 @@
       "owned_content_bets": [
         {"id": "relationships_family_bundle", "source_lane": "reddit_first_person", "readiness": "pilot"},
         {"id": "work_money_justice_bundle", "source_lane": "reddit_first_person", "readiness": "pilot"},
-        {"id": "confession_thread", "source_lane": "reddit_first_person", "readiness": "blocked"},
-        {"id": "profession_human_experience_thread", "source_lane": "reddit_first_person", "readiness": "blocked"},
+        {"id": "confession_thread", "source_lane": "reddit_first_person", "readiness": "local_contract_ready_github_canary_required"},
+        {"id": "profession_human_experience_thread", "source_lane": "reddit_first_person", "readiness": "local_contract_ready_github_canary_required"},
         {"id": "dark_unexplained_series", "source_lane": "reddit_fiction", "readiness": "pilot"}
       ],
       "forbidden_bets": ["random high-metric Reddit filler", "incomplete story", "weak or missing payoff", "screenshot or link dependent source", "politics", "factual claim based only on Reddit", "fiction presented as real"],
       "evidence_policy": "Preserve Reddit provenance and meaning. Label r/nosleep as fiction and other personal accounts as unverified; never present a Reddit-only claim as independently confirmed fact.",
-      "render_contract": "Keep the copper Chonker on the right and stable Reddit Sans pages on the left. SAGA and BUNDLE may add source-backed scene images behind the text; THREAD uses distinct response blocks and the female comment voice. No opaque card and no fictional-as-real framing.",
+      "render_contract": "Use acc1_format_visual_system_v3 for every new long episode. BUNDLE is a sequence of separate mini-comics with isolated casts, SAGA is one continuous recurring-cast story, and THREAD is one prompt plus visually distinct response vignettes with deterministic question/answer labels and the female comment voice. HyperFrames must render in bounded segments no longer than 120 seconds. The copper Chonker is limited to brand intro, CTA and outro; no fictional-as-real framing.",
       "producer_brief": {
         "must_feel_like": "specific, emotionally legible, easy to package in one sentence, complete, and worth discussing after the ending",
         "winning_bets": "relationship and family conflict, work and justice, confessions, unusual professions, human absurdity, and strange or dark incidents with a clear payoff",
@@ -49,7 +49,7 @@
       "episode_formats": {
         "SAGA": {"target_duration_minutes": [18, 30], "source_status": "manual_source_review_available"},
         "BUNDLE": {"target_duration_minutes": [18, 30], "story_count": [2, 5], "aggregate_source_word_count": [2340, 3900], "source_status": "local_selector_implemented_live_unverified"},
-        "THREAD": {"target_duration_minutes": [15, 25], "response_count": [8, 15], "source_status": "local_collector_implemented_live_unverified"}
+        "THREAD": {"target_duration_minutes": [15, 25], "response_count": [8, 15], "source_status": "local_contract_ready_github_canary_required"}
       },
       "pilot_matrix": [
         {"id": "pilot_01", "format": "BUNDLE", "pillar": "relationships_family", "story_count": [4, 5]},
@@ -62,7 +62,7 @@
       "source_family_plan": [
         {"format": "BUNDLE", "scraper_family": "human_drama", "status": "local_selector_implemented_live_unverified"},
         {"format": "SAGA", "scraper_family": "dark_curiosity", "status": "manual_forced_family_review"},
-        {"format": "THREAD", "scraper_family": "human_experience_thread", "status": "local_collector_implemented_live_unverified"}
+        {"format": "THREAD", "scraper_family": "human_experience_thread", "status": "local_contract_ready_github_canary_required"}
       ],
       "channel_branding": {
         "status": "youtube_verified_brand_assets_applied_2026-07-20",

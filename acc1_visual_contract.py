@@ -173,6 +173,9 @@ EDITORIAL_MOTION_STYLE_PROFILES = frozenset({
 INK_GOUACHE_STORY_FAMILIES = (
     "relationships",
     "work",
+    "confessions",
+    "professions",
+    "strange",
     "digital",
     "memory",
     "odd_job",

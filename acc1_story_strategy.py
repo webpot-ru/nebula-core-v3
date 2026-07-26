@@ -37,7 +37,7 @@ FORMAT_CONTRACTS = {
     "THREAD": {
         "target_duration_minutes": [15, 25],
         "response_count": [8, 15],
-        "source_status": "local_collector_implemented_live_unverified",
+        "source_status": "local_contract_ready_github_canary_required",
     },
 }
 
@@ -90,9 +90,18 @@ THREAD_PILOT_SEARCH_QUERIES = {
 ROUTABLE_SOURCE_STATUSES = {
     "SAGA": {"manual_forced_family_review", "ready"},
     "BUNDLE": {"local_selector_implemented_live_unverified", "ready"},
-    "THREAD": {"local_collector_implemented_live_unverified", "manual_source_review_available", "ready"},
+    "THREAD": {
+        "local_contract_ready_github_canary_required",
+        "manual_source_review_available",
+        "ready",
+    },
 }
-READY_THREAD_SOURCE_STATUSES = {"manual_source_review_available", "ready"}
+ARTIFACT_READY_THREAD_SOURCE_STATUSES = {
+    "local_contract_ready_github_canary_required",
+    "manual_source_review_available",
+    "ready",
+}
+READY_THREAD_SOURCE_STATUSES = ARTIFACT_READY_THREAD_SOURCE_STATUSES
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 # Keep source-body counts identical across scraper, deterministic review,
 # greenlight draft, and final greenlight validation.  Ages, dates, and money
@@ -355,8 +364,10 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
     """Resolve one configured acc1 pilot without consulting ``topic_mix``.
 
     Resolution proves only that the exact format/pillar/source contract is
-    configured.  ``production_ready`` remains false for live-unverified BUNDLE
-    and THREAD adapters, so routing cannot be mistaken for source proof.
+    configured. ``artifact_ready`` may be true for a locally verified
+    fail-closed contract, while ``production_ready`` remains false until the
+    exact live source path has passed its GitHub canary. Routing therefore
+    cannot be mistaken for live source proof.
     """
     if channel.get("id") != "acc1":
         raise StrategyContractError("pilot source plans are only defined for acc1")
@@ -420,6 +431,11 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
             )
         planned_subreddits.append(configured)
     source_status = _text(format_contract.get("source_status"))
+    thread_artifact_ready = (
+        format_id == "THREAD"
+        and source_status in ARTIFACT_READY_THREAD_SOURCE_STATUSES
+        and source_family_status in ROUTABLE_SOURCE_STATUSES["THREAD"]
+    )
     plan: dict[str, Any] = {
         "pilot_id": pilot_id,
         "format": format_id,
@@ -427,6 +443,7 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
         "topic_family": topic_family,
         "source_status": source_status,
         "source_family_status": source_family_status,
+        "artifact_ready": thread_artifact_ready or format_id != "THREAD",
         "live_source_verified": source_status == "ready" and source_family_status == "ready",
         "production_ready": source_status == "ready" and source_family_status == "ready",
         "subreddits": planned_subreddits,
@@ -553,7 +570,7 @@ def validate_channel_strategy(channel: dict[str, Any]) -> dict[str, Any]:
         "pilot_cycle_order": list(cycle_order),
         "bundle_source_ready": formats.get("BUNDLE", {}).get("source_status") == "ready",
         "thread_source_ready": formats.get("THREAD", {}).get("source_status")
-        == "manual_source_review_available",
+        in ARTIFACT_READY_THREAD_SOURCE_STATUSES,
     }
 
 

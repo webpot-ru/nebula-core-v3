@@ -1,6 +1,6 @@
 # Chonker Talks acc1 — format visual system v3
 
-Last updated: 2026-07-24
+Last updated: 2026-07-26
 
 Status: **current approved creative reference for new acc1 episodes**.
 
@@ -123,6 +123,11 @@ SHA-256: `ed0ecab08350914bbe90982d407a6b4301d13890e2229cc42960dc22b6fdc585`
   role; one universal reaction card is forbidden.
 - Exact response text remains a deterministic overlay and the configured
   comment voice remains separate from the narrator.
+- The prompt and all accepted responses share one episode-wide grammar index.
+  It never resets at each response: the first card is the prompt anchor and
+  later responses move through the meaning-led 1–5-panel sequence.
+- Deterministic `ВОПРОС` and `ОТВЕТ NN` labels sit above the comic-safe area,
+  while the fixed subtitle band remains reserved for narration captions.
 
 ## Topic adaptations
 
@@ -155,9 +160,29 @@ visual grammar of a horror SAGA.
   whenever narration continues.
 - Keep important faces, hands and evidence outside the subtitle exclusion area.
 
+## Production lock
+
+- New `acc1_daily_episode.yml` dispatches expose only
+  `editorial_motion_v1`; `reddit_pages`, `cinematic_story_v1` and the six
+  retired adult-animation profiles are historical/recovery contracts.
+- The daily plan binds this document's profile plus exact format, pillar,
+  1–5-panel range and 120-second render ceiling before any provider stage.
+- BUNDLE gets a separate identity lock per mini-comic, SAGA gets one continuous
+  identity lock for the episode, and every THREAD response gets its own
+  deterministic identity token and editorial role.
+- The direct HyperFrames factory path always partitions the timeline at scene
+  boundaries into contiguous segments no longer than 120 seconds. It renders
+  and verifies every part separately, then concatenates, muxes the existing
+  narration and burns the approved caption track. A monolithic browser-render
+  fallback is forbidden.
+- Release QA requires a complete segment inventory, passing HyperFrames checks,
+  exact motion/caption hashes and visible burned captions.
+
 ## Approval boundary
 
 The three images above are approved format references produced with the
-built-in Imagen path. They demonstrate creative intent only. They are not a
-finished episode, renderer QA proof, provider budget authorization, GitHub
-artifact or YouTube approval.
+built-in Imagen path. The contracts above are implemented and locally
+test-covered, but this exact general-factory revision has not yet produced a
+GitHub canary artifact. It therefore does not authorize provider spend,
+publication or YouTube upload and must not be described as GitHub-verified
+until an explicitly approved no-spend contract run passes.

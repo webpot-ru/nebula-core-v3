@@ -1021,9 +1021,72 @@ For each finalist, a producer and independent critic score the same source-bound
 
 After a winner is locked, the local revision performs source-preserving Russian translation with pinned `gpt-5.6-terra`, then uses pinned `gpt-5.6-sol` for an independent final translation review. The models have separate fail-closed journals and daily `input_tokens + output_tokens` ceilings: 3,000,000 for Terra and 500,000 for Sol. `reasoning_tokens` is a subset of output tokens and is not added again. Both lanes use strict JSON, have no Gemini fallback and allow zero automatic retries. A conservative reservation is checked before transport and actual usage is checked afterward. Gemini remains limited to its existing topic/packaging work; images remain `gpt-image-2` through VectorEngine and do not consume either text cap. This revision must be committed and pushed before GitHub can use it.
 
-Production then continues with source-bound packaging, bounded `gpt-image-2` scene/thumbnail generation through VectorEngine, role-aware AI33 `eleven_v3` narration, an explicit visual mode, media QA, and a checksum-bound creative-review template. `reddit_pages` is still the workflow and factory default and preserves exact Reddit-card page/layout validation plus the verified cat-background renderer. `cinematic_story_v1` is an opt-in SAGA/BUNDLE branch with full-screen accepted scene images, deterministic 1.06-1.10 slow push/pan shots, no cat-background dependency, caption/SRT sidecars and mode-specific QA; THREAD fails closed until it has a separate response-card contract. Neither mode is a fallback for the other. Before TTS the factory builds a fail-closed `intro_contract`: winning source-backed cold open -> exact format/count promise -> truth disclosure -> source-in-description note -> generic truthful thanks -> pillar-safe Chonker Talks sting -> first story/prompt cue. The cold open is 8-30 words and hash-bound to the playoff winner; the whole intro is at most 90 spoken words. Named sponsors or payment claims are forbidden because there is no verified supporter ledger. `Свет можно оставить включённым` is dark-pillar-only; all other pillars use `Устраивайтесь поудобнее`. The factory does not yet emit complete post-TTS chapters, so the spoken intro never claims that timestamps exist. The male `elevenlabs_JBFqnCBsd6RMkjVDRZzb` voice narrates; THREAD responses use the separate female `elevenlabs_MOgsVr0EwwxqQs5cNDhu` voice. The five canonical pillar profiles tune speed, stability, style and pause policy without changing either voice ID or source text. Thumbnail generation accepts only a meaningful exact quote and a deterministic non-photoreal source-bound prompt; generated images must decode to an accepted image format and exact dimensions before AI33 is called. The YouTube description is a deterministic neutral disclosure-plus-source template, so a provider cannot append an unsupported factual claim. TTS state binds semantic chunks, exact profile settings, actual `ffprobe` duration and exact AI33 word alignment when valid, or a declared timing estimate derived from the exact audio duration. A local pause map inserts beat/segment pauses without altering narration punctuation; the final voice-only WAV is two-pass loudness-normalized around `-16 LUFS` (±1 LU) with true peak no higher than `-1.5 dBTP`, measured and checksum-bound in the audio-mix report. Both renderers consume that same final mixed-audio contract. A pre-TTS estimate must fit the slot's duration range with tolerance and final media QA enforces the exact canonical duration. Generated asset paths are artifact-root-relative so the GitHub artifact is portable. Manifest v2 binds mode, profile, pause map, mix, shot/caption sidecars and final media; historical manifest v1 remains strict-compatible. Every downstream artifact is bound to the exact daily plan, episode plan, narration plan, audio, source, and final media hashes.
+Production then continues with source-bound packaging, bounded `gpt-image-2`
+scene/thumbnail generation through VectorEngine, role-aware AI33 `eleven_v3`
+narration, media QA and a checksum-bound creative-review template. Every new
+dispatch of `acc1_daily_episode.yml` is locked to
+`editorial_motion_v1` plus `acc1_format_visual_system_v3`; the old
+`reddit_pages` and `cinematic_story_v1` modes remain readable only for
+historical artifacts and dedicated recovery paths. BUNDLE, SAGA and THREAD
+therefore share one mature drawn channel language but cannot inherit the first
+release's page grammar: BUNDLE isolates each mini-comic cast, SAGA maintains
+one continuous cast and location, and THREAD uses one prompt followed by
+numbered, materially different response vignettes.
 
-The local revision also adds opt-in `editorial_motion_v1` for SAGA/BUNDLE. Motion-plan v2 supports both `contemporary_cutup_v1` and the implemented opt-in `ink_gouache_story_pages_v1`. The Ink & Gouache profile requires an explicit story family, unequal-panel page layout and episode-wide recurring-character identity contract before provider spend. It applies eight beat-specific camera/layout choreographies and family palettes for relationships, work, digital traces, memories, unusual jobs and dark SAGA; it does not reuse the old universal blue/coral/mustard cut-up palette. Photorealism is reserved for real documents, messages, interfaces and archival evidence. Exact captions, dates, quotations and evidence remain HTML/SVG. HyperFrames is the production renderer; `html-video` stays an alpha studio/catalog layer because its verified adapter truncates long fixed compositions. Editorial responses are preserved and deterministically normalized to 1536x864 with original and normalized checksums. Fixed-release v3 pages request the provider-standard 1536x1024 landscape canvas and reserve the extra top/bottom region as expendable paper bleed; portrait and excessive crops still fail closed. `contemporary_cutup_v1` remains the production default pending explicit promotion of the new profile. THREAD remains blocked in this mode. Full contracts, reference board, pilot commands and evidence are in [`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md).
+Before TTS the factory builds a fail-closed `intro_contract`: winning
+source-backed cold open -> exact format/count promise -> truth disclosure ->
+source-in-description note -> generic truthful thanks -> pillar-safe Chonker
+Talks sting -> first story/prompt cue. The cold open is 8-30 words and
+hash-bound to the playoff winner; the whole intro is at most 90 spoken words.
+Named sponsors or payment claims are forbidden because there is no verified
+supporter ledger. `Свет можно оставить включённым` is dark-pillar-only; all
+other pillars use `Устраивайтесь поудобнее`. The male
+`elevenlabs_JBFqnCBsd6RMkjVDRZzb` voice narrates; THREAD responses use the
+separate female `elevenlabs_MOgsVr0EwwxqQs5cNDhu` voice. The five canonical
+pillar profiles tune speed, stability, style and pause policy without changing
+either voice ID or source text. TTS state binds semantic chunks, exact profile
+settings, actual `ffprobe` duration and exact AI33 word alignment when valid,
+or a declared timing estimate derived from the exact audio duration. A local
+pause map inserts beat/segment pauses without altering narration punctuation;
+the final voice-only WAV is two-pass loudness-normalized around `-16 LUFS`
+(±1 LU) with true peak no higher than `-1.5 dBTP`. Generated asset paths are
+artifact-root-relative, and manifest v2 binds mode, profile, pause map, mix,
+motion/caption sidecars and final media.
+
+Future factory scripts also bind a separate format-aware narration boundary
+contract. In BUNDLE, every complete story is followed by its canonical story
+pause, the narrator reads `А теперь — следующая полная история` at `0.92 ×`
+the selected pillar-profile speed, and the canonical transition pause follows
+before the next story. SAGA contains one continuous story, so it uses semantic
+beat pauses but no next-story announcement. THREAD uses no repeated spoken
+transition: prompt and responses are separated by story-segment pauses,
+deterministic `ВОПРОС` / `ОТВЕТ NN` labels and the distinct comment voice.
+The contract checksum is carried through the episode plan, TTS requests/state,
+pause map, voice-mix report and QA. Captions remain synchronized because their
+timeline is rebuilt from actual chunk durations/word timings and the exact same
+pause map. Historical scripts without this opt-in contract retain their
+original TTS request identity for no-spend recovery.
+
+`editorial_motion_v1` now supports BUNDLE, SAGA and THREAD through the current
+v3 visual contract. A page receives one to five unequal panels from its
+format-specific narrative sequence, a source-bound identity lock and a
+pillar-specific palette. THREAD uses the episode-wide prompt/response index
+instead of resetting the grammar for every response; the renderer adds exact
+deterministic `ВОПРОС` / `ОТВЕТ NN` labels outside the subtitle band. Exact
+captions, dates, quotations and evidence remain HTML/SVG. Provider landscapes
+are preserved and safely normalized to 1536x864; portrait and excessive crops
+still fail closed.
+
+The general HyperFrames path has no full-duration browser-render fallback.
+It creates contiguous segments no longer than 120 seconds, renders each in an
+isolated workspace and assembles them before one final audio mux and subtitle
+burn. QA and the GitHub release check require the complete segment inventory,
+passing HyperFrames checks and burned captions. Historical creative profiles
+remain in code only for frozen artifact compatibility; they are not selectable
+in the new daily workflow. The current creative source of truth is
+[`acc1-format-visual-system-v3.md`](acc1-format-visual-system-v3.md); historical
+renderer notes remain in
+[`acc1-editorial-motion-v1.md`](acc1-editorial-motion-v1.md).
 
 The current Ink & Gouache canary is `build/reddit-five-minute-ink-gouache-v6/reddit-five-minute-ink-gouache-s-tier-v6.mp4`: source-locked Reddit/BORU `1i8nufm`, H.264/AAC, 1920x1080/30, exactly 300 seconds, SHA-256 `5cf32e036e34f983bb6df041878060fe8a2bfea92c5ceedcda7793a84347a37d`. It reuses the 16 accepted `gpt-image-2` plates from v3 with zero new provider calls. HyperFrames 0.7.61 reports zero runtime/layout/motion/contrast errors; eleven chapter samples and exact former-risk boundaries passed visual review, and FFmpeg black detection found no black intervals. The contact-sheet SHA-256 is `1b0b1197202524ef89e9d79c8427f6c6745063e9de33695fdabf5695529ae1dc`. This is local silent visual evidence only and changes no workflow, channel default, rights or publication state.
 
@@ -1280,7 +1343,7 @@ ffprobe final_output.mp4
 - [x] `thumbnail_generator.py` supports deterministic local Cyrillic overlay/report and VectorEngine generation behind explicit spend confirmation
 - [x] Exact acc1 BUNDLE/SAGA/THREAD routing, bounded source collectors/selectors, 3-5-candidate producer/critic 90/100 topic playoff with at least three passing finalists, immutable episode plan, role-aware TTS, Reddit-pages renderer/QA, and human-review release ceiling are implemented locally
 - [x] Local `cinematic_story_v1` implementation for SAGA/BUNDLE: explicit non-default mode, deterministic full-screen shot plan, caption/SRT sidecars, five pillar narration profiles, semantic pause map, measured voice-only mix, manifest v2, factory/workflow propagation and mode-aware renderer/QA; no provider, GitHub or YouTube canary has run
-- [x] Local `editorial_motion_v1` implementation for SAGA/BUNDLE: paired source-bound image packs, six semantic collage modules, HyperFrames/GSAP renderer, exact HTML/SVG factual text, motion/caption sidecars and mode-aware QA/release evidence; the current visually inspected proof is a source-locked 300-second silent pilot using 16 successful `gpt-image-2` attempts with zero retries, while GitHub/YouTube publication remains untouched
+- [x] Local `editorial_motion_v1` implementation for BUNDLE/SAGA/THREAD: v3 source-bound paired image packs, format-specific 1–5-panel grammar, separate identity rules, deterministic THREAD question/answer labels and female response voice, bounded ≤120-second HyperFrames segments, burned-caption QA and mode-aware release evidence; the exact general-factory revision still requires a no-spend GitHub canary before it is called GitHub-verified
 - [x] Base `acc1_daily_episode.yml` is active on GitHub `main`, but no successful review-ready artifact exists. The local OpenAI/private-upload extension is not yet merged and has no GitHub artifact proof.
 - [x] `storyboard_generator.py` and `render.py` create a no-spend dry-run `final_output.mp4`
 - [x] Slide-based RedditSim rendering: first story screen without comments, comment-only screens, long story chunking, clean no-karaoke visuals, timed slide boundaries, and larger Reddit-like render-mode fonts

@@ -24,7 +24,11 @@ from compilation_storyboard import build_storyboard
 from compilation_tts_runner import _canonical_hash, _state_timing_contract
 from compilation_audio_mix import build_pause_map, canonical_hash as audio_canonical_hash
 from acc1_cinematic_shots import write_caption_srt
-from acc1_narration_profiles import resolve_narration_profile
+from acc1_narration_profiles import (
+    NARRATION_PROFILE_IDS_BY_PILLAR,
+    resolve_narration_boundary_contract,
+    resolve_narration_profile,
+)
 
 
 def fixture_compilation():
@@ -121,6 +125,34 @@ class CompilationQaTests(unittest.TestCase):
             self.assertFalse(any("unsupported" in item for item in failures))
             self.assertFalse(any("style profile drifted" in item for item in failures))
             self.assertFalse(any("invalid Ink & Gouache art direction" in item for item in failures))
+            render_report.update({
+                "renderer": "hyperframes_segmented",
+                "segment_count": 1,
+                "segment_max_duration_sec": 120,
+                "segments": [{"index": 1, "duration_sec": 20}],
+                "captions_burned": True,
+            })
+            failures = _validate_editorial_motion_creative_contract(
+                {"intro_ru": "", "outro_ru": "", "stories": []},
+                storyboard,
+                render_report,
+                creative_manifest,
+                [scene],
+                Path(directory),
+            )
+            self.assertFalse(any("passing HyperFrames" in item for item in failures))
+            self.assertFalse(any("segment inventory" in item for item in failures))
+            self.assertFalse(any("bounded duration" in item for item in failures))
+            render_report["segments"][0]["duration_sec"] = 121
+            failures = _validate_editorial_motion_creative_contract(
+                {"intro_ru": "", "outro_ru": "", "stories": []},
+                storyboard,
+                render_report,
+                creative_manifest,
+                [scene],
+                Path(directory),
+            )
+            self.assertTrue(any("bounded duration" in item for item in failures))
             scene["page_layout"] = "repeated_old_grid"
             failures = _validate_editorial_motion_creative_contract(
                 {"intro_ru": "", "outro_ru": "", "stories": []},
@@ -154,6 +186,60 @@ class CompilationQaTests(unittest.TestCase):
         )
         self.assertTrue(any("comment voice_id" in item for item in failures))
         self.assertTrue(any("fell back to narrator" in item for item in failures))
+
+    def test_tts_qa_enforces_bundle_boundary_speed_and_checksum(self):
+        profile = resolve_narration_profile(
+            NARRATION_PROFILE_IDS_BY_PILLAR["relationships_family"],
+            pillar_id="relationships_family",
+        )
+        contract = resolve_narration_boundary_contract(
+            profile,
+            episode_format="BUNDLE",
+            source_count=2,
+        )
+        state = {
+            "status": "COMPLETE",
+            "required_model_id": "eleven_v3",
+            "final_audio_sha256": "1" * 64,
+            "narration_plan_sha256": "2" * 64,
+            "publication_authorized": False,
+            "narration_boundary_contract": contract,
+            "narration_boundary_contract_sha256": contract[
+                "narration_boundary_contract_sha256"
+            ],
+            "narration_boundary_policy_id": contract["policy_id"],
+            "episode_format": "BUNDLE",
+            "boundary_source_count": 2,
+            "chunks": [{
+                "status": "COMPLETE",
+                "model_id": "eleven_v3",
+                "voice_role": "narrator",
+                "voice_id": "narrator-voice",
+                "audio_sha256": "3" * 64,
+                "logical_segment_id": "transition_01",
+                "logical_segment_kind": "transition",
+                "effective_speed": contract["effective_transition_speed"],
+                "narration_boundary_contract_sha256": contract[
+                    "narration_boundary_contract_sha256"
+                ],
+                "narration_boundary_policy_id": contract["policy_id"],
+                "episode_format": "BUNDLE",
+                "boundary_source_count": 2,
+            }],
+        }
+        failures = validate_tts_state(
+            state,
+            expected_voice_id="narrator-voice",
+            expected_narration_boundary_contract=contract,
+        )
+        self.assertEqual(failures, [])
+        state["chunks"][0]["effective_speed"] = contract["base_speed"]
+        failures = validate_tts_state(
+            state,
+            expected_voice_id="narrator-voice",
+            expected_narration_boundary_contract=contract,
+        )
+        self.assertTrue(any("effective speed" in item for item in failures))
 
     @staticmethod
     def _metadata():

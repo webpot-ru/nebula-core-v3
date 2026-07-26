@@ -8,13 +8,17 @@ from acc1_editorial_motion import (
 from acc1_visual_contract import (
     CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
     EDITORIAL_MOTION_STYLE_PROFILE,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+    select_format_visual_system_v3_panel_grammar,
 )
 
 
 def asset(
     family: str, role: str, module: str, token: str, *,
     story_family: str | None = None, page_layout: str | None = None,
+    panel_grammar: str | None = None, panel_count: int | None = None,
+    panel_beat_role: str | None = None,
 ) -> dict:
     return {
         "kind": "generated_image",
@@ -27,6 +31,9 @@ def asset(
         "factual_text_allowed": False,
         "story_family": story_family,
         "page_layout": page_layout,
+        "panel_grammar": panel_grammar,
+        "panel_count": panel_count,
+        "panel_beat_role": panel_beat_role,
     }
 
 
@@ -219,6 +226,122 @@ class EditorialMotionContractTests(unittest.TestCase):
             [scene["asset_family_id"] for scene in result["scenes"]],
             ["pack-0", "pack-1", "pack-2"],
         )
+
+    def test_v3_thread_preserves_global_prompt_response_sequence_and_voices(self):
+        prompt_grammar = select_format_visual_system_v3_panel_grammar(
+            "THREAD", 1, 2,
+        )
+        response_grammar = select_format_visual_system_v3_panel_grammar(
+            "THREAD", 2, 2,
+        )
+
+        def pack(source_id, grammar, *, layout):
+            return [
+                asset(
+                    source_id,
+                    role,
+                    "living_photo_depth",
+                    token,
+                    story_family="confessions",
+                    page_layout=layout,
+                    panel_grammar=grammar["id"],
+                    panel_count=grammar["panel_count"],
+                    panel_beat_role=grammar["beat_role"],
+                )
+                for role, token in (
+                    ("hero_plate", "a"),
+                    ("detail_plate", "b"),
+                )
+            ]
+
+        prompt_text = "Какой секрет вы скрывали дольше всего?"
+        response_text = "Я годами скрывала от семьи одну неловкую правду."
+
+        def timing(text):
+            words = text.split()
+            step = 20.0 / len(words)
+            return {
+                "duration_sec": 20.0,
+                "timing_source": "local",
+                "words": [
+                    {
+                        "word": word,
+                        "start": index * step,
+                        "end": (index + 1) * step,
+                    }
+                    for index, word in enumerate(words)
+                ],
+            }
+
+        result = build_editorial_motion_contract(
+            narration_segments=[
+                {
+                    "segment_id": "story_prompt",
+                    "kind": "story",
+                    "voice_role": "narrator",
+                    "text": prompt_text,
+                },
+                {
+                    "segment_id": "story_response",
+                    "kind": "story",
+                    "voice_role": "comment",
+                    "text": response_text,
+                },
+            ],
+            segment_timings={
+                "story_prompt": timing(prompt_text),
+                "story_response": timing(response_text),
+            },
+            story_assets={
+                "story_prompt": pack(
+                    "prompt-pack",
+                    prompt_grammar,
+                    layout="thread_prompt_anchor",
+                ),
+                "story_response": pack(
+                    "response-pack",
+                    response_grammar,
+                    layout="thread_response_vignette",
+                ),
+            },
+            story_metadata={
+                "story_prompt": {
+                    "story_index": 1,
+                    "format_id": "THREAD",
+                    "format_scene_number": 1,
+                    "format_scene_count": 2,
+                    "source_role": "prompt",
+                },
+                "story_response": {
+                    "story_index": 2,
+                    "format_id": "THREAD",
+                    "format_scene_number": 2,
+                    "format_scene_count": 2,
+                    "source_role": "response",
+                    "thread_response_number": 1,
+                    "editorial_role": "awkward confession",
+                },
+            },
+            final_audio_duration_sec=40.0,
+            style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+        )
+        prompt, response = result["scenes"]
+        self.assertEqual(
+            [prompt["scene_number"], response["scene_number"]],
+            [1, 2],
+        )
+        self.assertEqual(
+            [prompt["scene_count"], response["scene_count"]],
+            [2, 2],
+        )
+        self.assertEqual(prompt["source_role"], "prompt")
+        self.assertEqual(prompt["voice_role"], "narrator")
+        self.assertEqual(response["source_role"], "response")
+        self.assertEqual(response["voice_role"], "comment")
+        self.assertEqual(response["thread_response_number"], 1)
+        self.assertEqual(response["editorial_role"], "awkward confession")
+        self.assertEqual(prompt["panel_grammar"], prompt_grammar["id"])
+        self.assertEqual(response["panel_grammar"], response_grammar["id"])
 
 
 if __name__ == "__main__":

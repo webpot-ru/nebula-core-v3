@@ -365,10 +365,15 @@ def _v3_pillar(script: dict[str, Any]) -> str:
 
 
 def _v3_layout(format_id: str, scene_index: int) -> str:
+    if format_id == "THREAD":
+        return (
+            "thread_prompt_anchor"
+            if scene_index == 1
+            else "thread_response_vignette"
+        )
     layouts = {
         "BUNDLE": ("bundle_story_opener", "bundle_guided_page"),
         "SAGA": ("saga_panorama", "saga_discovery_panels"),
-        "THREAD": ("thread_prompt_anchor", "thread_response_vignette"),
     }[format_id]
     return layouts[(scene_index - 1) % len(layouts)]
 
@@ -396,7 +401,7 @@ def image_plan(
     if mode == EDITORIAL_MOTION_MODE:
         if format_id == "THREAD" and active_style_profile != FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
             raise EpisodeImageError(
-                "editorial_motion_v1 supports SAGA/BUNDLE; THREAD needs its hybrid contract",
+                "THREAD editorial motion requires acc1_format_visual_system_v3",
             )
         if format_id == "THREAD":
             allocations = {index: 1 for index in range(len(stories))}
@@ -441,6 +446,8 @@ def image_plan(
         visual_identity_contract = " ".join(
             str(story.get("visual_identity_contract") or "").split(),
         )
+        format_scene_count = len(stories) if format_id == "THREAD" else scene_count
+        format_scene_number = story_index + 1 if format_id == "THREAD" else None
         if mode == EDITORIAL_MOTION_MODE and active_style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
             if len(visual_identity_contract) < 40:
                 raise EpisodeImageError(
@@ -451,12 +458,17 @@ def image_plan(
                 editorial_families = [story_family] * scene_count
             if editorial_layouts is None:
                 editorial_layouts = [
-                    _v3_layout(format_id, scene_index)
+                    _v3_layout(
+                        format_id,
+                        format_scene_number or scene_index,
+                    )
                     for scene_index in range(1, scene_count + 1)
                 ]
             expected_panel_grammars = [
                 select_format_visual_system_v3_panel_grammar(
-                    format_id, scene_index, scene_count,
+                    format_id,
+                    format_scene_number or scene_index,
+                    format_scene_count,
                 )["id"]
                 for scene_index in range(1, scene_count + 1)
             ]
@@ -573,7 +585,9 @@ def image_plan(
                 )
                 panel_grammar = (
                     select_format_visual_system_v3_panel_grammar(
-                        format_id, scene_index, scene_count,
+                        format_id,
+                        format_scene_number or scene_index,
+                        format_scene_count,
                     )
                     if active_style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
                     else None
@@ -660,6 +674,18 @@ def image_plan(
                         "source_id": source_id,
                         "scene_index": scene_index,
                         "scene_count": scene_count,
+                        "format_scene_number": (
+                            format_scene_number
+                            if active_style_profile
+                            == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                            else None
+                        ),
+                        "format_scene_count": (
+                            format_scene_count
+                            if active_style_profile
+                            == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                            else None
+                        ),
                         "asset_family_id": family_id,
                         "layer_role": layer_role,
                         "motion_module": module,

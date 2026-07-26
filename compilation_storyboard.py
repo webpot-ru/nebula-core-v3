@@ -1516,10 +1516,6 @@ def _build_editorial_motion_storyboard(
         raise CompilationStoryboardError(
             "editorial_motion_v1 owns the full frame and rejects background_video",
         )
-    if str(compilation.get("episode_format") or "").upper() == "THREAD":
-        raise CompilationStoryboardError(
-            "editorial_motion_v1 supports SAGA/BUNDLE; THREAD needs its hybrid contract",
-        )
     if not _complete_narration(compilation):
         raise CompilationStoryboardError(
             "editorial_motion_v1 requires complete intro, story, and outro narration",
@@ -1546,13 +1542,34 @@ def _build_editorial_motion_storyboard(
 
     story_assets: dict[str, list[dict[str, Any]]] = {}
     story_metadata: dict[str, dict[str, Any]] = {}
+    episode_format = str(compilation.get("episode_format") or "").upper()
+    response_number = 0
     for index, story in enumerate(compilation.get("stories") or [], start=1):
         snapshot = story.get("source_snapshot") or {}
         source_id = str(snapshot.get("source_id") or snapshot.get("post_id") or index)
         segment_id = f"story_{source_id}"
+        source_role = str(
+            snapshot.get("source_role") or snapshot.get("role") or "story",
+        ).lower()
+        if source_role == "response":
+            response_number += 1
         story_assets[segment_id] = _verified_editorial_assets(story, artifact_root)
         story_metadata[segment_id] = {
             "story_index": index,
+            "format_id": episode_format,
+            "format_scene_number": (
+                index if episode_format == "THREAD" else None
+            ),
+            "format_scene_count": (
+                len(compilation.get("stories") or [])
+                if episode_format == "THREAD"
+                else None
+            ),
+            "source_role": source_role,
+            "thread_response_number": (
+                response_number if source_role == "response" else None
+            ),
+            "editorial_role": str(snapshot.get("editorial_role") or ""),
             "title": str(
                 story.get("title_ru")
                 or snapshot.get("title")

@@ -57,7 +57,12 @@ from compilation_audio_mix import (
     PAUSE_MAP_VERSION,
     verify_self_hash as verify_audio_sidecar_hash,
 )
-from acc1_narration_profiles import NarrationProfileError, canonical_hash, resolve_narration_profile
+from acc1_narration_profiles import (
+    NarrationProfileError,
+    canonical_hash,
+    resolve_narration_profile,
+    verify_narration_boundary_contract,
+)
 from compilation_metadata import validate_metadata
 from compilation_narration import (
     NarrationPreflightError,
@@ -101,6 +106,7 @@ def validate_tts_state(
     expected_comment_voice_id: str | None = None,
     expected_narration_profile_id: str | None = None,
     expected_narration_profile_sha256: str | None = None,
+    expected_narration_boundary_contract: dict[str, Any] | None = None,
 ) -> list[str]:
     failures: list[str] = []
     if state.get("status") != "COMPLETE":
@@ -118,6 +124,23 @@ def validate_tts_state(
             != expected_narration_profile_sha256
         ):
             failures.append("TTS narration profile checksum does not match episode plan")
+    if expected_narration_boundary_contract is not None:
+        contract = expected_narration_boundary_contract
+        if not verify_narration_boundary_contract(contract):
+            failures.append("episode-plan narration boundary contract checksum is invalid")
+        if state.get("narration_boundary_contract") != contract:
+            failures.append("TTS narration boundary contract does not match episode plan")
+        for field, expected in (
+            (
+                "narration_boundary_contract_sha256",
+                contract.get("narration_boundary_contract_sha256"),
+            ),
+            ("narration_boundary_policy_id", contract.get("policy_id")),
+            ("episode_format", contract.get("episode_format")),
+            ("boundary_source_count", contract.get("source_count")),
+        ):
+            if state.get(field) != expected:
+                failures.append(f"TTS {field} does not match episode plan")
     for index, chunk in enumerate(chunks if isinstance(chunks, list) else []):
         if not isinstance(chunk, dict) or chunk.get("status") != "COMPLETE":
             failures.append(f"TTS chunk {index} is not COMPLETE")
@@ -151,6 +174,44 @@ def validate_tts_state(
                 failures.append(
                     f"TTS chunk {index} narration profile checksum changed",
                 )
+        if expected_narration_boundary_contract is not None:
+            contract = expected_narration_boundary_contract
+            if (
+                chunk.get("narration_boundary_contract_sha256")
+                != contract.get("narration_boundary_contract_sha256")
+                or chunk.get("narration_boundary_policy_id")
+                != contract.get("policy_id")
+                or chunk.get("episode_format") != contract.get("episode_format")
+                or chunk.get("boundary_source_count") != contract.get("source_count")
+            ):
+                failures.append(
+                    f"TTS chunk {index} narration boundary contract changed",
+                )
+            expected_speed = _number(contract.get("base_speed"), default=-1)
+            if (
+                contract.get("episode_format") == "BUNDLE"
+                and chunk.get("logical_segment_kind") == "transition"
+            ):
+                expected_speed = _number(
+                    contract.get("effective_transition_speed"),
+                    default=-1,
+                )
+            if abs(_number(chunk.get("effective_speed"), default=-1) - expected_speed) > 1e-9:
+                failures.append(
+                    f"TTS chunk {index} effective speed violates the boundary contract",
+                )
+    if expected_narration_boundary_contract is not None and isinstance(chunks, list):
+        transition_ids = {
+            str(chunk.get("logical_segment_id") or "")
+            for chunk in chunks
+            if isinstance(chunk, dict)
+            and chunk.get("logical_segment_kind") == "transition"
+        }
+        if len(transition_ids) != _integer(
+            expected_narration_boundary_contract.get("spoken_transition_count"),
+            default=-1,
+        ):
+            failures.append("TTS spoken transition count violates the boundary contract")
     if not state.get("final_audio_sha256"):
         failures.append("TTS final audio checksum is missing")
     if not SHA256_RE.fullmatch(str(state.get("narration_plan_sha256") or "")):
@@ -296,14 +357,23 @@ def _validate_audio_mix_chain(
         if audio_mix_report.get("failures") != []:
             failures.append("audio mix report must contain no failures")
 
-    for field in (
+    binding_fields = [
         "episode_plan_sha256",
         "daily_plan_sha256",
         "narration_plan_sha256",
         "timing_contract_sha256",
         "narration_profile_id",
         "narration_profile_sha256",
-    ):
+    ]
+    if tts_state.get("narration_boundary_contract") is not None:
+        binding_fields.extend([
+            "narration_boundary_contract",
+            "narration_boundary_contract_sha256",
+            "narration_boundary_policy_id",
+            "episode_format",
+            "boundary_source_count",
+        ])
+    for field in binding_fields:
         expected = tts_state.get(field)
         if pause_map.get(field) != expected:
             failures.append(f"pause map {field} does not match TTS state")
@@ -443,6 +513,26 @@ def _validate_audio_mix_chain(
             ):
                 failures.append("audio mix loudness/true-peak gate did not pass")
 
+            planned_tts = (episode_plan.get("provider_settings") or {}).get(
+                "tts",
+            )
+            planned_boundary = (
+                planned_tts.get("narration_boundary_contract")
+                if isinstance(planned_tts, dict)
+                else None
+            )
+            if planned_boundary is not None:
+                if not isinstance(planned_boundary, dict) or not (
+                    verify_narration_boundary_contract(planned_boundary)
+                ):
+                    failures.append(
+                        "episode plan narration boundary contract checksum is invalid"
+                    )
+                elif tts_state.get("narration_boundary_contract") != planned_boundary:
+                    failures.append(
+                        "TTS narration boundary contract does not match episode plan"
+                    )
+
         try:
             profile = resolve_narration_profile(
                 str(tts_state.get("narration_profile_id") or ""),
@@ -558,6 +648,21 @@ def _validate_episode_chain(
             failures.append("TTS narration_profile_id does not match episode plan")
         if tts_state.get("narration_profile_sha256") != planned_profile_sha256:
             failures.append("TTS narration profile checksum does not match episode plan")
+        planned_tts = (episode_plan.get("provider_settings") or {}).get("tts")
+        planned_boundary = (
+            planned_tts.get("narration_boundary_contract")
+            if isinstance(planned_tts, dict)
+            else None
+        )
+        if planned_boundary is not None:
+            if compilation.get("narration_boundary_contract") != planned_boundary:
+                failures.append(
+                    "script narration boundary contract does not match episode plan"
+                )
+            if tts_state.get("narration_boundary_contract") != planned_boundary:
+                failures.append(
+                    "TTS narration boundary contract does not match episode plan"
+                )
 
     downstream = {
         "script": compilation,
@@ -1148,11 +1253,39 @@ def _validate_editorial_motion_creative_contract(
         failures.append("editorial motion creative manifest must reject background video")
     if render_report.get("background_video_used") is not False:
         failures.append("editorial motion render unexpectedly used background video")
+    renderer = str(render_report.get("renderer") or "")
     if (
-        render_report.get("renderer") != "hyperframes"
+        renderer not in {"hyperframes", "hyperframes_segmented"}
         or render_report.get("hyperframes_check_passed") is not True
     ):
         failures.append("editorial motion requires a passing HyperFrames check")
+    if renderer == "hyperframes_segmented":
+        segment_count = _integer(render_report.get("segment_count"))
+        segment_ceiling = _number(
+            render_report.get("segment_max_duration_sec"),
+        )
+        segment_reports = render_report.get("segments")
+        if (
+            segment_count < 1
+            or not 0 < segment_ceiling <= 120
+            or not isinstance(segment_reports, list)
+            or len(segment_reports) != segment_count
+        ):
+            failures.append(
+                "editorial segmented render requires a complete <=120s segment inventory",
+            )
+        else:
+            for index, segment in enumerate(segment_reports, start=1):
+                if (
+                    not isinstance(segment, dict)
+                    or _number(segment.get("duration_sec")) <= 0
+                    or _number(segment.get("duration_sec")) > segment_ceiling + 0.12
+                ):
+                    failures.append(
+                        f"editorial render segment {index} violates the bounded duration",
+                    )
+        if render_report.get("captions_burned") is not True:
+            failures.append("editorial segmented render must burn the approved captions")
     if render_report.get("factual_text_rendering") != "html_svg_only":
         failures.append("editorial factual text must be rendered by HTML/SVG")
 
@@ -1468,6 +1601,7 @@ def run_qa(
         failures.extend(validate_metadata(metadata, compilation))
     expected_profile_id: str | None = None
     expected_profile_sha256: str | None = None
+    expected_boundary_contract: dict[str, Any] | None = None
     if isinstance(episode_plan, dict) and _integer(episode_plan.get("version") or 1, default=0) >= 2:
         expected_profile_id = str(
             episode_plan.get("narration_profile_id") or "",
@@ -1475,12 +1609,21 @@ def run_qa(
         expected_profile_sha256 = str(
             episode_plan.get("narration_profile_sha256") or "",
         )
+        planned_tts = (episode_plan.get("provider_settings") or {}).get("tts")
+        if isinstance(planned_tts, dict) and isinstance(
+            planned_tts.get("narration_boundary_contract"),
+            dict,
+        ):
+            expected_boundary_contract = planned_tts[
+                "narration_boundary_contract"
+            ]
     failures.extend(validate_tts_state(
         tts_state,
         expected_voice_id=expected_voice_id,
         expected_comment_voice_id=expected_comment_voice_id,
         expected_narration_profile_id=expected_profile_id,
         expected_narration_profile_sha256=expected_profile_sha256,
+        expected_narration_boundary_contract=expected_boundary_contract,
     ))
     try:
         slides = preflight_storyboard(storyboard, artifact_root)

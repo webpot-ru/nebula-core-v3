@@ -107,8 +107,45 @@ class Acc1DailyPlannerTests(unittest.TestCase):
             self.assertEqual(first["max_release_status"], MAX_RELEASE_STATUS)
             self.assertEqual(first["format"], first["source_plan"]["format"])
             self.assertEqual(first["pillar"], first["source_plan"]["pillar"])
-            self.assertEqual(first["editorial_motion_style_profile"], "adult_animation_family_v1")
+            self.assertEqual(
+                first["editorial_motion_style_profile"],
+                "acc1_format_visual_system_v3",
+            )
+            self.assertEqual(
+                first["format_visual_contract"],
+                {
+                    "version": 3,
+                    "style_profile": "acc1_format_visual_system_v3",
+                    "format": "BUNDLE",
+                    "pillar": "relationships_family",
+                    "panel_count_range": [1, 5],
+                    "renderer": "hyperframes_segmented",
+                    "segment_max_duration_sec": 120,
+                },
+            )
             self.assertNotIn("topic_mix", json.dumps(first, ensure_ascii=False))
+
+    def test_every_format_is_bound_to_v3_but_keeps_its_own_grammar(self):
+        with tempfile.TemporaryDirectory() as directory:
+            channels_path = self._write_config(directory)
+            expected = {
+                "pilot_01": ("BUNDLE", "relationships_family"),
+                "pilot_03": ("SAGA", "strange_dark_unexplained"),
+                "pilot_04": ("THREAD", "confessions_awkward_taboo"),
+            }
+            for pilot_id, (format_id, pillar_id) in expected.items():
+                with self.subTest(pilot_id=pilot_id):
+                    plan = build_daily_plan(
+                        channels_path,
+                        production_date="2026-07-14",
+                        pilot_override=pilot_id,
+                    )
+                    contract = plan["format_visual_contract"]
+                    self.assertEqual(contract["style_profile"], "acc1_format_visual_system_v3")
+                    self.assertEqual(contract["format"], format_id)
+                    self.assertEqual(contract["pillar"], pillar_id)
+                    self.assertEqual(contract["panel_count_range"], [1, 5])
+                    self.assertEqual(contract["segment_max_duration_sec"], 120)
 
 
 if __name__ == "__main__":

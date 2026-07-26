@@ -26,13 +26,11 @@ on:
           - pilot_05
           - pilot_06
       visual_mode:
-        description: Explicit renderer contract; cinematic is never a fallback
+        description: Locked renderer for every new acc1 episode; historical modes use recovery workflows
         required: true
-        default: reddit_pages
+        default: editorial_motion_v1
         type: choice
         options:
-          - reddit_pages
-          - cinematic_story_v1
           - editorial_motion_v1
       confirm_reddit_read:
         description: Explicitly allow the bounded read-only Reddit source stage
@@ -462,7 +460,11 @@ jobs:
               raise SystemExit("release manifest embedded hash does not match bound JSON")
 
           visual_mode = str(result.get("visual_mode") or "")
-          if visual_mode not in {"reddit_pages", "cinematic_story_v1"}:
+          if visual_mode not in {
+              "reddit_pages",
+              "cinematic_story_v1",
+              "editorial_motion_v1",
+          }:
               raise SystemExit("factory result has unknown visual_mode")
           for field in (
               "visual_mode",
@@ -481,19 +483,33 @@ jobs:
               expected = str(result.get(field) or "")
               if not sha256.fullmatch(expected) or manifest.get(field) != expected:
                   raise SystemExit(f"factory audio binding mismatch: {field}")
-          for field in (
-              "shot_plan_sha256",
-              "caption_track_sha256",
-              "caption_srt_sha256",
-          ):
+          required_visual_hashes = {
+              "shot_plan_sha256": {"cinematic_story_v1"},
+              "motion_plan_sha256": {"editorial_motion_v1"},
+              "caption_track_sha256": {
+                  "cinematic_story_v1",
+                  "editorial_motion_v1",
+              },
+              "caption_srt_sha256": {
+                  "cinematic_story_v1",
+                  "editorial_motion_v1",
+              },
+          }
+          for field, required_modes in required_visual_hashes.items():
               expected = result.get(field)
-              if visual_mode == "cinematic_story_v1":
+              if visual_mode in required_modes:
                   if not sha256.fullmatch(str(expected or "")):
-                      raise SystemExit(f"cinematic result has invalid {field}")
+                      raise SystemExit(
+                          f"{visual_mode} result has invalid {field}"
+                      )
                   if manifest.get(field) != expected:
-                      raise SystemExit(f"cinematic manifest binding mismatch: {field}")
+                      raise SystemExit(
+                          f"{visual_mode} manifest binding mismatch: {field}"
+                      )
               elif expected is not None or manifest.get(field) is not None:
-                  raise SystemExit(f"baseline result must not claim {field}")
+                  raise SystemExit(
+                      f"{visual_mode} result must not claim {field}"
+                  )
 
           root = result_path.parent
           artifact_paths = {
@@ -540,6 +556,47 @@ jobs:
                   "caption_track": root / "caption-track.json",
                   "caption_srt": root / "final-output.srt",
               })
+          elif visual_mode == "editorial_motion_v1":
+              evidence_paths.update({
+                  "motion_plan": root / "motion-plan.json",
+                  "caption_track": root / "caption-track.json",
+                  "caption_srt": root / "editorial-motion-captions.srt",
+              })
+              render_report = json.loads(
+                  evidence_paths["render_report"].read_text(encoding="utf-8")
+              )
+              segments = render_report.get("segments")
+              segment_count = render_report.get("segment_count")
+              segment_ceiling = render_report.get("segment_max_duration_sec")
+              if (
+                  render_report.get("renderer") != "hyperframes_segmented"
+                  or render_report.get("hyperframes_check_passed") is not True
+                  or render_report.get("captions_burned") is not True
+                  or not isinstance(segment_count, int)
+                  or segment_count < 1
+                  or not isinstance(segment_ceiling, (int, float))
+                  or isinstance(segment_ceiling, bool)
+                  or not 0 < float(segment_ceiling) <= 120
+                  or not isinstance(segments, list)
+                  or len(segments) != segment_count
+              ):
+                  raise SystemExit(
+                      "editorial result is not a complete bounded HyperFrames render"
+                  )
+              for index, segment in enumerate(segments, start=1):
+                  duration = (
+                      segment.get("duration_sec")
+                      if isinstance(segment, dict)
+                      else None
+                  )
+                  if (
+                      not isinstance(duration, (int, float))
+                      or isinstance(duration, bool)
+                      or not 0 < float(duration) <= float(segment_ceiling) + 0.12
+                  ):
+                      raise SystemExit(
+                          f"editorial segment {index} violates the render ceiling"
+                      )
           for label, paths, claimed in (
               ("artifact", artifact_paths, manifest.get("artifact_sha256")),
               ("evidence", evidence_paths, manifest.get("evidence_sha256")),

@@ -301,6 +301,29 @@ class EpisodeImageTests(unittest.TestCase):
         self.assertEqual(thread[0]["page_layout"], "thread_prompt_anchor")
         self.assertEqual({item["story_index"] for item in thread}, {0, 1, 2})
         self.assertEqual(len(thread), 6)
+        thread_heroes = [
+            item for item in thread if item["layer_role"] == "hero_plate"
+        ]
+        self.assertEqual(
+            [item["panel_grammar"] for item in thread_heroes],
+            [
+                "thread_prompt_anchor",
+                "thread_voice_set",
+                "thread_viewpoint_mosaic",
+            ],
+        )
+        self.assertEqual(
+            [item["panel_count"] for item in thread_heroes],
+            [1, 3, 5],
+        )
+        self.assertEqual(
+            [item["page_layout"] for item in thread_heroes],
+            [
+                "thread_prompt_anchor",
+                "thread_response_vignette",
+                "thread_response_vignette",
+            ],
+        )
 
     def test_explicit_release_image_targets_must_be_even(self):
         source_story = story("odd-target", words=120)

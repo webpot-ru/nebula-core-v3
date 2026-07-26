@@ -9,6 +9,8 @@ from acc1_narration_profiles import (
     NARRATION_PROFILES,
     STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
     canonical_hash,
+    resolve_narration_boundary_contract,
+    resolve_narration_profile,
 )
 from compilation_audio_mix import (
     build_pause_map,
@@ -75,6 +77,45 @@ def chunk(
         "is_last_in_segment": last_in_segment,
         "status": "COMPLETE",
     }
+
+
+def attach_boundary_contract(state, episode_format, source_count):
+    profile = resolve_narration_profile(
+        STRANGE_DARK_UNEXPLAINED_PROFILE_ID,
+        pillar_id="strange_dark_unexplained",
+    )
+    contract = resolve_narration_boundary_contract(
+        profile,
+        episode_format=episode_format,
+        source_count=source_count,
+    )
+    state.update({
+        "narration_boundary_contract": contract,
+        "narration_boundary_contract_sha256": contract[
+            "narration_boundary_contract_sha256"
+        ],
+        "narration_boundary_policy_id": contract["policy_id"],
+        "episode_format": contract["episode_format"],
+        "boundary_source_count": contract["source_count"],
+    })
+    for item in state["chunks"]:
+        item.update({
+            "narration_boundary_contract_sha256": contract[
+                "narration_boundary_contract_sha256"
+            ],
+            "narration_boundary_policy_id": contract["policy_id"],
+            "episode_format": contract["episode_format"],
+            "boundary_source_count": contract["source_count"],
+            "effective_speed": (
+                contract["effective_transition_speed"]
+                if (
+                    contract["episode_format"] == "BUNDLE"
+                    and item["logical_segment_kind"] == "transition"
+                )
+                else profile["speed"]
+            ),
+        })
+    return contract
 
 
 class CompilationAudioMixTests(unittest.TestCase):
@@ -146,6 +187,127 @@ class CompilationAudioMixTests(unittest.TestCase):
         )
         self.assertFalse(first["network_used"])
         self.assertFalse(first["publication_authorized"])
+
+    def test_bundle_and_thread_boundaries_keep_exact_pauses(self):
+        bundle_chunks = [
+            chunk(
+                "story_one",
+                segment_id="story_one",
+                segment_kind="story",
+                beat_id="story_one__beat_001",
+                beat_index=1,
+                audio_path="segments/story-one.wav",
+                audio_sha256="a" * 64,
+                duration=2.0,
+                last_in_beat=True,
+                last_in_segment=True,
+            ),
+            chunk(
+                "transition_one",
+                segment_id="transition_01",
+                segment_kind="transition",
+                beat_id="transition_01__beat_001",
+                beat_index=1,
+                audio_path="segments/transition.wav",
+                audio_sha256="b" * 64,
+                duration=1.0,
+                last_in_beat=True,
+                last_in_segment=True,
+            ),
+            chunk(
+                "story_two",
+                segment_id="story_two",
+                segment_kind="story",
+                beat_id="story_two__beat_001",
+                beat_index=1,
+                audio_path="segments/story-two.wav",
+                audio_sha256="c" * 64,
+                duration=2.0,
+                last_in_beat=True,
+                last_in_segment=True,
+            ),
+            chunk(
+                "outro",
+                segment_id="outro",
+                segment_kind="outro",
+                beat_id="outro__beat_001",
+                beat_index=1,
+                audio_path="segments/outro.wav",
+                audio_sha256="d" * 64,
+                duration=1.0,
+                last_in_beat=True,
+                last_in_segment=True,
+            ),
+        ]
+        bundle_state = completed_state(bundle_chunks)
+        bundle_contract = attach_boundary_contract(
+            bundle_state,
+            "BUNDLE",
+            2,
+        )
+        bundle_map = build_pause_map(bundle_state)
+        self.assertEqual(
+            bundle_map["entries"][0]["pause_after_sec"],
+            bundle_contract["pause_before_announcement_sec"],
+        )
+        self.assertEqual(
+            bundle_map["entries"][1]["pause_after_sec"],
+            bundle_contract["pause_after_announcement_sec"],
+        )
+
+        thread_chunks = [
+            chunk(
+                "prompt",
+                segment_id="story_prompt",
+                segment_kind="story",
+                beat_id="story_prompt__beat_001",
+                beat_index=1,
+                audio_path="segments/prompt.wav",
+                audio_sha256="e" * 64,
+                duration=2.0,
+                last_in_beat=True,
+                last_in_segment=True,
+            ),
+            chunk(
+                "response",
+                segment_id="story_response",
+                segment_kind="story",
+                beat_id="story_response__beat_001",
+                beat_index=1,
+                audio_path="segments/response.wav",
+                audio_sha256="f" * 64,
+                duration=2.0,
+                last_in_beat=True,
+                last_in_segment=True,
+            ),
+            chunk(
+                "thread_outro",
+                segment_id="outro",
+                segment_kind="outro",
+                beat_id="outro__beat_001",
+                beat_index=1,
+                audio_path="segments/thread-outro.wav",
+                audio_sha256="1" * 64,
+                duration=1.0,
+                last_in_beat=True,
+                last_in_segment=True,
+            ),
+        ]
+        thread_state = completed_state(thread_chunks)
+        thread_contract = attach_boundary_contract(
+            thread_state,
+            "THREAD",
+            2,
+        )
+        thread_map = build_pause_map(thread_state)
+        self.assertFalse(any(
+            entry["logical_segment_kind"] == "transition"
+            for entry in thread_map["entries"]
+        ))
+        self.assertEqual(
+            thread_map["entries"][0]["pause_after_sec"],
+            thread_contract["prompt_response_pause_sec"],
+        )
 
     @unittest.skipUnless(
         shutil.which("ffmpeg") and shutil.which("ffprobe"),

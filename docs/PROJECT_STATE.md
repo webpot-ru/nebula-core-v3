@@ -2,6 +2,59 @@
 
 Last updated: 2026-07-26
 
+## 2026-07-26 — Future multi-story narration boundaries locked locally
+
+- The existing pillar profiles already inserted deterministic pauses after a
+  story and after a spoken transition. The missing part was delivery speed:
+  AI33 received transition announcements at the same speed as the story body.
+- Future factory episodes now carry a separate checksum-bound narration
+  boundary contract. BUNDLE inserts the canonical story pause, reads each
+  `А теперь — следующая полная история` announcement at `0.92 ×` the
+  pillar-profile speed, then inserts the longer canonical transition pause.
+  SAGA has no next-story announcement and keeps semantic beat breathing inside
+  its one continuous story. THREAD has no repeated spoken transition; it uses
+  story-segment pauses, visible question/answer labels and the distinct female
+  comment voice.
+- The contract is bound through the immutable episode provider settings, script,
+  TTS requests/state, pause map, audio-mix report and media QA. Actual AI33 word
+  timings (or the declared exact-audio-duration fallback) plus the same pause
+  map continue to drive subtitles and the visual timeline, so inserted silence
+  cannot desynchronise SRT/captions.
+- Historical scripts and TTS states without this opt-in contract remain
+  recoverable byte-for-byte; the completed first video was not regenerated or
+  changed. This revision is **local-only**: no AI33/provider call, GitHub run,
+  render, YouTube upload or publication occurred, and it has not been committed
+  or pushed.
+
+## 2026-07-26 — All three acc1 formats locally unlocked and v3-locked
+
+- New daily episode plans now bind `acc1_format_visual_system_v3` plus the
+  exact BUNDLE, SAGA or THREAD grammar, content pillar, 1–5-panel range and
+  120-second render ceiling. The daily GitHub workflow exposes only
+  `editorial_motion_v1`; historical Reddit-page, cinematic and six-series
+  profiles cannot be selected for a new dispatch.
+- BUNDLE is locked to isolated mini-comic casts, SAGA to one continuous cast
+  and environment, and THREAD to one prompt followed by materially different
+  response vignettes. THREAD no longer fails in the factory/storyboard path:
+  it preserves narrator versus female comment voice, binds a separate
+  source-derived identity token to every response, and adds deterministic
+  `ВОПРОС` / `ОТВЕТ NN` overlays outside the subtitle band.
+- The former THREAD reset bug is removed. Prompt and responses now share one
+  episode-wide semantic sequence, so accepted responses progress through
+  different 1–5-panel grammars instead of all inheriting the first prompt
+  layout.
+- The general editorial renderer no longer has a monolithic full-duration
+  browser path. It always partitions at scene boundaries into contiguous
+  segments of at most 120 seconds, renders each in an isolated HyperFrames
+  workspace, assembles them, muxes the existing narration and burns the bound
+  caption track. Media QA and the workflow hash gate both require the complete
+  bounded segment inventory.
+- This state is **local-only**. No Reddit/provider request, image generation,
+  AI33 task, GitHub workflow, YouTube upload or publication occurred. The
+  THREAD collector contract is locally artifact-ready, while exact live
+  source behaviour remains `github_canary_required`; no live-source
+  verification is claimed. The revision has not been committed or pushed.
+
 ## 2026-07-26 — First-release YouTube package prepared locally
 
 - The visually accepted captioned master from GitHub run `30187749091` now has
@@ -535,17 +588,13 @@ This is one original adult 2D animation family, not a copy of an existing animat
 
 The profile is selected once per episode from its pilot lane and never mixed within that episode. Each profile controls character proportions, faces, wardrobe, palette, panel rhythm and motion behaviour. Shared channel invariants remain the original 2D drawn medium, exact deterministic text overlays, readable subtitles and HyperFrames-compatible panel/camera motion. The prior 300-second `ink_gouache` MP4 remains technical proof of the local renderer only; it is **not** the approved future art direction.
 
-### Implementation status — local, not a production-default change
+### Implementation status — historical compatibility only
 
-The six profiles are now bound to the real no-spend daily planner through
-`editorial_motion_style_profile`, and the factory rejects a profile that does
-not match the exact `pilot_id`. For `editorial_motion_v1`, the image planner
-selects a **source-bound, deterministic sequence of unique layouts** from that
-profile's ten-layout repertoire. Repeating a story source produces the same
-sequence for reproducibility; a different source produces a different sequence
-without random render drift. The renderer has separate geometry and motion for
-each layout, and hides narration from decorative speech bubbles; only short,
-verified direct quotes may become bubble text later.
+The six profiles remain available solely to validate frozen artifacts. New
+daily plans are bound to `acc1_format_visual_system_v3`, and the factory
+rejects these retired profile IDs before provider spend. Their deterministic
+layout selector and old visual proofs remain historical renderer evidence, not
+a selectable production default.
 
 Local visual proof: `build/acc1-adult-animation-work-preview-v2/manual-silent.mp4`
 is a 48-second 1920x1080/30 H.264 silent motion preview. It uses crops of the

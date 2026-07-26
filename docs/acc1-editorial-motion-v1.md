@@ -9,12 +9,12 @@ Last verified: 2026-07-19
 > prompts. This file remains solely to explain legacy renderer behaviour,
 > tests and artifacts.
 
-## Active implementation — six adult animated-comic series
+## Superseded implementation — six adult animated-comic series
 
-The active profiles are implemented in `acc1_visual_contract.py`, not merely
-recorded as style references. The no-spend daily plan carries the exact
-`editorial_motion_style_profile`, and the factory re-derives and checks it from
-the `pilot_id` before an editorial-motion run can spend credits.
+These profiles remain implemented in `acc1_visual_contract.py` only so frozen
+historical artifacts can still be verified. New daily plans always carry
+`acc1_format_visual_system_v3`; the current factory rejects a legacy profile
+before an editorial-motion run can spend credits.
 
 | Pilot | Profile | Repertoire and story behaviour |
 | --- | --- | --- |
@@ -23,7 +23,7 @@ the `pilot_id` before an editorial-motion run can spend credits.
 | 03 SAGA | `adult_animation_saga_absurd_v1` | quiet empty rooms, odd objects and unease without noir treatment |
 | 04 confessions | `adult_animation_confessions_v1` | close emotion, mirrors, phones and memory objects |
 | 05 professions | `adult_animation_professions_v1` | tools, routines, workspaces and observation comedy |
-| 06 THREAD | `adult_animation_daily_weird_v1` | minimal objects and domestic oddness; visual profile is ready, renderer remains blocked pending the dedicated THREAD hybrid |
+| 06 THREAD | `adult_animation_daily_weird_v1` | historical minimal-object experiment; superseded by the v3 prompt/response grammar |
 
 Each profile has ten named layouts. `select_adult_animation_layouts()` derives
 a unique sequence from `SHA-256(profile + source_id)`: one source always gets
@@ -71,15 +71,12 @@ is exact and can be substituted from an approved episode script. No new image,
 AI33, GitHub, upload or YouTube operation occurred. Its JPEG scratch frames and
 Chrome profile were moved to project Trash after visual inspection.
 
-## Decision
+## Historical decision
 
-`editorial_motion_v1` is the opt-in SAGA/BUNDLE motion-design mode for the
-adult editorial-collage direction. Motion-plan v2 locks the reusable visual
-profile `contemporary_cutup_v1`: photographic material is integrated into
-cobalt/coral/butter torn-paper planes, a detail plate becomes a portal, and
-the camera travels through overlapping virtual layers instead of presenting
-paper cards, dossiers or newspapers. One source-bound system selects semantic
-motion according to the narration:
+The original implementation made `editorial_motion_v1` an opt-in SAGA/BUNDLE
+mode using `contemporary_cutup_v1`. That decision is superseded; current new
+episodes use the v3 fully drawn BUNDLE/SAGA/THREAD system. The following list
+documents the old renderer modules for frozen-artifact compatibility:
 
 - `nested_collage_zoom` for the hook and portal transitions;
 - `living_photo_depth` for observational story beats;
