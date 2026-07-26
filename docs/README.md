@@ -34,9 +34,14 @@ approved 69 VectorEngine and 61 AI33 calls once, freezes the v3 storyboard and
 exports a path-free segment plan. Matrix jobs have no provider credentials,
 render one silent segment each with a hard 120-second ceiling and run at most
 eight at once. Assembly verifies every segment, concatenates H.264 video
-without re-encoding and then muxes the frozen narration. Production rejects a
-one-segment plan and has no monolithic fallback. The successful historical
-reference is run `29888971818`, which produced nine bounded render jobs.
+without re-encoding, muxes the frozen narration into an intermediate MP4 and
+then performs one deterministic H.264 pass that burns the checksum-bound ASS
+captions into the stationary 130 px bottom band. The editable SRT remains in
+the artifact. A final report is valid only with `captions_burned=true`, a
+non-empty cue count and matching SRT/ASS/caption-track checksums. Production
+rejects a one-segment plan and has no monolithic fallback. The successful
+historical segmentation reference is run `29888971818`, which produced nine
+bounded render jobs.
 
 The bounded HyperFrames recovery mode lives in the already registered
 `.github/workflows/acc1_single_audio_recovery.yml`. With
