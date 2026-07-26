@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-27
 
-## 2026-07-27 — THREAD Reddit discovery correction local; live canary pending
+## 2026-07-27 — THREAD Reddit discovery v5 merged; one finalist in first canary
 
 - The approved source-only run
   [`30213699089`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30213699089)
@@ -34,9 +34,22 @@ Last updated: 2026-07-27
 - Local verification passes: all 616 repository unit tests, targeted syntax
   compilation for the changed Python modules, `channels.json` parsing and
   `git diff --check`.
-- This correction is local-only. It has not been committed, pushed, merged or
-  live-tested against Reddit; a separate explicit approval is still required
-  for those actions.
+- PR
+  [`#85`](https://github.com/webpot-ru/nebula-core-v3/pull/85)
+  merged the correction to
+  `main@805e999ac4668deb9cc273d03810a93e20132fa8`.
+  The single approved source-only canary
+  [`30216203881`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30216203881)
+  then consumed the complete 24-request envelope and produced one structurally
+  complete finalist: prompt `1rqz92t`, 13 selected responses and 3,212 response
+  words. The factory correctly blocked because the paid-review boundary still
+  requires 3-5 complete source candidates. OpenAI, VectorEngine, AI33,
+  production, render and YouTube were all skipped.
+- The retained diagnostic artifact is
+  `acc1-daily-episode-30216203881` (expiry `2026-08-09`). It proves that the v5
+  search can find a production-length THREAD, but not yet that the 24-request
+  portfolio can reliably supply the required three-candidate minimum. No retry
+  or higher Reddit-read cap has been authorized.
 
 ## 2026-07-27 — Successful source-only workflow mode and lease fix merged
 
