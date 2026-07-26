@@ -1,16 +1,16 @@
 name: acc1 Fixed First Release Recovery
-run-name: acc1 recover fixed release from run ${{ inputs.source_run_id }}
+run-name: acc1 segmented recovery from run ${{ inputs.source_run_id }}
 
 on:
   workflow_dispatch:
     inputs:
       source_run_id:
-        description: Exact failed source run whose artifact will be reused
+        description: Exact failed source run whose immutable artifact will be reused
         required: true
-        default: "29813098711"
+        default: "30102591330"
         type: string
-      confirm_poll_existing_ai33_task_only:
-        description: Allow GET/poll of the saved AI33 task; no provider POSTs
+      confirm_poll_existing_ai33_tasks_only:
+        description: Poll saved AI33 task IDs only; no image or TTS submissions
         required: true
         default: false
         type: boolean
@@ -19,26 +19,118 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: acc1-fixed-first-release-recovery
+  cancel-in-progress: false
+
+env:
+  WORKDIR: build/acc1-fixed-first-release-recovery
+
 jobs:
-  recover:
+  recover_prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
-    concurrency:
-      group: acc1-fixed-first-release-recovery
-      cancel-in-progress: false
-    env:
-      WORKDIR: build/acc1-fixed-first-release-recovery
+    timeout-minutes: 180
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Require exact one-time recovery scope
         env:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
-          CONFIRM_POLL: ${{ inputs.confirm_poll_existing_ai33_task_only }}
+          CONFIRM_POLL: ${{ inputs.confirm_poll_existing_ai33_tasks_only }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          test "$SOURCE_RUN_ID" = "29813098711"
+          test "$SOURCE_RUN_ID" = "30102591330"
           test "$CONFIRM_POLL" = "true"
           test "$RUN_ATTEMPT" = "1"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deterministic preparation dependencies
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffprobe -version
+      - name: Download exact saved provider artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-fixed-first-release-source-30102591330
+          path: ${{ env.WORKDIR }}
+          github-token: ${{ github.token }}
+          repository: webpot-ru/nebula-core-v3
+          run-id: 30102591330
+      - name: Prove zero-submission recovery before exposing AI33 key
+        run: |
+          set -euo pipefail
+          python scripts/recover_acc1_fixed_first_release.py \
+            --artifact-root "$WORKDIR" \
+            --preflight-only
+      - name: Poll only saved tasks and prepare segmented source
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=60s 10800s \
+            python scripts/recover_acc1_fixed_first_release.py \
+              --artifact-root "$WORKDIR" \
+              --prepare-segmented \
+              --source-run-id "${{ inputs.source_run_id }}"
+      - name: Export bounded render matrix
+        id: plan
+        run: |
+          set -euo pipefail
+          python - "$WORKDIR/segmented-render-plan.json" "$WORKDIR/segmented-preparation-result.json" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+
+          plan = json.load(open(sys.argv[1], encoding="utf-8"))
+          result = json.load(open(sys.argv[2], encoding="utf-8"))
+          segments = plan["segments"]
+          indices = [int(item["index"]) for item in segments]
+          ceiling = float(plan["max_duration_sec"])
+          assert plan["renderer"] == "hyperframes_segmented"
+          assert plan["segment_count"] == len(indices)
+          assert result["status"] == "SEGMENTED_RENDER_PREPARED"
+          assert result["recovery_source_run_id"] == "30102591330"
+          assert result["image_calls"] == 69
+          assert result["ai33_task_submissions"] == 61
+          assert result["new_image_calls"] == 0
+          assert result["new_ai33_task_submissions"] == 0
+          assert 1 <= result["existing_tasks_to_poll"] <= 61
+          assert result["youtube_called"] is False
+          assert result["publication_authorized"] is False
+          assert result["segment_indices"] == indices
+          assert result["segment_count"] == len(indices)
+          assert 2 <= len(indices) <= 16
+          assert indices == list(range(1, len(indices) + 1))
+          assert 0 < ceiling <= 120.0
+          assert all(0 < float(item["duration_sec"]) <= ceiling + 0.001 for item in segments)
+          with open(sys.argv[3], "a", encoding="utf-8") as output:
+              output.write("matrix=" + json.dumps({"segment": indices}, separators=(",", ":")) + "\n")
+          PY
+          test ! -e "$WORKDIR/final-output.mp4"
+      - name: Upload immutable recovered source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-fixed-first-release-recovery-source-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
+
+  render:
+    needs: recover_prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJSON(needs.recover_prepare.outputs.matrix) }}
+    steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -52,48 +144,128 @@ jobs:
           pip install -r requirements.txt
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-          npx --yes hyperframes@0.7.61 info
-      - name: Download exact saved artifact
+          npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+            --path "$RUNNER_TEMP/hyperframes-browsers"
+          browser_path="$(find "$RUNNER_TEMP/hyperframes-browsers" \
+            -type f -name chrome-headless-shell -perm -111 | head -n 1)"
+          test -x "$browser_path"
+          echo "HYPERFRAMES_BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
+      - name: Download immutable recovered source
         uses: actions/download-artifact@v4
         with:
-          name: acc1-fixed-first-release-29813098711
+          name: acc1-fixed-first-release-recovery-source-${{ github.run_id }}
           path: ${{ env.WORKDIR }}
-          github-token: ${{ github.token }}
-          repository: webpot-ru/nebula-core-v3
-          run-id: 29813098711
-      - name: Prove zero-new-call recovery before exposing AI33 key
+      - name: Render one bounded silent segment
         run: |
           set -euo pipefail
-          python scripts/recover_acc1_fixed_first_release.py \
-            --artifact-root "$WORKDIR" \
-            --preflight-only
-      - name: Poll saved task and render review artifact
+          python scripts/run_acc1_fixed_first_release.py \
+            --output-dir "$WORKDIR" \
+            --render-segment "${{ matrix.segment }}"
+      - name: Verify isolated segment
         env:
-          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+          SEGMENT: ${{ matrix.segment }}
         run: |
           set -euo pipefail
-          timeout --signal=TERM --kill-after=60s 12600s \
-            python scripts/recover_acc1_fixed_first_release.py \
-              --artifact-root "$WORKDIR"
-      - name: Verify no new provider submissions and no publication
+          python - "$WORKDIR" "$SEGMENT" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          index = int(sys.argv[2])
+          report = json.load(open(root / "render-segments" / f"segment-{index:03d}.json", encoding="utf-8"))
+          plan = json.load(open(root / "segmented-render-plan.json", encoding="utf-8"))
+          assert report["status"] == "PASS"
+          assert report["segment_index"] == index
+          assert report["segment_count"] == plan["segment_count"]
+          assert report["duration_sec"] <= float(plan["max_duration_sec"]) + 0.12
+          assert report["provider_calls"] == 0
+          assert report["youtube_called"] is False
+          assert report["temporary_workspace_removed"] is True
+          assert (root / "render-segments" / f"segment-{index:03d}.mp4").stat().st_size > 0
+          PY
+      - name: Upload only rendered segment
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-fixed-first-release-recovery-segment-${{ matrix.segment }}-${{ github.run_id }}
+          path: |
+            ${{ env.WORKDIR }}/render-segments/segment-*.mp4
+            ${{ env.WORKDIR }}/render-segments/segment-*.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  assemble:
+    needs: [recover_prepare, render]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deterministic assembly dependencies
         run: |
           set -euo pipefail
-          python - "$WORKDIR/fixed-release-recovery-result.json" <<'PY'
-          import json, sys
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Download immutable recovered source
+        uses: actions/download-artifact@v4
+        with:
+          name: acc1-fixed-first-release-recovery-source-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}
+      - name: Download all rendered segments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: acc1-fixed-first-release-recovery-segment-*-${{ github.run_id }}
+          path: ${{ env.WORKDIR }}/render-segments
+          merge-multiple: true
+      - name: Assemble segments without re-encoding video
+        run: |
+          set -euo pipefail
+          python scripts/run_acc1_fixed_first_release.py \
+            --output-dir "$WORKDIR" \
+            --assemble-segmented
+      - name: Verify final recovered review package
+        run: |
+          set -euo pipefail
+          python - "$WORKDIR/fixed-release-result.json" "$WORKDIR/segmented-render-plan.json" <<'PY'
+          import json
+          import sys
+
           result = json.load(open(sys.argv[1], encoding="utf-8"))
+          plan = json.load(open(sys.argv[2], encoding="utf-8"))
           assert result["status"] == "READY_FOR_HUMAN_REVIEW"
+          assert result["recovery_source_run_id"] == "30102591330"
+          assert result["image_calls"] == 69
+          assert result["ai33_task_submissions"] == 61
           assert result["new_image_calls"] == 0
           assert result["new_ai33_task_submissions"] == 0
-          assert result["youtube_called"] is False
+          assert result["render_segment_count"] == plan["segment_count"]
+          assert result["render_strategy"] == "hyperframes_segmented_matrix"
+          assert result["temporary_frame_workspaces_removed"] is True
           assert result["publication_authorized"] is False
+          assert result["youtube_called"] is False
           PY
           test -s "$WORKDIR/final-output.mp4"
           test -s "$WORKDIR/youtube-thumbnail.png"
-      - name: Upload recovered review artifact
-        if: always()
+          ffprobe -v error -show_entries stream=codec_name,width,height \
+            -of json "$WORKDIR/final-output.mp4"
+      - name: Upload final recovered review artifact
         uses: actions/upload-artifact@v4
         with:
           name: acc1-fixed-first-release-recovered-${{ github.run_id }}
-          path: ${{ env.WORKDIR }}
+          path: |
+            ${{ env.WORKDIR }}/final-output.mp4
+            ${{ env.WORKDIR }}/youtube-thumbnail.png
+            ${{ env.WORKDIR }}/editorial-motion-captions.srt
+            ${{ env.WORKDIR }}/episode-script.json
+            ${{ env.WORKDIR }}/storyboard.json
+            ${{ env.WORKDIR }}/segmented-render-plan.json
+            ${{ env.WORKDIR }}/segmented-preparation-result.json
+            ${{ env.WORKDIR }}/render-report.json
+            ${{ env.WORKDIR }}/fixed-release-result.json
           if-no-files-found: error
           retention-days: 30
+          compression-level: 0

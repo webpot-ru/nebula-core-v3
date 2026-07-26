@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Resume the fixed acc1 release from a saved artifact without provider POSTs."""
+"""Resume the fixed acc1 release from saved provider identities without POSTs."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -17,11 +18,19 @@ if str(ROOT) not in sys.path:
 
 from acc1_episode_factory import BRAND_CTA_ASSET, BRAND_OUTRO_ASSET, BRAND_STING_ASSET, NARRATOR_VOICE_ID
 from acc1_narration_profiles import resolve_narration_profile
+from acc1_pronunciation_dictionary import load_acc1_pronunciation_dictionary
 from acc1_visual_contract import EDITORIAL_MOTION_MODE
-from chrome_guided_webtoon_renderer import render_chrome_guided_webtoon
+from chrome_guided_webtoon_renderer import build_chrome_guided_segment_plan
 from compilation_storyboard import build_storyboard
 from compilation_tts_runner import run_compilation_tts
-from scripts.run_acc1_fixed_first_release import PROFILE_ID, sha256_file, write_json
+from scripts.run_acc1_fixed_first_release import (
+    IMAGE_CAP,
+    PROFILE_ID,
+    TTS_CAP,
+    _validate_segment_plan,
+    sha256_file,
+    write_json,
+)
 
 
 class RecoveryError(RuntimeError):
@@ -38,27 +47,63 @@ def _read(path: Path) -> dict[str, Any]:
     return value
 
 
+def _dictionary_binding(state: dict[str, Any]) -> tuple[int, str]:
+    bindings = {
+        (
+            item.get("pronunciation_dictionary_id"),
+            str(item.get("pronunciation_dictionary_sha256") or "").lower(),
+        )
+        for item in state.get("chunks") or []
+    }
+    if len(bindings) != 1:
+        raise RecoveryError("saved TTS chunks do not share one pronunciation dictionary")
+    dictionary_id, dictionary_sha256 = bindings.pop()
+    if isinstance(dictionary_id, bool) or not isinstance(dictionary_id, int) or dictionary_id <= 0:
+        raise RecoveryError("saved pronunciation dictionary id is invalid")
+    local_dictionary = load_acc1_pronunciation_dictionary()
+    if dictionary_sha256 != local_dictionary["sha256"]:
+        raise RecoveryError("saved pronunciation dictionary does not match the committed rules")
+    return dictionary_id, dictionary_sha256
+
+
 def validate_recovery_artifact(root: Path) -> dict[str, Any]:
     root = root.resolve()
     image_journal = _read(root / "provider-attempts/image.json")
     ai33_journal = _read(root / "provider-attempts/ai33.json")
     state = _read(root / "tts/compilation_tts_state.json")
-    if image_journal.get("cap") != 69 or len(image_journal.get("attempts") or []) != 69:
+    if image_journal.get("cap") != IMAGE_CAP or len(image_journal.get("attempts") or []) != IMAGE_CAP:
         raise RecoveryError("recovery requires the exact 69-call image journal")
     if any(item.get("status") != "COMPLETE" for item in image_journal["attempts"]):
         raise RecoveryError("all image attempts must already be COMPLETE")
-    if ai33_journal.get("cap") != 61 or len(ai33_journal.get("attempts") or []) != 61:
+    if ai33_journal.get("cap") != TTS_CAP or len(ai33_journal.get("attempts") or []) != TTS_CAP:
         raise RecoveryError("recovery requires the exact 61-task AI33 journal")
     if any(item.get("status") != "COMPLETE" for item in ai33_journal["attempts"]):
         raise RecoveryError("all AI33 submissions must already be COMPLETE")
     chunks = state.get("chunks") or []
+    if len(chunks) != TTS_CAP:
+        raise RecoveryError("recovery requires the exact 61-chunk TTS state")
+    if any(item.get("status") not in {"COMPLETE", "SUBMITTED"} for item in chunks):
+        raise RecoveryError("recovery permits only COMPLETE or durable SUBMITTED TTS chunks")
     submitted = [item for item in chunks if item.get("status") == "SUBMITTED"]
     complete = [item for item in chunks if item.get("status") == "COMPLETE"]
-    if len(chunks) != 61 or len(complete) != 60 or len(submitted) != 1:
-        raise RecoveryError("recovery requires exactly 60 COMPLETE and one SUBMITTED TTS chunk")
-    task_id = str(submitted[0].get("task_id") or "")
-    if not task_id:
+    if not submitted or len(complete) + len(submitted) != TTS_CAP:
+        raise RecoveryError("recovery requires at least one durable SUBMITTED TTS chunk")
+    task_ids = [str(item.get("task_id") or "").strip() for item in submitted]
+    if any(not task_id or len(task_id) > 512 for task_id in task_ids):
         raise RecoveryError("submitted recovery chunk has no durable AI33 task id")
+    if len(set(task_ids)) != len(task_ids):
+        raise RecoveryError("submitted recovery chunks contain duplicate AI33 task ids")
+    for item in complete:
+        chunk_id = str(item.get("chunk_id") or "").strip()
+        audio = root / "tts" / "segments" / f"{chunk_id}.mp3"
+        if (
+            not chunk_id
+            or not audio.is_file()
+            or not item.get("audio_sha256")
+            or sha256_file(audio) != item["audio_sha256"]
+        ):
+            raise RecoveryError("completed TTS chunk audio is missing or changed")
+    dictionary_id, dictionary_sha256 = _dictionary_binding(state)
     required = [root / "episode-script.json", root / "youtube-thumbnail.png"]
     required.extend(root / "scene-images" / f"story-{story:02d}-{post}-scene-{scene:03d}-{role}.png"
                     for story, post, count in ((1, "1uw7804", 9), (2, "1v0l1ei", 9), (3, "1uy2j23", 8), (4, "1uviexk", 8))
@@ -70,11 +115,17 @@ def validate_recovery_artifact(root: Path) -> dict[str, Any]:
         "status": "RECOVERY_PREFLIGHT_PASS",
         "image_calls_reused": 69,
         "ai33_tasks_reused": 61,
-        "completed_audio_reused": 60,
-        "existing_task_to_poll": task_id,
+        "completed_audio_reused": len(complete),
+        "existing_tasks_to_poll": len(submitted),
+        "existing_task_ids_sha256": hashlib.sha256(
+            "\n".join(sorted(task_ids)).encode("utf-8"),
+        ).hexdigest(),
+        "pronunciation_dictionary_id": dictionary_id,
+        "pronunciation_dictionary_sha256": dictionary_sha256,
         "new_image_calls_authorized": 0,
         "new_ai33_submissions_authorized": 0,
         "publication_authorized": False,
+        "youtube_called": False,
     }
 
 
@@ -82,7 +133,7 @@ def _refuse_post(**_: Any) -> dict[str, Any]:
     raise RecoveryError("recovery is forbidden from creating a new AI33 task")
 
 
-def recover(root: Path) -> dict[str, Any]:
+def prepare_segmented_recovery(root: Path, *, source_run_id: str) -> dict[str, Any]:
     root = root.resolve()
     preflight = validate_recovery_artifact(root)
     script = _read(root / "episode-script.json")
@@ -96,6 +147,8 @@ def recover(root: Path) -> dict[str, Any]:
         narration_profile_id=PROFILE_ID,
         speed=profile["speed"],
         voice_settings_json=profile["voice_settings_json"],
+        pronunciation_dictionary_id=preflight["pronunciation_dictionary_id"],
+        pronunciation_dictionary_sha256=preflight["pronunciation_dictionary_sha256"],
         post_task=_refuse_post,
         poll_error_retries=12,
         overall_timeout_seconds=7_200,
@@ -123,22 +176,31 @@ def recover(root: Path) -> dict[str, Any]:
         script, root, tts_state=tts_state, visual_mode=EDITORIAL_MOTION_MODE,
     )
     write_json(root / "storyboard.json", storyboard)
-    video = root / "final-output.mp4"
-    render_report = render_chrome_guided_webtoon(storyboard, root, video, audio=audio)
-    write_json(root / "render-report.json", render_report)
+    segment_plan = build_chrome_guided_segment_plan(storyboard, root)
+    segment_indices = _validate_segment_plan(segment_plan)
+    write_json(root / "segmented-render-plan.json", segment_plan)
     result = {
         **preflight,
-        "status": "READY_FOR_HUMAN_REVIEW",
-        "video": video.name,
-        "video_sha256": sha256_file(video),
+        "status": "SEGMENTED_RENDER_PREPARED",
+        "recovery_source_run_id": source_run_id,
+        "storyboard": "storyboard.json",
+        "storyboard_sha256": sha256_file(root / "storyboard.json"),
+        "segment_plan_sha256": sha256_file(root / "segmented-render-plan.json"),
+        "master_audio": audio.relative_to(root).as_posix(),
+        "master_audio_sha256": sha256_file(audio),
         "thumbnail": "youtube-thumbnail.png",
         "thumbnail_sha256": sha256_file(root / "youtube-thumbnail.png"),
+        "image_calls": IMAGE_CAP,
+        "ai33_task_submissions": TTS_CAP,
+        "segment_count": len(segment_indices),
+        "segment_indices": segment_indices,
+        "segment_max_duration_sec": segment_plan["max_duration_sec"],
         "new_image_calls": 0,
         "new_ai33_task_submissions": 0,
         "youtube_called": False,
         "publication_authorized": False,
     }
-    write_json(root / "fixed-release-recovery-result.json", result)
+    write_json(root / "segmented-preparation-result.json", result)
     return result
 
 
@@ -146,9 +208,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifact-root", required=True)
     parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--prepare-segmented", action="store_true")
+    parser.add_argument("--source-run-id")
     args = parser.parse_args()
     root = Path(args.artifact_root)
-    result = validate_recovery_artifact(root) if args.preflight_only else recover(root)
+    if args.preflight_only == args.prepare_segmented:
+        raise SystemExit("choose exactly one recovery action")
+    if args.prepare_segmented and not args.source_run_id:
+        raise SystemExit("segmented recovery requires --source-run-id")
+    result = (
+        validate_recovery_artifact(root)
+        if args.preflight_only
+        else prepare_segmented_recovery(root, source_run_id=str(args.source_run_id))
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
