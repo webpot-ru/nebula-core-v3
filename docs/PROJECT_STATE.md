@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-27
 
-## 2026-07-27 — Successful source-only workflow mode prepared
+## 2026-07-27 — Successful source-only workflow mode merged; lease-scan fix prepared
 
 - `.github/workflows/acc1_daily_episode.yml` now has an explicit
   `source_only=true` route for a fresh bounded Reddit read. The route requires
@@ -18,11 +18,28 @@ Last updated: 2026-07-27
   THREAD it additionally requires one prompt plus 13-15 responses and
   3,120-3,900 aggregate response words for every candidate, with each response
   inside its natural narration envelope.
-- Local no-provider verification passes all 608 unit tests, direct compilation
-  of the changed Python/test modules, workflow YAML parsing and
-  `git diff --check`. This implementation state is local-only until the PR is
-  merged and one separately authorized bounded Reddit canary succeeds; no live
-  source, paid provider or YouTube call is claimed by this entry.
+- PR [#83](https://github.com/webpot-ru/nebula-core-v3/pull/83) merged the
+  source-only implementation commit
+  `103f65b3f0b2caab154ee9a05a93b96e8cea1873` into `main` as
+  `68229b344d0b3c5541b5b3df1d60e084f7fed089`.
+- The one approved Reddit canary,
+  [`30212786827`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30212786827),
+  passed the exact source-only scope and deterministic preflight but stopped
+  before Reddit in the historical paid-lease exclusion scan. Two still-live
+  immutable leases bind OpenAI `service_tier=default`, while the current
+  production contract requires `flex`; the generic lease validator incorrectly
+  treated that expected provider drift as invalid even though this scan needs
+  only their source reservations. Reddit, OpenAI, VectorEngine, AI33,
+  production, render and YouTube all remained uncalled; the final artifact
+  contains only plan/preflight evidence.
+- The local correction preserves every self-hash, GitHub run binding, exact
+  repository/workflow identity, source reservation, cap and confirmation
+  check. A historical lease may reserve its sources after provider-model drift
+  only when its OpenAI/VectorEngine/AI33 identities and zero-retry policy remain
+  structurally valid. It is still rejected for current paid production unless
+  its provider contract matches exactly. Local no-provider verification now
+  passes all 610 unit tests, direct compilation and `git diff --check`. No
+  retry of the failed canary is authorized or attempted.
 
 ## 2026-07-26 — Long THREAD contract merged; segmented renderer regression-checked
 
