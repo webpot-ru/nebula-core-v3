@@ -2,9 +2,9 @@
 
 Last updated: 2026-07-26
 
-## 2026-07-26 — Long THREAD production contract prepared locally
+## 2026-07-26 — Long THREAD contract merged; segmented renderer regression-checked
 
-- The current local branch raises every future `THREAD` pilot from the short
+- The merged contract raises every future `THREAD` pilot from the short
   8-15 / 15-25-minute envelope to 13-15 complete responses and a locked
   24-30-minute runtime. Production source selection now requires 3,120-3,900
   aggregate response words and fails before paid work when only 12 responses
@@ -25,9 +25,27 @@ Last updated: 2026-07-26
 - Local no-provider verification passed all 604 unit tests, direct compilation
   of the eight changed Python modules, JSON parsing, an exact `pilot_04` daily
   plan readback and `git diff --check`.
-- This state is local-only: no commit, push, GitHub workflow, Reddit read,
-  OpenAI, VectorEngine, AI33 or YouTube operation has been authorized or run
-  for the long THREAD contract.
+- PR [#81](https://github.com/webpot-ru/nebula-core-v3/pull/81) merged the
+  exact implementation commit `fe963638788d690d71a4f9a12aaeaec1614f4a88`
+  into `main` as merge commit
+  `1a34ae157f8ae2ae3dc6053e021236f4f9449ef6`.
+- The separately approved no-spend regression run
+  [`30210979762`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30210979762)
+  passed on the exact implementation commit. It prepared the frozen source,
+  rendered four independent HyperFrames segments with a maximum segment
+  duration of `26.126` seconds, and assembled a 1920x1080 H.264/AAC 30 fps
+  review MP4 lasting `104.465011` seconds. The final GitHub artifact is
+  `acc1-segmented-no-spend-canary-30210979762` (71,138,371 artifact bytes,
+  archive digest
+  `sha256:b35998064b81551cb8323d55dbd2b0ea3106e67e368883c283e0c7234162ed92`);
+  it was not downloaded locally.
+- That regression canary deliberately reused the retained five-page visual
+  proof and existing narration. It verifies that the segmented renderer and
+  deterministic assembly still pass under the merged long-THREAD code, with
+  zero new image, AI33, provider or YouTube calls. It does not prove live
+  availability of a 13-15-response Reddit source or a new 16-20-page
+  provider-backed production episode; those remain separate approval and
+  human-review gates.
 
 ## 2026-07-26 — acc1 format-v3 integration merged; five-page canary recovery
 
