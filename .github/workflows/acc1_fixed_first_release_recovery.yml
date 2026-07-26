@@ -27,7 +27,107 @@ env:
   WORKDIR: build/acc1-fixed-first-release-recovery
 
 jobs:
+  caption_burn_recovery:
+    if: inputs.source_run_id == '30185894253'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      SOURCE_DIR: build/acc1-caption-burn-recovery/source
+      OUTPUT_DIR: build/acc1-caption-burn-recovery/output
+    steps:
+      - name: Require exact caption-only recovery scope
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIRM_EXISTING: ${{ inputs.confirm_poll_existing_ai33_tasks_only }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_RUN_ID" = "30185894253"
+          test "$CONFIRM_EXISTING" = "true"
+          test "$RUN_ATTEMPT" = "1"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deterministic media dependency
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -hide_banner -version
+      - name: Verify successful source run and download its exact artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$SOURCE_DIR"
+          gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json workflowName,conclusion,event,headSha \
+            > "$SOURCE_DIR/source-run.json"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("build/acc1-caption-burn-recovery/source/source-run.json")
+              .read_text(encoding="utf-8")
+          )
+          if payload.get("workflowName") != "acc1 Fixed First Release Recovery":
+              raise SystemExit("source run is not the segmented recovery workflow")
+          if payload.get("conclusion") != "success" or payload.get("event") != "workflow_dispatch":
+              raise SystemExit("source run is not a successful manual workflow")
+          PY
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "acc1-fixed-first-release-recovered-$SOURCE_RUN_ID" \
+            --dir "$SOURCE_DIR"
+      - name: Burn existing captions without provider access
+        run: |
+          set -euo pipefail
+          python3 scripts/recover_acc1_burned_captions.py \
+            --source-root "$SOURCE_DIR" \
+            --output-root "$OUTPUT_DIR" \
+            --source-run-id "${{ inputs.source_run_id }}"
+      - name: Fail closed on caption and publication boundaries
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("build/acc1-caption-burn-recovery/output")
+          report = json.loads(
+              (root / "caption-recovery-report.json").read_text(encoding="utf-8")
+          )
+          assert report["status"] == "READY_FOR_HUMAN_REVIEW"
+          assert report["source_run_id"] == "30185894253"
+          assert report["captions_burned"] is True
+          assert report["caption_cue_count"] > 0
+          assert report["provider_calls"] == 0
+          assert report["new_image_calls"] == 0
+          assert report["new_ai33_task_submissions"] == 0
+          assert report["publication_authorized"] is False
+          assert report["youtube_called"] is False
+          assert report["captioned_probe"]["resolution"] == [1920, 1080]
+          assert (root / report["captioned_video"]).stat().st_size > 0
+          assert len(list((root / "review-frames").glob("*.png"))) == 3
+          PY
+      - name: Upload captioned human-review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-captioned-recovery-${{ github.run_id }}
+          path: |
+            ${{ env.OUTPUT_DIR }}/final-output-captioned.mp4
+            ${{ env.OUTPUT_DIR }}/editorial-motion-captions.srt
+            ${{ env.OUTPUT_DIR }}/editorial-motion-captions.ass
+            ${{ env.OUTPUT_DIR }}/caption-recovery-report.json
+            ${{ env.OUTPUT_DIR }}/review-frames
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
   recover_prepare:
+    if: inputs.source_run_id != '30185894253'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     outputs:
@@ -124,6 +224,7 @@ jobs:
           compression-level: 0
 
   render:
+    if: inputs.source_run_id != '30185894253'
     needs: recover_prepare
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -197,6 +298,7 @@ jobs:
           compression-level: 0
 
   assemble:
+    if: inputs.source_run_id != '30185894253'
     needs: [recover_prepare, render]
     runs-on: ubuntu-latest
     timeout-minutes: 45
