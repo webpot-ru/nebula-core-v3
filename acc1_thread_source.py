@@ -33,16 +33,56 @@ DEFAULT_SUBREDDIT = "AskReddit"
 DEFAULT_TIME_FILTER = "month"
 DEFAULT_CANDIDATE_LIMIT = 10
 DEFAULT_RESPONSE_SCAN_LIMIT = 50
+DEFAULT_SEARCH_SORT = "comments"
+OAUTH_REQUEST_BUDGET = 1
 MAX_CANDIDATE_LIMIT = 25
 MAX_RESPONSE_SCAN_LIMIT = 100
 MAX_FINALIST_LIMIT = 5
+MAX_SEARCH_QUERIES = 4
+MAX_SEARCH_QUERY_CHARACTERS = 512
 TIME_FILTERS = ("day", "week", "month", "year", "all")
 REMOVED_MARKERS = {"[deleted]", "[removed]", "[removed by reddit]"}
 LINK_RE = re.compile(r"(?:https?://|www\.|\[[^\]]+\]\([^\)]+\))", re.IGNORECASE)
+STORY_PROMPT_SIGNALS = (
+    "story",
+    "stories",
+    "experience",
+    "experiences",
+    "happened",
+    "aftermath",
+    "moment",
+    "moments",
+    "situation",
+    "situations",
+    "event",
+    "events",
+    "incident",
+    "incidents",
+)
+SHALLOW_PROMPT_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\bone\s+word\b",
+        r"\bwithout\s+saying\b",
+        r"\bname\s+(?:a|one)\b",
+        r"\bwhat(?:'s|\s+is)\s+a\s+word\b",
+        r"\bfinish\s+the\s+sentence\b",
+        r"\bwrong\s+answers?\s+only\b",
+    )
+)
 
 
 class ThreadSourceError(RuntimeError):
     """Raised when a bounded Reddit read cannot produce a valid THREAD."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics or {}
 
 
 def _text(value: Any) -> str | None:
@@ -264,14 +304,69 @@ def _submission_rejection(
     return sorted(set(reasons))
 
 
+def _story_prompt_ranking_evidence(submission: Any) -> dict[str, Any]:
+    title = _text(getattr(submission, "title", None)) or ""
+    selftext = _text(getattr(submission, "selftext", "")) or ""
+    prompt_text = f"{title} {selftext}".casefold()
+    prompt_tokens = set(re.findall(r"[a-z]+", prompt_text))
+    matched_story_signals = sorted(
+        signal for signal in STORY_PROMPT_SIGNALS if signal in prompt_tokens
+    )
+    shallow_patterns = sorted(
+        pattern.pattern for pattern in SHALLOW_PROMPT_PATTERNS if pattern.search(prompt_text)
+    )
+    return {
+        "matched_story_signals": matched_story_signals,
+        "story_signal_count": len(matched_story_signals),
+        "shallow_prompt_patterns": shallow_patterns,
+        "shallow_prompt": bool(shallow_patterns),
+    }
+
+
 def _candidate_order(submission: Any) -> tuple[Any, ...]:
     score = _integer(getattr(submission, "score", None))
     comments = _integer(getattr(submission, "num_comments", None))
+    ranking = _story_prompt_ranking_evidence(submission)
     return (
-        -(score if score is not None else -1),
+        1 if ranking["shallow_prompt"] else 0,
+        -ranking["story_signal_count"],
         -(comments if comments is not None else -1),
+        -(score if score is not None else -1),
         _text(getattr(submission, "id", None)) or "",
     )
+
+
+def _normalize_search_queries(
+    *,
+    search_query: str | None,
+    search_queries: Iterable[str] | None,
+) -> tuple[str, ...]:
+    legacy_query = (search_query or "").strip() or None
+    if isinstance(search_queries, str):
+        raise ThreadSourceError("search_queries must be an iterable of complete query strings")
+    configured = list(search_queries or ())
+    if legacy_query and configured:
+        raise ThreadSourceError("search_query and search_queries are mutually exclusive")
+
+    raw_queries: list[Any] = configured if configured else ([legacy_query] if legacy_query else [])
+    normalized: list[str] = []
+    for value in raw_queries:
+        if not isinstance(value, str):
+            raise ThreadSourceError("every search query must be a string")
+        query = value.strip()
+        if not query:
+            raise ThreadSourceError("search queries cannot be empty")
+        if len(query) > MAX_SEARCH_QUERY_CHARACTERS:
+            raise ThreadSourceError(
+                f"search queries cannot exceed {MAX_SEARCH_QUERY_CHARACTERS} characters"
+            )
+        if query not in normalized:
+            normalized.append(query)
+    if len(normalized) > MAX_SEARCH_QUERIES:
+        raise ThreadSourceError(
+            f"search query portfolio cannot exceed {MAX_SEARCH_QUERIES} queries"
+        )
+    return tuple(normalized)
 
 
 def _candidate_submissions(
@@ -281,22 +376,60 @@ def _candidate_submissions(
     time_filter: str,
     candidate_limit: int,
     prompt_id: str | None,
-    search_query: str | None = None,
-) -> list[Any]:
+    search_queries: tuple[str, ...] = (),
+    search_sort: str = DEFAULT_SEARCH_SORT,
+) -> list[dict[str, Any]]:
     if prompt_id:
-        return [reddit.submission(id=prompt_id)]
+        submission = reddit.submission(id=prompt_id)
+        return [{
+            "submission": submission,
+            "matched_search_queries": [],
+            "ranking_evidence": _story_prompt_ranking_evidence(submission),
+        }]
     subreddit = reddit.subreddit(subreddit_name)
-    if search_query:
-        submissions = subreddit.search(
-            search_query,
-            sort="top",
-            time_filter=time_filter,
-            limit=candidate_limit,
-        )
+    discovered: dict[str, dict[str, Any]] = {}
+    if search_queries:
+        for query_index, query in enumerate(search_queries):
+            submissions = subreddit.search(
+                query,
+                sort=search_sort,
+                syntax="lucene",
+                time_filter=time_filter,
+                limit=candidate_limit,
+            )
+            for result_index, submission in enumerate(submissions):
+                candidate_id = _text(getattr(submission, "id", None))
+                identity = (
+                    f"id:{candidate_id.casefold()}"
+                    if candidate_id
+                    else f"missing:{query_index}:{result_index}"
+                )
+                existing = discovered.get(identity)
+                if existing is None:
+                    discovered[identity] = {
+                        "submission": submission,
+                        "matched_search_queries": [query],
+                        "ranking_evidence": _story_prompt_ranking_evidence(submission),
+                    }
+                elif query not in existing["matched_search_queries"]:
+                    existing["matched_search_queries"].append(query)
     else:
-        submissions = subreddit.top(time_filter=time_filter, limit=candidate_limit)
-    candidates = list(submissions)
-    return sorted(candidates, key=_candidate_order)
+        for result_index, submission in enumerate(
+            subreddit.top(time_filter=time_filter, limit=candidate_limit)
+        ):
+            candidate_id = _text(getattr(submission, "id", None))
+            identity = (
+                f"id:{candidate_id.casefold()}"
+                if candidate_id
+                else f"missing:top:{result_index}"
+            )
+            discovered[identity] = {
+                "submission": submission,
+                "matched_search_queries": [],
+                "ranking_evidence": _story_prompt_ranking_evidence(submission),
+            }
+    candidates = list(discovered.values())
+    return sorted(candidates, key=lambda item: _candidate_order(item["submission"]))
 
 
 def collect_thread_source(
@@ -310,6 +443,8 @@ def collect_thread_source(
     truth_mode: str = "unverified_personal_account",
     prompt_id: str | None = None,
     search_query: str | None = None,
+    search_queries: Iterable[str] | None = None,
+    search_sort: str = DEFAULT_SEARCH_SORT,
     require_episode_runtime: bool = False,
     excluded_prompt_ids: set[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -324,6 +459,8 @@ def collect_thread_source(
         truth_mode=truth_mode,
         prompt_id=prompt_id,
         search_query=search_query,
+        search_queries=search_queries,
+        search_sort=search_sort,
         finalist_limit=1,
         require_episode_runtime=require_episode_runtime,
         excluded_prompt_ids=excluded_prompt_ids,
@@ -341,6 +478,8 @@ def collect_thread_source_candidates(
     truth_mode: str = "unverified_personal_account",
     prompt_id: str | None = None,
     search_query: str | None = None,
+    search_queries: Iterable[str] | None = None,
+    search_sort: str = DEFAULT_SEARCH_SORT,
     finalist_limit: int = 3,
     require_episode_runtime: bool = True,
     excluded_prompt_ids: set[str] | None = None,
@@ -348,7 +487,11 @@ def collect_thread_source_candidates(
     """Evaluate the bounded pool and return up to five production-fit prompts."""
     subreddit_name = (subreddit_name or "").strip()
     prompt_id = (prompt_id or "").strip() or None
-    search_query = (search_query or "").strip() or None
+    normalized_search_queries = _normalize_search_queries(
+        search_query=search_query,
+        search_queries=search_queries,
+    )
+    search_sort = (search_sort or "").strip()
     excluded = {
         str(value).strip().casefold()
         for value in (excluded_prompt_ids or set())
@@ -383,26 +526,78 @@ def collect_thread_source_candidates(
         raise ThreadSourceError("max_responses cannot exceed response_scan_limit")
     if truth_mode not in TRUTH_MODES:
         raise ThreadSourceError(f"truth_mode must be one of: {', '.join(sorted(TRUTH_MODES))}")
+    if prompt_id and normalized_search_queries:
+        raise ThreadSourceError("exact prompt_id cannot be combined with search queries")
+    if normalized_search_queries and search_sort != DEFAULT_SEARCH_SORT:
+        raise ThreadSourceError(
+            f"THREAD discovery search_sort must equal {DEFAULT_SEARCH_SORT}"
+        )
     if prompt_id and prompt_id.casefold() in excluded:
         raise ThreadSourceError("exact prompt_id is excluded by publication history")
 
-    candidates = _candidate_submissions(
+    candidate_records = _candidate_submissions(
         reddit,
         subreddit_name=subreddit_name,
         time_filter=time_filter,
         candidate_limit=candidate_limit,
         prompt_id=prompt_id,
-        search_query=search_query,
+        search_queries=normalized_search_queries,
+        search_sort=search_sort,
     )
-    if not candidates:
-        raise ThreadSourceError("bounded Reddit read returned no prompt candidates")
+    listing_request_budget = (
+        1 if prompt_id or not normalized_search_queries else len(normalized_search_queries)
+    )
+    diagnostics: dict[str, Any] = {
+        "version": 1,
+        "status": "EVALUATING_THREAD_SOURCE",
+        "subreddit": subreddit_name,
+        "time_filter": time_filter,
+        "search_sort": search_sort if normalized_search_queries else None,
+        "search_syntax": "lucene" if normalized_search_queries else None,
+        "search_queries": list(normalized_search_queries),
+        "oauth_request_budget": OAUTH_REQUEST_BUDGET,
+        "listing_request_budget": listing_request_budget,
+        "comment_tree_request_budget": candidate_limit,
+        "total_request_upper_bound": (
+            OAUTH_REQUEST_BUDGET + listing_request_budget + candidate_limit
+        ),
+        "candidate_limit": candidate_limit,
+        "response_scan_limit": response_scan_limit,
+        "max_responses": max_responses,
+        "require_episode_runtime": require_episode_runtime,
+        "excluded_prompt_id_count": len(excluded),
+        "unique_candidates_discovered": len(candidate_records),
+        "candidate_outcomes": [],
+    }
+    if not candidate_records:
+        diagnostics["status"] = "BLOCKED_NO_PROMPT_CANDIDATES"
+        raise ThreadSourceError(
+            "bounded Reddit read returned no prompt candidates",
+            diagnostics=diagnostics,
+        )
 
     failures: list[str] = []
     results: list[tuple[dict[str, Any], dict[str, Any]]] = []
-    for submission in candidates[:candidate_limit]:
+    for candidate_record in candidate_records[:candidate_limit]:
+        submission = candidate_record["submission"]
+        matched_search_queries = list(candidate_record["matched_search_queries"])
         candidate_id = _text(getattr(submission, "id", None)) or "unknown"
+        outcome: dict[str, Any] = {
+            "prompt_id": candidate_id,
+            "title": _text(getattr(submission, "title", None)),
+            "source_url": _permalink(submission),
+            "score": _integer(getattr(submission, "score", None)),
+            "num_comments": _integer(getattr(submission, "num_comments", None)),
+            "matched_search_queries": matched_search_queries,
+            "ranking_evidence": dict(candidate_record["ranking_evidence"]),
+        }
         if candidate_id.casefold() in excluded:
             failures.append(f"{candidate_id}: excluded_by_publication_history")
+            outcome.update({
+                "status": "PRE_SNAPSHOT_REJECTED",
+                "reason_codes": ["excluded_by_publication_history"],
+            })
+            diagnostics["candidate_outcomes"].append(outcome)
             continue
         rejection = _submission_rejection(
             submission,
@@ -415,18 +610,45 @@ def collect_thread_source_candidates(
         )
         if rejection:
             failures.append(f"{candidate_id}: {','.join(rejection)}")
+            outcome.update({
+                "status": "PRE_SNAPSHOT_REJECTED",
+                "reason_codes": rejection,
+            })
+            diagnostics["candidate_outcomes"].append(outcome)
             continue
         query = {
-            "mode": "prompt_id" if prompt_id else "subreddit_search" if search_query else "subreddit_top",
+            "mode": (
+                "prompt_id"
+                if prompt_id
+                else "subreddit_search_portfolio"
+                if len(normalized_search_queries) > 1
+                else "subreddit_search"
+                if normalized_search_queries
+                else "subreddit_top"
+            ),
             "subreddit": subreddit_name,
             "time_filter": time_filter,
             "candidate_limit": candidate_limit,
             "response_scan_limit": response_scan_limit,
             "selected_prompt_id": candidate_id,
             "excluded_prompt_id_count": len(excluded),
+            "oauth_request_budget": OAUTH_REQUEST_BUDGET,
+            "listing_request_budget": listing_request_budget,
+            "total_request_upper_bound": (
+                OAUTH_REQUEST_BUDGET + listing_request_budget + candidate_limit
+            ),
+            "ranking_evidence": dict(candidate_record["ranking_evidence"]),
         }
-        if search_query:
-            query["search_query"] = search_query
+        if normalized_search_queries:
+            query.update({
+                "search_queries": list(normalized_search_queries),
+                "matched_search_queries": matched_search_queries,
+                "search_sort": search_sort,
+                "search_syntax": "lucene",
+            })
+            if len(normalized_search_queries) == 1:
+                query["search_query"] = normalized_search_queries[0]
+        snapshot: dict[str, Any] | None = None
         try:
             snapshot = snapshot_submission(
                 submission,
@@ -441,8 +663,26 @@ def collect_thread_source_candidates(
             )
         except (ThreadCollectorError, ThreadSourceError) as exc:
             failures.append(f"{candidate_id}: {exc}")
+            eligible_match = re.search(r"\bfound\s+(\d+)\b", str(exc))
+            outcome.update({
+                "status": "COLLECTOR_REJECTED",
+                "failure": str(exc),
+                "snapshot": snapshot,
+            })
+            if eligible_match:
+                outcome["eligible_response_count"] = int(eligible_match.group(1))
+            diagnostics["candidate_outcomes"].append(outcome)
             continue
         results.append((snapshot, manifest))
+        outcome.update({
+            "status": "VALID_FINALIST",
+            "response_count": manifest.get("response_count"),
+            "aggregate_response_word_count": manifest.get(
+                "aggregate_response_word_count"
+            ),
+            "manifest_sha256": manifest.get("manifest_sha256"),
+        })
+        diagnostics["candidate_outcomes"].append(outcome)
         if len(results) >= finalist_limit:
             break
 
@@ -450,7 +690,13 @@ def collect_thread_source_candidates(
         return results
 
     detail = "; ".join(failures) if failures else "all candidates were ineligible"
-    raise ThreadSourceError(f"no bounded prompt produced a valid THREAD: {detail}")
+    diagnostics["status"] = "BLOCKED_NO_VALID_THREAD"
+    diagnostics["evaluated_candidate_count"] = len(diagnostics["candidate_outcomes"])
+    diagnostics["valid_finalist_count"] = 0
+    raise ThreadSourceError(
+        f"no bounded prompt produced a valid THREAD: {detail}",
+        diagnostics=diagnostics,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

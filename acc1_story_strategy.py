@@ -95,10 +95,26 @@ BUNDLE_PILOT_STORY_COUNTS = {
     "pilot_02": [3, 5],
 }
 THREAD_PILOT_SEARCH_QUERIES = {
-    "pilot_04": "(confession OR secret OR embarrassing OR awkward)",
-    "pilot_05": "(job OR profession OR workplace OR career)",
-    "pilot_06": "(creepy OR unexplained OR strange OR terrifying)",
+    "pilot_04": (
+        "confession AND (story OR experience OR happened OR moment OR situation)",
+        "secret AND (story OR experience OR happened OR moment OR situation)",
+        "embarrassing AND (story OR experience OR happened OR moment OR situation)",
+        "awkward AND (story OR experience OR happened OR moment OR situation)",
+    ),
+    "pilot_05": (
+        "job AND (story OR experience OR happened OR moment OR situation)",
+        "workplace AND (story OR experience OR happened OR moment OR situation)",
+        "profession AND (story OR experience OR happened OR moment OR situation)",
+        "career AND (story OR experience OR happened OR moment OR situation)",
+    ),
+    "pilot_06": (
+        "creepy AND (story OR experience OR happened OR moment OR situation)",
+        "unexplained AND (story OR experience OR happened OR moment OR situation)",
+        "strange AND (story OR experience OR happened OR moment OR situation)",
+        "terrifying AND (story OR experience OR happened OR moment OR situation)",
+    ),
 }
+THREAD_SEARCH_SORT = "comments"
 ROUTABLE_SOURCE_STATUSES = {
     "SAGA": {"manual_forced_family_review", "ready"},
     "BUNDLE": {"local_selector_implemented_live_unverified", "ready"},
@@ -488,11 +504,21 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
             "time_windows": ["week", "month", "year"],
         })
     else:
-        search_query = _text(pilot.get("search_query"))
-        expected_query = THREAD_PILOT_SEARCH_QUERIES.get(pilot_id)
-        if not expected_query or search_query != expected_query:
+        configured_queries = pilot.get("search_queries")
+        search_queries = (
+            tuple(_text(value) for value in configured_queries)
+            if isinstance(configured_queries, list)
+            else ()
+        )
+        expected_queries = THREAD_PILOT_SEARCH_QUERIES.get(pilot_id)
+        if not expected_queries or search_queries != expected_queries:
             raise StrategyContractError(
-                f"pilot {pilot_id} search_query must equal the canonical pillar query"
+                f"pilot {pilot_id} search_queries must equal the canonical pillar portfolio"
+            )
+        search_sort = _text(pilot.get("search_sort"))
+        if search_sort != THREAD_SEARCH_SORT:
+            raise StrategyContractError(
+                f"pilot {pilot_id} search_sort must equal {THREAD_SEARCH_SORT}"
             )
         plan.update({
             "source_mode": "question_prompt",
@@ -502,7 +528,8 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
             ),
             "comic_page_count": list(format_contract["comic_page_count"]),
             "collector_contract": "bounded_top_level_full_body_v1",
-            "search_query": search_query,
+            "search_queries": list(search_queries),
+            "search_sort": search_sort,
         })
     return plan
 

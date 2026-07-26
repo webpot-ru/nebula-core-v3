@@ -205,12 +205,30 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
         plan = acc1_story_strategy.resolve_pilot_source_plan(self.channel, "pilot_04")
         self.assertEqual(plan["collector_contract"], "bounded_top_level_full_body_v1")
         self.assertEqual(
-            plan["search_query"],
-            "(confession OR secret OR embarrassing OR awkward)",
+            plan["search_queries"],
+            [
+                "confession AND (story OR experience OR happened OR moment OR situation)",
+                "secret AND (story OR experience OR happened OR moment OR situation)",
+                "embarrassing AND (story OR experience OR happened OR moment OR situation)",
+                "awkward AND (story OR experience OR happened OR moment OR situation)",
+            ],
         )
+        self.assertEqual(plan["search_sort"], "comments")
         self.assertTrue(plan["artifact_ready"])
         self.assertFalse(plan["live_source_verified"])
         self.assertFalse(plan["production_ready"])
+
+    def test_thread_search_portfolio_is_exact_and_cannot_silently_broaden(self):
+        channel = copy.deepcopy(self.channel)
+        pilot = next(
+            item for item in channel["pilot_matrix"] if item["id"] == "pilot_04"
+        )
+        pilot["search_queries"][0] = "(confession OR secret)"
+        with self.assertRaisesRegex(
+            acc1_story_strategy.StrategyContractError,
+            "canonical pillar portfolio",
+        ):
+            acc1_story_strategy.resolve_pilot_source_plan(channel, "pilot_04")
 
     def test_narrative_saga_does_not_append_comments(self):
         plan = acc1_story_strategy.resolve_comment_plan("SAGA", "narrative_story")

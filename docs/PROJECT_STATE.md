@@ -2,7 +2,43 @@
 
 Last updated: 2026-07-27
 
-## 2026-07-27 — Successful source-only workflow mode merged; lease-scan fix prepared
+## 2026-07-27 — THREAD Reddit discovery correction local; live canary pending
+
+- The approved source-only run
+  [`30213699089`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30213699089)
+  on merged `main@2c525f815998d4503a4f81472ebcbb37e77597d0`
+  proved that the reservation-only lease correction reaches the live Reddit
+  source stage. It then failed closed before every paid/provider/render step:
+  the single broad `pilot_04` query selected popular generic AskReddit prompts
+  whose top comments were mostly short or irrelevant to the prompt.
+- The exact failure had two near pools with 12 eligible responses
+  (`1pifxe1`, `1rfdpxd`), one with 11 (`1s7pia0`), and one (`1uxql62`) with at
+  least 13 eligible personal accounts that still could not satisfy the locked
+  13-15 response, 3,120-3,900 word and three-editorial-function envelope. Two
+  previously reserved prompt IDs were excluded before comment collection.
+  OpenAI, VectorEngine, AI33, production, render and YouTube all remained
+  skipped.
+- The local correction keeps the production duration and quality gates
+  unchanged. Each THREAD pilot now owns four exact pillar queries that require
+  a narrative signal such as `story`, `experience`, `happened`, `moment` or
+  `situation`; PRAW uses explicit Lucene syntax and `sort=comments`. Results are
+  deduplicated across queries, story-shaped prompts outrank shallow
+  one-word/guessing prompts, and every selected snapshot records all matching
+  queries and deterministic ranking evidence.
+- The worst-case request envelope remains exactly 24:
+  one OAuth request + four search listings + at most 19 comment-tree reads.
+  The requestor still enforces the cap before every HTTP operation. A failed
+  zero-finalist pool now writes a self-hashed `source-diagnostics.json` that
+  includes the bounded candidate outcomes, full reviewable snapshots and
+  exact collector failures instead of leaving only a traceback.
+- Local verification passes: all 616 repository unit tests, targeted syntax
+  compilation for the changed Python modules, `channels.json` parsing and
+  `git diff --check`.
+- This correction is local-only. It has not been committed, pushed, merged or
+  live-tested against Reddit; a separate explicit approval is still required
+  for those actions.
+
+## 2026-07-27 — Successful source-only workflow mode and lease fix merged
 
 - `.github/workflows/acc1_daily_episode.yml` now has an explicit
   `source_only=true` route for a fresh bounded Reddit read. The route requires
@@ -32,14 +68,16 @@ Last updated: 2026-07-27
   only their source reservations. Reddit, OpenAI, VectorEngine, AI33,
   production, render and YouTube all remained uncalled; the final artifact
   contains only plan/preflight evidence.
-- The local correction preserves every self-hash, GitHub run binding, exact
+- PR [#84](https://github.com/webpot-ru/nebula-core-v3/pull/84) merged the
+  reservation-only correction as
+  `2c525f815998d4503a4f81472ebcbb37e77597d0`. It preserves every self-hash,
+  GitHub run binding, exact
   repository/workflow identity, source reservation, cap and confirmation
   check. A historical lease may reserve its sources after provider-model drift
   only when its OpenAI/VectorEngine/AI33 identities and zero-retry policy remain
   structurally valid. It is still rejected for current paid production unless
-  its provider contract matches exactly. Local no-provider verification now
-  passes all 610 unit tests, direct compilation and `git diff --check`. No
-  retry of the failed canary is authorized or attempted.
+  its provider contract matches exactly. The source-only run documented above
+  live-verified that this scan now advances to Reddit.
 
 ## 2026-07-26 — Long THREAD contract merged; segmented renderer regression-checked
 
