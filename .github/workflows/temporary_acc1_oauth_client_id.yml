@@ -1,0 +1,61 @@
+name: Temporary acc1 OAuth Client ID
+
+on:
+  push:
+    branches:
+      - codex/oauth-acc1-recovery-20260726
+
+permissions:
+  contents: read
+
+jobs:
+  export-public-client-id:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    env:
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+    steps:
+      - name: Validate isolated no-provider contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "codex/oauth-acc1-recovery-20260726"
+          test -n "${YOUTUBE_CLIENT_ID}"
+
+      - name: Package public desktop OAuth Client ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p recovery-output
+          printf '%s' "${YOUTUBE_CLIENT_ID}" > recovery-output/client-id.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          client_id = Path("recovery-output/client-id.txt").read_text(encoding="utf-8")
+          if not client_id.endswith(".apps.googleusercontent.com"):
+              raise SystemExit("Configured YOUTUBE_CLIENT_ID is not a Google OAuth Client ID")
+          Path("recovery-output/manifest.json").write_text(
+              json.dumps(
+                  {
+                      "account": "acc1",
+                      "credential": "public desktop OAuth Client ID only",
+                      "client_secret_exported": False,
+                      "provider_calls": 0,
+                      "youtube_calls": 0,
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload short-lived public Client ID artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-public-oauth-client-id-${{ github.run_id }}
+          path: recovery-output/
+          if-no-files-found: error
+          retention-days: 1
