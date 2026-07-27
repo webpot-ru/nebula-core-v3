@@ -80,6 +80,9 @@ def _expected_visual_contracts(visual_mode: str) -> dict[str, dict[str, Any]]:
         CINEMATIC_STORY_SHOT_MAX_SECONDS,
         CINEMATIC_STORY_SHOT_MIN_SECONDS,
         DEFAULT_VISUAL_MODE,
+        EDITORIAL_MOTION_CAPTION_TRACK_VERSION,
+        EDITORIAL_MOTION_MODE,
+        EDITORIAL_MOTION_PLAN_VERSION,
         resolve_visual_mode,
     )
 
@@ -103,10 +106,24 @@ def _expected_visual_contracts(visual_mode: str) -> dict[str, dict[str, Any]]:
                 "required": True,
             },
         }
+    if resolved_mode == EDITORIAL_MOTION_MODE:
+        return {
+            "shot_plan_contract": {
+                "contract": "acc1_editorial_motion_plan",
+                "version": EDITORIAL_MOTION_PLAN_VERSION,
+                "visual_mode": resolved_mode,
+                "required": True,
+            },
+            "caption_track_contract": {
+                "contract": "acc1_editorial_motion_caption_track",
+                "version": EDITORIAL_MOTION_CAPTION_TRACK_VERSION,
+                "visual_mode": resolved_mode,
+                "required": True,
+            },
+        }
     if resolved_mode != DEFAULT_VISUAL_MODE:
-        # ``resolve_visual_mode`` currently makes this unreachable, but leave
-        # the guard explicit so a future visual mode cannot silently inherit
-        # the baseline contract.
+        # Leave the guard explicit so a future visual mode cannot silently
+        # inherit the baseline contract.
         raise EpisodeManifestError(f"unsupported visual_mode {resolved_mode!r}")
     return {
         "shot_plan_contract": {
