@@ -43,6 +43,24 @@ on:
         description: 'Optional narrator voice ID for one bounded manual sample'
         required: false
         default: ''
+      generate_disclosure_day_narration:
+        description: 'One-off 18-part Disclosure Day narration through the existing AI33 secret'
+        required: true
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+      disclosure_day_confirm:
+        description: 'Exact confirmation phrase for the one-off 18-call AI33 scope'
+        required: false
+        default: ''
+      disclosure_day_bundle_b64:
+        description: 'Base64 tar.gz with the checksum-bound TTS plan and local runner'
+        required: false
+        default: ''
+      disclosure_day_bundle_sha256:
+        description: 'Expected SHA-256 of the decoded one-off TTS bundle'
+        required: false
+        default: ''
 
 jobs:
   youtube-mapping:
@@ -184,3 +202,114 @@ jobs:
           name: acc1-emotion-video-sample
           path: build/emotion_demo/output
           if-no-files-found: error
+
+  disclosure-day-narration:
+    if: ${{ github.event.inputs.generate_disclosure_day_narration == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+
+    steps:
+      - name: Require the isolated 18-call scope
+        env:
+          CHECK_YOUTUBE_MAPPING: ${{ github.event.inputs.check_youtube_mapping }}
+          GENERATE_VOICE_SAMPLES: ${{ github.event.inputs.generate_voice_samples }}
+          DISCLOSURE_DAY_CONFIRM: ${{ github.event.inputs.disclosure_day_confirm }}
+          DISCLOSURE_DAY_BUNDLE_B64: ${{ github.event.inputs.disclosure_day_bundle_b64 }}
+          DISCLOSURE_DAY_BUNDLE_SHA256: ${{ github.event.inputs.disclosure_day_bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          test "$CHECK_YOUTUBE_MAPPING" = "false"
+          test "$GENERATE_VOICE_SAMPLES" = "false"
+          test "$DISCLOSURE_DAY_CONFIRM" = "DISCLOSURE_DAY_EXACTLY_18_AI33_CALLS"
+          test -n "$DISCLOSURE_DAY_BUNDLE_B64"
+          test -n "$DISCLOSURE_DAY_BUNDLE_SHA256"
+          mkdir -p build/disclosure-day-tts
+          python -c 'import base64,os,pathlib; pathlib.Path("build/disclosure-day-tts-bundle.tgz").write_bytes(base64.b64decode(os.environ["DISCLOSURE_DAY_BUNDLE_B64"], validate=True))'
+          echo "$DISCLOSURE_DAY_BUNDLE_SHA256  build/disclosure-day-tts-bundle.tgz" | sha256sum --check --strict
+          tar -xzf build/disclosure-day-tts-bundle.tgz -C build/disclosure-day-tts
+
+      - name: Verify the immutable voice and spend plan
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("build/disclosure-day-tts")
+          config = json.loads((root / "TTS_CONFIG.json").read_text(encoding="utf-8"))
+          plan = json.loads((root / "work/tts/tts-plan.json").read_text(encoding="utf-8"))
+
+          assert config["provider"] == "ai33"
+          assert config["voice_id"] == "elevenlabs_JBFqnCBsd6RMkjVDRZzb"
+          assert config["model_id"] == "eleven_v3"
+          assert config["speed"] == 1
+          assert config["voice_settings"] is None
+          assert config["context_chaining"] is False
+          assert config["with_transcript"] is True
+          assert plan["voice_id"] == config["voice_id"]
+          assert plan["model_id"] == config["model_id"]
+          assert plan["chapter_count"] == 18
+          assert plan["request_count"] == 18
+          assert plan["total_chars"] == 16779
+          assert len(plan["requests"]) == 18
+          assert len({item["id"] for item in plan["requests"]}) == 18
+          assert all(item["chapter_id"] == f"chapter-{index:02d}" for index, item in enumerate(plan["requests"], 1))
+          assert all(0 < int(item["chars"]) <= 2200 for item in plan["requests"])
+          assert (root / "scripts/run-ai33-tts.mjs").is_file()
+          PY
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install audio probe and assembly tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffprobe -version
+
+      - name: Generate exactly 18 AI33 narration parts
+        env:
+          AI33_API_KEY: ${{ secrets.AI33_API_KEY }}
+        run: |
+          set -euo pipefail
+          node build/disclosure-day-tts/scripts/run-ai33-tts.mjs \
+            --confirm-calls=18 \
+            2>&1 | tee build/disclosure-day-tts/provider-run.log
+
+      - name: Verify complete narration
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("build/disclosure-day-tts/work/tts")
+          state = json.loads((root / "tts-state.json").read_text(encoding="utf-8"))
+          report = json.loads((root / "tts-report.json").read_text(encoding="utf-8"))
+          assert len(state["requests"]) == 18
+          assert all(item["status"] == "complete" for item in state["requests"].values())
+          assert report["status"] == "complete"
+          assert report["voice_id"] == "elevenlabs_JBFqnCBsd6RMkjVDRZzb"
+          assert report["model_id"] == "eleven_v3"
+          assert report["speed"] == 1
+          assert len(report["chapters"]) == 18
+          assert (root / report["narration_path"]).is_file()
+          PY
+          ffprobe -v error \
+            -show_entries format=duration:stream=codec_name,sample_rate,channels \
+            -of json \
+            build/disclosure-day-tts/work/tts/narration.mp3
+
+      - name: Upload the one-off TTS artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: disclosure-day-ai33-${{ github.run_id }}
+          path: build/disclosure-day-tts
+          if-no-files-found: error
+          retention-days: 14
