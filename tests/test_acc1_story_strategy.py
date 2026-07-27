@@ -219,9 +219,31 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
             ],
         )
         self.assertEqual(plan["search_sort"], "comments")
+        self.assertEqual(plan["search_time_filter"], "year")
         self.assertTrue(plan["artifact_ready"])
         self.assertFalse(plan["live_source_verified"])
         self.assertFalse(plan["production_ready"])
+
+    def test_pilot_06_uses_evergreen_unexplained_portfolio(self):
+        plan = acc1_story_strategy.resolve_pilot_source_plan(
+            self.channel, "pilot_06"
+        )
+        self.assertEqual(plan["franchise_id"], "matrix_unexplained_thread")
+        self.assertEqual(plan["search_time_filter"], "all")
+        self.assertEqual(
+            plan["search_queries"],
+            [
+                "(unexplained OR unexplainable) "
+                "AND (story OR experience OR happened OR witnessed)",
+                "(paranormal OR supernatural) "
+                "AND (story OR experience OR happened OR witnessed)",
+                '("no proof" OR "no explanation") '
+                "AND (story OR experience OR happened OR witnessed)",
+                '("glitch in the matrix" OR "glitch in reality" OR "time slip" '
+                'OR "lost time" OR "impossible coincidence") '
+                "AND (story OR experience OR happened OR witnessed)",
+            ],
+        )
 
     def test_thread_search_portfolio_is_exact_and_cannot_silently_broaden(self):
         channel = copy.deepcopy(self.channel)
@@ -234,6 +256,18 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
             "canonical pillar portfolio",
         ):
             acc1_story_strategy.resolve_pilot_source_plan(channel, "pilot_04")
+
+    def test_thread_time_window_is_exact_and_cannot_silently_drift(self):
+        channel = copy.deepcopy(self.channel)
+        pilot = next(
+            item for item in channel["pilot_matrix"] if item["id"] == "pilot_06"
+        )
+        pilot["search_time_filter"] = "year"
+        with self.assertRaisesRegex(
+            acc1_story_strategy.StrategyContractError,
+            "search_time_filter must equal all",
+        ):
+            acc1_story_strategy.resolve_pilot_source_plan(channel, "pilot_06")
 
     def test_franchise_role_and_packaging_cannot_drift(self):
         channel = copy.deepcopy(self.channel)

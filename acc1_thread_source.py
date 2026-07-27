@@ -83,8 +83,9 @@ NARRATIVE_CONSEQUENCE_PATTERNS = tuple(
         ),
         (
             "impossible_or_unexplained",
-            r"\b(?:impossible\s+coincidence|unexplained\s+"
-            r"(?:event|incident|experience)|question(?:ed|ing)?\s+reality|"
+            r"\b(?:impossible\s+coincidence|unexplain(?:ed|able)(?:\s+"
+            r"(?:event|incident|experience|thing))?|paranormal|supernatural|"
+            r"no\s+(?:proof|explanation)|question(?:ed|ing)?\s+reality|"
             r"reality\s+(?:felt|seemed)\s+wrong)\b",
         ),
         (

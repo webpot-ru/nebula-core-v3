@@ -2,7 +2,37 @@
 
 Last updated: 2026-07-27
 
-## 2026-07-27 — Competitor-informed acc1 franchise v6 prepared; live source unverified
+## 2026-07-27 — pilot_06 evergreen source correction prepared locally
+
+- The one approved `pilot_06` source-only canary
+  [`30238132574`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30238132574)
+  ran on merged `main@8dff72ce2e08a3c0e440c8382d4030db3dfa9a6f`.
+  It discovered 72 unique prompts, evaluated 43 and used 35 of the hard
+  48-request cap. Exactly one prompt, `1r8h6mw`, satisfied the complete
+  13-15-response / 3,120-3,900-word THREAD contract.
+- The strongest rejected prompt, `1p7822u`, had 28 natural-length responses
+  and ample story/escalation/stakes signals. It was not rejected because of
+  the editorial-function classifier: even its 15 longest 80-650-word
+  responses totalled only 2,995 words, below the locked 3,120-word floor.
+  Exact glitch/time-slip searches also returned mostly recent low-comment
+  prompts. OpenAI, VectorEngine, AI33, production, render and YouTube were
+  skipped.
+- The local v7 correction keeps the 48-request ceiling, minimum three
+  finalists, 13-15 responses, 3,120-3,900 words and every source-quality gate
+  unchanged. `pilot_04` and `pilot_05` retain the `year` search window.
+  `pilot_06` alone uses `all` and a four-query evergreen portfolio covering
+  unexplained/unexplainable events, paranormal/supernatural accounts,
+  no-proof/no-explanation accounts, and the existing matrix/time-slip/
+  impossible-coincidence lane.
+- The source plan now checksum-binds a canonical per-pilot
+  `search_time_filter`; the episode factory consumes that field instead of
+  hard-coding `year`. Ranking recognises the newly explicit unexplained,
+  paranormal, supernatural and no-proof signals before comment-tree reads.
+- This correction is **local-only**. No additional Reddit read, provider call,
+  GitHub workflow, render or YouTube action was made, and no canary retry is
+  authorized by the code change.
+
+## 2026-07-27 — Competitor-informed acc1 franchise v6 merged; first pilot_06 source pool blocked
 
 - The six-slot format experiment remains intact, but every pilot is now bound
   to one exact franchise, portfolio role and packaging rule. AITA/family and
@@ -25,10 +55,11 @@ Last updated: 2026-07-27
   never-told-secret prompts are marked shallow. Reddit score remains only a
   late discovery tiebreaker and never becomes truth evidence.
 - Strategy version is
-  `2026-07-27-acc1-franchise-market-fit-v6`. This revision is code/config/docs
-  only and is not live-source verified or merged to `main`. No Reddit,
-  OpenAI, VectorEngine, AI33, render or YouTube call was made, and no canary
-  retry is authorized by this change.
+  `2026-07-27-acc1-franchise-market-fit-v6`. PR
+  [`#89`](https://github.com/webpot-ru/nebula-core-v3/pull/89) merged it to
+  `main@8dff72ce2e08a3c0e440c8382d4030db3dfa9a6f`. The first exact
+  `pilot_06` live-source result and the evidence-backed local v7 correction are
+  documented above; no paid provider or YouTube call was made.
 
 ## 2026-07-27 — THREAD 48-read diagnostic expansion merged; source still blocked
 

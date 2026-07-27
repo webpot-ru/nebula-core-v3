@@ -869,7 +869,7 @@ def run_source_stage(
             results = collect_thread_source_candidates(
                 reddit,
                 subreddit_name=source_plan["subreddits"][0],
-                time_filter="year",
+                time_filter=source_plan["search_time_filter"],
                 candidate_limit=THREAD_PROMPT_CANDIDATE_LIMIT,
                 response_scan_limit=60,
                 max_responses=15,
