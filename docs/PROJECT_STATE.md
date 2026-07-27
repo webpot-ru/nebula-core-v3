@@ -2,6 +2,36 @@
 
 Last updated: 2026-07-27
 
+## 2026-07-27 — editorial manifest fixed; THREAD review ceiling exposed
+
+- PR
+  [`#94`](https://github.com/webpot-ru/nebula-core-v3/pull/94) merged the
+  missing `editorial_motion_v1` manifest-v2 bindings to
+  `main@f18d8f621144eff1be02f54138e003d07b52493e`. The active route now
+  requires `acc1_editorial_motion_plan` version `2` and
+  `acc1_editorial_motion_caption_track` version `1`; all 629 repository tests
+  passed before merge.
+- The one authorized chained continuation
+  [`30275968655`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30275968655)
+  restored run `30273620043`, skipped Reddit, accepted the corrected manifest,
+  persisted its single-use resume lease and entered production.
+- The journal preserved the parent's ten completed calls and added fifteen
+  GPT-5.4 Flex calls with zero automatic retries: 25/128 calls and 104,641 of
+  750,000 total tokens. The first four translated THREAD sources passed. The
+  fifth source exhausted two exact local revisions and its third complete
+  review still returned five structured meaning flags, so the existing
+  non-SAGA policy stopped fail-closed before images, AI33 or rendering.
+- VectorEngine and AI33 made zero calls; Reddit, segmented render and YouTube
+  did not run. The uploaded artifact contains only resumable JSON evidence and
+  checkpoints.
+- The bounded correction keeps two ordinary THREAD revisions and permits at
+  most one final independent adjudication across the complete THREAD episode.
+  It classifies every already-pending flag exactly once, may apply only unique
+  local source-preserving patches, cannot discover new issues or rewrite
+  passages, and returns only `PASS` or `BLOCK`. A second exhausted source still
+  blocks. The pre-spend maximum THREAD envelope increases from 127 to exactly
+  128 calls, matching the workflow's explicit hard cap.
+
 ## 2026-07-27 — pilot_06 chained recovery stopped before new provider spend
 
 - PR

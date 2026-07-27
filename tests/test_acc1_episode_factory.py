@@ -767,6 +767,159 @@ class EpisodeFactoryTests(unittest.TestCase):
         )
         validate.assert_called_once()
 
+    def test_thread_translation_allows_only_one_episode_final_adjudication(self):
+        sources = [
+            {
+                "source_id": "prompt",
+                "title": "Prompt",
+                "body": "Complete prompt body with a source-backed question.",
+                "role": "prompt",
+                "truth_mode": "unverified_personal_account",
+            },
+            {
+                "source_id": "response-1",
+                "title": "Response",
+                "body": "Complete response body with a preserved ending.",
+                "role": "response",
+                "truth_mode": "unverified_personal_account",
+            },
+        ]
+        winner = {
+            "cold_open": {
+                "text": "Один ответ изменил весь разговор.",
+                "source_id": "response-1",
+                "source_quote": sources[1]["body"],
+            },
+            "sources": sources,
+            "story_beats": [],
+            "originality_plan": {},
+        }
+        translated = [
+            {
+                "title": "Вопрос",
+                "body": "Полный перевод вопроса.",
+                "translation_audit": {
+                    "revisions": 2,
+                    "review": {
+                        "verdict": "PASS",
+                        "resolution": factory.FINAL_ADJUDICATION_RESOLUTION,
+                    },
+                },
+            },
+            {
+                "title": "Ответ",
+                "body": "Полный перевод ответа. Развязка сохранена.",
+                "translation_audit": {
+                    "revisions": 0,
+                    "review": {"verdict": "PASS", "issues": []},
+                },
+            },
+        ]
+        thread_plan = copy.deepcopy(self.plan)
+        thread_plan["format"] = "THREAD"
+        thread_plan.setdefault("source_plan", {})["comic_page_count"] = [16, 20]
+        episode_plan = {
+            "episode_plan_sha256": "a" * 64,
+            "daily_plan_sha256": "b" * 64,
+        }
+        playoff = {"playoff_sha256": "c" * 64}
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(
+                factory,
+                "translate_and_review_story",
+                side_effect=translated,
+            ) as translate,
+            mock.patch.object(
+                factory,
+                "build_intro_contract",
+                return_value={"intro_ru": "Интро", "parts": []},
+            ),
+            mock.patch.object(
+                factory,
+                "build_mid_story_cta_contract",
+                return_value={"cta_ru": "Подпишитесь"},
+            ),
+            mock.patch.object(factory, "build_outro_prompt", return_value="Аутро"),
+            mock.patch.object(
+                factory,
+                "validate_episode_script",
+                return_value={"status": "PASS", "failures": []},
+            ),
+        ):
+            factory._translate_script(
+                winner,
+                daily_plan=thread_plan,
+                episode_plan=episode_plan,
+                playoff=playoff,
+                openai=mock.Mock(),
+                checkpoint_dir=Path(temp),
+            )
+        configs = [call.kwargs["config"] for call in translate.call_args_list]
+        self.assertEqual([item.max_story_revisions for item in configs], [2, 2])
+        self.assertEqual(
+            [item.allow_final_adjudication for item in configs],
+            [True, False],
+        )
+
+    def test_thread_translation_blocks_a_second_final_adjudication(self):
+        sources = [
+            {
+                "source_id": f"source-{index}",
+                "title": f"Source {index}",
+                "body": f"Complete source body {index} with a preserved ending.",
+                "role": "response",
+                "truth_mode": "unverified_personal_account",
+            }
+            for index in range(1, 3)
+        ]
+        winner = {
+            "cold_open": {
+                "text": "Два ответа изменили весь разговор.",
+                "source_id": "source-1",
+                "source_quote": sources[0]["body"],
+            },
+            "sources": sources,
+            "story_beats": [],
+            "originality_plan": {},
+        }
+        translated = [{
+            "title": f"Ответ {index}",
+            "body": f"Полный перевод ответа {index}.",
+            "translation_audit": {
+                "revisions": 2,
+                "review": {
+                    "verdict": "PASS",
+                    "resolution": factory.FINAL_ADJUDICATION_RESOLUTION,
+                },
+            },
+        } for index in range(1, 3)]
+        thread_plan = copy.deepcopy(self.plan)
+        thread_plan["format"] = "THREAD"
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(
+                factory,
+                "translate_and_review_story",
+                side_effect=translated,
+            ),
+        ):
+            with self.assertRaisesRegex(
+                factory.EpisodeFactoryError,
+                "exceeded one final adjudication",
+            ):
+                factory._translate_script(
+                    winner,
+                    daily_plan=thread_plan,
+                    episode_plan={
+                        "episode_plan_sha256": "a" * 64,
+                        "daily_plan_sha256": "b" * 64,
+                    },
+                    playoff={"playoff_sha256": "c" * 64},
+                    openai=mock.Mock(),
+                    checkpoint_dir=Path(temp),
+                )
+
     def test_thread_identity_contract_separates_prompt_and_responses(self):
         prompt = factory._visual_identity_contract(
             format_id="THREAD",
@@ -1619,6 +1772,7 @@ class EpisodeFactoryTests(unittest.TestCase):
         candidates = [
             {
                 "candidate_id": f"thread-{candidate_index}",
+                "format": "THREAD",
                 "sources": [
                     {"body": f"response {source_index} with a complete short body"}
                     for source_index in range(16)
@@ -1626,17 +1780,17 @@ class EpisodeFactoryTests(unittest.TestCase):
             }
             for candidate_index in range(5)
         ]
-        self.assertEqual(factory._required_openai_calls(candidates), 127)
+        self.assertEqual(factory._required_openai_calls(candidates), 128)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First short paragraph.\n\nSecond one.\n\nThird one."
-        self.assertEqual(factory._required_openai_calls(candidates), 127)
+        self.assertEqual(factory._required_openai_calls(candidates), 128)
 
         for candidate in candidates:
             for source in candidate["sources"]:
                 source["body"] = "First" + (" " * 20_000) + "short response."
-        self.assertEqual(factory._required_openai_calls(candidates), 127)
+        self.assertEqual(factory._required_openai_calls(candidates), 128)
 
     def test_self_hash_detects_release_manifest_tamper(self):
         manifest = {"status": "READY_FOR_HUMAN_REVIEW", "publication_authorized": False}

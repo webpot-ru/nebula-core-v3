@@ -24,6 +24,7 @@ DEFAULT_MAX_OUTPUT_TOKENS = 16_384
 DEFAULT_MAX_CHARACTER_RATIO = 2.0
 DEFAULT_MAX_CHARACTER_FLOOR = 512
 DEFAULT_MAX_TOKEN_CHARACTERS = 80
+FINAL_ADJUDICATION_RESOLUTION = "FINAL_PATCH_ADJUDICATION"
 Provider = Callable[..., dict[str, Any]]
 
 
@@ -235,7 +236,7 @@ def _final_adjudicate(
         "verdict": "PASS",
         "issues": [],
         "ending_preserved": True,
-        "resolution": "FINAL_PATCH_ADJUDICATION",
+        "resolution": FINAL_ADJUDICATION_RESOLUTION,
         "applied_issues": applied,
         "discarded_issues": discarded,
     }
