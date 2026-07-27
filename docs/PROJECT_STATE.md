@@ -2,35 +2,37 @@
 
 Last updated: 2026-07-27
 
-## 2026-07-27 — pilot_06 evergreen source correction prepared locally
+## 2026-07-27 — pilot_06 evergreen source verified; unexplained-first v8 prepared
 
-- The one approved `pilot_06` source-only canary
-  [`30238132574`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30238132574)
-  ran on merged `main@8dff72ce2e08a3c0e440c8382d4030db3dfa9a6f`.
-  It discovered 72 unique prompts, evaluated 43 and used 35 of the hard
-  48-request cap. Exactly one prompt, `1r8h6mw`, satisfied the complete
-  13-15-response / 3,120-3,900-word THREAD contract.
-- The strongest rejected prompt, `1p7822u`, had 28 natural-length responses
-  and ample story/escalation/stakes signals. It was not rejected because of
-  the editorial-function classifier: even its 15 longest 80-650-word
-  responses totalled only 2,995 words, below the locked 3,120-word floor.
-  Exact glitch/time-slip searches also returned mostly recent low-comment
-  prompts. OpenAI, VectorEngine, AI33, production, render and YouTube were
-  skipped.
-- The local v7 correction keeps the 48-request ceiling, minimum three
-  finalists, 13-15 responses, 3,120-3,900 words and every source-quality gate
-  unchanged. `pilot_04` and `pilot_05` retain the `year` search window.
-  `pilot_06` alone uses `all` and a four-query evergreen portfolio covering
-  unexplained/unexplainable events, paranormal/supernatural accounts,
-  no-proof/no-explanation accounts, and the existing matrix/time-slip/
-  impossible-coincidence lane.
-- The source plan now checksum-binds a canonical per-pilot
-  `search_time_filter`; the episode factory consumes that field instead of
-  hard-coding `year`. Ranking recognises the newly explicit unexplained,
-  paranormal, supernatural and no-proof signals before comment-tree reads.
-- This correction is **local-only**. No additional Reddit read, provider call,
-  GitHub workflow, render or YouTube action was made, and no canary retry is
-  authorized by the code change.
+- PR
+  [`#90`](https://github.com/webpot-ru/nebula-core-v3/pull/90) merged the v7
+  evergreen search correction to
+  `main@3d043d7550a0bed5e12fabdd3d19066b7f8cb6f2`. The one approved
+  source-only canary
+  [`30242927618`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30242927618)
+  then reached the self-hashed `SOURCE_ONLY_READY` state with five complete
+  THREAD finalists and 29 of the hard 48 Reddit reads.
+- Every finalist contained exactly 13 responses, 3,168-3,864 response words
+  and an estimated 24.37-29.72 minutes. OpenAI, VectorEngine, AI33,
+  production, render and YouTube were skipped. This proves the evergreen
+  source envelope, not production or publication readiness.
+- Human source review found three on-franchise prompts (`142uxm`, `1lv4w4`,
+  `p6qb47`) centred on unexplained, paranormal or supernatural accounts.
+  Prompts `3h7qwo` and `hopqt` were structurally complete but mixed the lane
+  with ordinary crime, creepy strangers and narrow misses. Their inclusion
+  would dilute the matrix/unexplained franchise before paid review.
+- The local v8 correction checksum-binds
+  `prompt_policy=unexplained_first_v1` for `pilot_06`. A title must explicitly
+  lead with an unexplained, impossible, paranormal, supernatural,
+  reality-glitch, time-slip or no-explanation signal. Mixed generic-danger
+  collections such as `true scary experiences`, `creepy strangers` and
+  `narrow misses` fail before their comment tree is opened. The exact matched
+  signals and rejection reasons remain in ranking/source diagnostics.
+- The four evergreen queries, `all` time window, 48-request ceiling, minimum
+  three finalists, 13-15 responses, 3,120-3,900 words and all source-quality
+  gates remain unchanged. This v8 correction is **local-only** until its
+  separately authorized source-only GitHub canary succeeds; it makes no paid
+  provider or YouTube call.
 
 ## 2026-07-27 — Competitor-informed acc1 franchise v6 merged; first pilot_06 source pool blocked
 

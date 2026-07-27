@@ -76,7 +76,7 @@ class ChannelStrategyConfigTests(unittest.TestCase):
         channel = next(item for item in self.channels if item["id"] == "acc1")
         self.assertEqual(
             self.config["strategy_version"],
-            "2026-07-27-acc1-franchise-market-fit-v7",
+            "2026-07-27-acc1-franchise-market-fit-v8",
         )
         self.assertEqual(channel["primary_format"], "long")
         self.assertEqual(channel["shorts_role"], "trailer_after_long_only")
@@ -103,6 +103,13 @@ class ChannelStrategyConfigTests(unittest.TestCase):
         self.assertEqual(
             thread_windows,
             {"pilot_04": "year", "pilot_05": "year", "pilot_06": "all"},
+        )
+        pilot_06 = next(
+            item for item in channel["pilot_matrix"] if item["id"] == "pilot_06"
+        )
+        self.assertEqual(
+            pilot_06["prompt_policy"],
+            "unexplained_first_v1",
         )
         self.assertFalse(channel["automation_enabled"])
 

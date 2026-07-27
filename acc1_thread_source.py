@@ -41,6 +41,8 @@ MAX_FINALIST_LIMIT = 5
 MAX_SEARCH_QUERIES = 4
 MAX_SEARCH_QUERY_CHARACTERS = 512
 TIME_FILTERS = ("day", "week", "month", "year", "all")
+UNEXPLAINED_FIRST_PROMPT_POLICY = "unexplained_first_v1"
+PROMPT_POLICIES = (UNEXPLAINED_FIRST_PROMPT_POLICY,)
 REMOVED_MARKERS = {"[deleted]", "[removed]", "[removed by reddit]"}
 LINK_RE = re.compile(r"(?:https?://|www\.|\[[^\]]+\]\([^\)]+\))", re.IGNORECASE)
 STORY_PROMPT_SIGNALS = (
@@ -108,6 +110,40 @@ SHALLOW_PROMPT_PATTERNS = tuple(
         r"(?:embarrassing|awkward)\b",
         r"\bmost\s+(?:embarrassing|awkward)\s+(?:moment|thing)\b",
         r"\bsecret\s+you(?:'ve|\s+have)\s+never\s+told\b",
+    )
+)
+UNEXPLAINED_FIRST_TITLE_PATTERNS = tuple(
+    (signal, re.compile(pattern, re.IGNORECASE))
+    for signal, pattern in (
+        (
+            "reality_glitch",
+            r"\b(?:glitches?\s+(?:in\s+)?(?:the\s+matrix|reality)|"
+            r"time\s+slip|lost\s+time|time\s+loop|question(?:ed|ing)?\s+reality)\b",
+        ),
+        (
+            "unexplained_or_impossible",
+            r"\b(?:unexplain(?:ed|able)|impossible\s+coincidence|"
+            r"no\s+(?:proof|explanation)|"
+            r"(?:can(?:not|'t|\s+not)|could(?:not|n't|\s+not))\s+"
+            r"(?:be\s+)?explain(?:ed)?)\b",
+        ),
+        (
+            "paranormal_or_supernatural",
+            r"\b(?:paranormal|supernatural)\b",
+        ),
+    )
+)
+MIXED_GENERIC_DANGER_TITLE_PATTERNS = tuple(
+    (signal, re.compile(pattern, re.IGNORECASE))
+    for signal, pattern in (
+        ("true_scary_experiences", r"\btrue\s+scary\s+experiences?\b"),
+        ("creepy_strangers", r"\bcreepy\s+strangers?\b"),
+        ("narrow_misses", r"\bnarrow\s+miss(?:es)?\b"),
+        (
+            "ordinary_danger_or_crime",
+            r"\b(?:crime|criminal|stalker|intruder|kidnap(?:ped|ping)?|"
+            r"almost\s+(?:murdered|killed|abducted))\b",
+        ),
     )
 )
 
@@ -344,7 +380,46 @@ def _submission_rejection(
     return sorted(set(reasons))
 
 
-def _story_prompt_ranking_evidence(submission: Any) -> dict[str, Any]:
+def _prompt_policy_evidence(
+    submission: Any,
+    prompt_policy: str | None,
+) -> dict[str, Any] | None:
+    if prompt_policy is None:
+        return None
+    if prompt_policy != UNEXPLAINED_FIRST_PROMPT_POLICY:
+        raise ThreadSourceError(f"unsupported THREAD prompt_policy: {prompt_policy}")
+
+    title = _text(getattr(submission, "title", None)) or ""
+    required_signals = sorted(
+        signal
+        for signal, pattern in UNEXPLAINED_FIRST_TITLE_PATTERNS
+        if pattern.search(title)
+    )
+    mixed_generic_danger_signals = sorted(
+        signal
+        for signal, pattern in MIXED_GENERIC_DANGER_TITLE_PATTERNS
+        if pattern.search(title)
+    )
+    reason_codes: list[str] = []
+    if not required_signals:
+        reason_codes.append("unexplained_first_title_signal_required")
+    if mixed_generic_danger_signals:
+        reason_codes.append("unexplained_first_mixed_generic_danger")
+    return {
+        "policy": prompt_policy,
+        "required_scope": "explicit_unexplained_first_title",
+        "matched_required_signals": required_signals,
+        "mixed_generic_danger_signals": mixed_generic_danger_signals,
+        "reason_codes": reason_codes,
+        "passed": not reason_codes,
+    }
+
+
+def _story_prompt_ranking_evidence(
+    submission: Any,
+    *,
+    prompt_policy: str | None = None,
+) -> dict[str, Any]:
     title = _text(getattr(submission, "title", None)) or ""
     selftext = _text(getattr(submission, "selftext", "")) or ""
     prompt_text = f"{title} {selftext}".casefold()
@@ -360,7 +435,7 @@ def _story_prompt_ranking_evidence(submission: Any) -> dict[str, Any]:
         for signal, pattern in NARRATIVE_CONSEQUENCE_PATTERNS
         if pattern.search(prompt_text)
     )
-    return {
+    evidence = {
         "matched_story_signals": matched_story_signals,
         "story_signal_count": len(matched_story_signals),
         "matched_narrative_consequence_signals": (
@@ -372,13 +447,26 @@ def _story_prompt_ranking_evidence(submission: Any) -> dict[str, Any]:
         "shallow_prompt_patterns": shallow_patterns,
         "shallow_prompt": bool(shallow_patterns),
     }
+    policy_evidence = _prompt_policy_evidence(submission, prompt_policy)
+    if policy_evidence is not None:
+        evidence["prompt_policy_evidence"] = policy_evidence
+    return evidence
 
 
-def _candidate_order(submission: Any) -> tuple[Any, ...]:
+def _candidate_order(
+    submission: Any,
+    *,
+    prompt_policy: str | None = None,
+) -> tuple[Any, ...]:
     score = _integer(getattr(submission, "score", None))
     comments = _integer(getattr(submission, "num_comments", None))
-    ranking = _story_prompt_ranking_evidence(submission)
+    ranking = _story_prompt_ranking_evidence(
+        submission,
+        prompt_policy=prompt_policy,
+    )
+    policy_evidence = ranking.get("prompt_policy_evidence")
     return (
+        0 if not policy_evidence or policy_evidence["passed"] else 1,
         1 if ranking["shallow_prompt"] else 0,
         -ranking["narrative_consequence_signal_count"],
         -ranking["story_signal_count"],
@@ -430,13 +518,17 @@ def _candidate_submissions(
     prompt_id: str | None,
     search_queries: tuple[str, ...] = (),
     search_sort: str = DEFAULT_SEARCH_SORT,
+    prompt_policy: str | None = None,
 ) -> list[dict[str, Any]]:
     if prompt_id:
         submission = reddit.submission(id=prompt_id)
         return [{
             "submission": submission,
             "matched_search_queries": [],
-            "ranking_evidence": _story_prompt_ranking_evidence(submission),
+            "ranking_evidence": _story_prompt_ranking_evidence(
+                submission,
+                prompt_policy=prompt_policy,
+            ),
         }]
     subreddit = reddit.subreddit(subreddit_name)
     discovered: dict[str, dict[str, Any]] = {}
@@ -461,7 +553,10 @@ def _candidate_submissions(
                     discovered[identity] = {
                         "submission": submission,
                         "matched_search_queries": [query],
-                        "ranking_evidence": _story_prompt_ranking_evidence(submission),
+                        "ranking_evidence": _story_prompt_ranking_evidence(
+                            submission,
+                            prompt_policy=prompt_policy,
+                        ),
                     }
                 elif query not in existing["matched_search_queries"]:
                     existing["matched_search_queries"].append(query)
@@ -478,10 +573,19 @@ def _candidate_submissions(
             discovered[identity] = {
                 "submission": submission,
                 "matched_search_queries": [],
-                "ranking_evidence": _story_prompt_ranking_evidence(submission),
+                "ranking_evidence": _story_prompt_ranking_evidence(
+                    submission,
+                    prompt_policy=prompt_policy,
+                ),
             }
     candidates = list(discovered.values())
-    return sorted(candidates, key=lambda item: _candidate_order(item["submission"]))
+    return sorted(
+        candidates,
+        key=lambda item: _candidate_order(
+            item["submission"],
+            prompt_policy=prompt_policy,
+        ),
+    )
 
 
 def collect_thread_source(
@@ -499,6 +603,7 @@ def collect_thread_source(
     search_sort: str = DEFAULT_SEARCH_SORT,
     require_episode_runtime: bool = False,
     excluded_prompt_ids: set[str] | None = None,
+    prompt_policy: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Backward-compatible wrapper returning the first valid finalist."""
     return collect_thread_source_candidates(
@@ -516,6 +621,7 @@ def collect_thread_source(
         finalist_limit=1,
         require_episode_runtime=require_episode_runtime,
         excluded_prompt_ids=excluded_prompt_ids,
+        prompt_policy=prompt_policy,
     )[0]
 
 
@@ -536,6 +642,7 @@ def collect_thread_source_candidates(
     minimum_finalists: int = 1,
     require_episode_runtime: bool = True,
     excluded_prompt_ids: set[str] | None = None,
+    prompt_policy: str | None = None,
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """Evaluate the bounded pool and return up to five production-fit prompts."""
     subreddit_name = (subreddit_name or "").strip()
@@ -552,6 +659,10 @@ def collect_thread_source_candidates(
     }
     if not subreddit_name:
         raise ThreadSourceError("subreddit_name is required")
+    if prompt_policy is not None and prompt_policy not in PROMPT_POLICIES:
+        raise ThreadSourceError(
+            "prompt_policy must be one of: " + ", ".join(PROMPT_POLICIES)
+        )
     if time_filter not in TIME_FILTERS:
         raise ThreadSourceError(f"time_filter must be one of: {', '.join(TIME_FILTERS)}")
     if not 1 <= candidate_limit <= MAX_CANDIDATE_LIMIT:
@@ -600,6 +711,7 @@ def collect_thread_source_candidates(
         prompt_id=prompt_id,
         search_queries=normalized_search_queries,
         search_sort=search_sort,
+        prompt_policy=prompt_policy,
     )
     listing_request_budget = (
         1 if prompt_id or not normalized_search_queries else len(normalized_search_queries)
@@ -624,6 +736,7 @@ def collect_thread_source_candidates(
         "finalist_limit": finalist_limit,
         "minimum_finalists": minimum_finalists,
         "require_episode_runtime": require_episode_runtime,
+        "prompt_policy": prompt_policy,
         "excluded_prompt_id_count": len(excluded),
         "unique_candidates_discovered": len(candidate_records),
         "candidate_outcomes": [],
@@ -655,6 +768,18 @@ def collect_thread_source_candidates(
             outcome.update({
                 "status": "PRE_SNAPSHOT_REJECTED",
                 "reason_codes": ["excluded_by_publication_history"],
+            })
+            diagnostics["candidate_outcomes"].append(outcome)
+            continue
+        policy_evidence = outcome["ranking_evidence"].get(
+            "prompt_policy_evidence"
+        )
+        if policy_evidence is not None and not policy_evidence["passed"]:
+            reason_codes = list(policy_evidence["reason_codes"])
+            failures.append(f"{candidate_id}: {','.join(reason_codes)}")
+            outcome.update({
+                "status": "PRE_SNAPSHOT_REJECTED",
+                "reason_codes": reason_codes,
             })
             diagnostics["candidate_outcomes"].append(outcome)
             continue
@@ -697,6 +822,7 @@ def collect_thread_source_candidates(
                 OAUTH_REQUEST_BUDGET + listing_request_budget + candidate_limit
             ),
             "ranking_evidence": dict(candidate_record["ranking_evidence"]),
+            "prompt_policy": prompt_policy,
         }
         if normalized_search_queries:
             query.update({
@@ -781,6 +907,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--prompt-id", help="Use one exact Reddit submission instead of discovery")
     parser.add_argument("--search-query", help="Bound discovery to one exact subreddit search query")
+    parser.add_argument("--prompt-policy", choices=PROMPT_POLICIES)
     parser.add_argument("--subreddit", default=DEFAULT_SUBREDDIT)
     parser.add_argument("--time-filter", choices=TIME_FILTERS, default=DEFAULT_TIME_FILTER)
     parser.add_argument(
@@ -860,6 +987,7 @@ def main(argv: list[str] | None = None) -> int:
             truth_mode=args.truth_mode,
             prompt_id=args.prompt_id,
             search_query=args.search_query,
+            prompt_policy=args.prompt_policy,
             require_episode_runtime=args.require_episode_runtime,
         )
         snapshot_text = json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
