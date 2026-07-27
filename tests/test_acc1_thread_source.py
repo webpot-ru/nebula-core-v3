@@ -399,6 +399,30 @@ class Acc1ThreadSourceTests(unittest.TestCase):
         self.assertIsNone(shallow.comment_limit)
         self.assertFalse(snapshot["query"]["ranking_evidence"]["shallow_prompt"])
 
+    def test_narrative_consequence_outweighs_generic_confession_popularity(self):
+        generic = submission_with_comments(
+            "generic1", count=8, score=50_000, num_comments=80_000,
+        )
+        generic.title = "What was your most embarrassing moment?"
+        narrative = submission_with_comments(
+            "reveal22", count=8, score=100, num_comments=100,
+        )
+        narrative.title = (
+            "What family secret did you discover, and what happened after?"
+        )
+
+        generic_evidence = acc1_thread_source._story_prompt_ranking_evidence(generic)
+        narrative_evidence = acc1_thread_source._story_prompt_ranking_evidence(narrative)
+
+        self.assertTrue(generic_evidence["shallow_prompt"])
+        self.assertGreaterEqual(
+            narrative_evidence["narrative_consequence_signal_count"], 3,
+        )
+        self.assertLess(
+            acc1_thread_source._candidate_order(narrative),
+            acc1_thread_source._candidate_order(generic),
+        )
+
     def test_published_prompt_ids_are_skipped_before_comment_collection(self):
         published = submission_with_comments("used111", count=8, score=9000)
         fresh = submission_with_comments("fresh22", count=8, score=8000)

@@ -1,6 +1,6 @@
 {
-  "strategy_version": "2026-07-27-acc1-broad-reddit-stories-v5",
-  "strategy_goal": "Build distinct channel franchises optimized for engaged views, retention, comments, shares, and returning viewers; topic_mix remains candidate-scouting input until source and audience gates pass.",
+  "strategy_version": "2026-07-27-acc1-franchise-market-fit-v6",
+  "strategy_goal": "Build distinct source-preserving channel franchises around competitor-supported viewer demand, then validate them with comparable audience data; topic_mix remains candidate-scouting input until source and audience gates pass.",
   "channels": [
     {
       "id": "acc1",
@@ -13,21 +13,22 @@
       "niche_label": "Russian Reddit Stories: SAGA + BUNDLE + THREAD",
       "automation_enabled": false,
       "strategy_status": "broad_reddit_story_pilot_local_only",
-      "viewer_promise": "Самые захватывающие истории, признания и обсуждения Reddit на русском: сильный конфликт, эскалация и полноценная развязка без выдуманных продолжений.",
+      "viewer_promise": "Самые захватывающие истории и обсуждения Reddit на русском: конкретный конфликт или необъяснимый случай, эскалация и полноценная развязка без выдуманных продолжений.",
       "owned_content_bets": [
-        {"id": "relationships_family_bundle", "source_lane": "reddit_first_person", "readiness": "pilot"},
-        {"id": "work_money_justice_bundle", "source_lane": "reddit_first_person", "readiness": "pilot"},
-        {"id": "confession_thread", "source_lane": "reddit_first_person", "readiness": "local_contract_ready_github_canary_required"},
-        {"id": "profession_human_experience_thread", "source_lane": "reddit_first_person", "readiness": "local_contract_ready_github_canary_required"},
-        {"id": "dark_unexplained_series", "source_lane": "reddit_fiction", "readiness": "pilot"}
+        {"id": "aita_family_conflict_bundle", "source_lane": "reddit_first_person", "portfolio_role": "core", "readiness": "pilot"},
+        {"id": "work_money_justice_bundle", "source_lane": "reddit_first_person", "portfolio_role": "core", "readiness": "pilot"},
+        {"id": "secrets_reveal_fallout_thread", "source_lane": "reddit_first_person", "portfolio_role": "secondary", "readiness": "local_contract_ready_github_canary_required"},
+        {"id": "profession_human_experience_thread", "source_lane": "reddit_first_person", "portfolio_role": "experimental", "readiness": "local_contract_ready_github_canary_required"},
+        {"id": "strange_dark_saga", "source_lane": "reddit_fiction", "portfolio_role": "core", "readiness": "pilot"},
+        {"id": "matrix_unexplained_thread", "source_lane": "reddit_first_person", "portfolio_role": "core", "readiness": "local_contract_ready_github_canary_required"}
       ],
-      "forbidden_bets": ["random high-metric Reddit filler", "incomplete story", "weak or missing payoff", "screenshot or link dependent source", "politics", "factual claim based only on Reddit", "fiction presented as real"],
+      "forbidden_bets": ["random high-metric Reddit filler", "generic awkward or embarrassing lists without a reveal and fallout", "incomplete story", "weak or missing payoff", "screenshot or link dependent source", "politics", "factual claim based only on Reddit", "fiction presented as real"],
       "evidence_policy": "Preserve Reddit provenance and meaning. Label r/nosleep as fiction and other personal accounts as unverified; never present a Reddit-only claim as independently confirmed fact.",
       "render_contract": "Use acc1_format_visual_system_v3 for every new long episode. BUNDLE is a sequence of separate mini-comics with isolated casts, SAGA is one continuous recurring-cast story, and THREAD is one prompt plus 13-15 visually distinct responses distributed across 16-20 meaning-led comic page packs with deterministic question/answer labels and the female comment voice. HyperFrames must render in bounded segments no longer than 120 seconds. The copper Chonker is limited to brand intro, CTA and outro; no fictional-as-real framing.",
       "producer_brief": {
         "must_feel_like": "specific, emotionally legible, easy to package in one sentence, complete, and worth discussing after the ending",
-        "winning_bets": "relationship and family conflict, work and justice, confessions, unusual professions, human absurdity, and strange or dark incidents with a clear payoff",
-        "weak_topic_traps": "generic prompts, one-sided low-stakes complaints, incomplete updates, missing screenshots, raw links, dry trivia, politics, and stories whose appeal disappears in Russian"
+        "winning_bets": "AITA-style relationship and family conflict, work and justice, secrets with reveal and fallout, matrix glitches, time slips, impossible coincidences, and strange or dark incidents with a clear payoff",
+        "weak_topic_traps": "generic confession, awkward or embarrassing lists, one-sided low-stakes complaints, incomplete updates, missing screenshots, raw links, dry trivia, politics, and stories whose appeal disappears in Russian"
       },
       "cadence_plan": {
         "mode": "fixed_six_slot_saga_bundle_thread_pilot_local_only",
@@ -40,11 +41,11 @@
       "primary_format": "long",
       "shorts_role": "trailer_after_long_only",
       "content_pillars": [
-        {"id": "relationships_family", "label": "Отношения и семейные конфликты"},
+        {"id": "relationships_family", "label": "AITA, отношения и семейные конфликты"},
         {"id": "work_money_justice", "label": "Работа, деньги, месть и справедливость"},
-        {"id": "confessions_awkward_taboo", "label": "Признания, неловкое и табу"},
+        {"id": "confessions_awkward_taboo", "label": "Тайны, признания и последствия"},
         {"id": "professions_human_experience", "label": "Профессии и необычный человеческий опыт"},
-        {"id": "strange_dark_unexplained", "label": "Странное, тёмное и необъяснимое"}
+        {"id": "strange_dark_unexplained", "label": "Сбои матрицы, странное, тёмное и необъяснимое"}
       ],
       "episode_formats": {
         "SAGA": {"target_duration_minutes": [18, 30], "source_status": "manual_source_review_available"},
@@ -52,12 +53,12 @@
         "THREAD": {"target_duration_minutes": [24, 30], "response_count": [13, 15], "aggregate_response_word_count": [3120, 3900], "comic_page_count": [16, 20], "source_status": "local_contract_ready_github_canary_required"}
       },
       "pilot_matrix": [
-        {"id": "pilot_01", "format": "BUNDLE", "pillar": "relationships_family", "story_count": [2, 3]},
-        {"id": "pilot_02", "format": "BUNDLE", "pillar": "work_money_justice", "story_count": [3, 5]},
-        {"id": "pilot_03", "format": "SAGA", "pillar": "strange_dark_unexplained"},
-        {"id": "pilot_04", "format": "THREAD", "pillar": "confessions_awkward_taboo", "search_queries": ["confession AND (story OR experience OR happened OR moment OR situation)", "secret AND (story OR experience OR happened OR moment OR situation)", "embarrassing AND (story OR experience OR happened OR moment OR situation)", "awkward AND (story OR experience OR happened OR moment OR situation)"], "search_sort": "comments"},
-        {"id": "pilot_05", "format": "THREAD", "pillar": "professions_human_experience", "search_queries": ["job AND (story OR experience OR happened OR moment OR situation)", "workplace AND (story OR experience OR happened OR moment OR situation)", "profession AND (story OR experience OR happened OR moment OR situation)", "career AND (story OR experience OR happened OR moment OR situation)"], "search_sort": "comments"},
-        {"id": "pilot_06", "format": "THREAD", "pillar": "strange_dark_unexplained", "search_queries": ["creepy AND (story OR experience OR happened OR moment OR situation)", "unexplained AND (story OR experience OR happened OR moment OR situation)", "strange AND (story OR experience OR happened OR moment OR situation)", "terrifying AND (story OR experience OR happened OR moment OR situation)"], "search_sort": "comments"}
+        {"id": "pilot_01", "format": "BUNDLE", "pillar": "relationships_family", "franchise_id": "aita_family_conflict", "portfolio_role": "core", "packaging_rule": "one concrete family or relationship conflict, visible opposing sides, and a source-backed reversal or payoff", "story_count": [2, 3]},
+        {"id": "pilot_02", "format": "BUNDLE", "pillar": "work_money_justice", "franchise_id": "work_money_justice", "portfolio_role": "core", "packaging_rule": "one concrete workplace or money injustice, clear escalation, and a source-backed consequence", "story_count": [3, 5]},
+        {"id": "pilot_03", "format": "SAGA", "pillar": "strange_dark_unexplained", "franchise_id": "strange_dark_saga", "portfolio_role": "core", "packaging_rule": "one impossible or frightening incident with escalating source-backed resolution and an explicit fiction or unverified-account label"},
+        {"id": "pilot_04", "format": "THREAD", "pillar": "confessions_awkward_taboo", "franchise_id": "secrets_reveal_fallout_thread", "portfolio_role": "secondary", "packaging_rule": "secrets and confessions only when the prompt asks for discovery, reveal, consequences, or aftermath; generic awkward lists are excluded", "search_queries": ["\"family secret\" AND (discovered OR revealed OR exposed OR \"found out\")", "\"dark secret\" AND (discovered OR revealed OR exposed OR \"found out\")", "confession AND (aftermath OR fallout OR consequences OR changed)", "(secret OR confession) AND (discovered OR revealed OR exposed) AND (story OR experience OR happened)"], "search_sort": "comments"},
+        {"id": "pilot_05", "format": "THREAD", "pillar": "professions_human_experience", "franchise_id": "professions_human_experience_thread", "portfolio_role": "experimental", "packaging_rule": "unusual insider experiences with concrete narrative consequences; keep outside the core mix until comparable audience data exists", "search_queries": ["job AND (incident OR experience OR happened) AND (after OR changed OR learned)", "workplace AND (incident OR story OR experience) AND (consequence OR aftermath OR changed)", "profession AND (unusual OR strangest OR worst) AND (experience OR happened)", "career AND (incident OR experience OR happened) AND (learned OR changed)"], "search_sort": "comments"},
+        {"id": "pilot_06", "format": "THREAD", "pillar": "strange_dark_unexplained", "franchise_id": "matrix_unexplained_thread", "portfolio_role": "core", "packaging_rule": "glitches in reality, time slips, impossible coincidences, or unexplained incidents with narrative detail and aftermath", "search_queries": ["\"glitch in the matrix\" AND (story OR experience OR happened)", "\"glitch in reality\" AND (story OR experience OR happened)", "(\"time slip\" OR \"lost time\" OR \"time loop\") AND (story OR experience OR happened)", "(\"impossible coincidence\" OR unexplained) AND (incident OR event OR experience OR happened)"], "search_sort": "comments"}
       ],
       "source_family_plan": [
         {"format": "BUNDLE", "scraper_family": "human_drama", "status": "local_selector_implemented_live_unverified"},
@@ -68,7 +69,7 @@
         "status": "local_proposal_not_applied_to_youtube",
         "current_youtube_name": "ChonkerTalks Россия",
         "proposed_name": "Chonker Talks — Истории Reddit",
-        "proposed_description": "Самые захватывающие истории, признания и обсуждения Reddit на русском.\n\nОтношения и семейные конфликты, работа и справедливость, неловкие признания, необычные профессии, странные и необъяснимые случаи. Мы сохраняем смысл оригинальных постов, читаем апдейты и лучшие комментарии — без выдуманных продолжений и лишней воды.\n\nДва формата: большие истории с продолжением и тематические подборки ответов Reddit.\n\nЛичные рассказы пользователей не подтверждены независимо. Истории из r/nosleep — художественная выдумка.",
+        "proposed_description": "Самые захватывающие истории и обсуждения Reddit на русском.\n\nAITA и семейные конфликты, работа и справедливость, тайны с последствиями, сбои матрицы и странные необъяснимые случаи. Мы сохраняем смысл оригинальных постов, читаем апдейты и лучшие комментарии — без выдуманных продолжений и лишней воды.\n\nТри формата: подборки законченных историй, одна большая сага и тематические треды ответов Reddit.\n\nЛичные рассказы пользователей не подтверждены независимо. Истории из r/nosleep — художественная выдумка.",
         "handle_decision": "keep_@ChonkerTalksRussia",
         "banner_copy": ["CHONKER TALKS", "ИСТОРИИ REDDIT", "НА РУССКОМ"],
         "banner_status": "awaiting_user_safe_area_asset",

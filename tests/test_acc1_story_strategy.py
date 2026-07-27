@@ -156,6 +156,8 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
         self.assertEqual(first["story_count"], [2, 3])
         self.assertEqual(first["aggregate_source_word_count"], [2340, 3900])
         self.assertEqual(first["subreddits"][:2], ["relationship_advice", "AmItheAsshole"])
+        self.assertEqual(first["franchise_id"], "aita_family_conflict")
+        self.assertEqual(first["portfolio_role"], "core")
         self.assertFalse(first["production_ready"])
         self.assertEqual(second["story_count"], [3, 5])
         self.assertEqual(third["format"], "SAGA")
@@ -163,6 +165,8 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
         self.assertEqual(third["format_intent"], "saga")
         self.assertEqual(third["source_word_count"], [2340, 3900])
         self.assertEqual(fourth["format"], "THREAD")
+        self.assertEqual(fourth["franchise_id"], "secrets_reveal_fallout_thread")
+        self.assertEqual(fourth["portfolio_role"], "secondary")
         self.assertEqual(fourth["subreddits"], ["AskReddit"])
         self.assertEqual(fourth["target_duration_minutes"], [24, 30])
         self.assertEqual(fourth["response_count"], [13, 15])
@@ -207,10 +211,11 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
         self.assertEqual(
             plan["search_queries"],
             [
-                "confession AND (story OR experience OR happened OR moment OR situation)",
-                "secret AND (story OR experience OR happened OR moment OR situation)",
-                "embarrassing AND (story OR experience OR happened OR moment OR situation)",
-                "awkward AND (story OR experience OR happened OR moment OR situation)",
+                '"family secret" AND (discovered OR revealed OR exposed OR "found out")',
+                '"dark secret" AND (discovered OR revealed OR exposed OR "found out")',
+                "confession AND (aftermath OR fallout OR consequences OR changed)",
+                "(secret OR confession) AND (discovered OR revealed OR exposed) "
+                "AND (story OR experience OR happened)",
             ],
         )
         self.assertEqual(plan["search_sort"], "comments")
@@ -229,6 +234,18 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
             "canonical pillar portfolio",
         ):
             acc1_story_strategy.resolve_pilot_source_plan(channel, "pilot_04")
+
+    def test_franchise_role_and_packaging_cannot_drift(self):
+        channel = copy.deepcopy(self.channel)
+        pilot = next(
+            item for item in channel["pilot_matrix"] if item["id"] == "pilot_05"
+        )
+        pilot["portfolio_role"] = "core"
+        with self.assertRaisesRegex(
+            acc1_story_strategy.StrategyContractError,
+            "canonical franchise contract",
+        ):
+            acc1_story_strategy.resolve_pilot_source_plan(channel, "pilot_05")
 
     def test_narrative_saga_does_not_append_comments(self):
         plan = acc1_story_strategy.resolve_comment_plan("SAGA", "narrative_story")

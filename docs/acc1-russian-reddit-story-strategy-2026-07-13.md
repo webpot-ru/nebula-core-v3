@@ -1,12 +1,17 @@
-# acc1 Russian Reddit Story Strategy - 2026-07-13
+# acc1 Russian Reddit Story Strategy - 2026-07-27 (v6)
 
 ## Decision
 
-`acc1` is a Russian Reddit-story entertainment channel, not a horror-only channel and not a random translated-post feed.
+`acc1` is a Russian Reddit-story entertainment channel, not a horror-only
+channel and not a random translated-post feed. Strategy v6 keeps the same
+source-preserving formats and production contracts while assigning every pilot
+an explicit franchise and portfolio role.
 
 Viewer promise:
 
-> Самые захватывающие истории, признания и обсуждения Reddit на русском: сильный конфликт, эскалация и полноценная развязка без выдуманных продолжений.
+> Самые захватывающие истории и обсуждения Reddit на русском: конкретный
+> конфликт или необъяснимый случай, эскалация и полноценная развязка без
+> выдуманных продолжений.
 
 The channel keeps the copper Chonker mascot, `@ChonkerTalksRussia`, the selected animated reading-room loop, the male primary narrator, and the female comment voice. Horror remains a recognizable series inside the channel. The channel name, description, banner copy, content pillars, episode formats, packaging rules, and pre-production greenlight change.
 
@@ -22,11 +27,15 @@ This is a confirmed local strategy change. It is not yet applied to YouTube. `ch
 
 Proposed description:
 
-> Самые захватывающие истории, признания и обсуждения Reddit на русском.
+> Самые захватывающие истории и обсуждения Reddit на русском.
 >
-> Отношения и семейные конфликты, работа и справедливость, неловкие признания, необычные профессии, странные и необъяснимые случаи. Мы сохраняем смысл оригинальных постов, читаем апдейты и лучшие комментарии — без выдуманных продолжений и лишней воды.
+> AITA и семейные конфликты, работа и справедливость, тайны с последствиями,
+> сбои матрицы и странные необъяснимые случаи. Мы сохраняем смысл оригинальных
+> постов, читаем апдейты и лучшие комментарии — без выдуманных продолжений и
+> лишней воды.
 >
-> Два формата: большие истории с продолжением и тематические подборки ответов Reddit.
+> Три формата: подборки законченных историй, одна большая сага и тематические
+> треды ответов Reddit.
 >
 > Личные рассказы пользователей не подтверждены независимо. Истории из r/nosleep — художественная выдумка.
 
@@ -51,13 +60,35 @@ python3 scripts/build_acc1_brand_assets.py \
 
 ## Content Pillars
 
-1. Relationships and family conflict.
+1. AITA, relationships, and family conflict.
 2. Work, money, revenge, and justice.
-3. Confessions, awkward situations, and taboo subjects.
+3. Secrets, confessions, reveals, and consequences.
 4. Professions and unusual human experience.
-5. Strange, dark, and unexplained incidents.
+5. Matrix glitches, strange, dark, and unexplained incidents.
 
 These are channel pillars, not permanent `topic_mix` weights. No audience weight is approved before comparable pilot data exists.
+
+## Franchise Priority Lock
+
+The read-only competitor review on 2026-07-27 is directional market evidence,
+not a promise of views and not permission to copy another channel. It showed
+strong demand around concrete AITA/family conflicts, twist-led Reddit
+collections, and unexplained/paranormal incidents. The corresponding acc1
+portfolio is locked as follows:
+
+| Franchise | Format | Role | Packaging rule |
+|---|---|---|---|
+| AITA / family conflict | BUNDLE | core | one concrete conflict, visible opposing sides, source-backed reversal or payoff |
+| work / money / justice | BUNDLE | core | one concrete injustice, escalation, source-backed consequence |
+| strange / dark story | SAGA | core | one escalating impossible or frightening incident with honest truth labeling |
+| secrets / reveal / fallout | THREAD | secondary | accept only discovery, reveal, consequences, or aftermath; reject generic awkward lists |
+| professions / human experience | THREAD | experimental | keep outside the core mix until comparable audience data exists |
+| matrix glitches / unexplained | THREAD | core | reality glitches, time slips, impossible coincidences, or unexplained incidents with narrative detail and aftermath |
+
+Every title/thumbnail package must sell a specific human conflict or impossible
+situation and a promised source-backed payoff. A generic `Reddit stories`,
+`confessions`, `awkward moments`, or `scary stories` label is not a sufficient
+episode concept.
 
 ## Episode Formats
 
@@ -104,7 +135,25 @@ Comments are conditional, not a mandatory SAGA ending. `narrative_story` follows
 - distinct response blocks and the configured female comment voice;
 - no deleted, removed, truncated, duplicate, screenshot-dependent, or outbound-link-dependent response.
 
-`acc1_thread_collector.py` now stores prompt/response IDs, full top-level bodies, hashes, scores, source URLs, dependency flags, runtime-selection evidence, and diversity evidence for 13-15 materially different production responses. `acc1_thread_source.py` is the bounded read-only PRAW adapter and refuses network access without `--confirm-reddit-read`. The exact search queries are fixed per pilot: confessions/awkward/taboo, professions/workplace experience, and strange/unexplained experience. The daily factory integration is local-only; live collection and GitHub artifact readback for these exact lanes remain unverified and therefore fail closed when the bounded source cannot satisfy the contract. The collector can still inspect eight-response legacy snapshots without production authorization.
+`acc1_thread_collector.py` now stores prompt/response IDs, full top-level bodies, hashes, scores, source URLs, dependency flags, runtime-selection evidence, and diversity evidence for 13-15 materially different production responses. `acc1_thread_source.py` is the bounded read-only PRAW adapter and refuses network access without `--confirm-reddit-read`. The exact four-query portfolio is fixed per pilot:
+
+- `pilot_04` searches family/dark secrets, discovery or exposure, and
+  confession aftermath rather than generic awkward or embarrassing prompts;
+- `pilot_05` searches profession/workplace incidents with consequences and is
+  explicitly experimental;
+- `pilot_06` searches matrix/reality glitches, time slips, lost time, impossible
+  coincidences, and unexplained incidents.
+
+Search results remain `sort=comments`, but popularity is no longer the first
+creative ranking signal. Non-shallow prompts with explicit discovery,
+reveal, consequence, aftermath, reality-glitch, or narrative-follow-through
+language outrank generic high-comment prompts before a comment tree is opened.
+All matched signals are stored in `ranking_evidence`.
+
+The daily factory integration for these revised exact lanes remains live
+unverified and therefore fails closed when the bounded source cannot satisfy
+the contract. The collector can still inspect eight-response legacy snapshots
+without production authorization.
 
 Production THREAD selection requires each response to contain 80-650 source words and pass deterministic completeness, prompt-relevance, narration-envelope, high-confidence safety/PII, external-dependency, and duplication blockers. Content type is now separate from episode function: a `personal_account` may simultaneously supply a hook, escalation, stakes, payoff, reflection, counterpoint, practical context, or humor. The old 40% single-role cap is removed because it incorrectly rejected confession THREADs whose valid raw material is predominantly personal accounts. The selected 13-15 responses must total 3,120-3,900 words and collectively provide at least three detected episode functions. The visual plan converts the accepted narration into 16-20 globally ordered page packs, adds second pages only to the longest responses, and keeps the prompt as the single opening anchor.
 
@@ -112,14 +161,14 @@ The selector scores only source-text signals such as hook strength, specificity,
 
 ## Six-Pilot Matrix
 
-| Pilot | Format | Pillar |
-|---|---|---|
-| 01 | BUNDLE | relationships / family |
-| 02 | BUNDLE | work / money / justice |
-| 03 | SAGA | strange / dark / unexplained |
-| 04 | THREAD | confessions / awkward / taboo |
-| 05 | THREAD | professions / unusual experience |
-| 06 | THREAD | strange / dark / unexplained |
+| Pilot | Format | Franchise | Role |
+|---|---|---|---|
+| 01 | BUNDLE | AITA / relationships / family | core |
+| 02 | BUNDLE | work / money / justice | core |
+| 03 | SAGA | strange / dark story | core |
+| 04 | THREAD | secrets / reveal / fallout | secondary |
+| 05 | THREAD | professions / unusual experience | experimental |
+| 06 | THREAD | matrix glitches / unexplained | core |
 
 The daily cycle is interleaved as `01, 04, 02, 05, 03, 06` so adjacent episodes change both format and pillar. The matrix is an experiment design, not a claim that the pillars deserve equal long-term publishing weight. Compare the same 24-hour, 7-day, and 28-day windows before changing the mix.
 
