@@ -94,24 +94,78 @@ BUNDLE_PILOT_STORY_COUNTS = {
     "pilot_01": [2, 3],
     "pilot_02": [3, 5],
 }
+PILOT_FRANCHISE_CONTRACTS = {
+    "pilot_01": {
+        "franchise_id": "aita_family_conflict",
+        "portfolio_role": "core",
+        "packaging_rule": (
+            "one concrete family or relationship conflict, visible opposing sides, "
+            "and a source-backed reversal or payoff"
+        ),
+    },
+    "pilot_02": {
+        "franchise_id": "work_money_justice",
+        "portfolio_role": "core",
+        "packaging_rule": (
+            "one concrete workplace or money injustice, clear escalation, and a "
+            "source-backed consequence"
+        ),
+    },
+    "pilot_03": {
+        "franchise_id": "strange_dark_saga",
+        "portfolio_role": "core",
+        "packaging_rule": (
+            "one impossible or frightening incident with escalating source-backed "
+            "resolution and an explicit fiction or unverified-account label"
+        ),
+    },
+    "pilot_04": {
+        "franchise_id": "secrets_reveal_fallout_thread",
+        "portfolio_role": "secondary",
+        "packaging_rule": (
+            "secrets and confessions only when the prompt asks for discovery, reveal, "
+            "consequences, or aftermath; generic awkward lists are excluded"
+        ),
+    },
+    "pilot_05": {
+        "franchise_id": "professions_human_experience_thread",
+        "portfolio_role": "experimental",
+        "packaging_rule": (
+            "unusual insider experiences with concrete narrative consequences; keep "
+            "outside the core mix until comparable audience data exists"
+        ),
+    },
+    "pilot_06": {
+        "franchise_id": "matrix_unexplained_thread",
+        "portfolio_role": "core",
+        "packaging_rule": (
+            "glitches in reality, time slips, impossible coincidences, or unexplained "
+            "incidents with narrative detail and aftermath"
+        ),
+    },
+}
 THREAD_PILOT_SEARCH_QUERIES = {
     "pilot_04": (
-        "confession AND (story OR experience OR happened OR moment OR situation)",
-        "secret AND (story OR experience OR happened OR moment OR situation)",
-        "embarrassing AND (story OR experience OR happened OR moment OR situation)",
-        "awkward AND (story OR experience OR happened OR moment OR situation)",
+        '"family secret" AND (discovered OR revealed OR exposed OR "found out")',
+        '"dark secret" AND (discovered OR revealed OR exposed OR "found out")',
+        "confession AND (aftermath OR fallout OR consequences OR changed)",
+        "(secret OR confession) AND (discovered OR revealed OR exposed) "
+        "AND (story OR experience OR happened)",
     ),
     "pilot_05": (
-        "job AND (story OR experience OR happened OR moment OR situation)",
-        "workplace AND (story OR experience OR happened OR moment OR situation)",
-        "profession AND (story OR experience OR happened OR moment OR situation)",
-        "career AND (story OR experience OR happened OR moment OR situation)",
+        "job AND (incident OR experience OR happened) AND (after OR changed OR learned)",
+        "workplace AND (incident OR story OR experience) AND "
+        "(consequence OR aftermath OR changed)",
+        "profession AND (unusual OR strangest OR worst) AND (experience OR happened)",
+        "career AND (incident OR experience OR happened) AND (learned OR changed)",
     ),
     "pilot_06": (
-        "creepy AND (story OR experience OR happened OR moment OR situation)",
-        "unexplained AND (story OR experience OR happened OR moment OR situation)",
-        "strange AND (story OR experience OR happened OR moment OR situation)",
-        "terrifying AND (story OR experience OR happened OR moment OR situation)",
+        '"glitch in the matrix" AND (story OR experience OR happened)',
+        '"glitch in reality" AND (story OR experience OR happened)',
+        '("time slip" OR "lost time" OR "time loop") '
+        "AND (story OR experience OR happened)",
+        '("impossible coincidence" OR unexplained) '
+        "AND (incident OR event OR experience OR happened)",
     ),
 }
 THREAD_SEARCH_SORT = "comments"
@@ -410,6 +464,14 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
     pillar_id = _text(pilot.get("pillar"))
     if pillar_id not in PILLAR_IDS:
         raise StrategyContractError(f"pilot {pilot_id} has an unknown pillar: {pillar_id}")
+    expected_franchise = PILOT_FRANCHISE_CONTRACTS.get(pilot_id)
+    if expected_franchise is None:
+        raise StrategyContractError(f"pilot {pilot_id} has no canonical franchise contract")
+    for key, expected_value in expected_franchise.items():
+        if pilot.get(key) != expected_value:
+            raise StrategyContractError(
+                f"pilot {pilot_id} {key} must equal the canonical franchise contract"
+            )
 
     formats = channel.get("episode_formats") if isinstance(channel.get("episode_formats"), dict) else {}
     format_contract = formats.get(format_id) if isinstance(formats.get(format_id), dict) else {}
@@ -477,6 +539,9 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
         "subreddits": planned_subreddits,
         "format_intent": format_id.casefold(),
         "target_duration_minutes": list(target_minutes),
+        "franchise_id": expected_franchise["franchise_id"],
+        "portfolio_role": expected_franchise["portfolio_role"],
+        "packaging_rule": expected_franchise["packaging_rule"],
     }
     if format_id == "SAGA":
         plan.update({

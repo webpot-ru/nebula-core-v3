@@ -74,6 +74,10 @@ class ChannelStrategyConfigTests(unittest.TestCase):
 
     def test_russian_channel_is_longform_first(self):
         channel = next(item for item in self.channels if item["id"] == "acc1")
+        self.assertEqual(
+            self.config["strategy_version"],
+            "2026-07-27-acc1-franchise-market-fit-v6",
+        )
         self.assertEqual(channel["primary_format"], "long")
         self.assertEqual(channel["shorts_role"], "trailer_after_long_only")
         self.assertEqual(
@@ -85,6 +89,12 @@ class ChannelStrategyConfigTests(unittest.TestCase):
             ["pilot_01", "pilot_04", "pilot_02", "pilot_05", "pilot_03", "pilot_06"],
         )
         self.assertEqual(channel["topic_mix_status"], "superseded_pending_rebuild")
+        pilot_roles = {
+            item["id"]: item["portfolio_role"] for item in channel["pilot_matrix"]
+        }
+        self.assertEqual(pilot_roles["pilot_04"], "secondary")
+        self.assertEqual(pilot_roles["pilot_05"], "experimental")
+        self.assertEqual(pilot_roles["pilot_06"], "core")
         self.assertFalse(channel["automation_enabled"])
 
     def test_channel_specific_producer_brief_overrides_language_default(self):

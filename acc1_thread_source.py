@@ -59,6 +59,41 @@ STORY_PROMPT_SIGNALS = (
     "incident",
     "incidents",
 )
+NARRATIVE_CONSEQUENCE_PATTERNS = tuple(
+    (signal, re.compile(pattern, re.IGNORECASE))
+    for signal, pattern in (
+        (
+            "discovery_or_reveal",
+            r"\b(?:discover(?:ed|y)?|reveal(?:ed)?|expos(?:e|ed)|"
+            r"found\s+out|learned\s+the\s+truth)\b",
+        ),
+        (
+            "aftermath_or_consequence",
+            r"\b(?:aftermath|fallout|consequences?|what\s+happened\s+"
+            r"(?:after|next)|changed\s+(?:you|your|how|the\s+way)|ruined|ended)\b",
+        ),
+        (
+            "secret_or_confession",
+            r"\b(?:family\s+secret|dark\s+secret|secret|confession)\b",
+        ),
+        (
+            "reality_glitch",
+            r"\b(?:glitches?\s+(?:in\s+)?(?:the\s+matrix|reality)|"
+            r"time\s+slip|lost\s+time|time\s+loop)\b",
+        ),
+        (
+            "impossible_or_unexplained",
+            r"\b(?:impossible\s+coincidence|unexplained\s+"
+            r"(?:event|incident|experience)|question(?:ed|ing)?\s+reality|"
+            r"reality\s+(?:felt|seemed)\s+wrong)\b",
+        ),
+        (
+            "explicit_follow_through",
+            r"\b(?:what\s+did\s+you\s+do\s+(?:after|next)|"
+            r"how\s+did\s+it\s+end|how\s+did\s+it\s+change)\b",
+        ),
+    )
+)
 SHALLOW_PROMPT_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -68,6 +103,10 @@ SHALLOW_PROMPT_PATTERNS = tuple(
         r"\bwhat(?:'s|\s+is)\s+a\s+word\b",
         r"\bfinish\s+the\s+sentence\b",
         r"\bwrong\s+answers?\s+only\b",
+        r"\bwhat(?:'s|\s+is|\s+was)\s+(?:your|the)\s+most\s+"
+        r"(?:embarrassing|awkward)\b",
+        r"\bmost\s+(?:embarrassing|awkward)\s+(?:moment|thing)\b",
+        r"\bsecret\s+you(?:'ve|\s+have)\s+never\s+told\b",
     )
 )
 
@@ -315,9 +354,20 @@ def _story_prompt_ranking_evidence(submission: Any) -> dict[str, Any]:
     shallow_patterns = sorted(
         pattern.pattern for pattern in SHALLOW_PROMPT_PATTERNS if pattern.search(prompt_text)
     )
+    matched_narrative_consequence_signals = sorted(
+        signal
+        for signal, pattern in NARRATIVE_CONSEQUENCE_PATTERNS
+        if pattern.search(prompt_text)
+    )
     return {
         "matched_story_signals": matched_story_signals,
         "story_signal_count": len(matched_story_signals),
+        "matched_narrative_consequence_signals": (
+            matched_narrative_consequence_signals
+        ),
+        "narrative_consequence_signal_count": len(
+            matched_narrative_consequence_signals
+        ),
         "shallow_prompt_patterns": shallow_patterns,
         "shallow_prompt": bool(shallow_patterns),
     }
@@ -329,6 +379,7 @@ def _candidate_order(submission: Any) -> tuple[Any, ...]:
     ranking = _story_prompt_ranking_evidence(submission)
     return (
         1 if ranking["shallow_prompt"] else 0,
+        -ranking["narrative_consequence_signal_count"],
         -ranking["story_signal_count"],
         -(comments if comments is not None else -1),
         -(score if score is not None else -1),

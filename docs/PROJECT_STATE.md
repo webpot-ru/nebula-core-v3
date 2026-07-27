@@ -2,6 +2,34 @@
 
 Last updated: 2026-07-27
 
+## 2026-07-27 — Competitor-informed acc1 franchise v6 prepared; live source unverified
+
+- The six-slot format experiment remains intact, but every pilot is now bound
+  to one exact franchise, portfolio role and packaging rule. AITA/family and
+  work/justice BUNDLE, strange/dark SAGA, and matrix/unexplained THREAD are
+  core. Secrets/reveal/fallout THREAD is secondary. Professions/human
+  experience THREAD is experimental until comparable audience data exists.
+- This priority is based on a read-only 2026-07-27 competitor review that found
+  directional demand for concrete AITA/family conflicts, twist-led Reddit
+  collections and unexplained/paranormal incidents. It is not proof of future
+  acc1 performance and does not relax source, truth, quality or publication
+  gates.
+- `pilot_04` no longer searches generic awkward or embarrassing lists. Its
+  four exact queries require family/dark secrets, discovery/exposure, or
+  confession aftermath. `pilot_05` remains consequence-led and explicitly
+  experimental. `pilot_06` now owns the matrix/reality-glitch, time-slip,
+  impossible-coincidence and unexplained-incident franchise.
+- Deterministic prompt ranking now records and prioritizes discovery, reveal,
+  consequence, aftermath, reality-glitch and follow-through signals before
+  generic popularity. Generic high-comment awkward/embarrassing and
+  never-told-secret prompts are marked shallow. Reddit score remains only a
+  late discovery tiebreaker and never becomes truth evidence.
+- Strategy version is
+  `2026-07-27-acc1-franchise-market-fit-v6`. This revision is code/config/docs
+  only and is not live-source verified or merged to `main`. No Reddit,
+  OpenAI, VectorEngine, AI33, render or YouTube call was made, and no canary
+  retry is authorized by this change.
+
 ## 2026-07-27 — THREAD 48-read diagnostic expansion merged; source still blocked
 
 - PR
