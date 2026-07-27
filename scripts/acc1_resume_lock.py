@@ -12,6 +12,18 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from openai_flex_recovery import (
+    FlexRecoveryError,
+    REJECTED_FLEX_429_STATUS,
+    canonical_hash as flex_canonical_hash,
+    validate_openai_attempt_sequence,
+    validate_rejection_proof,
+)
+
 try:
     from scripts.acc1_spend_lock import WORKFLOW_PATH, validate_lease
 except ModuleNotFoundError:  # Direct ``python scripts/acc1_resume_lock.py`` execution.
@@ -106,6 +118,7 @@ def build_resume_lease(
     ai33_call_cap: int,
     parent_resume_lease: dict[str, Any] | None = None,
     image_checkpoint: dict[str, Any] | None = None,
+    openai_flex_rejection_proof: dict[str, Any] | None = None,
     ai33_journal: dict[str, Any] | None = None,
     tts_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -132,10 +145,34 @@ def build_resume_lease(
         openai_journal.get("provider") != "openai"
         or not isinstance(attempts, list)
         or not attempts
-        or any(item.get("status") != "COMPLETE" for item in attempts if isinstance(item, dict))
         or any(not isinstance(item, dict) for item in attempts)
     ):
         raise ResumeLockError("parent OpenAI journal is not completely resumable")
+    try:
+        rejected_flex_index, _ = validate_openai_attempt_sequence(attempts)
+    except FlexRecoveryError as exc:
+        raise ResumeLockError(
+            "parent OpenAI journal is not completely resumable"
+        ) from exc
+    if rejected_flex_index is None:
+        if openai_flex_rejection_proof is not None:
+            raise ResumeLockError(
+                "parent Flex rejection proof has no matching OpenAI attempt"
+            )
+    else:
+        if openai_flex_rejection_proof is None:
+            raise ResumeLockError(
+                "parent Flex rejection requires exact GitHub log proof"
+            )
+        try:
+            validate_rejection_proof(
+                openai_flex_rejection_proof,
+                rejected_attempt=attempts[rejected_flex_index - 1],
+            )
+        except FlexRecoveryError as exc:
+            raise ResumeLockError(
+                "parent Flex rejection proof is invalid"
+            ) from exc
     openai_call_cap = _positive(openai_call_cap, "openai_call_cap")
     openai_token_cap = _positive(openai_token_cap, "openai_token_cap")
     if openai_journal.get("cap") != openai_call_cap or openai_journal.get("token_cap") != openai_token_cap:
@@ -149,6 +186,8 @@ def build_resume_lease(
     if not isinstance(totals, dict) or set(totals) != usage_keys:
         raise ResumeLockError("parent OpenAI journal usage totals are invalid")
     for attempt in attempts:
+        if attempt.get("status") == REJECTED_FLEX_429_STATUS:
+            continue
         usage = attempt.get("usage")
         if not isinstance(usage, dict) or set(usage) != usage_keys:
             raise ResumeLockError("parent OpenAI attempt usage is incomplete")
@@ -259,6 +298,10 @@ def build_resume_lease(
         "parent_producer_review_sha256": canonical_hash(producer_review),
         "parent_critic_review_sha256": canonical_hash(critic_review),
         "parent_openai_journal_sha256": canonical_hash(openai_journal),
+        "parent_openai_flex_rejection_proof_sha256": (
+            flex_canonical_hash(openai_flex_rejection_proof)
+            if openai_flex_rejection_proof is not None else None
+        ),
         "parent_image_journal_sha256": canonical_hash(image_journal),
         "parent_image_checkpoint_sha256": (
             canonical_hash(image_checkpoint) if image_checkpoint is not None else None
@@ -267,6 +310,7 @@ def build_resume_lease(
             canonical_hash(parent_resume_lease) if parent_resume_lease is not None else None
         ),
         "parent_completed_openai_attempts": len(attempts),
+        "parent_rejected_flex_429_attempt_index": rejected_flex_index,
         "parent_completed_image_attempts": len(image_attempts),
         "parent_ambiguous_image_attempt_index": ambiguous_image_attempt,
         "parent_ai33_journal_sha256": (
@@ -314,6 +358,23 @@ def validate_resume_lease(
     ):
         if not SHA256_RE.fullmatch(str(lease.get(field) or "")):
             raise ResumeLockError(f"resume lease {field} is invalid")
+    flex_proof_hash = lease.get("parent_openai_flex_rejection_proof_sha256")
+    rejected_flex_index = lease.get("parent_rejected_flex_429_attempt_index")
+    if (flex_proof_hash is None) != (rejected_flex_index is None):
+        raise ResumeLockError("resume lease Flex rejection binding is incomplete")
+    if flex_proof_hash is not None:
+        if not SHA256_RE.fullmatch(str(flex_proof_hash)):
+            raise ResumeLockError(
+                "resume lease parent_openai_flex_rejection_proof_sha256 is invalid"
+            )
+        if (
+            isinstance(rejected_flex_index, bool)
+            or not isinstance(rejected_flex_index, int)
+            or rejected_flex_index < 1
+        ):
+            raise ResumeLockError(
+                "resume lease rejected Flex attempt index is invalid"
+            )
     image_hash = lease.get("parent_image_journal_sha256")
     image_count = lease.get("parent_completed_image_attempts")
     ambiguous_image_index = lease.get("parent_ambiguous_image_attempt_index")
@@ -361,6 +422,13 @@ def validate_resume_lease(
         lease.get("parent_completed_openai_attempts"), int
     ) or lease["parent_completed_openai_attempts"] < 1:
         raise ResumeLockError("resume lease completed attempt count is invalid")
+    if (
+        rejected_flex_index is not None
+        and rejected_flex_index > lease["parent_completed_openai_attempts"]
+    ):
+        raise ResumeLockError(
+            "resume lease rejected Flex attempt index exceeds attempt count"
+        )
     caps = lease.get("caps")
     expected_caps = {
         "openai_call_cap", "openai_token_cap", "image_call_cap", "ai33_call_cap",
@@ -381,6 +449,7 @@ def parser() -> argparse.ArgumentParser:
     create.add_argument("--producer-review", required=True)
     create.add_argument("--critic-review", required=True)
     create.add_argument("--openai-journal", required=True)
+    create.add_argument("--openai-flex-rejection-proof")
     create.add_argument("--image-journal", required=True)
     create.add_argument("--image-checkpoint")
     create.add_argument("--ai33-journal")
@@ -411,6 +480,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         producer_review=read_object(Path(args.producer_review), "producer review"),
         critic_review=read_object(Path(args.critic_review), "critic review"),
         openai_journal=read_object(Path(args.openai_journal), "OpenAI journal"),
+        openai_flex_rejection_proof=(
+            read_object(
+                Path(args.openai_flex_rejection_proof),
+                "OpenAI Flex rejection proof",
+            )
+            if args.openai_flex_rejection_proof else None
+        ),
         image_journal=read_object(Path(args.image_journal), "image journal"),
         image_checkpoint=(
             read_object(Path(args.image_checkpoint), "image checkpoint")

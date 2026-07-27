@@ -10,6 +10,8 @@ from typing import Any
 
 import requests
 
+from openai_flex_recovery import FLEX_RESOURCE_UNAVAILABLE_MESSAGE
+
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_MODEL = "gpt-5.4-2026-03-05"
@@ -26,6 +28,13 @@ PROMPT_CACHE_KEY = "acc1-translation-json-v1"
 
 class OpenAIClientError(RuntimeError):
     """Raised when an OpenAI request or response cannot be proven safe."""
+
+
+class OpenAIFlexResourceUnavailableError(OpenAIClientError):
+    """A confirmed HTTP 429 rejection from the explicitly requested Flex tier."""
+
+    status_code = 429
+    service_tier = REQUIRED_SERVICE_TIER
 
 
 @dataclass(frozen=True)
@@ -208,10 +217,14 @@ def call_openai_json(
             _sanitize_error(f"OpenAI transport error: {exc}", api_key=api_key)
         ) from exc
     if not 200 <= response.status_code < 300:
-        raise OpenAIClientError(
-            f"OpenAI HTTP {response.status_code}: "
-            f"{_http_error_message(response, api_key=api_key)}"
-        )
+        error_message = _http_error_message(response, api_key=api_key)
+        full_message = f"OpenAI HTTP {response.status_code}: {error_message}"
+        if (
+            response.status_code == 429
+            and FLEX_RESOURCE_UNAVAILABLE_MESSAGE in error_message
+        ):
+            raise OpenAIFlexResourceUnavailableError(full_message)
+        raise OpenAIClientError(full_message)
     try:
         data = response.json()
     except ValueError as exc:

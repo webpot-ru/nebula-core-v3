@@ -106,8 +106,18 @@ from openai_client import (
     OPENAI_MODEL,
     PROMPT_CACHE_KEY,
     REQUIRED_SERVICE_TIER,
+    OpenAIFlexResourceUnavailableError,
     OpenAIJSONResult,
     call_openai_json,
+)
+from openai_flex_recovery import (
+    FLEX_RESOURCE_UNAVAILABLE_MARKER,
+    FLEX_RESOURCE_UNAVAILABLE_MARKER_SHA256,
+    FlexRecoveryError,
+    REJECTED_FLEX_429_ERROR_TYPE,
+    REJECTED_FLEX_429_REASON,
+    REJECTED_FLEX_429_STATUS,
+    validate_openai_attempt_sequence,
 )
 from scraper import fetch_best_story, get_reddit, history_posts, load_channel_config, load_history
 from source_text_quality import source_text_quality_blockers
@@ -1282,6 +1292,7 @@ class CallBudget:
             if token_cap is not None else None
         )
         self.journal_path = Path(journal_path) if journal_path is not None else None
+        self._pending_flex_retry_request_sha256: str | None = None
         self.journal: dict[str, Any] = {
             "version": 1,
             "provider": label,
@@ -1314,7 +1325,17 @@ class CallBudget:
                 )
             if previous["attempts"]:
                 attempts = previous["attempts"]
-                if any(
+                if label == "openai":
+                    try:
+                        _, self._pending_flex_retry_request_sha256 = (
+                            validate_openai_attempt_sequence(attempts)
+                        )
+                    except FlexRecoveryError as exc:
+                        raise EpisodeFactoryError(
+                            "openai completed resume journal contains an "
+                            "unresolved or invalid attempt"
+                        ) from exc
+                elif any(
                     not isinstance(item, dict)
                     or item.get("index") != index
                     or (
@@ -1347,6 +1368,8 @@ class CallBudget:
                         )
                     recomputed = {key: 0 for key in usage_keys}
                     for item in attempts:
+                        if item.get("status") == REJECTED_FLEX_429_STATUS:
+                            continue
                         usage = item.get("usage")
                         if not isinstance(usage, dict) or set(usage) != usage_keys:
                             raise EpisodeFactoryError(
@@ -1372,20 +1395,51 @@ class CallBudget:
             _atomic_json(self.journal_path, self.journal)
 
     def __call__(self, **kwargs):
+        if len(self.calls) >= self.cap:
+            raise EpisodeFactoryError(f"{self.label} call cap exhausted ({self.cap})")
+        # Keep one logical budget unit equal to one paid generation request.
+        # Automatic provider retries would otherwise multiply spend behind the
+        # explicit factory cap.
+        if self.label in {"openai", "image"}:
+            kwargs.setdefault("retries", 0)
+        prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
+        request_sha256 = canonical_hash({
+            "prompt": prompt,
+            "model": kwargs.get("model") or kwargs.get("model_id"),
+            "max_output_tokens": kwargs.get("max_output_tokens"),
+            "voice_id": kwargs.get("voice_id"),
+        })
         unresolved = [
             item for item in self.calls
             if item.get("status") != "COMPLETE"
-        ]
-        if unresolved:
-            raise EpisodeFactoryError(
-                f"{self.label} has an unresolved paid attempt; inspect the journal "
-                "before any further request"
+            and not (
+                self.label == "openai"
+                and item.get("status") == REJECTED_FLEX_429_STATUS
+                and item.get("index", 0) < len(self.calls)
+                and self.calls[item["index"]].get("status") == "COMPLETE"
+                and self.calls[item["index"]].get("request_sha256")
+                == item.get("request_sha256")
             )
-        if len(self.calls) >= self.cap:
-            raise EpisodeFactoryError(f"{self.label} call cap exhausted ({self.cap})")
+        ]
+        pending_retry = self._pending_flex_retry_request_sha256
+        if unresolved:
+            if not (
+                self.label == "openai"
+                and pending_retry is not None
+                and len(unresolved) == 1
+                and unresolved[0] is self.calls[-1]
+                and unresolved[0].get("status") == REJECTED_FLEX_429_STATUS
+            ):
+                raise EpisodeFactoryError(
+                    f"{self.label} has an unresolved paid attempt; inspect the journal "
+                    "before any further request"
+                )
+            if request_sha256 != pending_retry:
+                raise EpisodeFactoryError(
+                    "openai confirmed Flex 429 may retry only the exact saved request hash"
+                )
         if self.token_cap is not None:
             used = int((self.journal.get("usage_totals") or {}).get("total_tokens") or 0)
-            prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
             output_ceiling = int(kwargs.get("max_output_tokens") or 0)
             # UTF-8 bytes are a deliberately conservative upper bound for text
             # tokenization; reserve before transport so the cap is fail-closed.
@@ -1395,27 +1449,29 @@ class CallBudget:
                     f"{self.label} token cap cannot reserve the next request "
                     f"({used}+{reserved_ceiling}>{self.token_cap})"
                 )
-        # Keep one logical budget unit equal to one paid generation request.
-        # Automatic provider retries would otherwise multiply spend behind the
-        # explicit factory cap.
-        if self.label in {"openai", "image"}:
-            kwargs.setdefault("retries", 0)
-        prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")
         attempt = {
             "index": len(self.calls) + 1,
-            "request_sha256": canonical_hash({
-                "prompt": prompt,
-                "model": kwargs.get("model") or kwargs.get("model_id"),
-                "max_output_tokens": kwargs.get("max_output_tokens"),
-                "voice_id": kwargs.get("voice_id"),
-            }),
+            "request_sha256": request_sha256,
             "model": kwargs.get("model") or kwargs.get("model_id"),
             "status": "IN_FLIGHT",
         }
         self.calls.append(attempt)
+        self._pending_flex_retry_request_sha256 = None
         self._write_journal()
         try:
             raw_response = self.provider(**kwargs)
+        except OpenAIFlexResourceUnavailableError:
+            attempt.update({
+                "status": REJECTED_FLEX_429_STATUS,
+                "error_type": REJECTED_FLEX_429_ERROR_TYPE,
+                "http_status": 429,
+                "service_tier": REQUIRED_SERVICE_TIER,
+                "rejection_reason": REJECTED_FLEX_429_REASON,
+                "provider_documented_not_charged": True,
+                "error_message_sha256": FLEX_RESOURCE_UNAVAILABLE_MARKER_SHA256,
+            })
+            self._write_journal()
+            raise
         except Exception as exc:
             attempt["status"] = "AMBIGUOUS_ERROR"
             attempt["error_type"] = type(exc).__name__
@@ -2469,6 +2525,10 @@ def _validate_resume_contract(
         "parent_critic_review_sha256": workdir / "critic-review.json",
         "parent_openai_journal_sha256": workdir / "provider-attempts" / "openai.json",
     }
+    if resume_lease.get("parent_openai_flex_rejection_proof_sha256") is not None:
+        paths["parent_openai_flex_rejection_proof_sha256"] = (
+            workdir / "openai-flex-429-rejection.json"
+        )
     if resume_lease.get("parent_image_journal_sha256") is not None:
         paths["parent_image_journal_sha256"] = (
             workdir / "provider-attempts" / "image.json"

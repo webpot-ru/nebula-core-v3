@@ -203,6 +203,49 @@ class OpenAIClientTests(unittest.TestCase):
         self.assertEqual(post.call_count, 1)
         self.assertNotIn(secret, str(caught.exception))
 
+    def test_only_exact_flex_resource_429_has_structured_rejection_type(self):
+        exact = FakeResponse(
+            status_code=429,
+            payload={"error": {"message": (
+                "Flex does not have sufficient resources available to fulfill "
+                "your request. You can try again later."
+            )}},
+        )
+        with (
+            mock.patch.dict(
+                os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True,
+            ),
+            mock.patch.object(
+                openai_client.requests, "post", return_value=exact,
+            ) as post,
+        ):
+            with self.assertRaises(
+                openai_client.OpenAIFlexResourceUnavailableError,
+            ) as caught:
+                openai_client.call_openai_json(prompt="translate")
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual(caught.exception.status_code, 429)
+        self.assertEqual(caught.exception.service_tier, "flex")
+
+        generic = FakeResponse(
+            status_code=429,
+            payload={"error": {"message": "Rate limit exceeded"}},
+        )
+        with (
+            mock.patch.dict(
+                os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True,
+            ),
+            mock.patch.object(
+                openai_client.requests, "post", return_value=generic,
+            ),
+        ):
+            with self.assertRaises(openai_client.OpenAIClientError) as generic_error:
+                openai_client.call_openai_json(prompt="translate")
+        self.assertNotIsInstance(
+            generic_error.exception,
+            openai_client.OpenAIFlexResourceUnavailableError,
+        )
+
     def test_nonzero_retry_setting_is_rejected_before_transport(self):
         with (
             mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True),
