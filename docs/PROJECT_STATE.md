@@ -2,28 +2,35 @@
 
 Last updated: 2026-07-27
 
-## 2026-07-27 — THREAD 48-read diagnostic expansion local; approved canary pending
+## 2026-07-27 — THREAD 48-read diagnostic expansion merged; source still blocked
 
-- The first v5 canary proved that one production-length THREAD can be found
-  inside 24 requests but not that the same envelope can reliably retain the
-  required 3-5 source alternatives. The approved local correction keeps every
-  duration, response-count, word-count and paid-review quality gate unchanged.
-- THREAD discovery now evaluates at most 43 unique prompt comment trees after
-  the same four deduplicated search listings. Including one OAuth request, its
-  exact worst-case envelope is 48. The workflow exposes `48` as an explicit
-  Reddit cap choice while retaining the safer default `24`; no paid-provider
-  confirmation or default is broadened.
-- The source adapter now receives the factory's exact three-finalist minimum.
-  A one- or two-finalist pool fails there with
-  `BLOCKED_INSUFFICIENT_VALID_THREADS` and preserves every valid finalist
-  snapshot, every rejected snapshot, ranking evidence and exact collector
-  failure in the self-hashed diagnostic artifact. The generic factory
-  candidate-count gate remains as a second fail-closed defense.
-- Local verification passes all 618 repository unit tests, targeted Python
-  compilation, `channels.json` parsing and `git diff --check`.
-- This expansion is local-only pending full verification, commit/PR/merge and
-  the one separately approved `pilot_04` source-only canary. It has no OpenAI,
-  VectorEngine, AI33, render or YouTube authority.
+- PR
+  [`#87`](https://github.com/webpot-ru/nebula-core-v3/pull/87)
+  merged the exact 48-request THREAD envelope and diagnostic schema v2 as
+  `main@6c1301fe9a52d29e8321cd45f6b04d1b93b60779`. Local verification passed all
+  618 repository unit tests, targeted Python compilation, `channels.json`
+  parsing and `git diff --check`.
+- The one approved source-only canary
+  [`30232455544`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30232455544)
+  discovered 167 unique prompts, deterministically evaluated the first 43 and
+  used 46 of its hard 48-request cap: one OAuth request, four listings, two
+  pre-snapshot rejections and 41 comment-tree reads. It failed closed with
+  `BLOCKED_INSUFFICIENT_VALID_THREADS` because only prompt `1rqz92t` passed:
+  13 responses and 3,212 response words.
+- The expanded evidence confirms that request depth alone is not the blocker.
+  Three additional prompts supplied at least 13 otherwise eligible responses,
+  but their complete eligible sets contained only 2,596, 2,326 and 1,995
+  words, below the locked 3,120-word episode floor. Prompt `1rfdpxd` was the
+  closest count miss with 12 eligible responses. The quality, duration and
+  13-15-response gates remain unchanged.
+- The uploaded diagnostic artifact is self-hash verified and preserves all 43
+  candidate outcomes and full snapshots; it expires on 2026-08-10. OpenAI,
+  VectorEngine, AI33, every production/render stage and YouTube were skipped.
+  No retry is authorized or pending.
+- `pilot_04` therefore remains source-blocked. The next correction must
+  improve query/ranking precision for long narrative answers or explicitly
+  revise the THREAD source contract; raising the request cap again is not
+  evidence-backed.
 
 ## 2026-07-27 — THREAD Reddit discovery v5 merged; one finalist in first canary
 
