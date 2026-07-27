@@ -1,13 +1,14 @@
-# acc1 Russian Reddit Story Strategy - 2026-07-27 (v7)
+# acc1 Russian Reddit Story Strategy - 2026-07-27 (v8)
 
 ## Decision
 
 `acc1` is a Russian Reddit-story entertainment channel, not a horror-only
-channel and not a random translated-post feed. Strategy v7 keeps the same
+channel and not a random translated-post feed. Strategy v8 keeps the same
 source-preserving formats and production contracts while assigning every pilot
 an explicit franchise and portfolio role. It additionally binds each THREAD
 pilot to its evidence-backed search window and gives `pilot_06` an evergreen
-unexplained/paranormal discovery portfolio.
+unexplained/paranormal discovery portfolio with an unexplained-first prompt
+gate.
 
 Viewer promise:
 
@@ -146,13 +147,18 @@ Comments are conditional, not a mandatory SAGA ending. `narrative_story` follows
 - `pilot_06` keeps matrix/reality glitches, time slips, lost time and
   impossible coincidences, and broadens the evergreen pool to
   unexplained/unexplainable, paranormal/supernatural and no-proof/
-  no-explanation narrative accounts.
+  no-explanation narrative accounts. Its checksum-bound
+  `unexplained_first_v1` policy additionally requires an explicit
+  unexplained/impossible/paranormal/supernatural signal in the title and
+  rejects mixed generic-danger collections such as `true scary experiences`,
+  `creepy strangers` or `narrow misses` before opening their comment trees.
 
 Search results remain `sort=comments`, but popularity is no longer the first
 creative ranking signal. Non-shallow prompts with explicit discovery,
 reveal, consequence, aftermath, reality-glitch, or narrative-follow-through
 language outrank generic high-comment prompts before a comment tree is opened.
-All matched signals are stored in `ranking_evidence`.
+All matched signals, prompt-policy results and rejection reasons are stored in
+`ranking_evidence` or source diagnostics.
 
 The exact time window is also part of the pilot contract. `pilot_04` and
 `pilot_05` use `year`; `pilot_06` uses `all`. This changes discovery breadth,

@@ -304,6 +304,7 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertEqual(captured["response_scan_limit"], 60)
         self.assertEqual(captured["minimum_finalists"], 3)
         self.assertEqual(captured["time_filter"], "all")
+        self.assertEqual(captured["prompt_policy"], "unexplained_first_v1")
         self.assertEqual(
             captured["search_queries"],
             thread_plan["source_plan"]["search_queries"],

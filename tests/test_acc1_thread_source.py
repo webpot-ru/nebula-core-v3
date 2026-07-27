@@ -443,6 +443,101 @@ class Acc1ThreadSourceTests(unittest.TestCase):
         )
         self.assertFalse(evidence["shallow_prompt"])
 
+    def test_unexplained_first_policy_requires_explicit_focused_title(self):
+        focused = submission_with_comments(
+            "focused1", count=8, score=100, num_comments=100,
+        )
+        focused.title = (
+            "What event happened to you that simply can not be explained?"
+        )
+        generic = submission_with_comments(
+            "generic1", count=8, score=50_000, num_comments=80_000,
+        )
+        generic.title = (
+            "What's the creepiest true story that happened to someone you know?"
+        )
+        mixed = submission_with_comments(
+            "mixed111", count=8, score=40_000, num_comments=70_000,
+        )
+        mixed.title = (
+            "What true scary experiences have you had: creepy strangers, "
+            "unexplainable incidents, or narrow misses?"
+        )
+
+        focused_evidence = acc1_thread_source._prompt_policy_evidence(
+            focused,
+            acc1_thread_source.UNEXPLAINED_FIRST_PROMPT_POLICY,
+        )
+        generic_evidence = acc1_thread_source._prompt_policy_evidence(
+            generic,
+            acc1_thread_source.UNEXPLAINED_FIRST_PROMPT_POLICY,
+        )
+        mixed_evidence = acc1_thread_source._prompt_policy_evidence(
+            mixed,
+            acc1_thread_source.UNEXPLAINED_FIRST_PROMPT_POLICY,
+        )
+
+        self.assertTrue(focused_evidence["passed"])
+        self.assertIn(
+            "unexplained_or_impossible",
+            focused_evidence["matched_required_signals"],
+        )
+        self.assertFalse(generic_evidence["passed"])
+        self.assertEqual(
+            generic_evidence["reason_codes"],
+            ["unexplained_first_title_signal_required"],
+        )
+        self.assertFalse(mixed_evidence["passed"])
+        self.assertIn(
+            "unexplained_first_mixed_generic_danger",
+            mixed_evidence["reason_codes"],
+        )
+        self.assertIn(
+            "unexplained_or_impossible",
+            mixed_evidence["matched_required_signals"],
+        )
+
+    def test_unexplained_first_policy_rejects_mixed_prompts_before_comments(self):
+        generic = submission_with_comments(
+            "generic1", count=8, score=50_000, num_comments=80_000,
+        )
+        generic.title = "What's the creepiest true story you have heard?"
+        mixed = submission_with_comments(
+            "mixed111", count=8, score=40_000, num_comments=70_000,
+        )
+        mixed.title = (
+            "What true scary experiences have you had: creepy strangers, "
+            "unexplainable incidents, or narrow misses?"
+        )
+        reddit = FakeReddit(
+            [generic, mixed],
+            subreddit_submissions=[generic, mixed],
+        )
+
+        with self.assertRaises(acc1_thread_source.ThreadSourceError) as raised:
+            acc1_thread_source.collect_thread_source_candidates(
+                reddit,
+                candidate_limit=2,
+                response_scan_limit=8,
+                max_responses=8,
+                require_episode_runtime=False,
+                prompt_policy=(
+                    acc1_thread_source.UNEXPLAINED_FIRST_PROMPT_POLICY
+                ),
+            )
+
+        diagnostics = raised.exception.diagnostics
+        self.assertEqual(diagnostics["prompt_policy"], "unexplained_first_v1")
+        self.assertEqual(diagnostics["valid_finalist_count"], 0)
+        self.assertTrue(
+            all(
+                outcome["status"] == "PRE_SNAPSHOT_REJECTED"
+                for outcome in diagnostics["candidate_outcomes"]
+            )
+        )
+        self.assertIsNone(generic.comment_limit)
+        self.assertIsNone(mixed.comment_limit)
+
     def test_published_prompt_ids_are_skipped_before_comment_collection(self):
         published = submission_with_comments("used111", count=8, score=9000)
         fresh = submission_with_comments("fresh22", count=8, score=8000)

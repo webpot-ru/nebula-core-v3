@@ -177,6 +177,9 @@ THREAD_PILOT_TIME_FILTERS = {
     "pilot_05": "year",
     "pilot_06": "all",
 }
+THREAD_PILOT_PROMPT_POLICIES = {
+    "pilot_06": "unexplained_first_v1",
+}
 ROUTABLE_SOURCE_STATUSES = {
     "SAGA": {"manual_forced_family_review", "ready"},
     "BUNDLE": {"local_selector_implemented_live_unverified", "ready"},
@@ -600,6 +603,13 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
                 f"pilot {pilot_id} search_time_filter must equal "
                 f"{expected_time_filter or 'a canonical THREAD window'}"
             )
+        prompt_policy = _text(pilot.get("prompt_policy")) or None
+        expected_prompt_policy = THREAD_PILOT_PROMPT_POLICIES.get(pilot_id)
+        if prompt_policy != expected_prompt_policy:
+            raise StrategyContractError(
+                f"pilot {pilot_id} prompt_policy must equal "
+                f"{expected_prompt_policy or 'the canonical default'}"
+            )
         plan.update({
             "source_mode": "question_prompt",
             "response_count": list(format_contract["response_count"]),
@@ -612,6 +622,8 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
             "search_sort": search_sort,
             "search_time_filter": search_time_filter,
         })
+        if prompt_policy is not None:
+            plan["prompt_policy"] = prompt_policy
     return plan
 
 

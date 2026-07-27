@@ -230,6 +230,7 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
         )
         self.assertEqual(plan["franchise_id"], "matrix_unexplained_thread")
         self.assertEqual(plan["search_time_filter"], "all")
+        self.assertEqual(plan["prompt_policy"], "unexplained_first_v1")
         self.assertEqual(
             plan["search_queries"],
             [
@@ -244,6 +245,18 @@ class Acc1ChannelStrategyTests(unittest.TestCase):
                 "AND (story OR experience OR happened OR witnessed)",
             ],
         )
+
+    def test_pilot_06_unexplained_first_policy_cannot_silently_drift(self):
+        channel = copy.deepcopy(self.channel)
+        pilot = next(
+            item for item in channel["pilot_matrix"] if item["id"] == "pilot_06"
+        )
+        pilot["prompt_policy"] = "generic_scary_mix"
+        with self.assertRaisesRegex(
+            acc1_story_strategy.StrategyContractError,
+            "prompt_policy must equal unexplained_first_v1",
+        ):
+            acc1_story_strategy.resolve_pilot_source_plan(channel, "pilot_06")
 
     def test_thread_search_portfolio_is_exact_and_cannot_silently_broaden(self):
         channel = copy.deepcopy(self.channel)

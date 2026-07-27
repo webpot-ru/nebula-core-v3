@@ -876,6 +876,7 @@ def run_source_stage(
                 truth_mode="unverified_personal_account",
                 search_queries=search_queries,
                 search_sort=source_plan["search_sort"],
+                prompt_policy=source_plan.get("prompt_policy"),
                 finalist_limit=MAX_SOURCE_REVIEW_CANDIDATES,
                 minimum_finalists=MIN_SOURCE_REVIEW_CANDIDATES,
                 require_episode_runtime=True,
