@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-27
 
-## 2026-07-27 — pilot_06 evergreen source verified; unexplained-first v8 prepared
+## 2026-07-27 — pilot_06 unexplained-first v8 source verified in GitHub
 
 - PR
   [`#90`](https://github.com/webpot-ru/nebula-core-v3/pull/90) merged the v7
@@ -30,9 +30,26 @@ Last updated: 2026-07-27
   signals and rejection reasons remain in ranking/source diagnostics.
 - The four evergreen queries, `all` time window, 48-request ceiling, minimum
   three finalists, 13-15 responses, 3,120-3,900 words and all source-quality
-  gates remain unchanged. This v8 correction is **local-only** until its
-  separately authorized source-only GitHub canary succeeds; it makes no paid
-  provider or YouTube call.
+  gates remain unchanged.
+- PR
+  [`#91`](https://github.com/webpot-ru/nebula-core-v3/pull/91) merged the v8
+  policy as `main@eafc4b4b09e341cf18d322b9dd3a0df38029412b`. The one
+  authorized source-only canary
+  [`30247821356`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30247821356)
+  completed with `SOURCE_ONLY_READY`, five complete THREAD finalists and 16
+  of the hard 48 Reddit reads.
+- All five finalist snapshots bind
+  `prompt_policy=unexplained_first_v1`, record a passing policy receipt and
+  contain no mixed generic-danger title signal. The old off-lane prompts
+  `3h7qwo` and `hopqt` are absent. New on-lane finalists `ixk1ox` and
+  `m6wvku` join `142uxm`, `1lv4w4` and `p6qb47`; every candidate has exactly
+  13 responses, 3,168-3,864 response words and an estimated 24.37-29.72
+  minutes.
+- The artifact self-hashes, candidate-pool hash, source-stage hash and all
+  THREAD manifest hashes verify. OpenAI, VectorEngine, AI33, production,
+  render and YouTube were skipped. The canary proves the v8 source lane only;
+  paid editorial selection, generated media, human review and publication
+  remain separately gated.
 
 ## 2026-07-27 — Competitor-informed acc1 franchise v6 merged; first pilot_06 source pool blocked
 
