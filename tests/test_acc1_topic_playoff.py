@@ -216,8 +216,6 @@ class TopicPlayoffTests(unittest.TestCase):
     def test_exceptional_clean_winner_after_five_reviews_is_sufficient(self):
         value = payload()
         value["candidates"].extend([candidate("ddd"), candidate("eee", 1)])
-        for review in value["candidates"][-1]["reviews"]:
-            review["scorecard"]["stakes_clarity"] = 10
         for item in value["candidates"][:4]:
             item["reviews"][0]["scorecard"]["source_truth"] = 0
         result = run_playoff(value)
@@ -225,8 +223,21 @@ class TopicPlayoffTests(unittest.TestCase):
         self.assertEqual(result["minimum_finalists"], 3)
         self.assertEqual(result["minimum_passing_finalists"], 3)
         self.assertEqual(result["winner"]["candidate_id"], "eee")
-        self.assertGreaterEqual(result["winner"]["score"], 95)
+        self.assertEqual(result["winner"]["score"], 94)
         self.assertTrue(result["exceptional_winner_policy"]["used"])
+
+    def test_clean_winner_below_94_still_blocks_after_five_reviews(self):
+        value = payload()
+        value["candidates"].extend([candidate("ddd"), candidate("eee")])
+        for item in value["candidates"][:4]:
+            item["reviews"][0]["scorecard"]["source_truth"] = 0
+        result = run_playoff(value)
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertEqual(result["winner"]["score"], 93)
+        self.assertFalse(result["exceptional_winner_policy"]["used"])
+        self.assertTrue(
+            any("score at least 94" in failure for failure in result["failures"])
+        )
 
     def test_zero_independently_passing_finalists_blocks(self):
         value = payload()

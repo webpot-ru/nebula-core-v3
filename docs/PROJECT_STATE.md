@@ -2,6 +2,33 @@
 
 Last updated: 2026-07-27
 
+## 2026-07-27 — pilot_06 paid playoff stopped cleanly; 94-point recovery prepared
+
+- The one authorized paid production run
+  [`30249041582`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30249041582)
+  completed the exact v8 Reddit source lane with five finalists and 16 of 48
+  reads, passed paid preflight and persisted spend lease
+  `acc1-paid-lease-30249041582` before its first paid request.
+- Ten GPT-5.4 Flex producer/critic calls completed with zero automatic retries:
+  77,150 input plus 9,826 output tokens, 86,976 total and zero cached input.
+  VectorEngine and AI33 made zero calls; render and YouTube did not run.
+- The playoff blocked intentionally. `thread-1lv4w4` was the only clean
+  independently passing candidate: both reviews returned `PASS`, every
+  category floor passed, no veto or evidence failure remained, and its exact
+  average was 94/100. Four alternatives were rejected for low
+  stakes/escalation, unsafe or advertiser-hostile material, low novelty or
+  invalid exact-source evidence.
+- The former exceptional-winner boundary required 95 after all five
+  candidates were reviewed, so the clean 94-point winner missed by one point
+  even though the ordinary 90-point PASS contract and every hard gate passed.
+  The local correction moves only that narrow five-candidate clean-winner
+  boundary to 94. The ordinary three-passing-finalist rule, 90-point PASS
+  boundary, category floors, source evidence and all hard vetoes remain
+  unchanged; 93 still blocks.
+- A continuation must use the exact retained run and its resume lock rather
+  than repeat Reddit or the ten completed review calls. No recovery,
+  additional provider spend, render or YouTube action has yet occurred.
+
 ## 2026-07-27 — pilot_06 unexplained-first v8 source verified in GitHub
 
 - PR
