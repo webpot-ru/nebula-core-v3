@@ -94,6 +94,7 @@ from compilation_storyboard import (
 from compilation_translation import (
     DEFAULT_MAX_CHARACTER_FLOOR,
     DEFAULT_MAX_CHARACTER_RATIO,
+    FINAL_ADJUDICATION_RESOLUTION,
     TranslationConfig,
     _paragraph_chunks,
     canonicalize_source_for_translation,
@@ -480,16 +481,30 @@ def _translation_fallback_piece_ceiling(body: str, chunk_chars: int = 7_000) -> 
 
 
 def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
-    """Budget reviews, one evidence correction per finalist, and winner production."""
+    """Budget reviews, evidence correction, and bounded winner production."""
     translation_calls = max(
         (
-            sum(
-                (9 if str(candidate.get("format") or "").upper() == "SAGA" else 6)
-                + _translation_fallback_piece_ceiling(
-                    str(source.get("body") or "")
+            (
+                sum(
+                    (9 if str(candidate.get("format") or "").upper() == "SAGA" else 6)
+                    + _translation_fallback_piece_ceiling(
+                        str(source.get("body") or "")
+                    )
+                    for source in candidate.get("sources") or []
+                    if isinstance(source, dict)
                 )
-                for source in candidate.get("sources") or []
-                if isinstance(source, dict)
+                # A THREAD may consume one final episode-wide adjudication after
+                # a source exhausts its two ordinary local revisions. Limiting
+                # this to one preserves the exact 128-call worst-case ceiling.
+                + (
+                    1
+                    if str(candidate.get("format") or "").upper() == "THREAD"
+                    and any(
+                        isinstance(source, dict)
+                        for source in candidate.get("sources") or []
+                    )
+                    else 0
+                )
             )
             for candidate in candidates
         ),
@@ -1925,7 +1940,17 @@ def _translate_script(
 ) -> dict[str, Any]:
     translated_stories: list[dict[str, Any]] = []
     sources = winner["sources"]
+    format_id = str(daily_plan["format"]).upper()
+    if format_id not in {"BUNDLE", "SAGA", "THREAD"}:
+        raise EpisodeFactoryError(
+            f"unsupported episode format for translation review: {format_id}"
+        )
+    thread_final_adjudication_used = False
     for index, source in enumerate(sources, start=1):
+        allow_final_adjudication = (
+            format_id == "SAGA"
+            or (format_id == "THREAD" and not thread_final_adjudication_used)
+        )
         translated = translate_and_review_story(
             {"title": source["title"], "body": source["body"]},
             provider=openai,
@@ -1933,12 +1958,22 @@ def _translate_script(
             config=TranslationConfig(
                 model=OPENAI_MODEL,
                 max_output_tokens=16_384,
-                max_story_revisions=(4 if daily_plan["format"] == "SAGA" else 2),
-                allow_final_adjudication=(daily_plan["format"] == "SAGA"),
+                max_story_revisions=(4 if format_id == "SAGA" else 2),
+                allow_final_adjudication=allow_final_adjudication,
             ),
             chunk_checkpoint_path=checkpoint_dir / f"source-{index:02d}-translation.json",
             review_checkpoint_path=checkpoint_dir / f"source-{index:02d}-review.json",
         )
+        review = translated["translation_audit"].get("review") or {}
+        if (
+            format_id == "THREAD"
+            and review.get("resolution") == FINAL_ADJUDICATION_RESOLUTION
+        ):
+            if thread_final_adjudication_used:
+                raise EpisodeFactoryError(
+                    "THREAD translation exceeded one final adjudication"
+                )
+            thread_final_adjudication_used = True
         role = "comment" if source["role"] == "response" else "narrator"
         translated_stories.append({
             "title_ru": translated["title"],
