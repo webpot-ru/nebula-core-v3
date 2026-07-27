@@ -423,6 +423,26 @@ class Acc1ThreadSourceTests(unittest.TestCase):
             acc1_thread_source._candidate_order(generic),
         )
 
+    def test_unexplained_evergreen_prompt_has_franchise_ranking_signal(self):
+        prompt = submission_with_comments(
+            "strange1", count=8, score=100, num_comments=100,
+        )
+        prompt.title = (
+            "What paranormal or unexplainable thing happened to you "
+            "that you have no proof of?"
+        )
+
+        evidence = acc1_thread_source._story_prompt_ranking_evidence(prompt)
+
+        self.assertIn(
+            "impossible_or_unexplained",
+            evidence["matched_narrative_consequence_signals"],
+        )
+        self.assertGreaterEqual(
+            evidence["narrative_consequence_signal_count"], 1,
+        )
+        self.assertFalse(evidence["shallow_prompt"])
+
     def test_published_prompt_ids_are_skipped_before_comment_collection(self):
         published = submission_with_comments("used111", count=8, score=9000)
         fresh = submission_with_comments("fresh22", count=8, score=8000)

@@ -160,15 +160,23 @@ THREAD_PILOT_SEARCH_QUERIES = {
         "career AND (incident OR experience OR happened) AND (learned OR changed)",
     ),
     "pilot_06": (
-        '"glitch in the matrix" AND (story OR experience OR happened)',
-        '"glitch in reality" AND (story OR experience OR happened)',
-        '("time slip" OR "lost time" OR "time loop") '
-        "AND (story OR experience OR happened)",
-        '("impossible coincidence" OR unexplained) '
-        "AND (incident OR event OR experience OR happened)",
+        "(unexplained OR unexplainable) "
+        "AND (story OR experience OR happened OR witnessed)",
+        "(paranormal OR supernatural) "
+        "AND (story OR experience OR happened OR witnessed)",
+        '("no proof" OR "no explanation") '
+        "AND (story OR experience OR happened OR witnessed)",
+        '("glitch in the matrix" OR "glitch in reality" OR "time slip" '
+        'OR "lost time" OR "impossible coincidence") '
+        "AND (story OR experience OR happened OR witnessed)",
     ),
 }
 THREAD_SEARCH_SORT = "comments"
+THREAD_PILOT_TIME_FILTERS = {
+    "pilot_04": "year",
+    "pilot_05": "year",
+    "pilot_06": "all",
+}
 ROUTABLE_SOURCE_STATUSES = {
     "SAGA": {"manual_forced_family_review", "ready"},
     "BUNDLE": {"local_selector_implemented_live_unverified", "ready"},
@@ -585,6 +593,13 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
             raise StrategyContractError(
                 f"pilot {pilot_id} search_sort must equal {THREAD_SEARCH_SORT}"
             )
+        search_time_filter = _text(pilot.get("search_time_filter"))
+        expected_time_filter = THREAD_PILOT_TIME_FILTERS.get(pilot_id)
+        if not expected_time_filter or search_time_filter != expected_time_filter:
+            raise StrategyContractError(
+                f"pilot {pilot_id} search_time_filter must equal "
+                f"{expected_time_filter or 'a canonical THREAD window'}"
+            )
         plan.update({
             "source_mode": "question_prompt",
             "response_count": list(format_contract["response_count"]),
@@ -595,6 +610,7 @@ def resolve_pilot_source_plan(channel: dict[str, Any], pilot_id: str) -> dict[st
             "collector_contract": "bounded_top_level_full_body_v1",
             "search_queries": list(search_queries),
             "search_sort": search_sort,
+            "search_time_filter": search_time_filter,
         })
     return plan
 

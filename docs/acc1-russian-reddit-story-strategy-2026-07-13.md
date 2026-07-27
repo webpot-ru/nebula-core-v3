@@ -1,11 +1,13 @@
-# acc1 Russian Reddit Story Strategy - 2026-07-27 (v6)
+# acc1 Russian Reddit Story Strategy - 2026-07-27 (v7)
 
 ## Decision
 
 `acc1` is a Russian Reddit-story entertainment channel, not a horror-only
-channel and not a random translated-post feed. Strategy v6 keeps the same
+channel and not a random translated-post feed. Strategy v7 keeps the same
 source-preserving formats and production contracts while assigning every pilot
-an explicit franchise and portfolio role.
+an explicit franchise and portfolio role. It additionally binds each THREAD
+pilot to its evidence-backed search window and gives `pilot_06` an evergreen
+unexplained/paranormal discovery portfolio.
 
 Viewer promise:
 
@@ -141,14 +143,21 @@ Comments are conditional, not a mandatory SAGA ending. `narrative_story` follows
   confession aftermath rather than generic awkward or embarrassing prompts;
 - `pilot_05` searches profession/workplace incidents with consequences and is
   explicitly experimental;
-- `pilot_06` searches matrix/reality glitches, time slips, lost time, impossible
-  coincidences, and unexplained incidents.
+- `pilot_06` keeps matrix/reality glitches, time slips, lost time and
+  impossible coincidences, and broadens the evergreen pool to
+  unexplained/unexplainable, paranormal/supernatural and no-proof/
+  no-explanation narrative accounts.
 
 Search results remain `sort=comments`, but popularity is no longer the first
 creative ranking signal. Non-shallow prompts with explicit discovery,
 reveal, consequence, aftermath, reality-glitch, or narrative-follow-through
 language outrank generic high-comment prompts before a comment tree is opened.
 All matched signals are stored in `ranking_evidence`.
+
+The exact time window is also part of the pilot contract. `pilot_04` and
+`pilot_05` use `year`; `pilot_06` uses `all`. This changes discovery breadth,
+not the 48-request ceiling or any completeness, duration, response-count,
+truth, safety, dependency, diversity, or minimum-finalist gate.
 
 The daily factory integration for these revised exact lanes remains live
 unverified and therefore fails closed when the bounded source cannot satisfy

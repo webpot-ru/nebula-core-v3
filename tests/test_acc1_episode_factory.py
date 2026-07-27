@@ -254,7 +254,7 @@ class EpisodeFactoryTests(unittest.TestCase):
         thread_plan = build_daily_plan(
             ROOT / "channels.json",
             production_date="2026-07-15",
-            pilot_override="pilot_04",
+            pilot_override="pilot_06",
         )
         captured = {}
 
@@ -303,6 +303,7 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertEqual(captured["candidate_limit"], 43)
         self.assertEqual(captured["response_scan_limit"], 60)
         self.assertEqual(captured["minimum_finalists"], 3)
+        self.assertEqual(captured["time_filter"], "all")
         self.assertEqual(
             captured["search_queries"],
             thread_plan["source_plan"]["search_queries"],
