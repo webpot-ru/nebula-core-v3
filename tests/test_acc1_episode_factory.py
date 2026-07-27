@@ -293,15 +293,16 @@ class EpisodeFactoryTests(unittest.TestCase):
                     workdir=workdir,
                     channels_path=ROOT / "channels.json",
                     confirm_reddit_read=True,
-                    reddit_request_cap=24,
+                    reddit_request_cap=48,
                     reddit_factory=lambda **_kwargs: fake_reddit,
                 )
             diagnostics = json.loads(
                 (workdir / "source-diagnostics.json").read_text(encoding="utf-8")
             )
 
-        self.assertEqual(captured["candidate_limit"], 19)
+        self.assertEqual(captured["candidate_limit"], 43)
         self.assertEqual(captured["response_scan_limit"], 60)
+        self.assertEqual(captured["minimum_finalists"], 3)
         self.assertEqual(
             captured["search_queries"],
             thread_plan["source_plan"]["search_queries"],
@@ -326,11 +327,13 @@ class EpisodeFactoryTests(unittest.TestCase):
             pilot_override="pilot_04",
         )
         fake_reddit = mock.Mock()
-        fake_reddit._core._requestor.request_count = 24
+        fake_reddit._core._requestor.request_count = 48
         nested_diagnostics = {
-            "version": 1,
-            "status": "BLOCKED_NO_VALID_THREAD",
+            "version": 2,
+            "status": "BLOCKED_INSUFFICIENT_VALID_THREADS",
             "search_queries": thread_plan["source_plan"]["search_queries"],
+            "minimum_finalists": 3,
+            "valid_finalist_count": 1,
             "candidate_outcomes": [
                 {
                     "prompt_id": "near-one",
@@ -344,7 +347,7 @@ class EpisodeFactoryTests(unittest.TestCase):
             ],
         }
         collector_error = factory.ThreadSourceError(
-            "no bounded prompt produced a valid THREAD",
+            "bounded Reddit read produced 1 valid THREAD finalists; requires at least 3",
             diagnostics=nested_diagnostics,
         )
 
@@ -361,14 +364,14 @@ class EpisodeFactoryTests(unittest.TestCase):
             workdir = Path(temp)
             with self.assertRaisesRegex(
                 factory.EpisodeFactoryError,
-                "no bounded prompt",
+                "requires at least 3",
             ):
                 factory.run_source_stage(
                     daily_plan=thread_plan,
                     workdir=workdir,
                     channels_path=ROOT / "channels.json",
                     confirm_reddit_read=True,
-                    reddit_request_cap=24,
+                    reddit_request_cap=48,
                     reddit_factory=lambda **_kwargs: fake_reddit,
                 )
             diagnostics = json.loads(
@@ -379,8 +382,8 @@ class EpisodeFactoryTests(unittest.TestCase):
             diagnostics["status"],
             "BLOCKED_THREAD_SOURCE_DISCOVERY",
         )
-        self.assertEqual(diagnostics["reddit_http_requests_observed"], 24)
-        self.assertEqual(diagnostics["planned_reddit_request_upper_bound"], 24)
+        self.assertEqual(diagnostics["reddit_http_requests_observed"], 48)
+        self.assertEqual(diagnostics["planned_reddit_request_upper_bound"], 48)
         self.assertEqual(
             diagnostics["thread_source_diagnostics"],
             nested_diagnostics,

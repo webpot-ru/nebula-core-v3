@@ -67,7 +67,7 @@ on:
         required: true
         default: "24"
         type: choice
-        options: ["8", "16", "24"]
+        options: ["8", "16", "24", "48"]
       openai_call_cap:
         description: Hard cap for all OpenAI calls in this episode run
         required: true

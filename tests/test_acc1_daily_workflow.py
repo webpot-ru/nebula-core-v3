@@ -142,6 +142,15 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             r'ai33_call_cap:\n(?:        .+\n)+?        default: "96"',
         )
         self.assertIn(
+            '      reddit_request_cap:\n'
+            '        description: Hard cap for Reddit requests in this episode run\n'
+            '        required: true\n'
+            '        default: "24"\n'
+            '        type: choice\n'
+            '        options: ["8", "16", "24", "48"]\n',
+            self.workflow,
+        )
+        self.assertIn(
             '      openai_call_cap:\n'
             '        description: Hard cap for all OpenAI calls in this episode run\n'
             '        required: true\n'
