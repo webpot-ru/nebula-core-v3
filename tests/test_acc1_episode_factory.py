@@ -9,7 +9,12 @@ from unittest import mock
 
 import acc1_episode_factory as factory
 from acc1_daily_planner import build_daily_plan
-from openai_client import OpenAIJSONResult, OpenAIUsage
+from openai_client import (
+    OpenAIFlexResourceUnavailableError,
+    OpenAIJSONResult,
+    OpenAIUsage,
+)
+from openai_flex_recovery import FLEX_RESOURCE_UNAVAILABLE_MARKER
 from scripts.acc1_spend_lock import build_lease, self_hash
 
 
@@ -1089,6 +1094,131 @@ class EpisodeFactoryTests(unittest.TestCase):
                     journal_path=journal,
                 )
             self.assertEqual(len(calls), 1)
+
+    def test_confirmed_flex_429_is_rejected_without_same_process_retry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "openai.json"
+            calls = []
+
+            def unavailable(**kwargs):
+                calls.append(kwargs)
+                raise OpenAIFlexResourceUnavailableError(
+                    FLEX_RESOURCE_UNAVAILABLE_MARKER
+                )
+
+            budget = factory.CallBudget(
+                unavailable,
+                cap=2,
+                token_cap=1_000_000,
+                label="openai",
+                journal_path=journal,
+            )
+            with self.assertRaises(OpenAIFlexResourceUnavailableError):
+                budget(
+                    prompt="one exact request",
+                    model=factory.OPENAI_MODEL,
+                    max_output_tokens=1,
+                )
+            stored = json.loads(journal.read_text(encoding="utf-8"))
+            rejected = stored["attempts"][0]
+            self.assertEqual(rejected["status"], "REJECTED_FLEX_429")
+            self.assertEqual(rejected["http_status"], 429)
+            self.assertEqual(rejected["service_tier"], "flex")
+            self.assertTrue(rejected["provider_documented_not_charged"])
+            self.assertNotIn("usage", rejected)
+            with self.assertRaisesRegex(
+                factory.EpisodeFactoryError, "unresolved paid attempt",
+            ):
+                budget(
+                    prompt="one exact request",
+                    model=factory.OPENAI_MODEL,
+                    max_output_tokens=1,
+                )
+            self.assertEqual(len(calls), 1)
+
+    def test_resume_retries_only_exact_confirmed_flex_request_hash_once(self):
+        usage = {
+            "input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 2,
+            "total_tokens": 12, "reasoning_tokens": 0,
+        }
+        request = {
+            "prompt": "retry exact request",
+            "model": factory.OPENAI_MODEL,
+            "max_output_tokens": 1,
+            "voice_id": None,
+        }
+        rejected_hash = factory.canonical_hash(request)
+        journal_payload = {
+            "version": 1, "provider": "openai", "cap": 4,
+            "token_cap": 1_000_000, "usage_totals": dict(usage),
+            "attempts": [
+                {
+                    "index": 1, "status": "COMPLETE",
+                    "request_sha256": "1" * 64, "usage": dict(usage),
+                },
+                {
+                    "index": 2,
+                    "status": "REJECTED_FLEX_429",
+                    "request_sha256": rejected_hash,
+                    "model": factory.OPENAI_MODEL,
+                    "error_type": "OpenAIFlexResourceUnavailableError",
+                    "http_status": 429,
+                    "service_tier": "flex",
+                    "rejection_reason": "flex_resource_unavailable",
+                    "provider_documented_not_charged": True,
+                    "error_message_sha256": hashlib.sha256(
+                        FLEX_RESOURCE_UNAVAILABLE_MARKER.encode("utf-8")
+                    ).hexdigest(),
+                },
+            ],
+            "publication_authorized": False,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "openai.json"
+            journal.write_text(json.dumps(journal_payload), encoding="utf-8")
+            calls = []
+
+            def provider(**kwargs):
+                calls.append(kwargs)
+                return OpenAIJSONResult(
+                    payload={"ok": True},
+                    usage=OpenAIUsage(
+                        input_tokens=2, cached_input_tokens=0, output_tokens=1,
+                        total_tokens=3, reasoning_tokens=0,
+                    ),
+                    service_tier=factory.REQUIRED_SERVICE_TIER,
+                )
+
+            budget = factory.CallBudget(
+                provider, cap=4, token_cap=1_000_000, label="openai",
+                journal_path=journal, allow_completed_resume=True,
+            )
+            with self.assertRaisesRegex(
+                factory.EpisodeFactoryError, "exact saved request hash",
+            ):
+                budget(
+                    prompt="different request",
+                    model=factory.OPENAI_MODEL,
+                    max_output_tokens=1,
+                )
+            self.assertEqual(calls, [])
+            budget(
+                prompt=request["prompt"],
+                model=request["model"],
+                max_output_tokens=request["max_output_tokens"],
+            )
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]["retries"], 0)
+            self.assertEqual(budget.calls[2]["status"], "COMPLETE")
+            self.assertEqual(budget.calls[2]["request_sha256"], rejected_hash)
+            self.assertEqual(budget.journal["usage_totals"]["total_tokens"], 15)
+
+            budget(
+                prompt="next new request",
+                model=factory.OPENAI_MODEL,
+                max_output_tokens=1,
+            )
+            self.assertEqual(len(calls), 2)
 
     def test_call_budget_continues_only_a_reconciled_completed_journal(self):
         usage = {

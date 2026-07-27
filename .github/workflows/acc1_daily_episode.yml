@@ -243,6 +243,18 @@ jobs:
           path: build/acc1-daily-episode
           github-token: ${{ github.token }}
           run-id: ${{ inputs.resume_source_run_id }}
+      - name: Confirm only an exact parent OpenAI Flex 429 rejection
+        if: inputs.resume_source_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
+        run: |
+          set -euo pipefail
+          python scripts/acc1_confirm_openai_flex_429.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --run-id "$RESUME_SOURCE_RUN_ID" \
+            --journal "$WORKDIR/provider-attempts/openai.json" \
+            --proof "$WORKDIR/openai-flex-429-rejection.json"
       - name: Run no-spend production preflight
         run: |
           set -euo pipefail
@@ -505,6 +517,12 @@ jobs:
               --tts-state "$WORKDIR/tts/compilation_tts_state.json"
             )
           fi
+          OPENAI_FLEX_REJECTION_ARGS=()
+          if [[ -f "$WORKDIR/openai-flex-429-rejection.json" ]]; then
+            OPENAI_FLEX_REJECTION_ARGS+=(
+              --openai-flex-rejection-proof "$WORKDIR/openai-flex-429-rejection.json"
+            )
+          fi
           python scripts/acc1_resume_lock.py create \
             --existing-root "$RESUME_SCAN_ROOT" \
             --parent-lease "$WORKDIR/spend-lease.json" \
@@ -512,6 +530,7 @@ jobs:
             --producer-review "$WORKDIR/producer-review.json" \
             --critic-review "$WORKDIR/critic-review.json" \
             --openai-journal "$WORKDIR/provider-attempts/openai.json" \
+            "${OPENAI_FLEX_REJECTION_ARGS[@]}" \
             --image-journal "$WORKDIR/provider-attempts/image.json" \
             "${IMAGE_CHECKPOINT_ARGS[@]}" \
             "${AI33_RESUME_ARGS[@]}" \

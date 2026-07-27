@@ -2,8 +2,15 @@ import copy
 import json
 import tempfile
 import unittest
+import hashlib
 from pathlib import Path
 
+from openai_flex_recovery import (
+    FLEX_RESOURCE_UNAVAILABLE_MARKER,
+    REJECTION_PROOF_SCHEMA,
+    canonical_hash as flex_hash,
+    proof_self_hash,
+)
 from scripts.acc1_resume_lock import (
     FILENAME,
     ResumeLockError,
@@ -66,7 +73,88 @@ def parent_evidence(run_id=101):
     return lease, topic_input, producer, critic, journal, image_journal
 
 
+def add_confirmed_flex_rejection(journal, *, run_id=101):
+    attempt = {
+        "index": len(journal["attempts"]) + 1,
+        "status": "REJECTED_FLEX_429",
+        "request_sha256": "8" * 64,
+        "model": "gpt-5.4-2026-03-05",
+        "error_type": "OpenAIFlexResourceUnavailableError",
+        "http_status": 429,
+        "service_tier": "flex",
+        "rejection_reason": "flex_resource_unavailable",
+        "provider_documented_not_charged": True,
+        "error_message_sha256": hashlib.sha256(
+            FLEX_RESOURCE_UNAVAILABLE_MARKER.encode("utf-8")
+        ).hexdigest(),
+    }
+    journal["attempts"].append(attempt)
+    proof = {
+        "schema_version": REJECTION_PROOF_SCHEMA,
+        "repository": REPOSITORY,
+        "run_id": run_id,
+        "run_attempt": 1,
+        "job_id": 404,
+        "attempt_index": attempt["index"],
+        "request_sha256": attempt["request_sha256"],
+        "original_journal_sha256": "9" * 64,
+        "job_log_sha256": "a" * 64,
+        "matched_error_sha256": "b" * 64,
+        "rejected_attempt_sha256": flex_hash(attempt),
+        "publication_authorized": False,
+    }
+    proof["proof_sha256"] = proof_self_hash(proof)
+    return proof
+
+
 class Acc1ResumeLockTests(unittest.TestCase):
+    def test_one_confirmed_flex_rejection_is_bound_without_usage_inflation(self):
+        lease, topic, producer, critic, journal, image_journal = parent_evidence()
+        proof = add_confirmed_flex_rejection(journal)
+        with self.assertRaisesRegex(
+            ResumeLockError, "requires exact GitHub log proof",
+        ):
+            build_resume_lease(
+                parent_lease=lease, topic_input=topic,
+                producer_review=producer, critic_review=critic,
+                openai_journal=journal, image_journal=image_journal,
+                parent_run_id=101, run_id=202, run_attempt=1,
+                head_sha=HEAD_SHA, repository=REPOSITORY,
+                openai_call_cap=64, openai_token_cap=1_000_000,
+                image_call_cap=16, ai33_call_cap=32,
+            )
+        resume = build_resume_lease(
+            parent_lease=lease, topic_input=topic,
+            producer_review=producer, critic_review=critic,
+            openai_journal=journal, image_journal=image_journal,
+            openai_flex_rejection_proof=proof,
+            parent_run_id=101, run_id=202, run_attempt=1,
+            head_sha=HEAD_SHA, repository=REPOSITORY,
+            openai_call_cap=64, openai_token_cap=1_000_000,
+            image_call_cap=16, ai33_call_cap=32,
+        )
+        self.assertEqual(resume["parent_completed_openai_attempts"], 2)
+        self.assertEqual(resume["parent_rejected_flex_429_attempt_index"], 2)
+        self.assertEqual(
+            resume["parent_openai_flex_rejection_proof_sha256"],
+            canonical_hash(proof),
+        )
+        validate_resume_lease(resume, repository=REPOSITORY)
+
+        tampered_proof = copy.deepcopy(proof)
+        tampered_proof["request_sha256"] = "c" * 64
+        with self.assertRaisesRegex(ResumeLockError, "proof is invalid"):
+            build_resume_lease(
+                parent_lease=lease, topic_input=topic,
+                producer_review=producer, critic_review=critic,
+                openai_journal=journal, image_journal=image_journal,
+                openai_flex_rejection_proof=tampered_proof,
+                parent_run_id=101, run_id=202, run_attempt=1,
+                head_sha=HEAD_SHA, repository=REPOSITORY,
+                openai_call_cap=64, openai_token_cap=1_000_000,
+                image_call_cap=16, ai33_call_cap=32,
+            )
+
     def test_resume_lease_binds_parent_evidence_and_current_caps(self):
         lease, topic, producer, critic, journal, image_journal = parent_evidence()
         resume = build_resume_lease(

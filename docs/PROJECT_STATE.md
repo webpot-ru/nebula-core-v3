@@ -2,6 +2,37 @@
 
 Last updated: 2026-07-27
 
+## 2026-07-27 — THREAD arbitration passed; one exact Flex 429 recovery prepared
+
+- PR
+  [`#95`](https://github.com/webpot-ru/nebula-core-v3/pull/95) merged the
+  episode-wide THREAD final-adjudication boundary to
+  `main@e634b9c49ad30878cfbe5d2ba322ae29bee915ef`. All 632 repository
+  tests passed before merge.
+- The one authorized chained continuation
+  [`30280795084`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30280795084)
+  restored `30275968655`, skipped Reddit and preserved its 25 complete OpenAI
+  calls. Source 05 then used the single allowed final adjudication and passed,
+  proving the correction. Four additional calls completed before source 06's
+  third review request received HTTP `429` with the exact
+  `Flex does not have sufficient resources` response.
+- The artifact therefore contains 29 complete OpenAI calls and 109,777
+  reported input-plus-output tokens. Attempt 30 is hash-bound but has no
+  completion or token-usage envelope. VectorEngine and AI33 made zero calls;
+  segmented render and YouTube did not run.
+- The recovery correction recognizes only that exact Flex resource-unavailable
+  response as `REJECTED_FLEX_429`. For the historical attempt, a GitHub-side
+  verifier must find the exact error once in the immutable failed build log
+  and seal the repository/run/job/log hash, attempt index and request hash.
+  The rejection consumes one unit of the 128-call cap, carries no invented
+  token usage, and permits only one cross-dispatch submission of the same
+  request hash. Generic 429s and all other exceptions remain ambiguous;
+  automatic retry and standard-tier fallback remain forbidden.
+- This revision authorizes no dispatch by itself. Its implementation and tests
+  made no new OpenAI, VectorEngine or AI33 call, Reddit read, render or YouTube
+  action; any later recovery outcome must be recorded as separate verified
+  GitHub-run evidence.
+
 ## 2026-07-27 — editorial manifest fixed; THREAD review ceiling exposed
 
 - PR

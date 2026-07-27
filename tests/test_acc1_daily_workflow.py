@@ -82,8 +82,24 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         self.assertIn("run-id: ${{ inputs.resume_source_run_id }}", workflow)
         self.assertIn("if: inputs.resume_source_run_id == ''", workflow)
         self.assertIn("Create one hash-bound paid resume lock", workflow)
+        self.assertIn(
+            "Confirm only an exact parent OpenAI Flex 429 rejection",
+            workflow,
+        )
+        self.assertIn(
+            "scripts/acc1_confirm_openai_flex_429.py",
+            workflow,
+        )
+        self.assertIn(
+            '--proof "$WORKDIR/openai-flex-429-rejection.json"',
+            workflow,
+        )
         self.assertIn("acc1-resume-lease-${{ github.run_id }}", workflow)
         self.assertIn("scripts/acc1_resume_lock.py create", workflow)
+        self.assertIn(
+            '--openai-flex-rejection-proof "$WORKDIR/openai-flex-429-rejection.json"',
+            workflow,
+        )
         self.assertIn("parent-resume-spend-lease.json", workflow)
         self.assertIn('--ai33-journal "$WORKDIR/provider-attempts/ai33.json"', workflow)
         self.assertIn('--tts-state "$WORKDIR/tts/compilation_tts_state.json"', workflow)
