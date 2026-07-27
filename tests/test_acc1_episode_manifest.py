@@ -133,6 +133,70 @@ class Acc1EpisodeManifestTests(unittest.TestCase):
         report = acc1_episode_manifest.validate_episode_manifest(manifest)
         self.assertEqual(report["status"], "PASS", report["failures"])
 
+    def test_builder_emits_v2_editorial_motion_contracts(self):
+        queue, review, greenlight, config, daily_plan, providers = exact_artifacts()
+        manifest = acc1_episode_manifest.build_episode_manifest(
+            episode_key="acc1/2026-07-14/pilot_03",
+            episode_date="2026-07-14",
+            pilot_id="pilot_03",
+            format_id="SAGA",
+            pillar="strange_dark_unexplained",
+            source_queue=queue,
+            topic_review=review,
+            greenlight=greenlight,
+            config=config,
+            daily_plan=daily_plan,
+            git_sha="1234567890abcdef1234567890abcdef12345678",
+            provider_settings=providers,
+            visual_mode="editorial_motion_v1",
+        )
+        self.assertEqual(manifest["visual_mode"], "editorial_motion_v1")
+        self.assertEqual(manifest["shot_plan_contract"], {
+            "contract": "acc1_editorial_motion_plan",
+            "version": 2,
+            "visual_mode": "editorial_motion_v1",
+            "required": True,
+        })
+        self.assertEqual(manifest["caption_track_contract"], {
+            "contract": "acc1_editorial_motion_caption_track",
+            "version": 1,
+            "visual_mode": "editorial_motion_v1",
+            "required": True,
+        })
+        self.assertNotIn("motion_plan_sha256", repr(manifest))
+        self.assertNotIn("caption_track_sha256", repr(manifest))
+        report = acc1_episode_manifest.validate_episode_manifest(manifest)
+        self.assertEqual(report["status"], "PASS", report["failures"])
+
+    def test_editorial_motion_contract_version_tamper_blocks(self):
+        queue, review, greenlight, config, daily_plan, providers = exact_artifacts()
+        manifest = acc1_episode_manifest.build_episode_manifest(
+            episode_key="acc1/2026-07-14/pilot_03",
+            episode_date="2026-07-14",
+            pilot_id="pilot_03",
+            format_id="SAGA",
+            pillar="strange_dark_unexplained",
+            source_queue=queue,
+            topic_review=review,
+            greenlight=greenlight,
+            config=config,
+            daily_plan=daily_plan,
+            git_sha="1234567890abcdef1234567890abcdef12345678",
+            provider_settings=providers,
+            visual_mode="editorial_motion_v1",
+        )
+        manifest["shot_plan_contract"]["version"] = 1
+        manifest["episode_plan_sha256"] = acc1_episode_manifest.canonical_hash({
+            key: value for key, value in manifest.items()
+            if key != "episode_plan_sha256"
+        })
+        report = acc1_episode_manifest.validate_episode_manifest(manifest)
+        self.assertEqual(report["status"], "BLOCKED")
+        self.assertTrue(
+            any("shot_plan_contract" in item for item in report["failures"]),
+            report["failures"],
+        )
+
     def test_historical_v1_remains_self_verifying_without_mutation(self):
         manifest, *_ = valid_manifest()
         legacy = copy.deepcopy(manifest)

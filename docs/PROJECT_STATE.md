@@ -2,6 +2,32 @@
 
 Last updated: 2026-07-27
 
+## 2026-07-27 — pilot_06 chained recovery stopped before new provider spend
+
+- PR
+  [`#93`](https://github.com/webpot-ru/nebula-core-v3/pull/93) merged the
+  narrow clean exceptional-winner correction to
+  `main@4fb2c10fe9f763f6003dfdc257a69dee227fe92e`.
+- The one authorized chained continuation
+  [`30273620043`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30273620043)
+  restored run `30249041582`, skipped every Reddit/source step, passed the
+  no-spend and paid preflights, and persisted
+  `acc1-resume-lease-30273620043` before entering production.
+- Production then stopped immediately while building the immutable episode
+  plan: the workflow and visual-mode resolver accepted the active
+  `editorial_motion_v1` route, but manifest v2 still handled only historical
+  `reddit_pages` and `cinematic_story_v1` contracts.
+- The child and parent OpenAI/image journals are byte-identical. They preserve
+  the same ten complete GPT-5.4 Flex reviews and 86,976 total tokens, with zero
+  image attempts; AI33 was not initialized. No new Reddit, OpenAI,
+  VectorEngine or AI33 request, render or YouTube action occurred.
+- The correction adds only the missing path-independent manifest bindings:
+  required `acc1_editorial_motion_plan` version `2` and required
+  `acc1_editorial_motion_caption_track` version `1`. No provider limit,
+  creative style, quality threshold, source identity or publication boundary
+  changes. A new continuation must chain from `30273620043` so its already
+  persisted resume lease remains single-use and hash-bound.
+
 ## 2026-07-27 — pilot_06 paid playoff stopped cleanly; 94-point recovery prepared
 
 - The one authorized paid production run
