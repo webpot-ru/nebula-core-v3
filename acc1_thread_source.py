@@ -35,7 +35,7 @@ DEFAULT_CANDIDATE_LIMIT = 10
 DEFAULT_RESPONSE_SCAN_LIMIT = 50
 DEFAULT_SEARCH_SORT = "comments"
 OAUTH_REQUEST_BUDGET = 1
-MAX_CANDIDATE_LIMIT = 25
+MAX_CANDIDATE_LIMIT = 43
 MAX_RESPONSE_SCAN_LIMIT = 100
 MAX_FINALIST_LIMIT = 5
 MAX_SEARCH_QUERIES = 4
@@ -481,6 +481,7 @@ def collect_thread_source_candidates(
     search_queries: Iterable[str] | None = None,
     search_sort: str = DEFAULT_SEARCH_SORT,
     finalist_limit: int = 3,
+    minimum_finalists: int = 1,
     require_episode_runtime: bool = True,
     excluded_prompt_ids: set[str] | None = None,
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
@@ -506,6 +507,10 @@ def collect_thread_source_candidates(
     if not 1 <= finalist_limit <= MAX_FINALIST_LIMIT:
         raise ThreadSourceError(
             f"finalist_limit must be between 1 and {MAX_FINALIST_LIMIT}"
+        )
+    if not 1 <= minimum_finalists <= finalist_limit:
+        raise ThreadSourceError(
+            "minimum_finalists must be between 1 and finalist_limit"
         )
     if not MIN_RESPONSES <= response_scan_limit <= MAX_RESPONSE_SCAN_LIMIT:
         raise ThreadSourceError(
@@ -548,7 +553,7 @@ def collect_thread_source_candidates(
         1 if prompt_id or not normalized_search_queries else len(normalized_search_queries)
     )
     diagnostics: dict[str, Any] = {
-        "version": 1,
+        "version": 2,
         "status": "EVALUATING_THREAD_SOURCE",
         "subreddit": subreddit_name,
         "time_filter": time_filter,
@@ -564,6 +569,8 @@ def collect_thread_source_candidates(
         "candidate_limit": candidate_limit,
         "response_scan_limit": response_scan_limit,
         "max_responses": max_responses,
+        "finalist_limit": finalist_limit,
+        "minimum_finalists": minimum_finalists,
         "require_episode_runtime": require_episode_runtime,
         "excluded_prompt_id_count": len(excluded),
         "unique_candidates_discovered": len(candidate_records),
@@ -681,18 +688,32 @@ def collect_thread_source_candidates(
                 "aggregate_response_word_count"
             ),
             "manifest_sha256": manifest.get("manifest_sha256"),
+            "snapshot": snapshot,
         })
         diagnostics["candidate_outcomes"].append(outcome)
         if len(results) >= finalist_limit:
             break
 
-    if results:
+    diagnostics["evaluated_candidate_count"] = len(diagnostics["candidate_outcomes"])
+    diagnostics["valid_finalist_count"] = len(results)
+    diagnostics["valid_finalist_ids"] = [
+        str(manifest["prompt"]["id"])
+        for _snapshot, manifest in results
+    ]
+    if len(results) >= minimum_finalists:
         return results
 
     detail = "; ".join(failures) if failures else "all candidates were ineligible"
+    if results:
+        diagnostics["status"] = "BLOCKED_INSUFFICIENT_VALID_THREADS"
+        raise ThreadSourceError(
+            "bounded Reddit read produced "
+            f"{len(results)} valid THREAD finalists; requires at least "
+            f"{minimum_finalists}: {detail}",
+            diagnostics=diagnostics,
+        )
+
     diagnostics["status"] = "BLOCKED_NO_VALID_THREAD"
-    diagnostics["evaluated_candidate_count"] = len(diagnostics["candidate_outcomes"])
-    diagnostics["valid_finalist_count"] = 0
     raise ThreadSourceError(
         f"no bounded prompt produced a valid THREAD: {detail}",
         diagnostics=diagnostics,

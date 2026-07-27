@@ -150,6 +150,31 @@ def submission_with_comments(
     )
 
 
+def production_submission(prompt_id: str, *, score: int = 5000) -> FakeSubmission:
+    role_openings = (
+        "I remember when this experience began, and after the incident I stayed until it ended.",
+        "In my profession this experience happens for a reason, and at work I followed the standard procedure.",
+        "However, my experience ended differently; unlike the first assumption, the real cause became clear.",
+        "I realized this experience changed my view, and since then I understand why the ending mattered.",
+    )
+    comments = [
+        FakeComment(
+            response_index,
+            prompt_id=prompt_id,
+            body=(
+                f"{role_openings[response_index % len(role_openings)]} "
+                + " ".join(
+                    f"detail {alpha_token(response_index * 50 + word)} gradually changed the final outcome"
+                    for word in range(39)
+                )
+                + f" Eventually I saw the complete outcome of experience {response_index}."
+            ),
+        )
+        for response_index in range(13)
+    ]
+    return FakeSubmission(prompt_id, comments, score=score)
+
+
 class Acc1ThreadSourceTests(unittest.TestCase):
     def test_bounded_discovery_can_return_five_review_candidates(self):
         submissions = []
@@ -497,6 +522,64 @@ class Acc1ThreadSourceTests(unittest.TestCase):
         self.assertEqual(outcome["eligible_response_count"], 7)
         self.assertEqual(outcome["snapshot"]["prompt"]["id"], "near111")
         self.assertEqual(len(outcome["snapshot"]["responses"]), 7)
+
+    def test_partial_pool_fails_with_valid_and_rejected_reviewable_snapshots(self):
+        valid = production_submission("valid111", score=9000)
+        near = production_submission("near222", score=8000)
+        near.comments = FakeComments(near.comments[:12])
+        near.num_comments = 100
+        reddit = FakeReddit([valid, near])
+
+        with self.assertRaises(acc1_thread_source.ThreadSourceError) as raised:
+            acc1_thread_source.collect_thread_source_candidates(
+                reddit,
+                candidate_limit=2,
+                finalist_limit=5,
+                minimum_finalists=2,
+                response_scan_limit=13,
+                max_responses=13,
+                require_episode_runtime=True,
+            )
+
+        diagnostics = raised.exception.diagnostics
+        self.assertEqual(
+            diagnostics["status"],
+            "BLOCKED_INSUFFICIENT_VALID_THREADS",
+        )
+        self.assertEqual(diagnostics["version"], 2)
+        self.assertEqual(diagnostics["minimum_finalists"], 2)
+        self.assertEqual(diagnostics["valid_finalist_count"], 1)
+        self.assertEqual(diagnostics["valid_finalist_ids"], ["valid111"])
+        self.assertEqual(diagnostics["evaluated_candidate_count"], 2)
+        outcomes = {
+            outcome["prompt_id"]: outcome
+            for outcome in diagnostics["candidate_outcomes"]
+        }
+        self.assertEqual(outcomes["valid111"]["status"], "VALID_FINALIST")
+        self.assertEqual(
+            outcomes["valid111"]["snapshot"]["prompt"]["id"],
+            "valid111",
+        )
+        self.assertEqual(outcomes["valid111"]["response_count"], 13)
+        self.assertEqual(outcomes["near222"]["status"], "COLLECTOR_REJECTED")
+        self.assertEqual(outcomes["near222"]["eligible_response_count"], 12)
+        self.assertEqual(
+            outcomes["near222"]["snapshot"]["prompt"]["id"],
+            "near222",
+        )
+
+    def test_minimum_finalists_cannot_exceed_finalist_limit(self):
+        reddit = FakeReddit([])
+        with self.assertRaisesRegex(
+            acc1_thread_source.ThreadSourceError,
+            "minimum_finalists",
+        ):
+            acc1_thread_source.collect_thread_source_candidates(
+                reddit,
+                finalist_limit=2,
+                minimum_finalists=3,
+            )
+        self.assertEqual(reddit.subreddit_calls, [])
 
     def test_cli_refuses_reddit_client_without_explicit_confirmation(self):
         with tempfile.TemporaryDirectory() as temp_dir:

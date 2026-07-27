@@ -138,7 +138,7 @@ SOURCE_ONLY_SCHEMA_VERSION = "acc1_source_only_result_v1"
 MIN_SOURCE_REVIEW_CANDIDATES = 3
 MAX_SOURCE_REVIEW_CANDIDATES = 5
 MIN_PASSING_FINALISTS = 3
-THREAD_PROMPT_CANDIDATE_LIMIT = 19
+THREAD_PROMPT_CANDIDATE_LIMIT = 43
 THREAD_REDDIT_OAUTH_REQUEST_BUDGET = 1
 NARRATOR_VOICE_ID = "elevenlabs_JBFqnCBsd6RMkjVDRZzb"
 COMMENT_VOICE_ID = "elevenlabs_MOgsVr0EwwxqQs5cNDhu"
@@ -877,6 +877,7 @@ def run_source_stage(
                 search_queries=search_queries,
                 search_sort=source_plan["search_sort"],
                 finalist_limit=MAX_SOURCE_REVIEW_CANDIDATES,
+                minimum_finalists=MIN_SOURCE_REVIEW_CANDIDATES,
                 require_episode_runtime=True,
                 # Prompt IDs are Reddit source IDs too. Response-level overlap is
                 # still enforced by the post-source reservation scan.

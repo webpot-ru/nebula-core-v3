@@ -2,6 +2,29 @@
 
 Last updated: 2026-07-27
 
+## 2026-07-27 — THREAD 48-read diagnostic expansion local; approved canary pending
+
+- The first v5 canary proved that one production-length THREAD can be found
+  inside 24 requests but not that the same envelope can reliably retain the
+  required 3-5 source alternatives. The approved local correction keeps every
+  duration, response-count, word-count and paid-review quality gate unchanged.
+- THREAD discovery now evaluates at most 43 unique prompt comment trees after
+  the same four deduplicated search listings. Including one OAuth request, its
+  exact worst-case envelope is 48. The workflow exposes `48` as an explicit
+  Reddit cap choice while retaining the safer default `24`; no paid-provider
+  confirmation or default is broadened.
+- The source adapter now receives the factory's exact three-finalist minimum.
+  A one- or two-finalist pool fails there with
+  `BLOCKED_INSUFFICIENT_VALID_THREADS` and preserves every valid finalist
+  snapshot, every rejected snapshot, ranking evidence and exact collector
+  failure in the self-hashed diagnostic artifact. The generic factory
+  candidate-count gate remains as a second fail-closed defense.
+- Local verification passes all 618 repository unit tests, targeted Python
+  compilation, `channels.json` parsing and `git diff --check`.
+- This expansion is local-only pending full verification, commit/PR/merge and
+  the one separately approved `pilot_04` source-only canary. It has no OpenAI,
+  VectorEngine, AI33, render or YouTube authority.
+
 ## 2026-07-27 — THREAD Reddit discovery v5 merged; one finalist in first canary
 
 - The approved source-only run
