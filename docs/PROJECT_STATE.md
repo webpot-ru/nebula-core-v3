@@ -2,6 +2,34 @@
 
 Last updated: 2026-07-27
 
+## 2026-07-27 — exact Flex retry completed; source 06 translation remains blocked
+
+- PR
+  [`#96`](https://github.com/webpot-ru/nebula-core-v3/pull/96) merged the
+  exact Flex-rejection recovery boundary to
+  `main@1fd836b662347a6f99b92abd188a26329a8d0053`. The implementation
+  passed all 640 repository tests before dispatch.
+- The one authorized chained recovery
+  [`30287331993`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30287331993)
+  restored failed run `30280795084` without a Reddit read. The immutable
+  parent job log confirmed the exact Flex resource-unavailable message, and
+  both `openai-flex-429-rejection.json` and the new resume lease validate
+  against parent run `30280795084`, failed build job `90026404308`, attempt 30
+  and its saved request hash.
+- The recovery submitted exactly that same request hash once as attempt 31.
+  It completed with 1,129 reported tokens. The reconciled journal now contains
+  30 `COMPLETE` attempts plus one retained `REJECTED_FLEX_429`, with 110,906
+  total reported input-plus-output tokens under the `128/750000` limits.
+- The returned source-06 review was still `REVISE`, with five issues after the
+  two permitted translation revisions. Production therefore failed closed
+  with `translation remains REVISE after maximum story revisions`.
+- VectorEngine remained at zero attempts; AI33 was not submitted; segmented
+  render and YouTube did not run. The partial JSON artifact
+  `acc1-daily-episode-30287331993` was preserved for diagnosis. No automatic
+  or second recovery was dispatched. Resolving the translation-review ceiling
+  is a separate change and any further provider run requires new explicit
+  approval.
+
 ## 2026-07-27 — THREAD arbitration passed; one exact Flex 429 recovery prepared
 
 - PR
