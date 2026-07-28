@@ -2,6 +2,39 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — bounded OpenAI default-tier fallback prepared after repeated Flex capacity failures
+
+- PR [`#101`](https://github.com/webpot-ru/nebula-core-v3/pull/101) merged the
+  malformed-review isolation to `main@1884ad3ea8a90c3cbbd24ff85c177b753018fb53`.
+  Authorized continuation
+  [`30348347285`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30348347285)
+  reused run `30327932032`, skipped Reddit and successfully advanced the
+  source-10 translation path. Its journal now preserves 52 completed OpenAI
+  requests, two exact `REJECTED_FLEX_429` attempts and 139,465 reported tokens
+  under the unchanged `128/750000` ceiling.
+- The second confirmed Flex capacity rejection stopped the run before
+  VectorEngine, AI33, segmented rendering or YouTube. It was not a review,
+  image, voice or renderer failure.
+- The local correction keeps `flex` as the first-choice tier. Only the exact
+  documented Flex-capacity HTTP 429 may consume one additional bounded call
+  slot and repeat the same request hash once with `service_tier=default`.
+  After that exact event, the remaining OpenAI requests in the same recovery
+  use `default`; generic 429s, timeouts, malformed responses, tier mismatches
+  and ambiguous transport errors still fail closed. Both the rejected Flex
+  submission and default completion remain separate ordered journal entries,
+  and the default completion's actual token usage remains inside the same
+  immutable cap.
+- Chained recovery validation now accepts multiple historical Flex rejections
+  only when every non-final rejection is immediately followed by one completed
+  request with the exact same request hash. The final pending rejection still
+  requires its own GitHub job-log proof; earlier proofs remain bound through
+  the resume-lease ancestry. Historical source reservations remain valid, while
+  new fresh paid leases bind the explicit fallback policy.
+- This correction has made no provider call locally. Until a separately
+  authorized GitHub continuation verifies the behavior, the fallback remains
+  code-verified only; no OpenAI, VectorEngine, AI33, Reddit, render or YouTube
+  outcome is claimed.
+
 ## 2026-07-28 — malformed source-10 review evidence is isolated for recovery
 
 - PR [`#100`](https://github.com/webpot-ru/nebula-core-v3/pull/100) merged

@@ -40,6 +40,9 @@ PROVIDER_CONTRACT: dict[str, Any] = {
         "max_output_tokens": 16_384,
         "automatic_retries": 0,
         "service_tier": "flex",
+        "fallback_service_tier": "default",
+        "fallback_condition": "exact_flex_resource_unavailable_429",
+        "maximum_fallback_requests_per_flex_rejection": 1,
         "prompt_cache_key": "acc1-translation-json-v1",
         "request_timeout_seconds": 900,
     },
@@ -612,12 +615,14 @@ def validate_lease_for_production(
     run_id: int | None = None,
     run_attempt: int | None = None,
     head_sha: str | None = None,
+    require_current_provider_contract: bool = True,
 ) -> None:
     """Bind the persisted lease to the exact imminent paid factory call."""
     validate_lease(
         lease,
         expected_repository=repository,
         expected_workflow_path=workflow_path,
+        require_current_provider_contract=require_current_provider_contract,
     )
     expected_bindings = _validate_source_contract(
         plan, source_stage, candidate_pool, source_queue, source_review,
@@ -655,7 +660,7 @@ def validate_lease_for_production(
     }
     if lease.get("confirmations") != expected_confirmations:
         raise SpendLockError("spend lease does not bind the exact confirmations")
-    if provider_contract != PROVIDER_CONTRACT:
+    if require_current_provider_contract and provider_contract != PROVIDER_CONTRACT:
         raise SpendLockError("factory provider/model contract drifted from the spend-lock contract")
     if lease.get("provider_contract") != provider_contract:
         raise SpendLockError("spend lease does not bind the exact provider/model contract")

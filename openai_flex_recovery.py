@@ -77,38 +77,41 @@ def validate_rejected_attempt(
 def validate_openai_attempt_sequence(
     attempts: list[dict[str, Any]],
 ) -> tuple[int | None, str | None]:
-    """Return the rejection index and an exact pending retry hash, if any."""
+    """Return the final pending rejection and exact retry hash, if any.
+
+    Earlier confirmed Flex rejections are valid only when the immediately
+    following attempt completed the exact same request hash.  This permits a
+    long-running bounded job to survive more than one independent Flex
+    capacity rejection without weakening the journal's ordering guarantees.
+    """
     if not attempts:
         raise FlexRecoveryError("OpenAI attempt journal is empty")
-    rejection_indices: list[int] = []
-    for index, attempt in enumerate(attempts, start=1):
+    index = 1
+    while index <= len(attempts):
+        attempt = attempts[index - 1]
         if not isinstance(attempt, dict) or attempt.get("index") != index:
             raise FlexRecoveryError("OpenAI attempt sequence is invalid")
         status = attempt.get("status")
         if status == "COMPLETE":
+            index += 1
             continue
         if status != REJECTED_FLEX_429_STATUS:
             raise FlexRecoveryError("OpenAI attempt journal has an unresolved attempt")
         validate_rejected_attempt(attempt, expected_index=index)
-        rejection_indices.append(index)
-    if len(rejection_indices) > 1:
-        raise FlexRecoveryError("OpenAI journal has more than one Flex rejection")
-    if not rejection_indices:
-        return None, None
-
-    rejection_index = rejection_indices[0]
-    rejected = attempts[rejection_index - 1]
-    if rejection_index == len(attempts):
-        return rejection_index, str(rejected["request_sha256"])
-    retry = attempts[rejection_index]
-    if (
-        retry.get("status") != "COMPLETE"
-        or retry.get("request_sha256") != rejected.get("request_sha256")
-    ):
-        raise FlexRecoveryError(
-            "Flex rejection is not followed by one exact completed request"
-        )
-    return rejection_index, None
+        if index == len(attempts):
+            return index, str(attempt["request_sha256"])
+        retry = attempts[index]
+        if (
+            not isinstance(retry, dict)
+            or retry.get("index") != index + 1
+            or retry.get("status") != "COMPLETE"
+            or retry.get("request_sha256") != attempt.get("request_sha256")
+        ):
+            raise FlexRecoveryError(
+                "Flex rejection is not followed by one exact completed request"
+            )
+        index += 2
+    return None, None
 
 
 def validate_rejection_proof(

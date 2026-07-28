@@ -175,12 +175,16 @@ def _normalize_attempt(
     normalized = json.loads(json.dumps(journal))
     normalized_attempts = normalized["attempts"]
     last = normalized_attempts[-1]
-    prior_attempts_are_complete = all(
-        isinstance(item, dict)
-        and item.get("index") == index
-        and item.get("status") == "COMPLETE"
-        for index, item in enumerate(normalized_attempts[:-1], start=1)
-    )
+    prior_attempts_are_reconciled = True
+    if normalized_attempts[:-1]:
+        try:
+            _, prior_pending_hash = validate_openai_attempt_sequence(
+                normalized_attempts[:-1]
+            )
+        except FlexRecoveryError:
+            prior_attempts_are_reconciled = False
+        else:
+            prior_attempts_are_reconciled = prior_pending_hash is None
     is_legacy_ambiguous = (
         isinstance(last, dict)
         and last.get("index") == len(normalized_attempts)
@@ -193,14 +197,14 @@ def _normalize_attempt(
         )
     )
     if isinstance(last, dict) and last.get("status") == REJECTED_FLEX_429_STATUS:
-        if not prior_attempts_are_complete:
+        if not prior_attempts_are_reconciled:
             raise ConfirmationError(
-                "Only one final confirmed Flex rejection can be sealed"
+                "Earlier Flex rejections are not exactly reconciled"
             )
         validate_rejected_attempt(last, expected_index=len(normalized_attempts))
-    elif is_legacy_ambiguous is not True or not prior_attempts_are_complete:
+    elif is_legacy_ambiguous is not True or not prior_attempts_are_reconciled:
         raise ConfirmationError(
-            "Only one final legacy or confirmed Flex rejection can be sealed"
+            "Only one final legacy or confirmed Flex rejection can remain pending"
         )
     else:
         last.update({
@@ -248,18 +252,31 @@ def _normalize_attempt(
     return normalized, proof
 
 
-def _reuse_existing_proof(
+def _existing_proof_attempt_index(
     journal: dict[str, Any], proof: dict[str, Any],
-) -> None:
+) -> int:
     attempts = journal.get("attempts")
     if not isinstance(attempts, list):
         raise ConfirmationError("OpenAI journal attempts are invalid")
-    rejection_index, _ = validate_openai_attempt_sequence(attempts)
-    if rejection_index is None:
-        raise ConfirmationError("Flex rejection proof has no matching journal attempt")
+    attempt_index = proof.get("attempt_index")
+    if (
+        isinstance(attempt_index, bool)
+        or not isinstance(attempt_index, int)
+        or attempt_index < 1
+        or attempt_index > len(attempts)
+    ):
+        raise ConfirmationError("Flex rejection proof attempt index is invalid")
     validate_rejection_proof(
-        proof, rejected_attempt=attempts[rejection_index - 1],
+        proof, rejected_attempt=attempts[attempt_index - 1],
     )
+    return attempt_index
+
+
+def _reuse_existing_proof(
+    journal: dict[str, Any], proof: dict[str, Any],
+) -> None:
+    """Backward-compatible strict proof validator used by focused tests."""
+    _existing_proof_attempt_index(journal, proof)
 
 
 def confirm_parent_flex_rejection(
@@ -272,23 +289,27 @@ def confirm_parent_flex_rejection(
     run_id = _positive(run_id, "run_id")
     journal = _read_object(journal_path, "OpenAI journal")
 
-    if proof_path.exists():
-        _reuse_existing_proof(
-            journal, _read_object(proof_path, "Flex rejection proof"),
-        )
-        return "EXISTING_PROOF_REUSED"
-
     attempts = journal.get("attempts")
     if not isinstance(attempts, list) or not attempts:
         raise ConfirmationError("OpenAI journal attempts are invalid")
-    non_complete = [
-        item for item in attempts
-        if not isinstance(item, dict) or item.get("status") != "COMPLETE"
-    ]
-    if not non_complete:
+    try:
+        pending_index, pending_hash = validate_openai_attempt_sequence(attempts)
+    except FlexRecoveryError as exc:
+        raise ConfirmationError("OpenAI journal has unsupported attempts") from exc
+    if pending_index is None:
         return "NOT_REQUIRED"
-    if len(non_complete) != 1 or non_complete[0] is not attempts[-1]:
-        raise ConfirmationError("OpenAI journal has unsupported unresolved attempts")
+    if pending_index != len(attempts) or pending_hash != attempts[-1].get(
+        "request_sha256"
+    ):
+        raise ConfirmationError("OpenAI journal pending Flex retry is not final")
+    if proof_path.exists():
+        existing_proof = _read_object(proof_path, "Flex rejection proof")
+        existing_index = _existing_proof_attempt_index(journal, existing_proof)
+        if (
+            existing_index == pending_index
+            and existing_proof.get("run_id") == run_id
+        ):
+            return "EXISTING_PROOF_REUSED"
 
     headers = _github_headers(token)
     api_root = f"https://api.github.com/repos/{repository}/actions"

@@ -105,6 +105,7 @@ from compilation_translation import (
 from compilation_tts_runner import build_tts_chunks, run_compilation_tts
 from openai_client import (
     DEFAULT_TIMEOUT_SECONDS as OPENAI_REQUEST_TIMEOUT_SECONDS,
+    FALLBACK_SERVICE_TIER,
     OPENAI_MODEL,
     PROMPT_CACHE_KEY,
     REQUIRED_SERVICE_TIER,
@@ -1309,6 +1310,7 @@ class CallBudget:
         journal_path: Path | None = None,
         token_cap: int | None = None,
         allow_completed_resume: bool = False,
+        allow_openai_default_fallback: bool = False,
     ):
         self.provider = provider
         self.cap = _positive_cap(cap, f"{label}_call_cap", maximum=256)
@@ -1318,6 +1320,12 @@ class CallBudget:
             if token_cap is not None else None
         )
         self.journal_path = Path(journal_path) if journal_path is not None else None
+        if allow_openai_default_fallback and label != "openai":
+            raise EpisodeFactoryError(
+                "default service-tier fallback is valid only for OpenAI"
+            )
+        self.allow_openai_default_fallback = allow_openai_default_fallback
+        self._openai_use_default_service_tier = False
         self._pending_flex_retry_request_sha256: str | None = None
         self.journal: dict[str, Any] = {
             "version": 1,
@@ -1413,6 +1421,15 @@ class CallBudget:
                             f"{label} completed resume journal usage totals do not reconcile"
                         )
                 self.journal = previous
+        if self.label == "openai" and self.allow_openai_default_fallback:
+            self._openai_use_default_service_tier = any(
+                item.get("status") == REJECTED_FLEX_429_STATUS
+                or (
+                    item.get("status") == "COMPLETE"
+                    and item.get("service_tier") == FALLBACK_SERVICE_TIER
+                )
+                for item in self.journal["attempts"]
+            )
         self.calls: list[dict[str, Any]] = self.journal["attempts"]
         self._write_journal()
 
@@ -1475,34 +1492,74 @@ class CallBudget:
                     f"{self.label} token cap cannot reserve the next request "
                     f"({used}+{reserved_ceiling}>{self.token_cap})"
                 )
+        requested_service_tier: str | None = None
+        fallback_from_attempt_index: int | None = None
+        if self.label == "openai" and self.allow_openai_default_fallback:
+            requested_service_tier = (
+                FALLBACK_SERVICE_TIER
+                if self._openai_use_default_service_tier or pending_retry is not None
+                else REQUIRED_SERVICE_TIER
+            )
+            kwargs["service_tier"] = requested_service_tier
+            if pending_retry is not None:
+                fallback_from_attempt_index = int(unresolved[0]["index"])
         attempt = {
             "index": len(self.calls) + 1,
             "request_sha256": request_sha256,
             "model": kwargs.get("model") or kwargs.get("model_id"),
             "status": "IN_FLIGHT",
         }
+        if requested_service_tier is not None:
+            attempt["requested_service_tier"] = requested_service_tier
+        if fallback_from_attempt_index is not None:
+            attempt["fallback_from_attempt_index"] = fallback_from_attempt_index
         self.calls.append(attempt)
         self._pending_flex_retry_request_sha256 = None
         self._write_journal()
-        try:
-            raw_response = self.provider(**kwargs)
-        except OpenAIFlexResourceUnavailableError:
-            attempt.update({
-                "status": REJECTED_FLEX_429_STATUS,
-                "error_type": REJECTED_FLEX_429_ERROR_TYPE,
-                "http_status": 429,
-                "service_tier": REQUIRED_SERVICE_TIER,
-                "rejection_reason": REJECTED_FLEX_429_REASON,
-                "provider_documented_not_charged": True,
-                "error_message_sha256": FLEX_RESOURCE_UNAVAILABLE_MARKER_SHA256,
-            })
-            self._write_journal()
-            raise
-        except Exception as exc:
-            attempt["status"] = "AMBIGUOUS_ERROR"
-            attempt["error_type"] = type(exc).__name__
-            self._write_journal()
-            raise
+        while True:
+            try:
+                raw_response = self.provider(**kwargs)
+                break
+            except OpenAIFlexResourceUnavailableError:
+                if kwargs.get("service_tier") == FALLBACK_SERVICE_TIER:
+                    attempt["status"] = "AMBIGUOUS_ERROR"
+                    attempt["error_type"] = "OpenAIFlexResourceUnavailableError"
+                    self._write_journal()
+                    raise
+                attempt.update({
+                    "status": REJECTED_FLEX_429_STATUS,
+                    "error_type": REJECTED_FLEX_429_ERROR_TYPE,
+                    "http_status": 429,
+                    "service_tier": REQUIRED_SERVICE_TIER,
+                    "rejection_reason": REJECTED_FLEX_429_REASON,
+                    "provider_documented_not_charged": True,
+                    "error_message_sha256": FLEX_RESOURCE_UNAVAILABLE_MARKER_SHA256,
+                })
+                self._openai_use_default_service_tier = True
+                self._write_journal()
+                if not self.allow_openai_default_fallback:
+                    raise
+                if len(self.calls) >= self.cap:
+                    raise EpisodeFactoryError(
+                        "openai call cap exhausted before the approved default-tier fallback"
+                    )
+                fallback_attempt = {
+                    "index": len(self.calls) + 1,
+                    "request_sha256": request_sha256,
+                    "model": kwargs.get("model") or kwargs.get("model_id"),
+                    "status": "IN_FLIGHT",
+                    "requested_service_tier": FALLBACK_SERVICE_TIER,
+                    "fallback_from_attempt_index": attempt["index"],
+                }
+                self.calls.append(fallback_attempt)
+                attempt = fallback_attempt
+                kwargs["service_tier"] = FALLBACK_SERVICE_TIER
+                self._write_journal()
+            except Exception as exc:
+                attempt["status"] = "AMBIGUOUS_ERROR"
+                attempt["error_type"] = type(exc).__name__
+                self._write_journal()
+                raise
         response = raw_response
         if isinstance(raw_response, OpenAIJSONResult):
             response = raw_response.payload
@@ -1526,11 +1583,14 @@ class CallBudget:
                 attempt["status"] = "BLOCKED_TOKEN_CAP_EXCEEDED"
                 self._write_journal()
                 raise EpisodeFactoryError("OpenAI actual usage exceeded the approved token cap")
-            if raw_response.service_tier != REQUIRED_SERVICE_TIER:
+            expected_service_tier = attempt.get(
+                "requested_service_tier", REQUIRED_SERVICE_TIER,
+            )
+            if raw_response.service_tier != expected_service_tier:
                 attempt["status"] = "BLOCKED_SERVICE_TIER_MISMATCH"
                 self._write_journal()
                 raise EpisodeFactoryError(
-                    "OpenAI response did not prove the required Flex service tier"
+                    "OpenAI response did not prove the explicitly requested service tier"
                 )
         elif self.token_cap is not None:
             attempt["status"] = "BLOCKED_MISSING_USAGE"
@@ -2227,6 +2287,9 @@ def _factory_provider_contract() -> dict[str, Any]:
             "max_output_tokens": 16_384,
             "automatic_retries": 0,
             "service_tier": REQUIRED_SERVICE_TIER,
+            "fallback_service_tier": FALLBACK_SERVICE_TIER,
+            "fallback_condition": "exact_flex_resource_unavailable_429",
+            "maximum_fallback_requests_per_flex_rejection": 1,
             "prompt_cache_key": PROMPT_CACHE_KEY,
             "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
@@ -2570,6 +2633,7 @@ def _validate_resume_contract(
             run_id=parent_lease.get("run_id"),
             run_attempt=parent_lease.get("run_attempt"),
             head_sha=parent_lease.get("head_sha"),
+            require_current_provider_contract=False,
         )
     except SpendLockError as exc:
         raise EpisodeFactoryError(f"parent paid spend lease blocked: {exc}") from exc
@@ -2816,6 +2880,7 @@ def run_produce_stage(
         label="openai",
         journal_path=provider_journal_dir / "openai.json",
         allow_completed_resume=is_resume,
+        allow_openai_default_fallback=True,
     )
     images = CallBudget(
         image_provider,
@@ -2917,6 +2982,8 @@ def run_produce_stage(
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
             "service_tier": REQUIRED_SERVICE_TIER,
+            "fallback_service_tier": FALLBACK_SERVICE_TIER,
+            "fallback_condition": "exact_flex_resource_unavailable_429",
             "prompt_cache_key": PROMPT_CACHE_KEY,
             "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
@@ -2928,6 +2995,8 @@ def run_produce_stage(
             "reasoning_effort": "none",
             "max_output_tokens": 16_384,
             "service_tier": REQUIRED_SERVICE_TIER,
+            "fallback_service_tier": FALLBACK_SERVICE_TIER,
+            "fallback_condition": "exact_flex_resource_unavailable_429",
             "prompt_cache_key": PROMPT_CACHE_KEY,
             "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },

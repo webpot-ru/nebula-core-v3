@@ -112,8 +112,57 @@ class OpenAIClientTests(unittest.TestCase):
                     mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True),
                     mock.patch.object(openai_client.requests, "post", return_value=FakeResponse(payload=invalid)),
                 ):
-                    with self.assertRaisesRegex(openai_client.OpenAIClientError, "Flex service tier"):
+                    with self.assertRaisesRegex(
+                        openai_client.OpenAIClientError,
+                        "explicitly requested service tier",
+                    ):
                         openai_client.call_openai_json(prompt="translate")
+
+    def test_explicit_default_tier_is_requested_and_proven(self):
+        payload = valid_response()
+        payload["service_tier"] = "default"
+        with (
+            mock.patch.dict(
+                os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True,
+            ),
+            mock.patch.object(
+                openai_client.requests,
+                "post",
+                return_value=FakeResponse(payload=payload),
+            ) as post,
+        ):
+            result = openai_client.call_openai_json(
+                prompt="translate",
+                service_tier="default",
+            )
+        self.assertEqual(post.call_args.kwargs["json"]["service_tier"], "default")
+        self.assertEqual(result.service_tier, "default")
+
+    def test_default_tier_never_reclassifies_generic_429_as_flex_capacity(self):
+        response = FakeResponse(
+            status_code=429,
+            payload={"error": {"message": (
+                "Flex does not have sufficient resources available to fulfill "
+                "your request."
+            )}},
+        )
+        with (
+            mock.patch.dict(
+                os.environ, {"OPENAI_API_KEY": "sk-private-test-key"}, clear=True,
+            ),
+            mock.patch.object(
+                openai_client.requests, "post", return_value=response,
+            ),
+        ):
+            with self.assertRaises(openai_client.OpenAIClientError) as caught:
+                openai_client.call_openai_json(
+                    prompt="translate",
+                    service_tier="default",
+                )
+        self.assertNotIsInstance(
+            caught.exception,
+            openai_client.OpenAIFlexResourceUnavailableError,
+        )
 
     def test_invalid_cached_input_usage_is_rejected(self):
         payload = valid_response()
