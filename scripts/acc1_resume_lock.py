@@ -155,20 +155,22 @@ def build_resume_lease(
         raise ResumeLockError(
             "parent OpenAI journal is not completely resumable"
         ) from exc
-    if rejected_flex_index is None:
-        if openai_flex_rejection_proof is not None:
+    proof_attempt_index = None
+    if openai_flex_rejection_proof is not None:
+        proof_attempt_index = openai_flex_rejection_proof.get("attempt_index")
+        if (
+            isinstance(proof_attempt_index, bool)
+            or not isinstance(proof_attempt_index, int)
+            or proof_attempt_index < 1
+            or proof_attempt_index > len(attempts)
+        ):
             raise ResumeLockError(
                 "parent Flex rejection proof has no matching OpenAI attempt"
-            )
-    else:
-        if openai_flex_rejection_proof is None:
-            raise ResumeLockError(
-                "parent Flex rejection requires exact GitHub log proof"
             )
         try:
             validate_rejection_proof(
                 openai_flex_rejection_proof,
-                rejected_attempt=attempts[rejected_flex_index - 1],
+                rejected_attempt=attempts[proof_attempt_index - 1],
             )
         except FlexRecoveryError as exc:
             raise ResumeLockError(
@@ -178,17 +180,55 @@ def build_resume_lease(
             raise ResumeLockError(
                 "parent Flex rejection proof repository mismatch"
             )
-        ancestor_rejection_index = (
-            parent_resume_lease.get(
-                "parent_rejected_flex_429_attempt_index"
-            )
-            if parent_resume_lease is not None else None
+    ancestor_rejection_index = (
+        parent_resume_lease.get(
+            "parent_rejected_flex_429_attempt_index"
         )
+        if parent_resume_lease is not None else None
+    )
+    ancestor_proof_hash = (
+        parent_resume_lease.get(
+            "parent_openai_flex_rejection_proof_sha256"
+        )
+        if parent_resume_lease is not None else None
+    )
+    if rejected_flex_index is None:
+        if openai_flex_rejection_proof is None:
+            if ancestor_rejection_index is not None:
+                raise ResumeLockError(
+                    "resolved Flex rejection proof is missing from resume ancestry"
+                )
+            bound_flex_index = None
+        elif parent_resume_lease is None:
+            raise ResumeLockError(
+                "resolved Flex rejection proof is not bound to resume ancestry"
+            )
+        elif (
+            ancestor_rejection_index != proof_attempt_index
+            or ancestor_proof_hash
+            != flex_canonical_hash(openai_flex_rejection_proof)
+        ):
+            raise ResumeLockError(
+                "resolved Flex rejection proof does not match resume ancestry"
+            )
+        else:
+            # The rejection is historical: the exact next attempt completed
+            # the same request hash. Keep its sealed proof in the chain so a
+            # later recovery cannot silently discard already verified audit
+            # evidence.
+            bound_flex_index = proof_attempt_index
+    else:
+        if openai_flex_rejection_proof is None:
+            raise ResumeLockError(
+                "parent Flex rejection requires exact GitHub log proof"
+            )
+        if proof_attempt_index != rejected_flex_index:
+            raise ResumeLockError(
+                "parent Flex rejection proof is invalid"
+            )
         if ancestor_rejection_index == rejected_flex_index:
             if (
-                parent_resume_lease.get(
-                    "parent_openai_flex_rejection_proof_sha256"
-                )
+                ancestor_proof_hash
                 != flex_canonical_hash(openai_flex_rejection_proof)
             ):
                 raise ResumeLockError(
@@ -198,6 +238,7 @@ def build_resume_lease(
             raise ResumeLockError(
                 "new Flex rejection proof is not bound to the immediate parent run"
             )
+        bound_flex_index = rejected_flex_index
     openai_call_cap = _positive(openai_call_cap, "openai_call_cap")
     openai_token_cap = _positive(openai_token_cap, "openai_token_cap")
     if openai_journal.get("cap") != openai_call_cap or openai_journal.get("token_cap") != openai_token_cap:
@@ -335,7 +376,7 @@ def build_resume_lease(
             canonical_hash(parent_resume_lease) if parent_resume_lease is not None else None
         ),
         "parent_completed_openai_attempts": len(attempts),
-        "parent_rejected_flex_429_attempt_index": rejected_flex_index,
+        "parent_rejected_flex_429_attempt_index": bound_flex_index,
         "parent_completed_image_attempts": len(image_attempts),
         "parent_ambiguous_image_attempt_index": ambiguous_image_attempt,
         "parent_ai33_journal_sha256": (

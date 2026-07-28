@@ -107,6 +107,27 @@ def add_confirmed_flex_rejection(journal, *, run_id=101):
     return proof
 
 
+def add_completed_default_fallback(journal):
+    rejected = journal["attempts"][-1]
+    usage = {
+        "input_tokens": 3,
+        "cached_input_tokens": 0,
+        "output_tokens": 1,
+        "total_tokens": 4,
+        "reasoning_tokens": 0,
+    }
+    journal["attempts"].append({
+        "index": len(journal["attempts"]) + 1,
+        "status": "COMPLETE",
+        "request_sha256": rejected["request_sha256"],
+        "service_tier": "default",
+        "fallback_from_attempt_index": rejected["index"],
+        "usage": usage,
+    })
+    for key, value in usage.items():
+        journal["usage_totals"][key] += value
+
+
 class Acc1ResumeLockTests(unittest.TestCase):
     def test_one_confirmed_flex_rejection_is_bound_without_usage_inflation(self):
         lease, topic, producer, critic, journal, image_journal = parent_evidence()
@@ -187,6 +208,72 @@ class Acc1ResumeLockTests(unittest.TestCase):
                 head_sha=HEAD_SHA, repository=REPOSITORY,
                 openai_call_cap=64, openai_token_cap=1_000_000,
                 image_call_cap=16, ai33_call_cap=32,
+            )
+
+    def test_resolved_flex_proof_remains_bound_for_future_recovery(self):
+        lease, topic, producer, critic, journal, image_journal = parent_evidence()
+        proof = add_confirmed_flex_rejection(journal)
+        pending_resume = build_resume_lease(
+            parent_lease=lease, topic_input=topic,
+            producer_review=producer, critic_review=critic,
+            openai_journal=journal, image_journal=image_journal,
+            openai_flex_rejection_proof=proof,
+            parent_run_id=101, run_id=202, run_attempt=1,
+            head_sha=HEAD_SHA, repository=REPOSITORY,
+            openai_call_cap=64, openai_token_cap=1_000_000,
+            image_call_cap=16, ai33_call_cap=32,
+        )
+        add_completed_default_fallback(journal)
+
+        resolved_resume = build_resume_lease(
+            parent_lease=lease, topic_input=topic,
+            producer_review=producer, critic_review=critic,
+            openai_journal=journal, image_journal=image_journal,
+            openai_flex_rejection_proof=proof,
+            parent_resume_lease=pending_resume,
+            parent_run_id=202, run_id=303, run_attempt=1,
+            head_sha=HEAD_SHA, repository=REPOSITORY,
+            openai_call_cap=64, openai_token_cap=1_000_000,
+            image_call_cap=16, ai33_call_cap=96,
+        )
+
+        self.assertEqual(
+            resolved_resume["parent_rejected_flex_429_attempt_index"], 2,
+        )
+        self.assertEqual(
+            resolved_resume["parent_openai_flex_rejection_proof_sha256"],
+            canonical_hash(proof),
+        )
+        self.assertEqual(resolved_resume["parent_completed_openai_attempts"], 3)
+        self.assertEqual(resolved_resume["caps"]["ai33_call_cap"], 96)
+        validate_resume_lease(resolved_resume, repository=REPOSITORY)
+
+        with self.assertRaisesRegex(
+            ResumeLockError, "resolved Flex rejection proof is missing",
+        ):
+            build_resume_lease(
+                parent_lease=lease, topic_input=topic,
+                producer_review=producer, critic_review=critic,
+                openai_journal=journal, image_journal=image_journal,
+                parent_resume_lease=pending_resume,
+                parent_run_id=202, run_id=304, run_attempt=1,
+                head_sha=HEAD_SHA, repository=REPOSITORY,
+                openai_call_cap=64, openai_token_cap=1_000_000,
+                image_call_cap=16, ai33_call_cap=96,
+            )
+
+        with self.assertRaisesRegex(
+            ResumeLockError, "not bound to resume ancestry",
+        ):
+            build_resume_lease(
+                parent_lease=lease, topic_input=topic,
+                producer_review=producer, critic_review=critic,
+                openai_journal=journal, image_journal=image_journal,
+                openai_flex_rejection_proof=proof,
+                parent_run_id=101, run_id=305, run_attempt=1,
+                head_sha=HEAD_SHA, repository=REPOSITORY,
+                openai_call_cap=64, openai_token_cap=1_000_000,
+                image_call_cap=16, ai33_call_cap=96,
             )
 
     def test_resume_lease_binds_parent_evidence_and_current_caps(self):

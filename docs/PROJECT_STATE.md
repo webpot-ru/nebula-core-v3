@@ -2,6 +2,37 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — resolved Flex proof is preserved across future recovery locks
+
+- Authorized continuation
+  [`30357904980`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30357904980)
+  restored run `30352035033`, reused the sealed Flex proof, completed rejected
+  attempt 54 as exact `default` fallback attempt 55 and advanced the unified
+  journal to 63 attempts: 61 `COMPLETE`, two `REJECTED_FLEX_429`, and 150,239
+  reported tokens under the unchanged `128/750000` OpenAI ceiling. It stopped
+  before VectorEngine or AI33 because the accepted script requires 70 voice
+  submissions while that dispatch retained the older AI33 cap of 48.
+- Authorized continuation
+  [`30359370803`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30359370803)
+  raised only the AI33 ceiling to 96 but stopped before every provider request
+  while creating its resume lock. The OpenAI sequence validator correctly
+  classified attempt 54 as resolved by attempt 55, while the lock builder
+  incorrectly treated the still-preserved audit proof as evidence without a
+  matching pending rejection.
+- The correction distinguishes a pending rejection from a resolved historical
+  rejection. A resolved proof is retained only when it still validates the
+  exact rejected journal entry and its canonical hash plus attempt index are
+  bound by the immediate parent's valid resume lease. Removing, replacing or
+  detaching that proof blocks; the historical proof cannot authorize another
+  retry. A genuinely new pending rejection still needs immediate-parent
+  GitHub-log confirmation.
+- The real JSON artifact from run `30357904980` now creates a deterministic
+  child lock with all 63 OpenAI records, historical attempt 54, image cap 41,
+  AI33 cap 96 and `publication_authorized=false`. The focused suite and all
+  658 repository tests pass. This is deterministic/local verification only:
+  no follow-up GitHub recovery, OpenAI, VectorEngine, AI33, Reddit, render or
+  YouTube action has been performed by this correction.
+
 ## 2026-07-28 — inherited Flex proof reuse prepared for no-spend child runs
 
 - PR [`#103`](https://github.com/webpot-ru/nebula-core-v3/pull/103) merged
