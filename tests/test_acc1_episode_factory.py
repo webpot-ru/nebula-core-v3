@@ -867,6 +867,95 @@ class EpisodeFactoryTests(unittest.TestCase):
             [True, False],
         )
 
+    def test_thread_translation_uses_approved_headroom_for_second_adjudication(self):
+        sources = [
+            {
+                "source_id": f"source-{index}",
+                "title": f"Source {index}",
+                "body": f"Complete source body {index} with a preserved ending.",
+                "role": "response",
+                "truth_mode": "unverified_personal_account",
+            }
+            for index in range(1, 3)
+        ]
+        winner = {
+            "cold_open": {
+                "text": "Два ответа изменили весь разговор.",
+                "source_id": "source-1",
+                "source_quote": sources[0]["body"],
+            },
+            "sources": sources,
+            "story_beats": [],
+            "originality_plan": {},
+        }
+        translated = [{
+            "title": f"Ответ {index}",
+            "body": f"Полный перевод ответа {index}.",
+            "translation_audit": {
+                "revisions": 2,
+                "review": {
+                    "verdict": "PASS",
+                    "resolution": factory.FINAL_ADJUDICATION_RESOLUTION,
+                },
+            },
+        } for index in range(1, 3)]
+        thread_plan = copy.deepcopy(self.plan)
+        thread_plan["format"] = "THREAD"
+        thread_plan.setdefault("source_plan", {})["comic_page_count"] = [16, 20]
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            mock.patch.object(
+                factory,
+                "translate_and_review_story",
+                side_effect=translated,
+            ) as translate,
+            mock.patch.object(
+                factory,
+                "build_intro_contract",
+                return_value={"intro_ru": "Интро", "parts": []},
+            ),
+            mock.patch.object(
+                factory,
+                "build_mid_story_cta_contract",
+                return_value={"cta_ru": "Подпишитесь"},
+            ),
+            mock.patch.object(factory, "build_outro_prompt", return_value="Аутро"),
+            mock.patch.object(
+                factory,
+                "validate_episode_script",
+                return_value={"status": "PASS", "failures": []},
+            ),
+        ):
+            script = factory._translate_script(
+                winner,
+                daily_plan=thread_plan,
+                episode_plan={
+                    "episode_plan_sha256": "a" * 64,
+                    "daily_plan_sha256": "b" * 64,
+                },
+                playoff={"playoff_sha256": "c" * 64},
+                openai=mock.Mock(),
+                checkpoint_dir=Path(temp),
+                thread_final_adjudication_limit=2,
+            )
+        configs = [call.kwargs["config"] for call in translate.call_args_list]
+        self.assertEqual(
+            [item.allow_final_adjudication for item in configs],
+            [True, True],
+        )
+        self.assertEqual(
+            script["translation_final_adjudication_contract"],
+            {
+                "version": 1,
+                "format": "THREAD",
+                "thread_limit": 2,
+                "thread_used": 2,
+                "basis": "approved_openai_call_cap_headroom_v1",
+                "automatic_retries": 0,
+                "publication_authorized": False,
+            },
+        )
+
     def test_thread_translation_blocks_a_second_final_adjudication(self):
         sources = [
             {
@@ -911,7 +1000,7 @@ class EpisodeFactoryTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 factory.EpisodeFactoryError,
-                "exceeded one final adjudication",
+                "exceeded its bounded final adjudications",
             ):
                 factory._translate_script(
                     winner,
@@ -1921,6 +2010,33 @@ class EpisodeFactoryTests(unittest.TestCase):
             for source in candidate["sources"]:
                 source["body"] = "First" + (" " * 20_000) + "short response."
         self.assertEqual(factory._required_openai_calls(candidates), 128)
+
+    def test_thread_final_adjudications_use_only_approved_call_headroom(self):
+        self.assertEqual(
+            factory._thread_final_adjudication_limit(
+                openai_call_cap=128,
+                required_openai_calls=114,
+                source_count=14,
+            ),
+            14,
+        )
+        self.assertEqual(
+            factory._thread_final_adjudication_limit(
+                openai_call_cap=128,
+                required_openai_calls=128,
+                source_count=16,
+            ),
+            1,
+        )
+        with self.assertRaisesRegex(
+            factory.EpisodeFactoryError,
+            "required OpenAI envelope exceeds",
+        ):
+            factory._thread_final_adjudication_limit(
+                openai_call_cap=128,
+                required_openai_calls=129,
+                source_count=16,
+            )
 
     def test_self_hash_detects_release_manifest_tamper(self):
         manifest = {"status": "READY_FOR_HUMAN_REVIEW", "publication_authorized": False}

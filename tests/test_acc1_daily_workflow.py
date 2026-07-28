@@ -172,7 +172,7 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             '        required: true\n'
             '        default: "96"\n'
             '        type: choice\n'
-            '        options: ["16", "24", "32", "48", "64", "96", "128"]\n',
+            '        options: ["16", "24", "32", "48", "64", "96", "128", "160"]\n',
             self.workflow,
         )
         self.assertIn(
@@ -181,7 +181,7 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             '        required: true\n'
             '        default: "500000"\n'
             '        type: choice\n'
-            '        options: ["100000", "250000", "500000", "750000"]\n',
+            '        options: ["100000", "250000", "500000", "750000", "1000000"]\n',
             self.workflow,
         )
         self.assertIn(

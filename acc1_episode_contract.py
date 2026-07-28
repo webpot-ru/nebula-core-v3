@@ -22,6 +22,9 @@ WORD_RE = re.compile(r"[^\W_]+", re.UNICODE)
 TRUTH_MODES = {"fiction", "unverified_personal_account"}
 INTRO_CONTRACT_VERSION = 2
 MID_STORY_CTA_CONTRACT_VERSION = 1
+TRANSLATION_FINAL_ADJUDICATION_CONTRACT_VERSION = 1
+FINAL_ADJUDICATION_RESOLUTION = "FINAL_PATCH_ADJUDICATION"
+TRANSLATION_FINAL_ADJUDICATION_BASIS = "approved_openai_call_cap_headroom_v1"
 INTRO_PART_ORDER = (
     "cold_open",
     "truth_disclosure",
@@ -573,6 +576,59 @@ def validate_episode_script(
             failures.append(f"{prefix} translation must have an independent PASS review")
         if not _text(story.get("ending_preserved_evidence")):
             failures.append(f"{prefix}.ending_preserved_evidence is required")
+
+    adjudication_contract = script.get("translation_final_adjudication_contract")
+    if not isinstance(adjudication_contract, dict):
+        failures.append("translation_final_adjudication_contract must be an object")
+    else:
+        if adjudication_contract.get("version") != TRANSLATION_FINAL_ADJUDICATION_CONTRACT_VERSION:
+            failures.append("translation_final_adjudication_contract version is invalid")
+        if _text(adjudication_contract.get("format")).upper() != format_id:
+            failures.append("translation_final_adjudication_contract format does not match episode")
+        if (
+            adjudication_contract.get("basis")
+            != TRANSLATION_FINAL_ADJUDICATION_BASIS
+        ):
+            failures.append("translation_final_adjudication_contract basis is invalid")
+        if adjudication_contract.get("automatic_retries") != 0:
+            failures.append("translation final adjudication automatic retries must remain zero")
+        if adjudication_contract.get("publication_authorized") is not False:
+            failures.append("translation final adjudication cannot authorize publication")
+        thread_limit = adjudication_contract.get("thread_limit")
+        thread_used = adjudication_contract.get("thread_used")
+        if (
+            isinstance(thread_limit, bool)
+            or not isinstance(thread_limit, int)
+            or isinstance(thread_used, bool)
+            or not isinstance(thread_used, int)
+        ):
+            failures.append("translation final adjudication counters must be integers")
+        elif format_id == "THREAD":
+            actual_thread_used = 0
+            for story in stories_raw:
+                if not isinstance(story, dict):
+                    continue
+                audit = story.get("translation_audit")
+                review = audit.get("review") if isinstance(audit, dict) else None
+                if (
+                    isinstance(review, dict)
+                    and review.get("resolution") == FINAL_ADJUDICATION_RESOLUTION
+                ):
+                    actual_thread_used += 1
+            if not 1 <= thread_limit <= len(stories_raw):
+                failures.append(
+                    "THREAD final adjudication limit must fit the exact source count"
+                )
+            if not 0 <= thread_used <= thread_limit:
+                failures.append("THREAD final adjudication usage exceeds its limit")
+            if thread_used != actual_thread_used:
+                failures.append(
+                    "THREAD final adjudication usage does not match translation audits"
+                )
+        elif thread_limit != 0 or thread_used != 0:
+            failures.append(
+                "non-THREAD translation final adjudication counters must remain zero"
+            )
 
     if format_id == "THREAD":
         source_roles = [_text(source.get("source_role") or "response").lower() for source in normalized_sources]

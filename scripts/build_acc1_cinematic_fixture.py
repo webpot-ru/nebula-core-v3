@@ -28,6 +28,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from acc1_episode_contract import (
+    TRANSLATION_FINAL_ADJUDICATION_BASIS,
+    TRANSLATION_FINAL_ADJUDICATION_CONTRACT_VERSION,
     build_intro_contract,
     build_mid_story_cta_contract,
     canonical_hash,
@@ -330,6 +332,15 @@ def _shared_contracts() -> dict[str, Any]:
         "originality_plan": originality_plan,
         "rights_mode": "test_only_not_cleared",
         "revision_count": 0,
+        "translation_final_adjudication_contract": {
+            "version": TRANSLATION_FINAL_ADJUDICATION_CONTRACT_VERSION,
+            "format": daily_plan["format"],
+            "thread_limit": 0,
+            "thread_used": 0,
+            "basis": TRANSLATION_FINAL_ADJUDICATION_BASIS,
+            "automatic_retries": 0,
+            "publication_authorized": False,
+        },
         "editorial_review": {"verdict": "PASS", "issues": []},
         "stories": [{
             "title_ru": "Ключ у двери",
