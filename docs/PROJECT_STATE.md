@@ -2,6 +2,28 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — malformed source-10 review evidence is isolated for recovery
+
+- PR [`#100`](https://github.com/webpot-ru/nebula-core-v3/pull/100) merged
+  the narration-safe impossible-display correction to
+  `main@3ce0e8be5ee9598fc1464f64934a6a4ffcb7aac9`. Its one authorized
+  continuation [`30327932032`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30327932032)
+  resumed `30324826335` without Reddit and passed source 07's frozen `88:88`
+  display plus the accepted source 08/09 adjudications.
+- The run then stopped before VectorEngine, AI33, segmented rendering or
+  YouTube. Its source-10 reviewer supplied three exact-source claims and one
+  paraphrased source quote (`all while she'd ...`) that does not occur verbatim
+  in the immutable source (`while she'd ...`). The patch guard correctly
+  refused to apply the ungrounded claim, but the former all-or-nothing handler
+  also prevented the three grounded local corrections from proceeding.
+- The resumable journal now contains 48 completed OpenAI requests, one retained
+  `REJECTED_FLEX_429`, and 133,650 reported total tokens under the immutable
+  `128/750000` ceiling. VectorEngine has zero attempts and AI33 was not
+  initialized. The local correction records the malformed claim as rejected
+  reviewer evidence, applies only exact-source claims, and retains the normal
+  independent next review; a review with no exact source evidence remains
+  fail-closed. It requires review, merge and separately authorized recovery.
+
 ## 2026-07-28 — source 07 narration-safe recovery correction prepared locally
 
 - The one authorized chained recovery
