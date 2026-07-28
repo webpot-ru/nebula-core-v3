@@ -124,9 +124,17 @@ def normalize_ru_clock_times(text: str) -> tuple[str, int]:
 
     def replace(match: re.Match[str]) -> str:
         nonlocal changes
-        hour, minute = int(match.group(1)), int(match.group(2))
+        raw_hour, raw_minute = match.group(1), match.group(2)
+        hour, minute = int(raw_hour), int(raw_minute)
         if hour > 23 or minute > 59:
-            return match.group(0)
+            # An impossible clock value can be an intentional on-screen code
+            # in a story (for example, a frozen player display at 88:88).
+            # Preserve every displayed digit in a form that TTS reads
+            # deterministically instead of leaving the colon token unresolved.
+            changes += 1
+            spoken_hour = " ".join(ru_int_to_words(int(digit)) for digit in raw_hour)
+            spoken_minute = " ".join(ru_int_to_words(int(digit)) for digit in raw_minute)
+            return f"{spoken_hour} двоеточие {spoken_minute}"
         changes += 1
         hour_words = ru_int_to_words(hour)
         hour_unit = ru_plural_form(hour, ("час", "часа", "часов"))

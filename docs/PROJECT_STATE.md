@@ -2,6 +2,27 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — source 07 narration-safe recovery correction prepared locally
+
+- The one authorized chained recovery
+  [`30324826335`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30324826335)
+  resumed `30287331993`, skipped Reddit and preserved its 30 completed OpenAI
+  requests plus the retained, exact Flex 429 rejection. It completed four more
+  OpenAI requests, bringing the resumable journal to 34 completed requests,
+  one retained rejection and 115,111 reported tokens under the immutable
+  `128/750000` ceiling.
+- The workflow stopped before VectorEngine, AI33, segmented rendering or
+  YouTube. Source 06's bounded final adjudication passed; source 07 was
+  blocked locally because its source-faithful Russian translation contains the
+  intentionally impossible frozen display `88:88`, which the deterministic
+  narration sanitizer previously left as unresolved clock punctuation.
+- A local, unmerged correction makes impossible display values narration-safe
+  by preserving each digit and speaking the separator (for example,
+  `88:88` becomes «восемь восемь двоеточие восемь восемь»). Normal clock
+  times retain their existing natural Russian spoken form. The change is
+  pending repository tests, review and explicit authorization for a new
+  recovery; it has made no provider, render or YouTube call.
+
 ## 2026-07-28 — THREAD translation adjudication now uses approved cap headroom locally
 
 - Failed recovery `30287331993` had a conservative paid-preflight requirement
