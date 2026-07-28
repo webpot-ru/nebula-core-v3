@@ -43,7 +43,11 @@ from vectorengine_client import DEFAULT_IMAGE_MODEL, call_image_generation
 
 
 Generator = Callable[..., Path]
+# The renderer needs a 16:9 page, while VectorEngine is asked for its
+# supported horizontal canvas. The additional vertical bleed is cropped
+# deterministically after receipt validation.
 SIZE = "1536x864"
+PROVIDER_CANVAS_SIZE = "1536x1024"
 STYLE = (
     "cinematic editorial illustration for a Russian Reddit storytelling video, "
     "realistic textured lighting, one clear focal event, restrained dark copper and teal palette, "
@@ -222,17 +226,24 @@ def _normalize_generated_image(
     path: Path,
     *,
     expected_size: tuple[int, int],
+    provider_canvas_size: tuple[int, int],
     provider_path: Path,
 ) -> tuple[tuple[int, int], bool, Path]:
     _actual_format, actual_size = _inspect_generated_image(path)
     if actual_size == expected_size:
         return actual_size, False, path
     expected_ratio = expected_size[0] / expected_size[1]
+    provider_canvas_ratio = provider_canvas_size[0] / provider_canvas_size[1]
     actual_ratio = actual_size[0] / actual_size[1]
+    near_video_ratio = abs(actual_ratio - expected_ratio) / expected_ratio <= 0.01
+    near_provider_ratio = (
+        abs(actual_ratio - provider_canvas_ratio) / provider_canvas_ratio <= 0.01
+    )
     if (
         actual_size[0] < expected_size[0]
         or actual_size[1] < expected_size[1]
-        or abs(actual_ratio - expected_ratio) / expected_ratio > 0.01
+        or actual_size[0] <= actual_size[1]
+        or not (near_video_ratio or near_provider_ratio)
     ):
         raise EpisodeImageError(
             "image provider returned wrong dimensions: "
@@ -830,6 +841,7 @@ def generate_episode_images(
     generator: Generator = call_image_generation,
     model: str = DEFAULT_IMAGE_MODEL,
     size: str = SIZE,
+    provider_canvas_size: str = PROVIDER_CANVAS_SIZE,
     artifact_root: Path | None = None,
     provider_attempts: list[dict[str, Any]] | None = None,
     checkpoint_path: Path | None = None,
@@ -848,6 +860,7 @@ def generate_episode_images(
     root = Path(artifact_root) if artifact_root is not None else output_dir
     root = root.resolve()
     expected_size = _expected_dimensions(size)
+    expected_provider_canvas_size = _expected_dimensions(provider_canvas_size)
     attempts = provider_attempts if provider_attempts is not None else []
     if len(attempts) > len(planned):
         raise EpisodeImageError("image journal has more attempts than the scene plan")
@@ -1000,7 +1013,8 @@ def generate_episode_images(
                     _atomic_json(checkpoint_file, checkpoint)
             elif attempt is None:
                 result = Path(generator(
-                    prompt=item["prompt"], output_path=output, model=model, size=size,
+                    prompt=item["prompt"], output_path=output, model=model,
+                    size=provider_canvas_size,
                 ))
                 if provider_attempts is not None and plan_index >= len(attempts):
                     raise EpisodeImageError("image provider call was not persisted in the journal")
@@ -1031,7 +1045,10 @@ def generate_episode_images(
                 raise EpisodeImageError("provider image file does not match its journal hash")
             raw_path = output.with_name(f"{output.stem}.provider{output.suffix}")
             provider_size, normalized, provider_file = _normalize_generated_image(
-                resolved, expected_size=expected_size, provider_path=raw_path,
+                resolved,
+                expected_size=expected_size,
+                provider_canvas_size=expected_provider_canvas_size,
+                provider_path=raw_path,
             )
             digest = _sha256(output)
             entry = {
@@ -1039,6 +1056,7 @@ def generate_episode_images(
                 "request_sha256": request_sha256,
                 "provider_path": provider_file.resolve().relative_to(root).as_posix(),
                 "provider_output_sha256": attempt["output_sha256"],
+                "provider_requested_size": provider_canvas_size,
                 "provider_size": list(provider_size),
                 "output_path": output.resolve().relative_to(root).as_posix(),
                 "output_sha256": digest,
@@ -1060,6 +1078,7 @@ def generate_episode_images(
             "download_status": "verified",
             "model": model,
             "size": size,
+            "provider_requested_size": entry.get("provider_requested_size", size),
             "provider_size": list(provider_size),
             "normalized_from_provider_size": normalized,
             "local_fallback": bool(entry.get("local_fallback")),

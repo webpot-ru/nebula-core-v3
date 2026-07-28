@@ -7,6 +7,8 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest import mock
 
+from PIL import Image
+
 import acc1_episode_factory as factory
 from acc1_daily_planner import build_daily_plan
 from openai_client import (
@@ -1196,6 +1198,76 @@ class EpisodeFactoryTests(unittest.TestCase):
                 partial_fallback, current,
             )
         )
+
+    def test_resume_accepts_only_the_audited_legacy_image_canvas(self):
+        current = {
+            "creative": {"provider": "openai"},
+            "translation": {"provider": "openai"},
+            "image": {
+                "provider": "vectorengine",
+                "model": "gpt-image-2",
+                "size": factory.PROVIDER_CANVAS_SIZE,
+            },
+        }
+        legacy_canvas = copy.deepcopy(current)
+        legacy_canvas["image"]["size"] = "1536x864"
+        self.assertTrue(
+            factory._resume_provider_settings_are_compatible(
+                legacy_canvas, current,
+            )
+        )
+
+        unsafe_canvas = copy.deepcopy(current)
+        unsafe_canvas["image"]["size"] = "1024x1024"
+        self.assertFalse(
+            factory._resume_provider_settings_are_compatible(
+                unsafe_canvas, current,
+            )
+        )
+
+    def test_explicit_first_portrait_replacement_preserves_the_paid_response(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            scene_root = root / "scene-images"
+            journal_path = root / "provider-attempts" / "image.json"
+            scene_root.mkdir(parents=True)
+            portrait = scene_root / "story-01-source-scene-01.png"
+            Image.new("RGB", (1024, 1536), "#314159").save(portrait)
+            output_sha256 = factory._sha256_file(portrait)
+            factory._atomic_json(journal_path, {
+                "version": 1,
+                "provider": "image",
+                "cap": 41,
+                "attempts": [{
+                    "index": 1,
+                    "status": "COMPLETE",
+                    "request_sha256": "1" * 64,
+                    "output_sha256": output_sha256,
+                }],
+                "publication_authorized": False,
+            })
+
+            receipt = factory._consume_invalid_first_image_for_explicit_replacement(
+                workdir=root,
+                image_call_cap=41,
+                confirm_invalid_geometry_replacement="true",
+            )
+
+            stored_journal = factory._read_object(journal_path)
+            stored_receipt = factory._read_object(
+                root / "image-geometry-replacement.json",
+            )
+            self.assertEqual(stored_journal["attempts"], [])
+            self.assertEqual(stored_journal["invalid_geometry_replacements"], [receipt])
+            self.assertEqual(stored_receipt, receipt)
+            self.assertEqual(receipt["provider_image_size"], [1024, 1536])
+            self.assertEqual(
+                factory._sha256_file(
+                    root / receipt["preserved_provider_image_path"],
+                ),
+                output_sha256,
+            )
+            self.assertTrue(portrait.is_file())
 
     def test_resume_reuses_exact_pre_fallback_plan_without_mutating_identity(self):
         current_settings = {

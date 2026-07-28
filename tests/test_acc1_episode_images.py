@@ -9,6 +9,7 @@ from PIL import Image
 
 from acc1_episode_images import (
     EpisodeImageError,
+    PROVIDER_CANVAS_SIZE,
     _canonical_hash,
     generate_episode_images,
     image_plan,
@@ -502,6 +503,25 @@ class EpisodeImageTests(unittest.TestCase):
                     generator=wrong_size_generator,
                 )
 
+    def test_portrait_provider_response_is_not_retried(self):
+        script = {"episode_format": "SAGA", "stories": [story("one")]}
+        calls = []
+
+        def portrait_generator(*, output_path, size, **_kwargs):
+            calls.append(size)
+            Image.new("RGB", (1024, 1536), "#314159").save(output_path)
+            return output_path
+
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(EpisodeImageError, "wrong dimensions"):
+                generate_episode_images(
+                    script,
+                    Path(temp),
+                    max_images=5,
+                    generator=portrait_generator,
+                )
+        self.assertEqual(calls, [PROVIDER_CANVAS_SIZE])
+
     def test_large_near_ratio_provider_images_are_normalized_and_resumed(self):
         script = {
             "episode_format": "THREAD",
@@ -562,6 +582,39 @@ class EpisodeImageTests(unittest.TestCase):
                 rebound_checkpoint["rebound_reason"],
                 "exact_scene_request_hashes_revalidated",
             )
+
+    def test_provider_uses_horizontal_canvas_and_keeps_video_output_16_by_9(self):
+        script = {
+            "episode_format": "THREAD",
+            "episode_plan_sha256": "a" * 64,
+            "stories": [story("prompt"), story("response")],
+        }
+        calls = []
+
+        def provider(*, output_path, size, **_kwargs):
+            calls.append(size)
+            Image.new("RGB", (1536, 1024), "#314159").save(output_path)
+            return output_path
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _updated, assets = generate_episode_images(
+                script,
+                root / "scene-images",
+                artifact_root=root,
+                max_images=3,
+                generator=provider,
+            )
+            self.assertEqual(calls, [PROVIDER_CANVAS_SIZE] * 3)
+            self.assertTrue(all(
+                asset["provider_requested_size"] == PROVIDER_CANVAS_SIZE
+                and asset["size"] == "1536x864"
+                and asset["normalized_from_provider_size"]
+                for asset in assets
+            ))
+            for asset in assets:
+                with Image.open(root / asset["local_path"]) as image:
+                    self.assertEqual(image.size, (1536, 864))
 
     def test_factory_scene_paths_are_relative_to_artifact_root(self):
         script = {

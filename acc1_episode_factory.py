@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from PIL import Image, UnidentifiedImageError
+
 from acc1_bundle_selector import (
     BundleSelectionError,
     select_bundle_finalists,
@@ -37,7 +39,7 @@ from acc1_episode_contract import (
     truth_disclosure_ru,
     validate_episode_script,
 )
-from acc1_episode_images import generate_episode_images
+from acc1_episode_images import PROVIDER_CANVAS_SIZE, generate_episode_images
 from acc1_episode_manifest import (
     build_episode_manifest,
     canonical_hash,
@@ -2296,7 +2298,7 @@ def _factory_provider_contract() -> dict[str, Any]:
         "image": {
             "provider": "vectorengine",
             "model": DEFAULT_IMAGE_MODEL,
-            "size": "1536x864",
+            "size": PROVIDER_CANVAS_SIZE,
             "automatic_retries": 0,
         },
         "ai33": {
@@ -2708,20 +2710,136 @@ def _validate_resume_contract(
     return copy.deepcopy(enriched), copy.deepcopy(producer_reports), copy.deepcopy(critic_reports)
 
 
+def _consume_invalid_first_image_for_explicit_replacement(
+    *,
+    workdir: Path,
+    image_call_cap: int,
+    confirm_invalid_geometry_replacement: str | bool,
+) -> dict[str, Any] | None:
+    """Quarantine one known-bad first image before an explicitly approved redo.
+
+    This is deliberately narrower than a retry policy. It can consume only the
+    exact first completed image of a resumed run when no image checkpoint was
+    ever created, preserves the paid portrait response in the artifact, and
+    makes no provider request by itself. The following image stage receives a
+    fresh, separately approved scene-image budget.
+    """
+
+    if confirm_invalid_geometry_replacement is False or (
+        isinstance(confirm_invalid_geometry_replacement, str)
+        and confirm_invalid_geometry_replacement != "true"
+    ):
+        return None
+    _exact_confirmation(
+        confirm_invalid_geometry_replacement,
+        "confirm_invalid_geometry_replacement",
+    )
+    root = Path(workdir).resolve()
+    journal_path = root / "provider-attempts" / "image.json"
+    receipt_path = root / "image-geometry-replacement.json"
+    checkpoint_path = root / "scene-image-checkpoint.json"
+    journal = _read_object(journal_path)
+    attempts = journal.get("attempts")
+    if (
+        journal.get("version") != 1
+        or journal.get("provider") != "image"
+        or journal.get("cap") != image_call_cap
+        or not isinstance(attempts, list)
+    ):
+        raise EpisodeFactoryError("invalid-image replacement requires the exact parent image journal")
+
+    prior_replacements = journal.get("invalid_geometry_replacements") or []
+    if prior_replacements:
+        if (
+            len(prior_replacements) == 1
+            and not attempts
+            and receipt_path.is_file()
+        ):
+            return _read_object(receipt_path)
+        raise EpisodeFactoryError("invalid-image replacement was already adjudicated")
+    if len(attempts) != 1 or checkpoint_path.exists():
+        raise EpisodeFactoryError(
+            "invalid-image replacement is allowed only for the first failed scene before a checkpoint"
+        )
+    attempt = attempts[0]
+    if (
+        not isinstance(attempt, dict)
+        or attempt.get("index") != 1
+        or attempt.get("status") != "COMPLETE"
+        or not SHA256_RE.fullmatch(str(attempt.get("request_sha256") or ""))
+        or not SHA256_RE.fullmatch(str(attempt.get("output_sha256") or ""))
+    ):
+        raise EpisodeFactoryError("invalid-image replacement parent attempt is not sealed")
+
+    scene_root = root / "scene-images"
+    candidates = [
+        path for path in scene_root.glob("*.png")
+        if path.is_file() and _sha256_file(path) == attempt["output_sha256"]
+    ] if scene_root.is_dir() else []
+    if len(candidates) != 1:
+        raise EpisodeFactoryError("invalid-image replacement cannot identify the sealed provider output")
+    source = candidates[0]
+    try:
+        with Image.open(source) as image:
+            image.load()
+            actual_size = image.size
+    except (OSError, UnidentifiedImageError) as exc:
+        raise EpisodeFactoryError("invalid-image replacement source is not decodable") from exc
+    if actual_size[0] >= actual_size[1]:
+        raise EpisodeFactoryError("invalid-image replacement requires a portrait provider response")
+
+    preserved = journal_path.parent / "invalid-geometry-attempt-001.png"
+    if preserved.exists():
+        raise EpisodeFactoryError("invalid-image replacement preservation path already exists")
+    shutil.copyfile(source, preserved)
+    if _sha256_file(preserved) != attempt["output_sha256"]:
+        raise EpisodeFactoryError("invalid-image replacement preservation hash mismatch")
+    receipt = {
+        "version": 1,
+        "status": "CONSUMED_INVALID_PROVIDER_GEOMETRY",
+        "publication_authorized": False,
+        "replacement_authorized": True,
+        "replacement_scope": "one fresh bounded scene-image sequence after one sealed portrait response",
+        "invalid_attempt": copy.deepcopy(attempt),
+        "provider_image_path": source.relative_to(root).as_posix(),
+        "preserved_provider_image_path": preserved.relative_to(root).as_posix(),
+        "provider_image_sha256": attempt["output_sha256"],
+        "provider_image_size": list(actual_size),
+        "new_image_call_cap": image_call_cap,
+    }
+    _atomic_json(receipt_path, receipt)
+    journal["attempts"] = []
+    journal["invalid_geometry_replacements"] = [receipt]
+    _atomic_json(journal_path, journal)
+    return receipt
+
+
 def _resume_provider_settings_are_compatible(
     restored: object, current: dict[str, Any],
 ) -> bool:
-    """Allow only the exact pre-fallback OpenAI contract on historical plans."""
+    """Accept only audited historical provider-contract migrations on resume."""
     if restored == current:
         return True
-    legacy = copy.deepcopy(current)
+    candidates = [copy.deepcopy(current)]
+    legacy_openai = copy.deepcopy(current)
     for lane_name in ("creative", "translation"):
-        lane = legacy.get(lane_name)
+        lane = legacy_openai.get(lane_name)
         if not isinstance(lane, dict):
             return False
         lane.pop("fallback_service_tier", None)
         lane.pop("fallback_condition", None)
-    return restored == legacy
+    candidates.append(legacy_openai)
+
+    # Older immutable plans requested the output ratio directly. The active
+    # contract requests VectorEngine's supported landscape canvas and crops it
+    # deterministically, but a frozen plan must remain recoverable.
+    for candidate in list(candidates):
+        image = candidate.get("image")
+        if isinstance(image, dict) and image.get("size") == PROVIDER_CANVAS_SIZE:
+            historical_canvas = copy.deepcopy(candidate)
+            historical_canvas["image"]["size"] = "1536x864"
+            candidates.append(historical_canvas)
+    return any(restored == candidate for candidate in candidates)
 
 
 def _resolve_episode_plan(
@@ -2800,6 +2918,7 @@ def run_produce_stage(
     spend_lease_path: Path | None = None,
     resume_review_run_id: int | None = None,
     resume_lease_path: Path | None = None,
+    confirm_invalid_geometry_replacement: str | bool = False,
     openai_provider: Callable[..., OpenAIJSONResult] = call_openai_json,
     image_provider: Callable[..., Path] = call_image_generation,
     visual_mode: str = DEFAULT_VISUAL_MODE,
@@ -2871,7 +2990,17 @@ def run_produce_stage(
             image_call_cap=image_cap,
             ai33_call_cap=ai33_cap,
         )
+        geometry_replacement = _consume_invalid_first_image_for_explicit_replacement(
+            workdir=workdir,
+            image_call_cap=image_cap,
+            confirm_invalid_geometry_replacement=confirm_invalid_geometry_replacement,
+        )
     else:
+        if confirm_invalid_geometry_replacement not in (False, "false"):
+            raise EpisodeFactoryError(
+                "invalid-image replacement is valid only for an exact resumed run"
+            )
+        geometry_replacement = None
         _validate_spend_lease_contract(
             spend_lease_path,
             daily_plan=daily_plan,
@@ -3018,7 +3147,11 @@ def run_produce_stage(
             "prompt_cache_key": PROMPT_CACHE_KEY,
             "request_timeout_seconds": OPENAI_REQUEST_TIMEOUT_SECONDS,
         },
-        "image": {"provider": "vectorengine", "model": DEFAULT_IMAGE_MODEL, "size": "1536x864"},
+        "image": {
+            "provider": "vectorengine",
+            "model": DEFAULT_IMAGE_MODEL,
+            "size": PROVIDER_CANVAS_SIZE,
+        },
         "tts": {
             "provider": "ai33", "model_id": TTS_MODEL_ID,
             "narrator_voice_id": NARRATOR_VOICE_ID,
@@ -3386,6 +3519,10 @@ def run_produce_stage(
         "image_attempts": provider_journal_dir / "image.json",
         "ai33_attempts": provider_journal_dir / "ai33.json",
     }
+    if geometry_replacement is not None:
+        evidence_paths["image_geometry_replacement"] = (
+            workdir / "image-geometry-replacement.json"
+        )
     if resolved_visual_mode == CINEMATIC_STORY_MODE:
         evidence_paths.update({
             "shot_plan": shot_plan_path,
@@ -3447,6 +3584,9 @@ def run_produce_stage(
             ),
             "image_calls": len(images.calls),
             "image_call_cap": images.cap,
+            "consumed_invalid_geometry_image_calls": (
+                1 if geometry_replacement is not None else 0
+            ),
             "ai33_task_submissions": len(ai33.calls),
             "ai33_task_cap": ai33.cap,
         },
@@ -3481,6 +3621,10 @@ def run_produce_stage(
         "audio_sha256": audio_mix_report["output_sha256"],
         "artifact_directory": ".",
     }
+    if geometry_replacement is not None:
+        result["image_geometry_replacement_sha256"] = _sha256_file(
+            workdir / "image-geometry-replacement.json"
+        )
     _atomic_json(workdir / "factory-result.json", result)
     return result
 
@@ -3660,6 +3804,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spend-lease")
     parser.add_argument("--resume-reviewed-run-id", type=int)
     parser.add_argument("--resume-lease")
+    parser.add_argument("--confirm-invalid-geometry-replacement", default="false")
     parser.add_argument(
         "--visual-mode",
         choices=tuple(sorted(VISUAL_MODES)),
@@ -3732,6 +3877,9 @@ def main(argv: list[str] | None = None) -> int:
             spend_lease_path=Path(args.spend_lease) if args.spend_lease else None,
             resume_review_run_id=args.resume_reviewed_run_id,
             resume_lease_path=Path(args.resume_lease) if args.resume_lease else None,
+            confirm_invalid_geometry_replacement=(
+                args.confirm_invalid_geometry_replacement
+            ),
             visual_mode=args.visual_mode,
         )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
