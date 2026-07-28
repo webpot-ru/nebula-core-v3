@@ -174,6 +174,30 @@ def build_resume_lease(
             raise ResumeLockError(
                 "parent Flex rejection proof is invalid"
             ) from exc
+        if openai_flex_rejection_proof.get("repository") != repository:
+            raise ResumeLockError(
+                "parent Flex rejection proof repository mismatch"
+            )
+        ancestor_rejection_index = (
+            parent_resume_lease.get(
+                "parent_rejected_flex_429_attempt_index"
+            )
+            if parent_resume_lease is not None else None
+        )
+        if ancestor_rejection_index == rejected_flex_index:
+            if (
+                parent_resume_lease.get(
+                    "parent_openai_flex_rejection_proof_sha256"
+                )
+                != flex_canonical_hash(openai_flex_rejection_proof)
+            ):
+                raise ResumeLockError(
+                    "inherited Flex rejection proof does not match resume ancestry"
+                )
+        elif openai_flex_rejection_proof.get("run_id") != parent_run_id:
+            raise ResumeLockError(
+                "new Flex rejection proof is not bound to the immediate parent run"
+            )
     openai_call_cap = _positive(openai_call_cap, "openai_call_cap")
     openai_token_cap = _positive(openai_token_cap, "openai_token_cap")
     if openai_journal.get("cap") != openai_call_cap or openai_journal.get("token_cap") != openai_token_cap:

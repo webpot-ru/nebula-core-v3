@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from openai_flex_recovery import (
     FLEX_RESOURCE_UNAVAILABLE_MARKER,
@@ -16,8 +17,10 @@ from scripts.acc1_confirm_openai_flex_429 import (
     _confirm_log,
     _normalize_attempt,
     _reuse_existing_proof,
+    _reuse_inherited_proof,
     confirm_parent_flex_rejection,
 )
+from scripts.acc1_resume_lock import canonical_hash as resume_canonical_hash
 
 
 def legacy_journal():
@@ -182,6 +185,97 @@ class Acc1ConfirmOpenAIFlex429Tests(unittest.TestCase):
                 token="",
             )
         self.assertEqual(status, "NOT_REQUIRED")
+
+    def test_inherited_proof_is_reused_only_through_bound_resume_lease(self):
+        normalized, proof = _normalize_attempt(
+            legacy_journal(),
+            repository="webpot-ru/nebula-core-v3",
+            run_id=30348347285,
+            run_attempt=1,
+            job_id=90239791494,
+            job_log_sha256="5" * 64,
+        )
+        parent_resume_lease = {
+            "parent_openai_flex_rejection_proof_sha256": (
+                resume_canonical_hash(proof)
+            ),
+            "parent_rejected_flex_429_attempt_index": 2,
+        }
+        with mock.patch(
+            "scripts.acc1_confirm_openai_flex_429.validate_resume_lease",
+        ) as validate:
+            _reuse_inherited_proof(
+                normalized,
+                proof,
+                parent_resume_lease,
+                repository="webpot-ru/nebula-core-v3",
+                run_id=30352035033,
+                pending_index=2,
+            )
+        validate.assert_called_once_with(
+            parent_resume_lease,
+            repository="webpot-ru/nebula-core-v3",
+            run_id=30352035033,
+        )
+
+        tampered_lease = dict(parent_resume_lease)
+        tampered_lease[
+            "parent_openai_flex_rejection_proof_sha256"
+        ] = "0" * 64
+        with (
+            mock.patch(
+                "scripts.acc1_confirm_openai_flex_429.validate_resume_lease",
+            ),
+            self.assertRaisesRegex(
+                ConfirmationError, "does not bind the inherited Flex proof",
+            ),
+        ):
+            _reuse_inherited_proof(
+                normalized,
+                proof,
+                tampered_lease,
+                repository="webpot-ru/nebula-core-v3",
+                run_id=30352035033,
+                pending_index=2,
+            )
+
+    def test_confirm_reuses_inherited_proof_without_fetching_child_log(self):
+        normalized, proof = _normalize_attempt(
+            legacy_journal(),
+            repository="webpot-ru/nebula-core-v3",
+            run_id=30348347285,
+            run_attempt=1,
+            job_id=90239791494,
+            job_log_sha256="5" * 64,
+        )
+        parent_resume_lease = {
+            "parent_openai_flex_rejection_proof_sha256": (
+                resume_canonical_hash(proof)
+            ),
+            "parent_rejected_flex_429_attempt_index": 2,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            journal_path = root / "openai.json"
+            proof_path = root / "proof.json"
+            resume_path = root / "resume.json"
+            journal_path.write_text(json.dumps(normalized), encoding="utf-8")
+            proof_path.write_text(json.dumps(proof), encoding="utf-8")
+            resume_path.write_text(
+                json.dumps(parent_resume_lease), encoding="utf-8",
+            )
+            with mock.patch(
+                "scripts.acc1_confirm_openai_flex_429.validate_resume_lease",
+            ):
+                status = confirm_parent_flex_rejection(
+                    repository="webpot-ru/nebula-core-v3",
+                    run_id=30352035033,
+                    journal_path=journal_path,
+                    proof_path=proof_path,
+                    parent_resume_lease_path=resume_path,
+                    token="",
+                )
+        self.assertEqual(status, "INHERITED_PROOF_REUSED")
 
 
 if __name__ == "__main__":

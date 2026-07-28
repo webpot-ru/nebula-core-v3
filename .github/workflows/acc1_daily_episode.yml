@@ -250,11 +250,18 @@ jobs:
           RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
         run: |
           set -euo pipefail
+          PARENT_RESUME_ARGS=()
+          if [[ -f "$WORKDIR/resume-spend-lease.json" ]]; then
+            PARENT_RESUME_ARGS+=(
+              --parent-resume-lease "$WORKDIR/resume-spend-lease.json"
+            )
+          fi
           python scripts/acc1_confirm_openai_flex_429.py \
             --repository "$GITHUB_REPOSITORY" \
             --run-id "$RESUME_SOURCE_RUN_ID" \
             --journal "$WORKDIR/provider-attempts/openai.json" \
-            --proof "$WORKDIR/openai-flex-429-rejection.json"
+            --proof "$WORKDIR/openai-flex-429-rejection.json" \
+            "${PARENT_RESUME_ARGS[@]}"
       - name: Run no-spend production preflight
         run: |
           set -euo pipefail

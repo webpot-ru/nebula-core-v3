@@ -34,6 +34,11 @@ from openai_flex_recovery import (  # noqa: E402
     validate_openai_attempt_sequence,
     validate_rejection_proof,
 )
+from scripts.acc1_resume_lock import (  # noqa: E402
+    ResumeLockError,
+    canonical_hash as resume_canonical_hash,
+    validate_resume_lease,
+)
 
 
 WORKFLOW_PATH = ".github/workflows/acc1_daily_episode.yml"
@@ -279,9 +284,46 @@ def _reuse_existing_proof(
     _existing_proof_attempt_index(journal, proof)
 
 
+def _reuse_inherited_proof(
+    journal: dict[str, Any], proof: dict[str, Any],
+    parent_resume_lease: dict[str, Any], *,
+    repository: str, run_id: int, pending_index: int,
+) -> None:
+    existing_index = _existing_proof_attempt_index(journal, proof)
+    if proof.get("repository") != repository:
+        raise ConfirmationError("Inherited Flex proof repository mismatch")
+    try:
+        validate_resume_lease(
+            parent_resume_lease,
+            repository=repository,
+            run_id=run_id,
+        )
+    except ResumeLockError as exc:
+        raise ConfirmationError("Parent resume lease is invalid") from exc
+    if existing_index != pending_index:
+        raise ConfirmationError("Inherited Flex proof attempt index mismatch")
+    if (
+        parent_resume_lease.get(
+            "parent_openai_flex_rejection_proof_sha256"
+        )
+        != resume_canonical_hash(proof)
+    ):
+        raise ConfirmationError(
+            "Parent resume lease does not bind the inherited Flex proof"
+        )
+    if (
+        parent_resume_lease.get("parent_rejected_flex_429_attempt_index")
+        != pending_index
+    ):
+        raise ConfirmationError(
+            "Parent resume lease does not bind the pending Flex attempt"
+        )
+
+
 def confirm_parent_flex_rejection(
     *, repository: str, run_id: int, journal_path: Path,
     proof_path: Path, token: str,
+    parent_resume_lease_path: Path | None = None,
 ) -> str:
     repository = str(repository or "").strip()
     if not REPOSITORY_RE.fullmatch(repository):
@@ -307,9 +349,23 @@ def confirm_parent_flex_rejection(
         existing_index = _existing_proof_attempt_index(journal, existing_proof)
         if (
             existing_index == pending_index
+            and existing_proof.get("repository") == repository
             and existing_proof.get("run_id") == run_id
         ):
             return "EXISTING_PROOF_REUSED"
+        if existing_index == pending_index and parent_resume_lease_path is not None:
+            parent_resume_lease = _read_object(
+                parent_resume_lease_path, "parent resume lease",
+            )
+            _reuse_inherited_proof(
+                journal,
+                existing_proof,
+                parent_resume_lease,
+                repository=repository,
+                run_id=run_id,
+                pending_index=pending_index,
+            )
+            return "INHERITED_PROOF_REUSED"
 
     headers = _github_headers(token)
     api_root = f"https://api.github.com/repos/{repository}/actions"
@@ -344,6 +400,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--run-id", required=True, type=int)
     result.add_argument("--journal", required=True)
     result.add_argument("--proof", required=True)
+    result.add_argument("--parent-resume-lease")
     return result
 
 
@@ -355,6 +412,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         journal_path=Path(args.journal),
         proof_path=Path(args.proof),
         token=str(os.environ.get("GH_TOKEN") or ""),
+        parent_resume_lease_path=(
+            Path(args.parent_resume_lease)
+            if args.parent_resume_lease else None
+        ),
     )
     print(json.dumps({
         "status": status,

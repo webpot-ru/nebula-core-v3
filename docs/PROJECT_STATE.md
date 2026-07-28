@@ -2,6 +2,29 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — inherited Flex proof reuse prepared for no-spend child runs
+
+- PR [`#103`](https://github.com/webpot-ru/nebula-core-v3/pull/103) merged
+  exact historical episode-plan compatibility at
+  `main@52bedb3b49599e8c30ccf779c77db20c4a89d474`.
+  Authorized continuation
+  [`30355534619`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30355534619)
+  restored no-spend child run `30352035033` but stopped in the GitHub-log
+  confirmation step before preflight or any provider request.
+- The child correctly inherited the still-pending Flex rejection and its
+  sealed proof from run `30348347285`. Because child `30352035033` made no
+  OpenAI request, its own job log cannot contain that earlier 429. The former
+  verifier nevertheless attempted to find a new copy of the marker in the
+  child log and blocked.
+- The local correction reuses an inherited proof only when it validates
+  against the exact final rejected attempt and its canonical hash plus attempt
+  index are bound by the immediate parent's valid resume lease. A genuinely
+  new pending rejection still requires proof from the immediate failed parent
+  run. Repository, proof, journal or ancestry drift remains fail-closed.
+- This correction is local-only pending tests and GitHub review. It has made
+  no OpenAI, VectorEngine, AI33, Reddit, render or YouTube call, and it does
+  not authorize another recovery run.
+
 ## 2026-07-28 — historical episode-plan fallback compatibility prepared
 
 - PR [`#102`](https://github.com/webpot-ru/nebula-core-v3/pull/102) merged the
