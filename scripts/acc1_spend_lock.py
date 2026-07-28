@@ -49,7 +49,7 @@ PROVIDER_CONTRACT: dict[str, Any] = {
     "image": {
         "provider": "vectorengine",
         "model": "gpt-image-2",
-        "size": "1536x864",
+        "size": "1536x1024",
         "automatic_retries": 0,
     },
     "ai33": {

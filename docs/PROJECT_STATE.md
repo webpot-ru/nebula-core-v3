@@ -2,6 +2,29 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — Daily factory image-canvas drift corrected locally
+
+- Chained recovery run
+  [`30362530066`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30362530066)
+  passed its inherited OpenAI Flex-proof gate and stopped at the first scene
+  image before AI33, segmented rendering, assembly or YouTube. VectorEngine
+  returned a portrait `1024x1536` PNG while the active factory still requested
+  the direct-video `1536x864` canvas.
+- The documented and independently canaried contract is now the active factory
+  contract: request VectorEngine's horizontal `1536x1024` canvas, retain the
+  raw response, then deterministically normalize a verified landscape image to
+  `1536x864` for the renderer. Each scene asset records the requested provider
+  canvas separately from its final video dimensions. Historical immutable plans
+  that used the old canvas remain eligible for recovery.
+- The completed portrait response remains an auditable but unusable paid
+  result; it is not silently stretched, cropped or retried. A recovery can
+  consume only this exact first failed response after the dedicated
+  `confirm_invalid_geometry_replacement=true` confirmation: it preserves the
+  raw portrait in the GitHub artifact, resets no other provider history and
+  opens one separately capped fresh image sequence. No provider call, GitHub
+  workflow, render, YouTube upload or publication occurred while applying this
+  local correction.
+
 ## 2026-07-28 — resolved Flex proof is preserved across future recovery locks
 
 - Authorized continuation

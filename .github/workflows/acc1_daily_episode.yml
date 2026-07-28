@@ -57,6 +57,11 @@ on:
         required: true
         default: false
         type: boolean
+      confirm_invalid_geometry_replacement:
+        description: "Resume only: explicitly replace one sealed first portrait image; preserve it in the artifact, then use the configured new-image cap"
+        required: true
+        default: false
+        type: boolean
       confirm_ai33_spend:
         description: Explicitly allow bounded AI33 voice calls after source success
         required: true
@@ -118,6 +123,7 @@ jobs:
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
           CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
+          CONFIRM_INVALID_GEOMETRY_REPLACEMENT: ${{ inputs.confirm_invalid_geometry_replacement }}
         run: |
           set -euo pipefail
           test -z "$RESUME_SOURCE_RUN_ID"
@@ -125,6 +131,7 @@ jobs:
           test "$CONFIRM_OPENAI_SPEND" = "false"
           test "$CONFIRM_IMAGE_SPEND" = "false"
           test "$CONFIRM_AI33_SPEND" = "false"
+          test "$CONFIRM_INVALID_GEOMETRY_REPLACEMENT" = "false"
       - name: Test deterministic planner contract
         run: >-
           python -m unittest
@@ -395,6 +402,7 @@ jobs:
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
           CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
+          CONFIRM_INVALID_GEOMETRY_REPLACEMENT: ${{ inputs.confirm_invalid_geometry_replacement }}
         run: |
           set -euo pipefail
           test "$CONFIRM_OPENAI_SPEND" = "true"
@@ -570,6 +578,7 @@ jobs:
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
           CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
+          CONFIRM_INVALID_GEOMETRY_REPLACEMENT: ${{ inputs.confirm_invalid_geometry_replacement }}
           REDDIT_REQUEST_CAP: ${{ inputs.reddit_request_cap }}
           OPENAI_CALL_CAP: ${{ inputs.openai_call_cap }}
           OPENAI_TOKEN_CAP: ${{ inputs.openai_token_cap }}
@@ -591,6 +600,7 @@ jobs:
             --image-call-cap "$IMAGE_CALL_CAP"
             --confirm-ai33-spend "$CONFIRM_AI33_SPEND"
             --ai33-call-cap "$AI33_CALL_CAP"
+            --confirm-invalid-geometry-replacement "$CONFIRM_INVALID_GEOMETRY_REPLACEMENT"
           )
           if [[ -n "$RESUME_SOURCE_RUN_ID" ]]; then
             FACTORY_ARGS+=(

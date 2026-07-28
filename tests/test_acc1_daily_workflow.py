@@ -109,6 +109,11 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
         self.assertIn('--tts-state "$WORKDIR/tts/compilation_tts_state.json"', workflow)
         self.assertIn('--resume-reviewed-run-id "$RESUME_SOURCE_RUN_ID"', workflow)
         self.assertIn('--resume-lease "$WORKDIR/resume-spend-lease.json"', workflow)
+        self.assertIn("confirm_invalid_geometry_replacement:", workflow)
+        self.assertIn(
+            '--confirm-invalid-geometry-replacement "$CONFIRM_INVALID_GEOMETRY_REPLACEMENT"',
+            workflow,
+        )
         self.assertNotIn("uploader.py", workflow)
 
     def test_visual_mode_is_explicit_defaulted_and_forwarded_to_all_media_gates(self):
