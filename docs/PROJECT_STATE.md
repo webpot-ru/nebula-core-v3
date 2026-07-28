@@ -27,9 +27,17 @@ Last updated: 2026-07-28
   while retaining 500,000 as the safe default. Terra/Luna are not selected by
   this compatibility patch because changing the model would invalidate the
   existing chained recovery contract.
-- This change is local-only and has not called OpenAI, VectorEngine, AI33,
-  Reddit, rendering or YouTube. No recovery has been dispatched, and further
-  paid execution still requires a separate exact approval.
+- PR
+  [`#98`](https://github.com/webpot-ru/nebula-core-v3/pull/98) merged this
+  correction to
+  `main@4b30f994bdeeb3952578d55d20c9a09c3d9914a4` after 643/643 repository
+  tests, workflow-YAML parsing, Python compilation and diff checks passed.
+  The merge called no OpenAI, VectorEngine, AI33, Reddit, rendering or YouTube.
+- A continuation from `30287331993` has not been dispatched. Its immutable
+  lease still requires the exact `128/750000` OpenAI caps and carries confirmed
+  `41` VectorEngine / `48` AI33 ceilings; the current workflow cannot stop
+  after translation. A new dispatch therefore requires exact approval for
+  those downstream providers as well as OpenAI.
 
 ## 2026-07-27 — exact Flex retry completed; source 06 translation remains blocked
 
