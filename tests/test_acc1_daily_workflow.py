@@ -94,6 +94,10 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             '--proof "$WORKDIR/openai-flex-429-rejection.json"',
             workflow,
         )
+        self.assertIn(
+            '--parent-resume-lease "$WORKDIR/resume-spend-lease.json"',
+            workflow,
+        )
         self.assertIn("acc1-resume-lease-${{ github.run_id }}", workflow)
         self.assertIn("scripts/acc1_resume_lock.py create", workflow)
         self.assertIn(

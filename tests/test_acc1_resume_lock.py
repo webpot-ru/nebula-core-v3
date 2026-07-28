@@ -141,6 +141,40 @@ class Acc1ResumeLockTests(unittest.TestCase):
         )
         validate_resume_lease(resume, repository=REPOSITORY)
 
+        inherited = build_resume_lease(
+            parent_lease=lease, topic_input=topic,
+            producer_review=producer, critic_review=critic,
+            openai_journal=journal, image_journal=image_journal,
+            openai_flex_rejection_proof=proof,
+            parent_resume_lease=resume,
+            parent_run_id=202, run_id=303, run_attempt=1,
+            head_sha=HEAD_SHA, repository=REPOSITORY,
+            openai_call_cap=64, openai_token_cap=1_000_000,
+            image_call_cap=16, ai33_call_cap=32,
+        )
+        self.assertEqual(
+            inherited["parent_openai_flex_rejection_proof_sha256"],
+            canonical_hash(proof),
+        )
+
+        unbound_proof = copy.deepcopy(proof)
+        unbound_proof["run_id"] = 999
+        unbound_proof["proof_sha256"] = proof_self_hash(unbound_proof)
+        with self.assertRaisesRegex(
+            ResumeLockError, "does not match resume ancestry",
+        ):
+            build_resume_lease(
+                parent_lease=lease, topic_input=topic,
+                producer_review=producer, critic_review=critic,
+                openai_journal=journal, image_journal=image_journal,
+                openai_flex_rejection_proof=unbound_proof,
+                parent_resume_lease=resume,
+                parent_run_id=202, run_id=304, run_attempt=1,
+                head_sha=HEAD_SHA, repository=REPOSITORY,
+                openai_call_cap=64, openai_token_cap=1_000_000,
+                image_call_cap=16, ai33_call_cap=32,
+            )
+
         tampered_proof = copy.deepcopy(proof)
         tampered_proof["request_sha256"] = "c" * 64
         with self.assertRaisesRegex(ResumeLockError, "proof is invalid"):
