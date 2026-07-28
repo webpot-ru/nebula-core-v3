@@ -233,6 +233,9 @@ class Acc1SpendLockTests(unittest.TestCase):
             "max_output_tokens": 16_384,
             "automatic_retries": 0,
             "service_tier": "flex",
+            "fallback_service_tier": "default",
+            "fallback_condition": "exact_flex_resource_unavailable_429",
+            "maximum_fallback_requests_per_flex_rejection": 1,
             "prompt_cache_key": "acc1-translation-json-v1",
             "request_timeout_seconds": 900,
         })

@@ -110,6 +110,62 @@ class Acc1ConfirmOpenAIFlex429Tests(unittest.TestCase):
         self.assertEqual(sealed["confirmation_run_id"], 30280795084)
         validate_rejection_proof(proof, rejected_attempt=sealed)
 
+    def test_prior_rejection_may_be_reconciled_before_new_final_rejection(self):
+        journal = legacy_journal()
+        first_rejected = journal["attempts"].pop()
+        first_rejected.update({
+            "status": REJECTED_FLEX_429_STATUS,
+            "error_type": REJECTED_FLEX_429_ERROR_TYPE,
+            "http_status": 429,
+            "service_tier": "flex",
+            "rejection_reason": REJECTED_FLEX_429_REASON,
+            "provider_documented_not_charged": True,
+            "error_message_sha256": FLEX_RESOURCE_UNAVAILABLE_MARKER_SHA256,
+        })
+        journal["attempts"].extend([
+            first_rejected,
+            {
+                "index": 3,
+                "status": "COMPLETE",
+                "request_sha256": first_rejected["request_sha256"],
+                "usage": {
+                    "input_tokens": 1,
+                    "cached_input_tokens": 0,
+                    "output_tokens": 1,
+                    "total_tokens": 2,
+                    "reasoning_tokens": 0,
+                },
+            },
+            {
+                "index": 4,
+                "status": "REJECTED_FLEX_429",
+                "request_sha256": "4" * 64,
+                "model": "gpt-5.4-2026-03-05",
+                "error_type": REJECTED_FLEX_429_ERROR_TYPE,
+                "http_status": 429,
+                "service_tier": "flex",
+                "rejection_reason": REJECTED_FLEX_429_REASON,
+                "provider_documented_not_charged": True,
+                "error_message_sha256": FLEX_RESOURCE_UNAVAILABLE_MARKER_SHA256,
+            },
+        ])
+        journal["usage_totals"]["input_tokens"] += 1
+        journal["usage_totals"]["output_tokens"] += 1
+        journal["usage_totals"]["total_tokens"] += 2
+        normalized, proof = _normalize_attempt(
+            journal,
+            repository="webpot-ru/nebula-core-v3",
+            run_id=30348347285,
+            run_attempt=1,
+            job_id=90239791494,
+            job_log_sha256="5" * 64,
+        )
+        self.assertEqual(proof["attempt_index"], 4)
+        validate_rejection_proof(
+            proof,
+            rejected_attempt=normalized["attempts"][3],
+        )
+
     def test_completed_parent_is_noop_without_github_request(self):
         journal = legacy_journal()
         journal["attempts"].pop()

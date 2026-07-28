@@ -1403,7 +1403,7 @@ class EpisodeFactoryTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 factory.EpisodeFactoryError,
-                "required Flex service tier",
+                "explicitly requested service tier",
             ):
                 budget(
                     prompt="one translation",
@@ -1423,6 +1423,104 @@ class EpisodeFactoryTests(unittest.TestCase):
                 "total_tokens": 3,
                 "reasoning_tokens": 0,
             })
+
+    def test_openai_budget_falls_back_once_then_stays_on_default(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "openai.json"
+            requested_tiers = []
+
+            def provider(**kwargs):
+                requested_tiers.append(kwargs.get("service_tier"))
+                if kwargs.get("service_tier") == factory.REQUIRED_SERVICE_TIER:
+                    raise OpenAIFlexResourceUnavailableError(
+                        FLEX_RESOURCE_UNAVAILABLE_MARKER
+                    )
+                return OpenAIJSONResult(
+                    payload={"ok": True},
+                    usage=OpenAIUsage(
+                        input_tokens=2,
+                        cached_input_tokens=0,
+                        output_tokens=1,
+                        total_tokens=3,
+                        reasoning_tokens=0,
+                    ),
+                    service_tier="default",
+                )
+
+            budget = factory.CallBudget(
+                provider,
+                cap=8,
+                token_cap=1_000,
+                label="openai",
+                journal_path=journal,
+                allow_openai_default_fallback=True,
+            )
+            first = budget(
+                prompt="first request",
+                model=factory.OPENAI_MODEL,
+                max_output_tokens=1,
+            )
+            second = budget(
+                prompt="second request",
+                model=factory.OPENAI_MODEL,
+                max_output_tokens=1,
+            )
+
+            self.assertEqual(first, {"ok": True})
+            self.assertEqual(second, {"ok": True})
+            self.assertEqual(requested_tiers, ["flex", "default", "default"])
+            stored = json.loads(journal.read_text(encoding="utf-8"))
+            self.assertEqual(
+                [item["status"] for item in stored["attempts"]],
+                ["REJECTED_FLEX_429", "COMPLETE", "COMPLETE"],
+            )
+            self.assertEqual(
+                stored["attempts"][0]["request_sha256"],
+                stored["attempts"][1]["request_sha256"],
+            )
+            self.assertEqual(
+                stored["attempts"][1]["fallback_from_attempt_index"],
+                1,
+            )
+            self.assertEqual(
+                stored["attempts"][1]["service_tier"],
+                "default",
+            )
+            self.assertEqual(stored["usage_totals"]["total_tokens"], 6)
+
+    def test_openai_budget_does_not_reclassify_flex_error_on_default(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = Path(temp) / "openai.json"
+
+            def provider(**_kwargs):
+                raise OpenAIFlexResourceUnavailableError(
+                    FLEX_RESOURCE_UNAVAILABLE_MARKER
+                )
+
+            budget = factory.CallBudget(
+                provider,
+                cap=8,
+                token_cap=1_000,
+                label="openai",
+                journal_path=journal,
+                allow_openai_default_fallback=True,
+            )
+            with self.assertRaises(OpenAIFlexResourceUnavailableError):
+                budget(
+                    prompt="one request",
+                    model=factory.OPENAI_MODEL,
+                    max_output_tokens=1,
+                )
+
+            stored = json.loads(journal.read_text(encoding="utf-8"))
+            self.assertEqual(
+                [item["status"] for item in stored["attempts"]],
+                ["REJECTED_FLEX_429", "AMBIGUOUS_ERROR"],
+            )
+            self.assertEqual(
+                stored["attempts"][1]["requested_service_tier"],
+                "default",
+            )
 
     def test_ai33_inline_audio_response_is_journaled_without_serializing_bytes(self):
         with tempfile.TemporaryDirectory() as temp:

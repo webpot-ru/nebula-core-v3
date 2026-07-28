@@ -125,6 +125,7 @@ def build_resume_lease(
     validate_lease(
         parent_lease, expected_repository=repository,
         expected_workflow_path=WORKFLOW_PATH,
+        require_current_provider_contract=False,
     )
     parent_run_id = _positive(parent_run_id, "parent_run_id")
     if parent_resume_lease is None:
