@@ -1153,6 +1153,111 @@ class EpisodeFactoryTests(unittest.TestCase):
         self.assertEqual(resolved, restored)
         validate.assert_called_once()
 
+    def test_resume_accepts_only_exact_pre_fallback_provider_settings(self):
+        current = {
+            "creative": {
+                "provider": "openai",
+                "service_tier": "flex",
+                "fallback_service_tier": "default",
+                "fallback_condition": "exact_flex_resource_unavailable_429",
+            },
+            "translation": {
+                "provider": "openai",
+                "service_tier": "flex",
+                "fallback_service_tier": "default",
+                "fallback_condition": "exact_flex_resource_unavailable_429",
+            },
+            "image": {"provider": "vectorengine", "model": "gpt-image-2"},
+        }
+        legacy = copy.deepcopy(current)
+        for lane_name in ("creative", "translation"):
+            legacy[lane_name].pop("fallback_service_tier")
+            legacy[lane_name].pop("fallback_condition")
+
+        self.assertTrue(
+            factory._resume_provider_settings_are_compatible(legacy, current)
+        )
+        self.assertTrue(
+            factory._resume_provider_settings_are_compatible(current, current)
+        )
+
+        changed_model = copy.deepcopy(legacy)
+        changed_model["image"]["model"] = "different-model"
+        self.assertFalse(
+            factory._resume_provider_settings_are_compatible(
+                changed_model, current,
+            )
+        )
+
+        partial_fallback = copy.deepcopy(legacy)
+        partial_fallback["creative"]["fallback_service_tier"] = "default"
+        self.assertFalse(
+            factory._resume_provider_settings_are_compatible(
+                partial_fallback, current,
+            )
+        )
+
+    def test_resume_reuses_exact_pre_fallback_plan_without_mutating_identity(self):
+        current_settings = {
+            "creative": {
+                "provider": "openai",
+                "service_tier": "flex",
+                "fallback_service_tier": "default",
+                "fallback_condition": "exact_flex_resource_unavailable_429",
+            },
+            "translation": {
+                "provider": "openai",
+                "service_tier": "flex",
+                "fallback_service_tier": "default",
+                "fallback_condition": "exact_flex_resource_unavailable_429",
+            },
+            "image": {"provider": "vectorengine", "model": "gpt-image-2"},
+        }
+        legacy_settings = copy.deepcopy(current_settings)
+        for lane_name in ("creative", "translation"):
+            legacy_settings[lane_name].pop("fallback_service_tier")
+            legacy_settings[lane_name].pop("fallback_condition")
+        restored = {
+            "episode_plan_sha256": "a" * 64,
+            "git_sha": "1" * 40,
+            "provider_settings": legacy_settings,
+            "visual_mode": "editorial_motion_v1",
+            "narration_profile_id": "measured_confessional",
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "episode-plan.json"
+            path.write_text(json.dumps(restored), encoding="utf-8")
+            with (
+                mock.patch.object(
+                    factory, "validate_episode_manifest",
+                    return_value={"status": "PASS", "failures": []},
+                ),
+                mock.patch.object(
+                    factory, "build_episode_manifest",
+                    side_effect=AssertionError("resume rebuilt immutable episode plan"),
+                ),
+            ):
+                resolved = factory._resolve_episode_plan(
+                    is_resume=True,
+                    path=path,
+                    daily_plan=self.plan,
+                    queue={},
+                    playoff={},
+                    greenlight={},
+                    channel={},
+                    provider_settings=current_settings,
+                    winner={"sources": []},
+                    visual_mode=restored["visual_mode"],
+                    narration_profile_id=restored["narration_profile_id"],
+                )
+
+        self.assertEqual(resolved, restored)
+        self.assertEqual(resolved["episode_plan_sha256"], "a" * 64)
+        self.assertNotIn(
+            "fallback_service_tier",
+            resolved["provider_settings"]["creative"],
+        )
+
     def test_ambiguous_provider_attempt_is_journaled_and_not_resubmitted(self):
         with tempfile.TemporaryDirectory() as temp:
             journal = Path(temp) / "openai.json"
