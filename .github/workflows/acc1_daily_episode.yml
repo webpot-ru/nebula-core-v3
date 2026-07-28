@@ -73,13 +73,13 @@ on:
         required: true
         default: "96"
         type: choice
-        options: ["16", "24", "32", "48", "64", "96", "128"]
+        options: ["16", "24", "32", "48", "64", "96", "128", "160"]
       openai_token_cap:
         description: Hard cap for all OpenAI input and output tokens in this episode run
         required: true
         default: "500000"
         type: choice
-        options: ["100000", "250000", "500000", "750000"]
+        options: ["100000", "250000", "500000", "750000", "1000000"]
       image_call_cap:
         description: Hard cap for image-generation calls in this episode run
         required: true

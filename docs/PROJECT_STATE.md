@@ -1,6 +1,35 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-27
+Last updated: 2026-07-28
+
+## 2026-07-28 — THREAD translation adjudication now uses approved cap headroom locally
+
+- Failed recovery `30287331993` had a conservative paid-preflight requirement
+  of 114 OpenAI calls under its explicit 128-call cap. Its winning THREAD has
+  14 exact sources, but the former episode-wide policy exposed only one final
+  adjudication even though 14 approved call slots remained above the complete
+  conservative envelope.
+- The local correction derives the THREAD final-adjudication limit as
+  `min(source_count, 1 + call_cap - required_openai_calls)`. For this exact
+  evidence the limit is 14: source 05's completed adjudication remains counted,
+  while source 06 may receive the next bounded adjudication. A worst-case
+  THREAD whose required envelope already equals 128 still receives only the
+  single adjudication included in that envelope.
+- Every adjudication remains one normal OpenAI Flex journal attempt with zero
+  automatic retries. It may classify only the pending review flags, returns
+  only `PASS` or `BLOCK`, and cannot discover new issues or rewrite passages.
+  The derived limit and actual count are preserved in the accepted script and
+  cross-checked against its translation audits. Future fresh THREAD dispatches
+  may explicitly choose the new 160-call workflow ceiling, which accommodates
+  the complete conservative 128-call envelope plus one adjudication per source.
+- The pinned recovery model remains `gpt-5.4-2026-03-05`; its workflow now also
+  exposes the full explicit 1,000,000-token ceiling reported by the operator,
+  while retaining 500,000 as the safe default. Terra/Luna are not selected by
+  this compatibility patch because changing the model would invalidate the
+  existing chained recovery contract.
+- This change is local-only and has not called OpenAI, VectorEngine, AI33,
+  Reddit, rendering or YouTube. No recovery has been dispatched, and further
+  paid execution still requires a separate exact approval.
 
 ## 2026-07-27 — exact Flex retry completed; source 06 translation remains blocked
 

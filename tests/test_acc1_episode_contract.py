@@ -154,6 +154,15 @@ def fixtures():
             "ending_preserved_evidence": "payoff",
             "translation_audit": {"review": {"verdict": "PASS"}},
         }],
+        "translation_final_adjudication_contract": {
+            "version": 1,
+            "format": "SAGA",
+            "thread_limit": 0,
+            "thread_used": 0,
+            "basis": "approved_openai_call_cap_headroom_v1",
+            "automatic_retries": 0,
+            "publication_authorized": False,
+        },
     }
     return plan, playoff, script
 
@@ -320,6 +329,15 @@ class EpisodeContractTests(unittest.TestCase):
         script["stories"][0]["translation_audit"]["review"]["verdict"] = "REVISE"
         result = validate_episode_script(script, plan=plan, playoff=playoff)
         self.assertTrue(any("independent PASS" in item for item in result["failures"]))
+
+    def test_translation_final_adjudication_contract_is_fail_closed(self):
+        plan, playoff, script = fixtures()
+        script["translation_final_adjudication_contract"]["automatic_retries"] = 1
+        result = validate_episode_script(script, plan=plan, playoff=playoff)
+        self.assertIn(
+            "translation final adjudication automatic retries must remain zero",
+            result["failures"],
+        )
 
     def test_creative_plan_tamper_after_playoff_blocks(self):
         plan, playoff, script = fixtures()

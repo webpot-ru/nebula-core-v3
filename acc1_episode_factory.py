@@ -29,6 +29,8 @@ from acc1_bundle_selector import (
 )
 from acc1_daily_planner import build_daily_plan
 from acc1_episode_contract import (
+    TRANSLATION_FINAL_ADJUDICATION_BASIS,
+    TRANSLATION_FINAL_ADJUDICATION_CONTRACT_VERSION,
     build_intro_contract,
     build_mid_story_cta_contract,
     build_outro_prompt,
@@ -503,9 +505,9 @@ def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
                     for source in candidate.get("sources") or []
                     if isinstance(source, dict)
                 )
-                # A THREAD may consume one final episode-wide adjudication after
-                # a source exhausts its two ordinary local revisions. Limiting
-                # this to one preserves the exact 128-call worst-case ceiling.
+                # A THREAD reserves one final adjudication in its base envelope.
+                # Production may expose more only from the explicitly approved
+                # unused headroom above this complete conservative envelope.
                 + (
                     1
                     if str(candidate.get("format") or "").upper() == "THREAD"
@@ -524,6 +526,30 @@ def _required_openai_calls(candidates: list[dict[str, Any]]) -> int:
     # deterministically from the already locked winner options.
     creative_calls = len(candidates) * 3
     return translation_calls + creative_calls
+
+
+def _thread_final_adjudication_limit(
+    *,
+    openai_call_cap: int,
+    required_openai_calls: int,
+    source_count: int,
+) -> int:
+    """Spend only explicit call-cap headroom on additional THREAD adjudications."""
+    cap = _positive_cap(openai_call_cap, "openai_call_cap", maximum=256)
+    required = _positive_cap(
+        required_openai_calls,
+        "required_openai_calls",
+        maximum=256,
+    )
+    sources = _positive_cap(source_count, "source_count", maximum=256)
+    if required > cap:
+        raise EpisodeFactoryError(
+            "required OpenAI envelope exceeds the approved call cap"
+        )
+    # The conservative required envelope already reserves one adjudication.
+    # Every additional adjudication consumes exactly one otherwise-unused
+    # approved call, so the complete worst case still cannot exceed ``cap``.
+    return min(sources, 1 + (cap - required))
 
 
 def _minimum_tts_calls(format_id: str, source_count: int) -> int:
@@ -1993,6 +2019,7 @@ def _translate_script(
     playoff: dict[str, Any],
     openai: CallBudget,
     checkpoint_dir: Path,
+    thread_final_adjudication_limit: int = 1,
 ) -> dict[str, Any]:
     translated_stories: list[dict[str, Any]] = []
     sources = winner["sources"]
@@ -2001,11 +2028,24 @@ def _translate_script(
         raise EpisodeFactoryError(
             f"unsupported episode format for translation review: {format_id}"
         )
-    thread_final_adjudication_used = False
+    if (
+        isinstance(thread_final_adjudication_limit, bool)
+        or not isinstance(thread_final_adjudication_limit, int)
+        or thread_final_adjudication_limit < 1
+        or thread_final_adjudication_limit > len(sources)
+    ):
+        raise EpisodeFactoryError(
+            "THREAD final adjudication limit must fit the exact source count"
+        )
+    thread_final_adjudications_used = 0
     for index, source in enumerate(sources, start=1):
         allow_final_adjudication = (
             format_id == "SAGA"
-            or (format_id == "THREAD" and not thread_final_adjudication_used)
+            or (
+                format_id == "THREAD"
+                and thread_final_adjudications_used
+                < thread_final_adjudication_limit
+            )
         )
         translated = translate_and_review_story(
             {"title": source["title"], "body": source["body"]},
@@ -2025,11 +2065,14 @@ def _translate_script(
             format_id == "THREAD"
             and review.get("resolution") == FINAL_ADJUDICATION_RESOLUTION
         ):
-            if thread_final_adjudication_used:
+            thread_final_adjudications_used += 1
+            if (
+                thread_final_adjudications_used
+                > thread_final_adjudication_limit
+            ):
                 raise EpisodeFactoryError(
-                    "THREAD translation exceeded one final adjudication"
+                    "THREAD translation exceeded its bounded final adjudications"
                 )
-            thread_final_adjudication_used = True
         role = "comment" if source["role"] == "response" else "narrator"
         translated_stories.append({
             "title_ru": translated["title"],
@@ -2113,6 +2156,19 @@ def _translate_script(
         "rights_mode": "test_only_not_cleared",
         "source_mode": "reddit_exact_sources",
         "revision_count": sum(int(item["translation_audit"].get("revisions") or 0) for item in translated_stories),
+        "translation_final_adjudication_contract": {
+            "version": TRANSLATION_FINAL_ADJUDICATION_CONTRACT_VERSION,
+            "format": format_id,
+            "thread_limit": (
+                thread_final_adjudication_limit if format_id == "THREAD" else 0
+            ),
+            "thread_used": (
+                thread_final_adjudications_used if format_id == "THREAD" else 0
+            ),
+            "basis": TRANSLATION_FINAL_ADJUDICATION_BASIS,
+            "automatic_retries": 0,
+            "publication_authorized": False,
+        },
         "editorial_review": {"verdict": "PASS", "issues": []},
         "publication_authorized": False,
     }
@@ -2838,6 +2894,15 @@ def run_produce_stage(
             f"episode requires {required_image_calls} scene-image calls "
             f"but image_call_cap is {images.cap}"
         )
+    thread_final_adjudication_limit = 1
+    if str(daily_plan["format"]).upper() == "THREAD":
+        thread_final_adjudication_limit = _thread_final_adjudication_limit(
+            openai_call_cap=openai.cap,
+            required_openai_calls=int(
+                paid_preflight["caps"]["required_openai_calls"]
+            ),
+            source_count=len(winner["sources"]),
+        )
 
     greenlight = _greenlight(daily_plan, winner, playoff)
     try:
@@ -2911,6 +2976,7 @@ def run_produce_stage(
         playoff=playoff,
         openai=openai,
         checkpoint_dir=workdir / "translation-checkpoints",
+        thread_final_adjudication_limit=thread_final_adjudication_limit,
     )
     script["visual_mode"] = resolved_visual_mode
     if style_profile:
