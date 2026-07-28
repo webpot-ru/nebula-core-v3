@@ -20,7 +20,7 @@ class CompilationNarrationTests(unittest.TestCase):
         self.assertIn("более чем шесть тысяч пятьсот", result["narration_text"])
 
     def test_context_sensitive_numbers_block(self):
-        for text in ("Это было в 2024 году", "В 25:99", "Цена $50", "Около 2.5 метров"):
+        for text in ("Это было в 2024 году", "Цена $50", "Около 2.5 метров"):
             with self.subTest(text=text):
                 self.assertEqual(narration_preflight(text)["status"], "BLOCKED")
 
@@ -38,6 +38,15 @@ class CompilationNarrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "PASS")
         self.assertIn("три часа пятнадцать минут", result["narration_text"])
         self.assertIn("четыре часа ровно", result["narration_text"])
+
+    def test_impossible_clock_display_is_spoken_digit_by_digit(self):
+        result = narration_preflight("На дисплее застыло 88:88, и цифры не менялись.")
+        self.assertEqual(result["status"], "PASS")
+        self.assertIn(
+            "восемь восемь двоеточие восемь восемь",
+            result["narration_text"],
+        )
+        self.assertNotIn("88:88", result["narration_text"])
 
     def test_emergency_911_is_spoken_digit_by_digit(self):
         result = narration_preflight("Диспетчер 911 ответил на звонок.")
