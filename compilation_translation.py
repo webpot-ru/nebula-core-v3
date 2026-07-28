@@ -166,6 +166,46 @@ def _apply_review_patches(source_title: str, source_body: str, translated: dict[
     return patched
 
 
+def _discard_unanchored_review_issues(
+    source_title: str,
+    source_body: str,
+    review: dict[str, Any],
+) -> dict[str, Any]:
+    """Retain only ordinary review claims with verbatim source evidence.
+
+    A reviewer can identify several independently patchable defects while
+    paraphrasing one source quote. The paraphrased claim is not safe to apply,
+    but it must not erase the other claims that are grounded in exact source
+    text. The discarded original remains in the checkpoint for audit.
+    """
+
+    issues = review.get("issues")
+    if not isinstance(issues, list):
+        return review
+    accepted: list[dict[str, Any]] = []
+    discarded: list[dict[str, Any]] = []
+    for index, issue in enumerate(issues, 1):
+        source_quote = (
+            str(issue.get("source_quote") or "").strip()
+            if isinstance(issue, dict)
+            else ""
+        )
+        if source_quote and (source_quote in source_body or source_quote in source_title):
+            accepted.append(issue)
+            continue
+        discarded.append({
+            "issue_index": index,
+            "reason": "source_quote is not an exact quote from the source",
+            "review_issue": issue,
+        })
+    if not discarded:
+        return review
+    sanitized = dict(review)
+    sanitized["issues"] = accepted
+    sanitized["discarded_invalid_issues"] = discarded
+    return sanitized
+
+
 def _call(provider: Provider, prompt: str, config: TranslationConfig, *, temperature: float | None = None) -> dict[str, Any]:
     result = provider(
         prompt=prompt,
@@ -453,6 +493,9 @@ def translate_and_review_story(
     review: dict[str, Any] | None = None
     if saved_review and review_history:
         pending = review_history[-1]
+        if pending.get("verdict") == "REVISE":
+            pending = _discard_unanchored_review_issues(title, body, pending)
+            review_history[-1] = pending
         if pending.get("verdict") == "PASS" and pending.get("ending_preserved") is True:
             review = pending
         elif pending.get("verdict") == "REVISE" and len(review_history) == revisions + 1:
@@ -490,6 +533,8 @@ def translate_and_review_story(
         if review is not None:
             break
         review = _call(review_provider, _review_prompt(title, body, translated), config, temperature=0.0)
+        if review.get("verdict") == "REVISE":
+            review = _discard_unanchored_review_issues(title, body, review)
         review_history.append(review)
         if review_checkpoint_path:
             _atomic_json(review_checkpoint_path, {

@@ -236,6 +236,108 @@ class CompilationTranslationTests(unittest.TestCase):
         with self.assertRaisesRegex(TranslationError, "unsafe verdict"):
             translate_and_review_story(STORY, provider=provider, reviewer=reviewer)
 
+    def test_reviewer_discards_unanchored_issue_but_applies_exact_issues(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        provider = QueueProvider([translation])
+        reviewer = QueueProvider([
+            {
+                "verdict": "REVISE",
+                "issues": [
+                    {
+                        "kind": "meaning",
+                        "source_quote": "I suddenly heard a knock.",
+                        "translation_quote": "Я услышал стук.",
+                        "replacement": "Я внезапно услышал стук.",
+                    },
+                    {
+                        "kind": "meaning",
+                        "source_quote": "I hid in the hall.",
+                        "translation_quote": "Я спрятался в коридоре.",
+                        "replacement": "Я затаился в коридоре.",
+                    },
+                ],
+                "ending_preserved": True,
+            },
+            {"verdict": "PASS", "issues": [], "ending_preserved": True},
+        ])
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "review.json"
+            result = translate_and_review_story(
+                STORY,
+                provider=provider,
+                reviewer=reviewer,
+                review_checkpoint_path=checkpoint,
+            )
+            saved = __import__("json").loads(checkpoint.read_text())
+        self.assertIn("Я затаился в коридоре", result["body"])
+        self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(len(reviewer.calls), 2)
+        discarded = saved["review_history"][0]["discarded_invalid_issues"]
+        self.assertEqual(discarded[0]["issue_index"], 1)
+        self.assertEqual(
+            discarded[0]["reason"],
+            "source_quote is not an exact quote from the source",
+        )
+
+    def test_resume_uses_saved_review_after_discarding_unanchored_issue(self):
+        translation = {
+            "title": "Дверь",
+            "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.",
+            "complete": True,
+            "ending_preserved": True,
+        }
+        pending = {
+            "verdict": "REVISE",
+            "issues": [
+                {
+                    "kind": "meaning",
+                    "source_quote": "I suddenly heard a knock.",
+                    "translation_quote": "Я услышал стук.",
+                    "replacement": "Я внезапно услышал стук.",
+                },
+                {
+                    "kind": "meaning",
+                    "source_quote": "I hid in the hall.",
+                    "translation_quote": "Я спрятался в коридоре.",
+                    "replacement": "Я затаился в коридоре.",
+                },
+            ],
+            "ending_preserved": True,
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            checkpoint = Path(temp) / "review.json"
+            import hashlib
+            import json
+            checkpoint.write_text(json.dumps({
+                "schema_version": 2,
+                "source_sha256": hashlib.sha256(STORY["body"].encode()).hexdigest(),
+                "revisions_completed": 0,
+                "review_history": [pending],
+                "current_translation": translation,
+            }, ensure_ascii=False), encoding="utf-8")
+            provider = QueueProvider([])
+            reviewer = QueueProvider([{"verdict": "PASS", "issues": [], "ending_preserved": True}])
+            result = translate_and_review_story(
+                STORY,
+                provider=provider,
+                reviewer=reviewer,
+                review_checkpoint_path=checkpoint,
+            )
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+        self.assertEqual(provider.calls, [])
+        self.assertEqual(len(reviewer.calls), 1)
+        self.assertEqual(result["translation_audit"]["revisions"], 1)
+        self.assertIn("Я затаился в коридоре", result["body"])
+        self.assertEqual(
+            saved["review_history"][0]["discarded_invalid_issues"][0]["issue_index"],
+            1,
+        )
+
     def test_review_failure_checkpoint_preserves_decisions(self):
         translation = {"title": "Дверь", "body": "Я услышал стук. Я спрятался в коридоре. На рассвете дверь была открыта.", "complete": True, "ending_preserved": True}
         provider = QueueProvider([translation])
