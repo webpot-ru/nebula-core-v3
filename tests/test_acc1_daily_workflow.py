@@ -167,6 +167,15 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             r'ai33_call_cap:\n(?:        .+\n)+?        default: "96"',
         )
         self.assertIn(
+            '      ai33_call_cap:\n'
+            '        description: Fixed AI33 ceiling for a complete acc1 long episode; source-derived plans may require up to 96 tasks\n'
+            '        required: true\n'
+            '        default: "96"\n'
+            '        type: choice\n'
+            '        options: ["96"]\n',
+            self.workflow,
+        )
+        self.assertIn(
             '      reddit_request_cap:\n'
             '        description: Hard cap for Reddit requests in this episode run\n'
             '        required: true\n'
