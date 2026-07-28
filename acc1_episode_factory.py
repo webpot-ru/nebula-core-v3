@@ -2708,6 +2708,22 @@ def _validate_resume_contract(
     return copy.deepcopy(enriched), copy.deepcopy(producer_reports), copy.deepcopy(critic_reports)
 
 
+def _resume_provider_settings_are_compatible(
+    restored: object, current: dict[str, Any],
+) -> bool:
+    """Allow only the exact pre-fallback OpenAI contract on historical plans."""
+    if restored == current:
+        return True
+    legacy = copy.deepcopy(current)
+    for lane_name in ("creative", "translation"):
+        lane = legacy.get(lane_name)
+        if not isinstance(lane, dict):
+            return False
+        lane.pop("fallback_service_tier", None)
+        lane.pop("fallback_condition", None)
+    return restored == legacy
+
+
 def _resolve_episode_plan(
     *, is_resume: bool, path: Path, daily_plan: dict[str, Any],
     queue: dict[str, Any], playoff: dict[str, Any], greenlight: dict[str, Any],
@@ -2730,7 +2746,9 @@ def _resolve_episode_plan(
                 "restored episode plan is incompatible: "
                 + "; ".join(report.get("failures") or [])
             )
-        if episode_plan.get("provider_settings") != provider_settings:
+        if not _resume_provider_settings_are_compatible(
+            episode_plan.get("provider_settings"), provider_settings,
+        ):
             raise EpisodeFactoryError(
                 "restored episode plan provider settings do not match the current contract"
             )

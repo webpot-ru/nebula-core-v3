@@ -2,6 +2,29 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — historical episode-plan fallback compatibility prepared
+
+- PR [`#102`](https://github.com/webpot-ru/nebula-core-v3/pull/102) merged the
+  bounded `flex` to `default` fallback at
+  `main@ef1a76f38586cdb43a74b2fd0f3f4e5a286d1247`.
+  Authorized continuation
+  [`30352035033`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30352035033)
+  restored run `30348347285`, confirmed its final Flex rejection, skipped
+  Reddit and created the hash-bound resume lock.
+- The run then stopped before every new OpenAI, VectorEngine or AI33 request
+  because the immutable historical episode plan correctly retained the older
+  OpenAI contract without the newly added fallback fields. Strict equality
+  rejected that additive execution-policy change.
+- The local correction permits exactly two resume states: the current provider
+  settings, or the exact current settings with only
+  `fallback_service_tier` and `fallback_condition` absent from both OpenAI
+  lanes. The restored plan and its identity remain byte-for-byte unchanged;
+  model, tier, image, TTS and every other setting still compare exactly.
+  Fresh plans continue to require and record the full fallback contract.
+- This correction is code-only pending tests and GitHub review. It has made no
+  provider, Reddit, render or YouTube call, and it does not authorize another
+  recovery run.
+
 ## 2026-07-28 — bounded OpenAI default-tier fallback prepared after repeated Flex capacity failures
 
 - PR [`#101`](https://github.com/webpot-ru/nebula-core-v3/pull/101) merged the
