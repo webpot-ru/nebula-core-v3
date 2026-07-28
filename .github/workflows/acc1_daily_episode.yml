@@ -92,11 +92,11 @@ on:
         type: choice
         options: ["8", "12", "16", "20", "41", "69"]
       ai33_call_cap:
-        description: Hard cap for AI33 task submissions in this episode run
+        description: Fixed AI33 ceiling for a complete acc1 long episode; source-derived plans may require up to 96 tasks
         required: true
         default: "96"
         type: choice
-        options: ["8", "16", "24", "32", "48", "64", "96"]
+        options: ["96"]
 
 permissions:
   contents: read

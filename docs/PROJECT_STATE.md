@@ -2,6 +2,22 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-28 — AI33 ceiling fixed at 96 for every paid acc1 factory run
+
+- Recovery run
+  [`30373196559`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30373196559)
+  restored its parent, passed its resume and paid preflights, then stopped
+  before the first provider request because it was manually dispatched with an
+  obsolete AI33 cap of `48`. The already bound episode requires `70` separate
+  voice tasks; no VectorEngine or AI33 request, render, YouTube upload or
+  publication occurred.
+- The daily paid-workflow input is now deliberately fixed to its proven
+  `96`-task ceiling. Lower task-cap choices are not valid complete-long-episode
+  modes and are no longer selectable, so a future dispatch cannot fail merely
+  because a caller chose `48` or `64`. Exact source-dependent task counts
+  continue to be checked before a request; `96` is the maximum, not an
+  instruction to create unnecessary voice tasks.
+
 ## 2026-07-28 — Daily factory image-canvas drift corrected locally
 
 - Chained recovery run
