@@ -3046,7 +3046,10 @@ def run_produce_stage(
     visual_mode: str = DEFAULT_VISUAL_MODE,
 ) -> dict[str, Any]:
     """Create the review artifact after source and all spend gates have passed."""
-    workdir = Path(workdir)
+    # GitHub supplies WORKDIR as a repository-relative path. Resolve it once at
+    # the orchestration boundary so artifact-root-aware helpers never prefix
+    # that relative path a second time.
+    workdir = Path(workdir).resolve()
     try:
         resolved_visual_mode = resolve_visual_mode(visual_mode)
     except ValueError as exc:

@@ -2609,10 +2609,43 @@ class EpisodeFactoryTests(unittest.TestCase):
             )
             self.assertTrue((workdir / "topic-playoff-input.json").is_file())
 
+    def test_produce_stage_resolves_relative_workdir_before_preflight(self):
+        class StopAfterPreflight(RuntimeError):
+            pass
+
+        relative_workdir = Path("build/relative-acc1-workdir")
+
+        def stop_after_preflight(**kwargs):
+            self.assertEqual(
+                kwargs["workdir"],
+                relative_workdir.resolve(),
+            )
+            self.assertTrue(kwargs["workdir"].is_absolute())
+            raise StopAfterPreflight
+
+        with mock.patch.object(
+            factory,
+            "_paid_preflight_contract",
+            side_effect=stop_after_preflight,
+        ):
+            with self.assertRaises(StopAfterPreflight):
+                factory.run_produce_stage(
+                    daily_plan=self.plan,
+                    workdir=relative_workdir,
+                    channels_path=ROOT / "channels.json",
+                    confirm_openai_spend=False,
+                    openai_call_cap=16,
+                    openai_token_cap=100_000,
+                    confirm_image_spend=False,
+                    image_call_cap=8,
+                    confirm_ai33_spend=False,
+                    ai33_call_cap=96,
+                )
+
     def test_produce_stage_passes_complete_tts_state_into_storyboard(self):
         """Exercise the orchestration seam without network or paid providers."""
         with tempfile.TemporaryDirectory() as temp:
-            workdir = Path(temp)
+            workdir = Path(temp).resolve()
             sources = []
             for source_index in range(1, 3):
                 body = " ".join(

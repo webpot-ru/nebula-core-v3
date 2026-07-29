@@ -1025,6 +1025,14 @@ equivalent. The renderer-to-QA regression exercises this complete seam with a
 v3 editorial storyboard so renderer and QA contracts cannot evolve
 independently again.
 
+`run_produce_stage` resolves its work directory once before any artifact-root
+helper is called. This is required on GitHub, where `WORKDIR` is supplied as
+the repository-relative `build/acc1-daily-episode`: passing that already
+prefixed relative path to an artifact-root helper would otherwise duplicate
+the directory and strand `tts/audio-mix-report.json` outside the canonical
+release-evidence location. Serialized paths remain relative to the resolved
+artifact root, so review artifacts stay portable.
+
 `.github/workflows/acc1_segmented_no_spend_canary.yml` is a separate
 frozen-media matrix proof: it downloads exactly five retained pages from
 artifact `acc1-panel-grammar-canary-30063115374` and the matching retained
