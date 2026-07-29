@@ -2,6 +2,28 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — AI33 saved-task polling tolerates a 30-minute busy window
+
+- Recovery run
+  [`30420919978`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30420919978)
+  reused the frozen provider state from run `30418807878` and reached the
+  saved-task polling stage, but stopped after AI33 returned five consecutive
+  HTTP `503 server_busy` responses for one durable task ID. The provider
+  explicitly described the condition as temporary; the task itself was not
+  reported failed and must not be submitted again.
+- `compilation_tts_runner.py` now gives only AI33
+  `server_busy` / `temporarily busy` polling responses a bounded 1,800-second
+  grace window with capped exponential backoff. It keeps polling the same
+  persisted task ID, remains bounded by the existing invocation-wide deadline
+  and still fails closed after 30 minutes. Other retryable transport failures
+  retain their existing finite retry count; non-retryable errors remain
+  immediate failures.
+- Regression coverage proves both recovery at the 30-minute boundary without
+  another TTS submission and deterministic failure after the window expires.
+  This revision is locally verified only. No local AI33, VectorEngine, Reddit,
+  OpenAI or YouTube operation was performed; a GitHub no-spend recovery still
+  requires the existing saved task IDs and separate run verification.
+
 ## 2026-07-29 — transposed VectorEngine pages recover without another paid retry
 
 - Chained run

@@ -46,6 +46,7 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 DEFAULT_POLL_CONCURRENCY = 4
 MAX_POLL_CONCURRENCY = 16
 DEADLINE_EPOCH_ENV = "AI33_TTS_DEADLINE_EPOCH"
+TEMPORARILY_BUSY_GRACE_SECONDS = 30 * 60
 
 
 class CompilationTtsError(RuntimeError):
@@ -61,12 +62,23 @@ def _retryable_poll_error(exc: Exception) -> bool:
     ))
 
 
+def _temporarily_busy_poll_error(exc: Exception) -> bool:
+    message = str(exc).casefold().replace(" ", "")
+    return isinstance(exc, Ai33Error) and any(marker in message for marker in (
+        "server_busy", "temporarilybusy",
+    ))
+
+
 def _poll_with_retries(
     poll_task: Callable[..., dict[str, Any]], *, retries: int,
     sleeper: Callable[[float], None], poll_kwargs: dict[str, Any],
     deadline: float, monotonic: Callable[[], float],
 ) -> dict[str, Any]:
-    for attempt in range(retries + 1):
+    retry_attempt = 0
+    busy_attempt = 0
+    busy_started_at: float | None = None
+    busy_slept_seconds = 0.0
+    while True:
         remaining = deadline - monotonic()
         if remaining <= 0:
             raise CompilationTtsError("shared AI33 TTS deadline expired while polling saved tasks")
@@ -78,15 +90,38 @@ def _poll_with_retries(
                 raise CompilationTtsError("AI33 polling returned a non-object payload")
             return payload
         except Exception as exc:
-            if attempt >= retries or not _retryable_poll_error(exc):
+            if not _retryable_poll_error(exc):
                 raise
-            remaining = deadline - monotonic()
+            now = monotonic()
+            remaining = deadline - now
             if remaining <= 0:
                 raise CompilationTtsError(
                     "shared AI33 TTS deadline expired after a retryable polling error"
                 ) from exc
-            sleeper(min(remaining, 30, 5 * (2 ** attempt)))
-    raise CompilationTtsError("unreachable polling retry state")
+            if _temporarily_busy_poll_error(exc):
+                if busy_started_at is None:
+                    busy_started_at = now
+                busy_elapsed = max(now - busy_started_at, busy_slept_seconds)
+                busy_remaining = TEMPORARILY_BUSY_GRACE_SECONDS - busy_elapsed
+                if busy_remaining <= 0:
+                    raise CompilationTtsError(
+                        "AI33 task polling remained temporarily busy for "
+                        f"{TEMPORARILY_BUSY_GRACE_SECONDS} seconds"
+                    ) from exc
+                sleep_seconds = min(
+                    remaining,
+                    busy_remaining,
+                    30,
+                    5 * (2 ** min(busy_attempt, 3)),
+                )
+                sleeper(sleep_seconds)
+                busy_slept_seconds += sleep_seconds
+                busy_attempt += 1
+                continue
+            if retry_attempt >= retries:
+                raise
+            sleeper(min(remaining, 30, 5 * (2 ** retry_attempt)))
+            retry_attempt += 1
 
 
 def _resolve_shared_deadline(
