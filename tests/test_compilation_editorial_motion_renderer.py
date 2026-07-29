@@ -598,6 +598,14 @@ class EditorialMotionRendererTests(unittest.TestCase):
                 "motion_plan": {"module_usage": {"panel_read": 2}},
                 "motion_plan_sha256": "a" * 64,
                 "caption_track_sha256": caption_track["caption_track_sha256"],
+                "episode_plan_sha256": "1" * 64,
+                "daily_plan_sha256": "2" * 64,
+                "narration_plan_sha256": "3" * 64,
+                "timing_contract_sha256": "4" * 64,
+                "pause_map_sha256": "5" * 64,
+                "audio_mix_report_sha256": "6" * 64,
+                "narration_profile_id": "profile-v1",
+                "narration_profile_sha256": "7" * 64,
             }
 
             def fake_burn(_source, _captions, final_output, **_kwargs):
@@ -615,6 +623,10 @@ class EditorialMotionRendererTests(unittest.TestCase):
                         {"duration_sec": 5.033},
                         {"duration_sec": 10.033333},
                     ],
+                ),
+                mock.patch(
+                    "compilation_editorial_motion_renderer._probe_media_duration",
+                    return_value=10.018,
                 ),
                 mock.patch(
                     "compilation_editorial_motion_renderer._run",
@@ -641,6 +653,15 @@ class EditorialMotionRendererTests(unittest.TestCase):
         self.assertEqual(report["target_frame_count"], 301)
         self.assertEqual(report["frame_aligned_duration_sec"], 10.033333)
         self.assertEqual(report["duration_delta_sec"], 0.0)
+        self.assertEqual(report["status"], "ok")
+        self.assertTrue(report["audio_merged"])
+        self.assertEqual(report["audio_duration_sec"], 10.018)
+        self.assertEqual(report["episode_plan_sha256"], "1" * 64)
+        self.assertEqual(report["daily_plan_sha256"], "2" * 64)
+        self.assertEqual(report["narration_plan_sha256"], "3" * 64)
+        self.assertEqual(report["pause_map_sha256"], "5" * 64)
+        self.assertEqual(report["audio_mix_report_sha256"], "6" * 64)
+        self.assertEqual(report["video_sha256"], report["output_sha256"])
         self.assertEqual(
             report["duration_normalization"],
             "cfr_tpad_trim_exact_frame_count_before_caption_burn",

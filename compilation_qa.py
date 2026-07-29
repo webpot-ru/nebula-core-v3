@@ -1315,8 +1315,29 @@ def _validate_editorial_motion_creative_contract(
         captions = {}
     motion_hash = str((motion_plan or {}).get("motion_plan_sha256") or "")
     caption_hash = str((captions or {}).get("caption_track_sha256") or "")
-    if (motion_plan or {}).get("scenes") != scenes:
+    bound_scenes = storyboard.get("slides")
+    checked_scenes = [
+        {
+            key: value
+            for key, value in scene.items()
+            if key != "verified_assets"
+        }
+        for scene in scenes
+    ]
+    comparison_scenes = (
+        bound_scenes
+        if isinstance(bound_scenes, list)
+        else checked_scenes
+    )
+    if (motion_plan or {}).get("scenes") != comparison_scenes:
         failures.append("editorial motion plan does not exactly match storyboard scenes")
+    if (
+        isinstance(bound_scenes, list)
+        and checked_scenes != bound_scenes
+    ):
+        failures.append(
+            "verified editorial scenes do not match bound storyboard scenes",
+        )
     for label, payload in (
         ("storyboard", storyboard),
         ("creative manifest", creative_manifest),

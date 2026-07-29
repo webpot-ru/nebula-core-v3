@@ -1014,6 +1014,17 @@ delta; post-normalization duration still fails closed above `0.12s` and the
 exception includes all measured values. A monolithic browser-render fallback
 is forbidden for v3.
 
+The segmented renderer emits the same final-report envelope consumed by
+`compilation_qa.py`: lowercase `status=ok`, measured source-audio and final
+video durations, `audio_merged=true`, both final video checksum fields and the
+immutable episode/daily/narration/pause/mix bindings. Runner-only verified
+asset paths are not part of the immutable motion plan. QA removes only that
+one preflight field before requiring the checked scene copy, storyboard
+`slides` and self-hashed motion-plan scenes to remain otherwise byte-for-byte
+equivalent. The renderer-to-QA regression exercises this complete seam with a
+v3 editorial storyboard so renderer and QA contracts cannot evolve
+independently again.
+
 `.github/workflows/acc1_segmented_no_spend_canary.yml` is a separate
 frozen-media matrix proof: it downloads exactly five retained pages from
 artifact `acc1-panel-grammar-canary-30063115374` and the matching retained
