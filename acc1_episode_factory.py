@@ -2721,8 +2721,10 @@ def _consume_invalid_first_image_for_explicit_replacement(
     This is deliberately narrower than a retry policy. It can consume only the
     exact first completed image of a resumed run when no image checkpoint was
     ever created, preserves the paid portrait response in the artifact, and
-    makes no provider request by itself. The following image stage receives a
-    fresh, separately approved scene-image budget.
+    makes no provider request by itself. A later child may revalidate the
+    immutable receipt after the empty journal has been normalized by
+    ``CallBudget``. The following image stage receives a fresh, separately
+    approved scene-image budget.
     """
 
     if confirm_invalid_geometry_replacement is False or (
@@ -2749,14 +2751,94 @@ def _consume_invalid_first_image_for_explicit_replacement(
         raise EpisodeFactoryError("invalid-image replacement requires the exact parent image journal")
 
     prior_replacements = journal.get("invalid_geometry_replacements") or []
-    if prior_replacements:
+    if receipt_path.is_file():
+        if attempts or checkpoint_path.exists():
+            raise EpisodeFactoryError(
+                "invalid-image replacement receipt conflicts with active image state"
+            )
+        receipt = _read_object(receipt_path)
+        invalid_attempt = receipt.get("invalid_attempt")
+        provider_sha256 = str(receipt.get("provider_image_sha256") or "")
+        provider_size = receipt.get("provider_image_size")
         if (
-            len(prior_replacements) == 1
-            and not attempts
-            and receipt_path.is_file()
+            receipt.get("version") != 1
+            or receipt.get("status") != "CONSUMED_INVALID_PROVIDER_GEOMETRY"
+            or receipt.get("publication_authorized") is not False
+            or receipt.get("replacement_authorized") is not True
+            or receipt.get("replacement_scope")
+            != "one fresh bounded scene-image sequence after one sealed portrait response"
+            or receipt.get("new_image_call_cap") != image_call_cap
+            or not isinstance(invalid_attempt, dict)
+            or invalid_attempt.get("index") != 1
+            or invalid_attempt.get("status") != "COMPLETE"
+            or not SHA256_RE.fullmatch(
+                str(invalid_attempt.get("request_sha256") or "")
+            )
+            or not SHA256_RE.fullmatch(
+                str(invalid_attempt.get("output_sha256") or "")
+            )
+            or provider_sha256 != invalid_attempt.get("output_sha256")
+            or not isinstance(provider_size, list)
+            or len(provider_size) != 2
+            or any(
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+                for value in provider_size
+            )
+            or provider_size[0] >= provider_size[1]
         ):
-            return _read_object(receipt_path)
-        raise EpisodeFactoryError("invalid-image replacement was already adjudicated")
+            raise EpisodeFactoryError(
+                "invalid-image replacement receipt is malformed"
+            )
+        receipt_paths = {
+            "provider_image_path": root / str(
+                receipt.get("provider_image_path") or ""
+            ),
+            "preserved_provider_image_path": root / str(
+                receipt.get("preserved_provider_image_path") or ""
+            ),
+        }
+        expected_preserved = (
+            root / "provider-attempts" / "invalid-geometry-attempt-001.png"
+        ).resolve()
+        if receipt_paths["preserved_provider_image_path"].resolve() != expected_preserved:
+            raise EpisodeFactoryError(
+                "invalid-image replacement receipt has an unexpected preservation path"
+            )
+        for field, candidate in receipt_paths.items():
+            resolved = candidate.resolve()
+            if (
+                resolved == root
+                or root not in resolved.parents
+                or not resolved.is_file()
+                or _sha256_file(resolved) != provider_sha256
+            ):
+                raise EpisodeFactoryError(
+                    f"invalid-image replacement receipt file mismatch: {field}"
+                )
+            try:
+                with Image.open(resolved) as image:
+                    image.load()
+                    actual_size = list(image.size)
+            except (OSError, UnidentifiedImageError) as exc:
+                raise EpisodeFactoryError(
+                    f"invalid-image replacement receipt file is not decodable: {field}"
+                ) from exc
+            if actual_size != provider_size:
+                raise EpisodeFactoryError(
+                    f"invalid-image replacement receipt size mismatch: {field}"
+                )
+        if prior_replacements and prior_replacements != [receipt]:
+            raise EpisodeFactoryError(
+                "invalid-image replacement journal and receipt disagree"
+            )
+        if not prior_replacements:
+            journal["invalid_geometry_replacements"] = [receipt]
+            _atomic_json(journal_path, journal)
+        return receipt
+    if prior_replacements:
+        raise EpisodeFactoryError(
+            "invalid-image replacement journal is missing its receipt"
+        )
     if len(attempts) != 1 or checkpoint_path.exists():
         raise EpisodeFactoryError(
             "invalid-image replacement is allowed only for the first failed scene before a checkpoint"

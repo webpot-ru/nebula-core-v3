@@ -1269,6 +1269,102 @@ class EpisodeFactoryTests(unittest.TestCase):
             )
             self.assertTrue(portrait.is_file())
 
+    def test_consumed_portrait_receipt_survives_an_empty_journal_rewrite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            scene_root = root / "scene-images"
+            journal_path = root / "provider-attempts" / "image.json"
+            scene_root.mkdir(parents=True)
+            portrait = scene_root / "story-01-source-scene-01.png"
+            Image.new("RGB", (1024, 1536), "#314159").save(portrait)
+            output_sha256 = factory._sha256_file(portrait)
+            factory._atomic_json(journal_path, {
+                "version": 1,
+                "provider": "image",
+                "cap": 41,
+                "attempts": [{
+                    "index": 1,
+                    "status": "COMPLETE",
+                    "request_sha256": "1" * 64,
+                    "output_sha256": output_sha256,
+                }],
+                "publication_authorized": False,
+            })
+            receipt = factory._consume_invalid_first_image_for_explicit_replacement(
+                workdir=root,
+                image_call_cap=41,
+                confirm_invalid_geometry_replacement="true",
+            )
+
+            # CallBudget historically rewrote an empty image journal using its
+            # base schema, while the immutable replacement receipt and both
+            # checksum-identical portrait files remained in the artifact.
+            factory._atomic_json(journal_path, {
+                "version": 1,
+                "provider": "image",
+                "cap": 41,
+                "attempts": [],
+                "publication_authorized": False,
+            })
+
+            resumed = factory._consume_invalid_first_image_for_explicit_replacement(
+                workdir=root,
+                image_call_cap=41,
+                confirm_invalid_geometry_replacement="true",
+            )
+
+            self.assertEqual(resumed, receipt)
+            self.assertEqual(
+                factory._read_object(journal_path)["invalid_geometry_replacements"],
+                [receipt],
+            )
+
+    def test_consumed_portrait_receipt_rejects_hash_drift(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            scene_root = root / "scene-images"
+            journal_path = root / "provider-attempts" / "image.json"
+            scene_root.mkdir(parents=True)
+            portrait = scene_root / "story-01-source-scene-01.png"
+            Image.new("RGB", (1024, 1536), "#314159").save(portrait)
+            output_sha256 = factory._sha256_file(portrait)
+            factory._atomic_json(journal_path, {
+                "version": 1,
+                "provider": "image",
+                "cap": 41,
+                "attempts": [{
+                    "index": 1,
+                    "status": "COMPLETE",
+                    "request_sha256": "1" * 64,
+                    "output_sha256": output_sha256,
+                }],
+                "publication_authorized": False,
+            })
+            receipt = factory._consume_invalid_first_image_for_explicit_replacement(
+                workdir=root,
+                image_call_cap=41,
+                confirm_invalid_geometry_replacement="true",
+            )
+            factory._atomic_json(journal_path, {
+                "version": 1,
+                "provider": "image",
+                "cap": 41,
+                "attempts": [],
+                "publication_authorized": False,
+            })
+            preserved = root / receipt["preserved_provider_image_path"]
+            Image.new("RGB", (1024, 1536), "#271828").save(preserved)
+
+            with self.assertRaisesRegex(
+                factory.EpisodeFactoryError,
+                "receipt file mismatch",
+            ):
+                factory._consume_invalid_first_image_for_explicit_replacement(
+                    workdir=root,
+                    image_call_cap=41,
+                    confirm_invalid_geometry_replacement="true",
+                )
+
     def test_resume_reuses_exact_pre_fallback_plan_without_mutating_identity(self):
         current_settings = {
             "creative": {
