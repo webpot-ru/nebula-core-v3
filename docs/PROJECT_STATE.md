@@ -1,6 +1,37 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
+
+## 2026-07-30 — Frame-correct render reached QA; report binding repaired locally
+
+- Authorized no-spend recovery run
+  [`30460153885`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30460153885)
+  restored only the existing images and narration from run `30438523142`.
+  All 18 bounded HyperFrames segments rendered, the frame-aligned final
+  assembly completed and the former `assembled MP4 duration drifted` error did
+  not recur. No Reddit, OpenAI, VectorEngine or AI33 submission and no YouTube
+  action occurred.
+- Media QA then rejected the completed MP4 because the editorial renderer
+  returned its isolated-render status (`PASS`) instead of the common
+  compilation status (`ok`) and omitted the measured audio duration, merged
+  audio flag and immutable plan/mix hashes. QA therefore interpreted the
+  narration duration as zero even though the existing final mix had been
+  muxed. Separately, it compared the immutable motion-plan scenes with
+  preflight copies containing the runner-only `verified_assets` field.
+- The local correction makes the segmented renderer emit the complete common
+  render-report contract, including the final video checksum, measured source
+  audio duration, audio/plan/pause/mix bindings and `audio_merged=true`.
+  Brand compositing now updates both final video checksum fields. Motion QA
+  still compares every immutable scene exactly, but removes only the
+  preflight-only verified path field before comparing the checked copy.
+- A renderer-to-media-QA regression now builds a real v3 editorial storyboard,
+  obtains the actual segmented assembly report with media commands mocked, and
+  requires the complete media QA contract to pass. A separate regression
+  protects the immutable/runtime scene comparison.
+- Artifact `acc1-daily-episode-30460153885` remains on GitHub at
+  `2,132,648,512` bytes and retains the 18 hash-bound segment checkpoints. The
+  next authorized no-spend recovery can reuse those segments; this correction
+  remains **code-verified only** until that GitHub recovery succeeds.
 
 ## 2026-07-29 — Segmented render completed, final duration assembly blocked
 

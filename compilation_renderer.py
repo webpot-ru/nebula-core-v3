@@ -997,9 +997,11 @@ def render_compilation(
                     shutil.copy2(caption_source, caption_output)
                 report["caption_srt"] = str(caption_output)
                 report["caption_srt_sha256"] = _sha256(caption_output)
+        final_video_sha256 = _sha256(output)
         report.update({
             "output": str(output),
-            "video_sha256": _sha256(output),
+            "output_sha256": final_video_sha256,
+            "video_sha256": final_video_sha256,
             "duration_sec": _probe_duration(
                 shutil.which("ffprobe") or "ffprobe",
                 output,

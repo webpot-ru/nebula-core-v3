@@ -1242,6 +1242,35 @@ def _probe_h264(path: Path, *, cwd: Path) -> dict[str, Any]:
     return {"stream": stream, "duration_sec": duration}
 
 
+def _probe_media_duration(path: Path, *, cwd: Path) -> float:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise EditorialMotionRenderError("ffprobe is required")
+    probe = _run([
+        ffprobe,
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "json",
+        str(path),
+    ], cwd=cwd)
+    try:
+        duration = float(
+            (json.loads(probe.stdout).get("format") or {})["duration"],
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise EditorialMotionRenderError(
+            "ffprobe could not verify editorial media duration",
+        ) from exc
+    if duration <= 0:
+        raise EditorialMotionRenderError(
+            "editorial media duration must be positive",
+        )
+    return duration
+
+
 def _segment_checkpoint_payload(
     storyboard: dict[str, Any],
     public_plan: dict[str, Any],
@@ -1469,6 +1498,7 @@ def assemble_editorial_motion_segments(
         })
 
     audio_path = _under_root(audio, root, label="editorial narration audio")
+    audio_duration = _probe_media_duration(audio_path, cwd=root)
     expected_duration = float(storyboard["timeline_duration_sec"])
     target_frame_count = max(
         1,
@@ -1560,20 +1590,25 @@ def assemble_editorial_motion_segments(
             f"delta={duration_delta:.6f}s, "
             f"tolerance={FINAL_DURATION_TOLERANCE_SEC:.6f}s)",
         )
+    video_sha256 = _sha256(output)
     return {
         "version": 3,
-        "status": "PASS",
+        "status": "ok",
         "visual_mode": EDITORIAL_MOTION_MODE,
         "style_profile": str(storyboard["style_profile"]),
         "renderer": "hyperframes_segmented",
         "hyperframes_version": HYPERFRAMES_VERSION,
         "hyperframes_check_passed": True,
         "publication_authorized": False,
-        "output_sha256": _sha256(output),
+        "output": str(output),
+        "output_sha256": video_sha256,
+        "video_sha256": video_sha256,
         "video_codec": "h264",
         "resolution": [CANVAS_WIDTH, CANVAS_HEIGHT],
         "fps": CANVAS_FPS,
         "duration_sec": round(actual_duration, 3),
+        "audio_merged": True,
+        "audio_duration_sec": round(audio_duration, 6),
         "timeline_duration_sec": round(expected_duration, 6),
         "target_frame_count": target_frame_count,
         "frame_aligned_duration_sec": round(frame_aligned_duration, 6),
@@ -1590,6 +1625,22 @@ def assemble_editorial_motion_segments(
         "caption_ass_sha256": _sha256(caption_ass_path),
         "captions_burned": True,
         "audio_sha256": _sha256(audio_path),
+        "episode_plan_sha256": storyboard.get("episode_plan_sha256"),
+        "daily_plan_sha256": storyboard.get("daily_plan_sha256"),
+        "narration_plan_sha256": storyboard.get(
+            "narration_plan_sha256",
+        ),
+        "timing_contract_sha256": storyboard.get(
+            "timing_contract_sha256",
+        ),
+        "pause_map_sha256": storyboard.get("pause_map_sha256"),
+        "audio_mix_report_sha256": storyboard.get(
+            "audio_mix_report_sha256",
+        ),
+        "narration_profile_id": storyboard.get("narration_profile_id"),
+        "narration_profile_sha256": storyboard.get(
+            "narration_profile_sha256",
+        ),
         "segment_duration_sum_sec": round(segment_duration_sum, 6),
         "segment_duration_delta_sec": round(
             segment_duration_sum - expected_duration,

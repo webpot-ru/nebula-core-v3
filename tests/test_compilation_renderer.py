@@ -172,6 +172,9 @@ class CompilationRendererTests(unittest.TestCase):
 
         self.assertTrue(report["captions_reburned_after_brand_overlays"])
         self.assertTrue(report["brand_cta_used"])
+        final_hash = hashlib.sha256(b"captioned").hexdigest()
+        self.assertEqual(report["output_sha256"], final_hash)
+        self.assertEqual(report["video_sha256"], final_hash)
         burn.assert_called_once()
 
     def _reddit_fixture(

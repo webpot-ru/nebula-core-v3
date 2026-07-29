@@ -1,17 +1,20 @@
 import hashlib
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
 import acc1_episode_manifest
 from acc1_visual_contract import (
     EDITORIAL_MOTION_MODE,
+    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
     MASCOT_SAFE_X,
+    select_format_visual_system_v3_panel_grammar,
 )
 from acc1_editorial_motion import bind_payload as bind_editorial_payload
 from compilation_narration import build_compilation_segments
@@ -19,6 +22,11 @@ from compilation_qa import (
     _validate_editorial_motion_creative_contract,
     run_qa,
     validate_tts_state,
+)
+from compilation_editorial_motion_renderer import (
+    assemble_editorial_motion_segments,
+    build_editorial_render_segment_plan,
+    preflight_editorial_motion_storyboard,
 )
 from compilation_storyboard import build_storyboard
 from compilation_tts_runner import _canonical_hash, _state_timing_contract
@@ -163,6 +171,90 @@ class CompilationQaTests(unittest.TestCase):
                 Path(directory),
             )
             self.assertTrue(any("invalid Ink & Gouache art direction" in item for item in failures))
+
+    def test_editorial_motion_plan_ignores_verified_asset_runtime_paths(self):
+        scene = {
+            "kind": "editorial_motion_scene",
+            "presentation": "story",
+            "start_sec": 0,
+            "end_sec": 20,
+            "duration_sec": 20,
+            "narration_text": "история",
+            "style_profile": INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+            "story_family": "work",
+            "page_layout": "hero_left_details_right",
+            "motion": {"module": "living_photo_depth", "seek_safe": True},
+            "factual_text_rendering": "html_svg_only",
+            "asset_family_id": "pack-1",
+            "assets": [],
+        }
+        motion_plan = bind_editorial_payload({
+            "version": 2,
+            "style_profile": INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+            "scene_count": 1,
+            "module_usage": {"living_photo_depth": 1},
+            "scenes": [scene],
+        }, "motion_plan_sha256")
+        caption_track = bind_editorial_payload({
+            "version": 1,
+            "cues": [],
+        }, "caption_track_sha256")
+        storyboard = {
+            "visual_mode": EDITORIAL_MOTION_MODE,
+            "style_profile": INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+            "timeline_duration_sec": 20,
+            "slides": [scene],
+            "motion_plan": motion_plan,
+            "motion_plan_sha256": motion_plan["motion_plan_sha256"],
+            "caption_track": caption_track,
+            "caption_track_sha256": caption_track["caption_track_sha256"],
+        }
+        render_report = {
+            "visual_mode": EDITORIAL_MOTION_MODE,
+            "style_profile": INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+            "renderer": "hyperframes",
+            "hyperframes_check_passed": True,
+            "background_video_used": False,
+            "factual_text_rendering": "html_svg_only",
+            "duration_sec": 20,
+            "motion_plan_sha256": motion_plan["motion_plan_sha256"],
+            "caption_track_sha256": caption_track["caption_track_sha256"],
+        }
+        creative_manifest = {
+            "mode": EDITORIAL_MOTION_MODE,
+            "style_profile": INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
+            "background_video_required": False,
+            "motion_plan_sha256": motion_plan["motion_plan_sha256"],
+            "caption_track_sha256": caption_track["caption_track_sha256"],
+            "visual_contract": {},
+        }
+        checked_scene = {
+            **scene,
+            "verified_assets": [{"verified_path": "asset.png"}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            failures = _validate_editorial_motion_creative_contract(
+                {"intro_ru": "", "outro_ru": "", "stories": []},
+                storyboard,
+                render_report,
+                creative_manifest,
+                [checked_scene],
+                Path(directory),
+            )
+        self.assertFalse(
+            any(
+                "motion plan does not exactly match storyboard scenes" in item
+                for item in failures
+            ),
+            failures,
+        )
+        self.assertFalse(
+            any(
+                "verified editorial scenes do not match" in item
+                for item in failures
+            ),
+            failures,
+        )
 
     def test_role_aware_tts_qa_rejects_comment_voice_fallback(self):
         state = {
@@ -453,12 +545,62 @@ class CompilationQaTests(unittest.TestCase):
             "thumbnail": thumbnail,
         }
 
-    def _complete_v2_case(self, root, *, cinematic=False):
+    def _complete_v2_case(
+        self, root, *, cinematic=False, editorial=False,
+    ):
         """Build a fully bound synthetic v2 artifact without invoking FFmpeg."""
+        if cinematic and editorial:
+            raise ValueError("synthetic case must choose one visual mode")
         case = self._complete_case(root)
-        mode = "cinematic_story_v1" if cinematic else "reddit_pages"
+        mode = (
+            EDITORIAL_MOTION_MODE
+            if editorial
+            else "cinematic_story_v1" if cinematic else "reddit_pages"
+        )
         compilation = case["compilation"]
         compilation["visual_mode"] = mode
+        if editorial:
+            compilation.update({
+                "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                "episode_format": "BUNDLE",
+            })
+            for index, story in enumerate(
+                compilation["stories"],
+                start=1,
+            ):
+                grammar = select_format_visual_system_v3_panel_grammar(
+                    "BUNDLE",
+                    1,
+                    1,
+                )
+                assets = []
+                for role, color in (
+                    ("hero_plate", "#314159"),
+                    ("detail_plate", "#9a3412"),
+                ):
+                    image = root / f"story-{index}-{role}.png"
+                    Image.new("RGB", (1536, 864), color).save(image)
+                    assets.append({
+                        "kind": "generated_image",
+                        "download_status": "verified",
+                        "local_path": image.name,
+                        "sha256": hashlib.sha256(
+                            image.read_bytes(),
+                        ).hexdigest(),
+                        "asset_family_id": (
+                            f"story-{index}-pack-001"
+                        ),
+                        "layer_role": role,
+                        "motion_module": "living_photo_depth",
+                        "source_excerpt_sha256": "e" * 64,
+                        "factual_text_allowed": False,
+                        "story_family": "relationships",
+                        "page_layout": "bundle_story_opener",
+                        "panel_grammar": grammar["id"],
+                        "panel_count": grammar["panel_count"],
+                        "panel_beat_role": grammar["beat_role"],
+                    })
+                story["generated_media"] = assets
         plan = self._episode_plan(compilation, historical=False, visual_mode=mode)
         plan_hash = plan["episode_plan_sha256"]
         for payload in (compilation, case["metadata"], case["tts"], case["render_report"]):
@@ -637,6 +779,138 @@ class CompilationQaTests(unittest.TestCase):
                 )
         self.assertEqual(tampered["status"], "BLOCKED")
         self.assertTrue(any("caption SRT" in item for item in tampered["failures"]))
+
+    def test_actual_editorial_assembly_report_passes_complete_media_qa(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = self._complete_v2_case(root, editorial=True)
+            storyboard = case["storyboard"]
+            # This regression isolates the renderer -> media-QA seam. Generic
+            # episode scripting/packaging has separate complete coverage.
+            case["compilation"].pop("episode_format", None)
+            case["artifact_hashes"]["script_sha256"] = self._creative_hash(
+                case["compilation"],
+            )
+            checked_scenes = preflight_editorial_motion_storyboard(
+                storyboard,
+                root,
+            )
+            public_plan = build_editorial_render_segment_plan(
+                storyboard,
+                root,
+            )
+            segment_paths = []
+            segment_durations = []
+            for segment in public_plan["segments"]:
+                path = root / f"segment-{segment['index']:03d}.mp4"
+                path.write_bytes(
+                    f"segment-{segment['index']}".encode(),
+                )
+                segment_paths.append(path)
+                segment_durations.append(
+                    float(segment["duration_sec"]),
+                )
+            timeline_duration = float(
+                storyboard["timeline_duration_sec"],
+            )
+            frame_duration = (
+                math.ceil(timeline_duration * 30 - 1e-9) / 30
+            )
+
+            def fake_burn(
+                _source, _captions, final_output, **_kwargs,
+            ):
+                final_output.write_bytes(b"synthetic-final-video")
+
+            with (
+                patch(
+                    "compilation_editorial_motion_renderer."
+                    "preflight_editorial_motion_storyboard",
+                    return_value=checked_scenes,
+                ),
+                patch(
+                    "compilation_editorial_motion_renderer._probe_h264",
+                    side_effect=[
+                        *[
+                            {"duration_sec": duration}
+                            for duration in segment_durations
+                        ],
+                        {"duration_sec": frame_duration},
+                    ],
+                ),
+                patch(
+                    "compilation_editorial_motion_renderer."
+                    "_probe_media_duration",
+                    return_value=timeline_duration,
+                ),
+                patch(
+                    "compilation_editorial_motion_renderer._run",
+                    return_value=Mock(stdout="", stderr=""),
+                ),
+                patch(
+                    "compilation_editorial_motion_renderer.burn_captions",
+                    side_effect=fake_burn,
+                ),
+            ):
+                report = assemble_editorial_motion_segments(
+                    storyboard,
+                    root,
+                    segment_paths,
+                    case["video"],
+                    audio=case["audio"],
+                )
+            case["render_report"] = report
+            case["artifact_hashes"]["video_sha256"] = hashlib.sha256(
+                case["video"].read_bytes(),
+            ).hexdigest()
+            probe = {
+                "streams": [
+                    {
+                        "codec_type": "video",
+                        "width": 1920,
+                        "height": 1080,
+                        "codec_name": "h264",
+                        "avg_frame_rate": "30/1",
+                    },
+                    {
+                        "codec_type": "audio",
+                        "codec_name": "aac",
+                    },
+                ],
+                "format": {"duration": str(frame_duration)},
+            }
+            with patch(
+                "compilation_qa.ffprobe_json",
+                return_value=probe,
+            ):
+                result = run_qa(
+                    case["compilation"],
+                    case["metadata"],
+                    case["tts"],
+                    storyboard,
+                    report,
+                    artifact_root=root,
+                    video_path=case["video"],
+                    thumbnail_path=case["thumbnail"],
+                    audio_path=case["audio"],
+                    expected_voice_id="voice-primary",
+                    episode_plan=case["episode_plan"],
+                    artifact_hashes=case["artifact_hashes"],
+                    pause_map=case["pause_map"],
+                    audio_mix_report=case["audio_mix_report"],
+                    target_duration_minutes=[24, 30],
+                )
+        self.assertEqual(result["status"], "PASS", result["failures"])
+        self.assertEqual(report["status"], "ok")
+        self.assertTrue(report["audio_merged"])
+        self.assertEqual(
+            report["episode_plan_sha256"],
+            case["episode_plan"]["episode_plan_sha256"],
+        )
+        self.assertEqual(
+            report["pause_map_sha256"],
+            case["pause_map"]["pause_map_sha256"],
+        )
 
     def test_actual_runtime_must_fit_locked_format_target(self):
         with tempfile.TemporaryDirectory() as temp:
