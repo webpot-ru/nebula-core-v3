@@ -29,6 +29,7 @@ from acc1_visual_contract import (
     INK_GOUACHE_PAGE_LAYOUTS,
     build_format_visual_system_v3_semantic_camera,
     is_adult_animation_style_profile,
+    resolve_format_visual_system_v3_panel_grammar,
     resolve_visual_mode,
     select_format_visual_system_v3_panel_grammar,
     select_adult_animation_layouts,
@@ -228,10 +229,11 @@ def _normalize_generated_image(
     expected_size: tuple[int, int],
     provider_canvas_size: tuple[int, int],
     provider_path: Path,
-) -> tuple[tuple[int, int], bool, Path]:
+    panel_beat_role: str | None = None,
+) -> tuple[tuple[int, int], bool, Path, str]:
     _actual_format, actual_size = _inspect_generated_image(path)
     if actual_size == expected_size:
-        return actual_size, False, path
+        return actual_size, False, path, "none"
     expected_ratio = expected_size[0] / expected_size[1]
     provider_canvas_ratio = provider_canvas_size[0] / provider_canvas_size[1]
     actual_ratio = actual_size[0] / actual_size[1]
@@ -239,31 +241,100 @@ def _normalize_generated_image(
     near_provider_ratio = (
         abs(actual_ratio - provider_canvas_ratio) / provider_canvas_ratio <= 0.01
     )
+    transposed_provider_canvas = (
+        actual_size[0] < actual_size[1]
+        and abs(actual_size[0] - provider_canvas_size[1]) <= 2
+        and abs(actual_size[1] - provider_canvas_size[0]) <= 2
+    )
     if (
-        actual_size[0] < expected_size[0]
-        or actual_size[1] < expected_size[1]
-        or actual_size[0] <= actual_size[1]
-        or not (near_video_ratio or near_provider_ratio)
+        not transposed_provider_canvas
+        and (
+            actual_size[0] < expected_size[0]
+            or actual_size[1] < expected_size[1]
+            or actual_size[0] <= actual_size[1]
+            or not (near_video_ratio or near_provider_ratio)
+        )
     ):
         raise EpisodeImageError(
             "image provider returned wrong dimensions: "
             f"expected {expected_size[0]}x{expected_size[1]}, "
             f"got {actual_size[0]}x{actual_size[1]}"
         )
+    panel_regions: list[dict[str, Any]] | None = None
+    if transposed_provider_canvas:
+        if not panel_beat_role:
+            raise EpisodeImageError(
+                "transposed portrait provider canvas requires the exact v3 panel grammar"
+            )
+        try:
+            grammar = resolve_format_visual_system_v3_panel_grammar(panel_beat_role)
+        except ValueError as exc:
+            raise EpisodeImageError(
+                "transposed portrait provider canvas has an invalid v3 panel grammar"
+            ) from exc
+        panel_regions = list(grammar["regions"])
     if provider_path.exists():
         raise EpisodeImageError(f"unexpected existing raw provider image: {provider_path.name}")
     os.replace(path, provider_path)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     with Image.open(provider_path) as image:
-        normalized = ImageOps.fit(
-            image.convert("RGB"), expected_size, method=Image.Resampling.LANCZOS,
-        )
+        source = image.convert("RGB")
+        if panel_regions is None:
+            normalized = ImageOps.fit(
+                source, expected_size, method=Image.Resampling.LANCZOS,
+            )
+            normalization_mode = "landscape_canvas_crop_v1"
+        else:
+            normalized = Image.new("RGB", expected_size, (244, 239, 226))
+            source_width, source_height = source.size
+            region_count = len(panel_regions)
+            # The v3 prompt deliberately reserves a quiet lower subtitle area.
+            # Keep that paper margin out of the semantic panel sequence so the
+            # final support panel does not become an empty crop.
+            source_reading_height = max(
+                region_count,
+                round(source_height * 0.86),
+            )
+            for index, region in enumerate(panel_regions):
+                rect = region["rect"]
+                left = max(0, round(float(rect[0]) * expected_size[0]))
+                top = max(0, round(float(rect[1]) * expected_size[1]))
+                right = min(
+                    expected_size[0],
+                    round((float(rect[0]) + float(rect[2])) * expected_size[0]),
+                )
+                bottom = min(
+                    expected_size[1],
+                    round((float(rect[1]) + float(rect[3])) * expected_size[1]),
+                )
+                if right <= left or bottom <= top:
+                    raise EpisodeImageError(
+                        "transposed portrait panel grammar has an empty region"
+                    )
+                segment_height = source_reading_height / region_count
+                overlap = segment_height * 0.08
+                segment_top = max(0, round(index * segment_height - overlap))
+                segment_bottom = min(
+                    source_reading_height,
+                    round((index + 1) * segment_height + overlap),
+                )
+                segment = source.crop(
+                    (0, segment_top, source_width, segment_bottom),
+                )
+                panel = ImageOps.fit(
+                    segment,
+                    (right - left, bottom - top),
+                    method=Image.Resampling.LANCZOS,
+                    centering=(0.5, 0.5),
+                )
+                normalized.paste(panel, (left, top))
+            normalization_mode = "portrait_semantic_panel_reframe_v1"
         normalized.save(temporary, format="PNG")
     os.replace(temporary, path)
     _format, normalized_size = _inspect_generated_image(path)
     if normalized_size != expected_size:
         raise EpisodeImageError("normalized image does not match the requested dimensions")
-    return actual_size, True, provider_path
+    return actual_size, True, provider_path, normalization_mode
 
 
 def _atomic_json(path: Path, value: dict[str, Any]) -> None:
@@ -905,8 +976,15 @@ def generate_episode_images(
     for plan_index, item in enumerate(planned):
         story_number = item["story_index"] + 1
         source_token = _safe_filename_token(item["source_id"])
+        layer_role = str(item.get("layer_role") or "")
+        layer_suffix = (
+            f"-{_safe_filename_token(layer_role)}"
+            if layer_role and layer_role != "hero_plate"
+            else ""
+        )
         output = output_dir / (
-            f"story-{story_number:02d}-{source_token}-scene-{item['scene_index']:02d}.png"
+            f"story-{story_number:02d}-{source_token}-scene-"
+            f"{item['scene_index']:02d}{layer_suffix}.png"
         )
         resolved_output = output.resolve()
         if resolved_output == root or root not in resolved_output.parents:
@@ -978,6 +1056,10 @@ def generate_episode_images(
                 raise EpisodeImageError("image checkpoint file hash mismatch")
             provider_size = tuple(entry.get("provider_size") or ())
             normalized = bool(entry.get("normalized"))
+            normalization_mode = str(
+                entry.get("normalization_mode")
+                or ("landscape_canvas_crop_v1" if normalized else "none")
+            )
         else:
             if ambiguous:
                 if plan_index < 1 or len(checkpoint["entries"]) != plan_index:
@@ -993,6 +1075,7 @@ def generate_episode_images(
                 result = output
                 provider_size = expected_size
                 normalized = False
+                normalization_mode = "local_continuity_fallback_v1"
                 digest = _sha256(output)
                 entry = {
                     "index": plan_index + 1,
@@ -1003,6 +1086,7 @@ def generate_episode_images(
                     "output_path": output.resolve().relative_to(root).as_posix(),
                     "output_sha256": digest,
                     "normalized": False,
+                    "normalization_mode": normalization_mode,
                     "local_fallback": True,
                     "fallback_reason": "ambiguous_provider_attempt_not_retried",
                     "fallback_source_path": previous["output_path"],
@@ -1044,11 +1128,16 @@ def generate_episode_images(
             if _sha256(resolved) != attempt.get("output_sha256"):
                 raise EpisodeImageError("provider image file does not match its journal hash")
             raw_path = output.with_name(f"{output.stem}.provider{output.suffix}")
-            provider_size, normalized, provider_file = _normalize_generated_image(
-                resolved,
-                expected_size=expected_size,
-                provider_canvas_size=expected_provider_canvas_size,
-                provider_path=raw_path,
+            provider_size, normalized, provider_file, normalization_mode = (
+                _normalize_generated_image(
+                    resolved,
+                    expected_size=expected_size,
+                    provider_canvas_size=expected_provider_canvas_size,
+                    provider_path=raw_path,
+                    panel_beat_role=(
+                        str(item.get("panel_grammar") or "") or None
+                    ),
+                )
             )
             digest = _sha256(output)
             entry = {
@@ -1061,6 +1150,7 @@ def generate_episode_images(
                 "output_path": output.resolve().relative_to(root).as_posix(),
                 "output_sha256": digest,
                 "normalized": normalized,
+                "normalization_mode": normalization_mode,
             }
             checkpoint["entries"].append(entry)
             if checkpoint_file is not None:
@@ -1071,7 +1161,10 @@ def generate_episode_images(
                 raise EpisodeImageError("checkpoint image has wrong normalized dimensions")
             digest = _sha256(resolved)
         asset = {
-            "media_id": f"generated-{item['source_id']}-scene-{item['scene_index']:02d}",
+            "media_id": (
+                f"generated-{item['source_id']}-scene-{item['scene_index']:02d}"
+                f"{layer_suffix}"
+            ),
             "kind": "local_continuity_fallback" if entry.get("local_fallback") else "generated_image",
             "local_path": resolved.relative_to(root).as_posix(),
             "sha256": digest,
@@ -1081,6 +1174,7 @@ def generate_episode_images(
             "provider_requested_size": entry.get("provider_requested_size", size),
             "provider_size": list(provider_size),
             "normalized_from_provider_size": normalized,
+            "normalization_mode": normalization_mode,
             "local_fallback": bool(entry.get("local_fallback")),
             "fallback_reason": entry.get("fallback_reason"),
             "prompt": item["prompt"],

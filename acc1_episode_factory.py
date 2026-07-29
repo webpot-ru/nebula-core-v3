@@ -2752,10 +2752,6 @@ def _consume_invalid_first_image_for_explicit_replacement(
 
     prior_replacements = journal.get("invalid_geometry_replacements") or []
     if receipt_path.is_file():
-        if attempts or checkpoint_path.exists():
-            raise EpisodeFactoryError(
-                "invalid-image replacement receipt conflicts with active image state"
-            )
         receipt = _read_object(receipt_path)
         invalid_attempt = receipt.get("invalid_attempt")
         provider_sha256 = str(receipt.get("provider_image_sha256") or "")
@@ -2789,44 +2785,88 @@ def _consume_invalid_first_image_for_explicit_replacement(
             raise EpisodeFactoryError(
                 "invalid-image replacement receipt is malformed"
             )
-        receipt_paths = {
-            "provider_image_path": root / str(
-                receipt.get("provider_image_path") or ""
-            ),
-            "preserved_provider_image_path": root / str(
-                receipt.get("preserved_provider_image_path") or ""
-            ),
-        }
+        provider_slot = root / str(receipt.get("provider_image_path") or "")
+        preserved = root / str(
+            receipt.get("preserved_provider_image_path") or ""
+        )
         expected_preserved = (
             root / "provider-attempts" / "invalid-geometry-attempt-001.png"
         ).resolve()
-        if receipt_paths["preserved_provider_image_path"].resolve() != expected_preserved:
+        if preserved.resolve() != expected_preserved:
             raise EpisodeFactoryError(
                 "invalid-image replacement receipt has an unexpected preservation path"
             )
-        for field, candidate in receipt_paths.items():
-            resolved = candidate.resolve()
-            if (
-                resolved == root
-                or root not in resolved.parents
-                or not resolved.is_file()
-                or _sha256_file(resolved) != provider_sha256
-            ):
-                raise EpisodeFactoryError(
-                    f"invalid-image replacement receipt file mismatch: {field}"
-                )
+        preserved_resolved = preserved.resolve()
+        if (
+            preserved_resolved == root
+            or root not in preserved_resolved.parents
+            or not preserved_resolved.is_file()
+            or _sha256_file(preserved_resolved) != provider_sha256
+        ):
+            raise EpisodeFactoryError(
+                "invalid-image replacement receipt file mismatch: "
+                "preserved_provider_image_path"
+            )
+        try:
+            with Image.open(preserved_resolved) as image:
+                image.load()
+                preserved_size = list(image.size)
+        except (OSError, UnidentifiedImageError) as exc:
+            raise EpisodeFactoryError(
+                "invalid-image replacement receipt file is not decodable: "
+                "preserved_provider_image_path"
+            ) from exc
+        if preserved_size != provider_size:
+            raise EpisodeFactoryError(
+                "invalid-image replacement receipt size mismatch: "
+                "preserved_provider_image_path"
+            )
+
+        provider_slot_resolved = provider_slot.resolve()
+        if (
+            provider_slot_resolved == root
+            or root not in provider_slot_resolved.parents
+            or not provider_slot_resolved.is_file()
+        ):
+            raise EpisodeFactoryError(
+                "invalid-image replacement receipt file mismatch: provider_image_path"
+            )
+        provider_slot_sha256 = _sha256_file(provider_slot_resolved)
+        active_attempt_match = any(
+            isinstance(item, dict)
+            and item.get("status") == "COMPLETE"
+            and item.get("output_sha256") == provider_slot_sha256
+            for item in attempts
+        )
+        checkpoint_match = False
+        if checkpoint_path.is_file():
+            checkpoint = _read_object(checkpoint_path)
+            provider_slot_relative = provider_slot_resolved.relative_to(root).as_posix()
+            checkpoint_match = any(
+                isinstance(entry, dict)
+                and entry.get("output_path") == provider_slot_relative
+                and entry.get("output_sha256") == provider_slot_sha256
+                for entry in checkpoint.get("entries") or []
+            )
+        if provider_slot_sha256 == provider_sha256:
             try:
-                with Image.open(resolved) as image:
+                with Image.open(provider_slot_resolved) as image:
                     image.load()
-                    actual_size = list(image.size)
+                    provider_slot_size = list(image.size)
             except (OSError, UnidentifiedImageError) as exc:
                 raise EpisodeFactoryError(
-                    f"invalid-image replacement receipt file is not decodable: {field}"
+                    "invalid-image replacement receipt file is not decodable: "
+                    "provider_image_path"
                 ) from exc
-            if actual_size != provider_size:
+            if provider_slot_size != provider_size:
                 raise EpisodeFactoryError(
-                    f"invalid-image replacement receipt size mismatch: {field}"
+                    "invalid-image replacement receipt size mismatch: "
+                    "provider_image_path"
                 )
+        elif not active_attempt_match and not checkpoint_match:
+            raise EpisodeFactoryError(
+                "invalid-image replacement receipt file mismatch: provider_image_path"
+            )
         if prior_replacements and prior_replacements != [receipt]:
             raise EpisodeFactoryError(
                 "invalid-image replacement journal and receipt disagree"
