@@ -127,6 +127,7 @@ def preflight_editorial_motion_storyboard(
     seen: set[str] = set()
     thread_story_roles: list[str] = []
     thread_response_numbers: list[int] = []
+    thread_segment_contracts: dict[str, tuple[str, str, int | None]] = {}
     for index, source in enumerate(scenes):
         if not isinstance(source, dict):
             raise EditorialMotionRenderError(f"editorial scene {index} is invalid")
@@ -254,9 +255,8 @@ def preflight_editorial_motion_storyboard(
                     raise EditorialMotionRenderError(
                         f"{scene_id} THREAD source and voice roles drifted",
                     )
-                thread_story_roles.append(source_role)
+                response_number = scene.get("thread_response_number")
                 if source_role == "response":
-                    response_number = scene.get("thread_response_number")
                     if (
                         isinstance(response_number, bool)
                         or not isinstance(response_number, int)
@@ -265,7 +265,26 @@ def preflight_editorial_motion_storyboard(
                         raise EditorialMotionRenderError(
                             f"{scene_id} THREAD response number is invalid",
                         )
-                    thread_response_numbers.append(response_number)
+                elif response_number is not None:
+                    raise EditorialMotionRenderError(
+                        f"{scene_id} THREAD prompt cannot have a response number",
+                    )
+                segment_id = str(scene.get("segment_id") or "")
+                segment_contract = (
+                    source_role,
+                    voice_role,
+                    response_number,
+                )
+                recorded_contract = thread_segment_contracts.get(segment_id)
+                if recorded_contract is None:
+                    thread_segment_contracts[segment_id] = segment_contract
+                    thread_story_roles.append(source_role)
+                    if response_number is not None:
+                        thread_response_numbers.append(response_number)
+                elif recorded_contract != segment_contract:
+                    raise EditorialMotionRenderError(
+                        f"{scene_id} THREAD segment contract drifted",
+                    )
         elif is_adult_animation_style_profile(profile):
             series = ADULT_ANIMATION_SERIES[profile]
             if (

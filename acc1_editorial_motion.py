@@ -97,6 +97,39 @@ def _scene_count(duration: float, available_packs: int) -> int:
     return count
 
 
+def _repeat_packs_in_source_order(
+    packs: list[dict[str, Any]],
+    scene_count: int,
+    *,
+    from_end: bool = False,
+) -> list[dict[str, Any]]:
+    if not packs or scene_count < 1:
+        raise EditorialMotionError("editorial pack repetition requires existing packs")
+    if scene_count <= len(packs):
+        return packs[-scene_count:] if from_end else packs[:scene_count]
+    if from_end:
+        return [
+            packs[math.ceil((index + 1) * len(packs) / scene_count) - 1]
+            for index in range(scene_count)
+        ]
+    return [
+        packs[index * len(packs) // scene_count]
+        for index in range(scene_count)
+    ]
+
+
+def _v3_story_scene_packs(
+    packs: list[dict[str, Any]],
+    *,
+    duration: float,
+) -> list[dict[str, Any]]:
+    scene_count = max(
+        len(packs),
+        math.ceil((duration - 0.001) / EDITORIAL_MOTION_MAX_SCENE_SECONDS),
+    )
+    return _repeat_packs_in_source_order(packs, scene_count)
+
+
 def _service_scene_packs(
     packs: list[dict[str, Any]],
     *,
@@ -120,13 +153,11 @@ def _service_scene_packs(
             f"editorial {segment_kind} requires {scene_count} existing asset "
             f"packs but has {len(packs)}",
         )
-    if from_end:
-        start = (len(packs) - scene_count) % len(packs)
-        return [
-            packs[(start + index) % len(packs)]
-            for index in range(scene_count)
-        ]
-    return [packs[index % len(packs)] for index in range(scene_count)]
+    return _repeat_packs_in_source_order(
+        packs,
+        scene_count,
+        from_end=from_end,
+    )
 
 
 def _group_asset_packs(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -183,18 +214,56 @@ def _group_asset_packs(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "page_layout": next(iter(page_layouts)),
             "assets": family_assets,
         }
+        format_scene_number = None
+        format_scene_count = None
         panel_grammar = next(iter(panel_grammars))
         if panel_grammar:
             panel_count = next(iter(panel_counts))
             panel_beat_role = next(iter(panel_beat_roles))
             if not isinstance(panel_count, int) or panel_count not in {1, 2, 3, 4, 5} or not panel_beat_role:
                 raise EditorialMotionError(f"asset family {family_id} has invalid panel grammar metadata")
+            format_scene_numbers = {
+                item.get("format_scene_number") for item in family_assets
+            }
+            format_scene_counts = {
+                item.get("format_scene_count") for item in family_assets
+            }
+            if format_scene_numbers != {None} or format_scene_counts != {None}:
+                if (
+                    len(format_scene_numbers) != 1
+                    or len(format_scene_counts) != 1
+                ):
+                    raise EditorialMotionError(
+                        f"asset family {family_id} has inconsistent format sequence",
+                    )
+                format_scene_number = next(iter(format_scene_numbers))
+                format_scene_count = next(iter(format_scene_counts))
+                if (
+                    isinstance(format_scene_number, bool)
+                    or not isinstance(format_scene_number, int)
+                    or isinstance(format_scene_count, bool)
+                    or not isinstance(format_scene_count, int)
+                    or format_scene_number < 1
+                    or format_scene_count < format_scene_number
+                ):
+                    raise EditorialMotionError(
+                        f"asset family {family_id} has invalid format sequence",
+                    )
             pack_payload.update({
                 "panel_grammar": panel_grammar,
                 "panel_count": panel_count,
                 "panel_beat_role": panel_beat_role,
             })
-        packs.append({**pack_payload, "asset_pack_sha256": canonical_hash(pack_payload)})
+        pack = {
+            **pack_payload,
+            "asset_pack_sha256": canonical_hash(pack_payload),
+        }
+        if format_scene_number is not None:
+            pack.update({
+                "format_scene_number": format_scene_number,
+                "format_scene_count": format_scene_count,
+            })
+        packs.append(pack)
     return packs
 
 
@@ -319,24 +388,21 @@ def build_editorial_motion_contract(
         if segment_kind == "story":
             packs = story_packs[segment_id]
             metadata_segment_id = segment_id
-            scene_count = (
-                len(packs)
-                if style_profile in {
-                    CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
-                    FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
-                }
-                else _scene_count(duration, len(packs))
-            )
-            if style_profile in {
-                CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
-                FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
-            } and not (
+            if style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE:
+                packs = _v3_story_scene_packs(packs, duration=duration)
+                scene_count = len(packs)
+            elif style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE:
+                scene_count = len(packs)
+            else:
+                scene_count = _scene_count(duration, len(packs))
+            if style_profile == CINEMATIC_INK_WEBTOON_STYLE_PROFILE and not (
                 EDITORIAL_MOTION_MIN_SCENE_SECONDS
                 <= duration / scene_count
                 <= EDITORIAL_MOTION_MAX_SCENE_SECONDS
             ):
                 raise EditorialMotionError(
-                    "cinematic ink webtoon image targets do not fit the narration duration",
+                    f"cinematic ink webtoon {segment_id} duration {duration:.3f}s "
+                    f"does not fit {scene_count} image packs",
                 )
             completed_story_count += 1
         else:
@@ -446,10 +512,14 @@ def build_editorial_motion_contract(
                 "story_index": metadata.get("story_index"),
                 "format_id": metadata.get("format_id"),
                 "scene_number": (
-                    metadata.get("format_scene_number") or index + 1
+                    pack.get("format_scene_number")
+                    or metadata.get("format_scene_number")
+                    or index + 1
                 ),
                 "scene_count": (
-                    metadata.get("format_scene_count") or scene_count
+                    pack.get("format_scene_count")
+                    or metadata.get("format_scene_count")
+                    or scene_count
                 ),
                 "source_role": metadata.get("source_role"),
                 "thread_response_number": metadata.get(
@@ -480,25 +550,30 @@ def build_editorial_motion_contract(
                 style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
                 and panel_grammar
             ):
-                service_pack_use_count = sum(
+                pack_use_count = sum(
                     item["asset_family_id"] == pack["asset_family_id"]
                     for item in packs
                 )
-                service_pack_use_index = sum(
+                pack_use_index = sum(
                     item["asset_family_id"] == pack["asset_family_id"]
                     for item in packs[:index]
                 )
                 camera_pass = "semantic"
                 focus_offset = 0
-                if segment_kind != "story" and service_pack_use_count > 1:
-                    if service_pack_use_index == 0:
+                if pack_use_count > 1:
+                    if segment_kind == "story":
+                        if pack_use_index % 2 == 1:
+                            camera_pass = "overview"
+                        else:
+                            focus_offset = pack_use_index // 2
+                    elif pack_use_index == 0:
                         camera_pass = "overview"
                     else:
-                        focus_offset = service_pack_use_index - 1
+                        focus_offset = pack_use_index - 1
                     scene.update({
-                        "service_asset_reused": True,
-                        "service_asset_use_index": service_pack_use_index + 1,
-                        "service_asset_use_count": service_pack_use_count,
+                        "asset_reused": True,
+                        "asset_use_index": pack_use_index + 1,
+                        "asset_use_count": pack_use_count,
                         "semantic_camera_pass": camera_pass,
                         "semantic_focus_offset": focus_offset,
                     })

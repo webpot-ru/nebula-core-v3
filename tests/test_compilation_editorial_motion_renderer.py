@@ -379,12 +379,16 @@ class EditorialMotionRendererTests(unittest.TestCase):
                         "panel_grammar": grammar["id"],
                         "panel_count": grammar["panel_count"],
                         "panel_beat_role": grammar["beat_role"],
+                        "format_scene_number": position,
+                        "format_scene_count": 2,
                     })
                 segment_id = f"story_{source_id}"
                 text = (
                     "Какой секрет вы скрывали?"
                     if source_role == "prompt"
-                    else "Я скрывала эту правду несколько лет."
+                    else " ".join(
+                        f"ответ{index}" for index in range(160)
+                    )
                 )
                 narration_segments.append({
                     "segment_id": segment_id,
@@ -393,9 +397,10 @@ class EditorialMotionRendererTests(unittest.TestCase):
                     "text": text,
                 })
                 words = text.split()
-                step = 20.0 / len(words)
+                duration = 20.0 if source_role == "prompt" else 96.0
+                step = duration / len(words)
                 segment_timings[segment_id] = {
-                    "duration_sec": 20.0,
+                    "duration_sec": duration,
                     "timing_source": "local",
                     "words": [
                         {
@@ -423,7 +428,7 @@ class EditorialMotionRendererTests(unittest.TestCase):
                 segment_timings=segment_timings,
                 story_assets=story_assets,
                 story_metadata=story_metadata,
-                final_audio_duration_sec=40.0,
+                final_audio_duration_sec=116.0,
                 style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
             )
             storyboard = {
@@ -434,7 +439,7 @@ class EditorialMotionRendererTests(unittest.TestCase):
                 "visual_mode": EDITORIAL_MOTION_MODE,
                 "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
                 "publication_authorized": False,
-                "timeline_duration_sec": 40.0,
+                "timeline_duration_sec": 116.0,
                 "slides": contract["scenes"],
                 "motion_plan": contract["motion_plan"],
                 "motion_plan_sha256": contract["motion_plan"]["motion_plan_sha256"],
@@ -453,12 +458,16 @@ class EditorialMotionRendererTests(unittest.TestCase):
                     }
                     for scene in checked
                 ],
-                40.0,
+                116.0,
                 style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
             )
         self.assertEqual(
             [scene["panel_grammar"] for scene in checked],
-            ["thread_prompt_anchor", "thread_viewpoint_mosaic"],
+            [
+                "thread_prompt_anchor",
+                "thread_viewpoint_mosaic",
+                "thread_viewpoint_mosaic",
+            ],
         )
         self.assertIn("ВОПРОС", html)
         self.assertIn("ОТВЕТ 01", html)
