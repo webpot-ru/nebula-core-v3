@@ -2,6 +2,31 @@
 
 Last updated: 2026-07-30
 
+## 2026-07-30 — Report/motion QA repaired; relative audio evidence path blocked release
+
+- Authorized no-spend recovery run
+  [`30487851424`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30487851424)
+  restored the immutable artifact from run `30460153885`, reused all 18/18
+  hash-bound render segments and skipped Reddit, OpenAI, VectorEngine, AI33
+  submissions and YouTube. The paid spend lease steps were skipped.
+- The repaired common render-report and immutable motion-plan comparison passed
+  far enough to complete the hour-long final encode. Release evidence then
+  stopped on one new deterministic path defect:
+  `release evidence is incomplete: audio_mix_report`.
+- GitHub supplies the factory work directory as the relative path
+  `build/acc1-daily-episode`. The audio mixer correctly treats child paths as
+  artifact-root-relative, but the orchestration layer had passed a child path
+  already prefixed with that same relative work directory. The report was
+  consequently written under a duplicated nested path while the release gate
+  checked the canonical `tts/audio-mix-report.json` location.
+- The correction resolves the factory work directory once at the orchestration
+  boundary. All child paths are then unambiguous absolute paths for local media
+  helpers while serialized artifact paths remain root-relative and portable.
+  A regression calls the production stage with a repository-relative GitHub
+  work directory and requires the paid preflight to receive its resolved
+  absolute root. This correction is **code-verified only** until a separately
+  authorized no-spend recovery succeeds.
+
 ## 2026-07-30 — Frame-correct render reached QA; report binding repaired locally
 
 - Authorized no-spend recovery run
@@ -30,8 +55,9 @@ Last updated: 2026-07-30
   protects the immutable/runtime scene comparison.
 - Artifact `acc1-daily-episode-30460153885` remains on GitHub at
   `2,132,648,512` bytes and retains the 18 hash-bound segment checkpoints. The
-  next authorized no-spend recovery can reuse those segments; this correction
-  remains **code-verified only** until that GitHub recovery succeeds.
+  subsequent run `30487851424` verified reuse of every segment and the repaired
+  render/motion contract, then exposed the separate relative audio-evidence
+  path defect documented above.
 
 ## 2026-07-29 — Segmented render completed, final duration assembly blocked
 
