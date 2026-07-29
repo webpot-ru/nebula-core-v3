@@ -35,7 +35,7 @@ from acc1_visual_contract import (
     INK_GOUACHE_STORY_PAGES_STYLE_PROFILE,
     build_format_visual_system_v3_semantic_camera,
     is_adult_animation_style_profile,
-    select_format_visual_system_v3_panel_grammar,
+    resolve_format_visual_system_v3_panel_grammar,
 )
 
 
@@ -185,24 +185,26 @@ def preflight_editorial_motion_storyboard(
                 )
             if profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE and panel_grammar:
                 resolved_format_id = format_id or "BUNDLE"
-                expected_grammar = select_format_visual_system_v3_panel_grammar(
-                    resolved_format_id,
-                    int(scene.get("scene_number") or 1),
-                    int(scene.get("scene_count") or 1),
+                panel_beat_role = str(
+                    scene.get("panel_beat_role") or panel_grammar,
                 )
-                # Existing frozen artifacts do not contain panel grammar. New
-                # artifacts do, but may use segment-local metadata instead of
-                # these optional renderer fields, so validate the ID shape here
-                # and let the planner enforce its exact sequence.
-                if not panel_grammar.startswith(expected_grammar["format_id"].lower() + "_"):
-                    raise EditorialMotionRenderError(f"{scene_id} has an invalid v3 panel grammar")
+                try:
+                    resolved_grammar = (
+                        resolve_format_visual_system_v3_panel_grammar(
+                            panel_beat_role,
+                        )
+                    )
+                except ValueError as exc:
+                    raise EditorialMotionRenderError(
+                        f"{scene_id} has an invalid v3 panel grammar",
+                    ) from exc
                 if (
-                    scene.get("presentation") == "story"
-                    and format_id
-                    and panel_grammar != expected_grammar["id"]
+                    resolved_grammar["id"] != panel_grammar
+                    or resolved_grammar["format_id"] != resolved_format_id
+                    or resolved_grammar["panel_count"] != scene.get("panel_count")
                 ):
                     raise EditorialMotionRenderError(
-                        f"{scene_id} v3 panel grammar does not match its format sequence",
+                        f"{scene_id} v3 panel grammar identity drifted",
                     )
                 try:
                     focus_offset = scene.get("semantic_focus_offset", 0)
@@ -215,7 +217,7 @@ def preflight_editorial_motion_storyboard(
                             "semantic_focus_offset must be a non-negative integer",
                         )
                     expected_camera = build_format_visual_system_v3_semantic_camera(
-                        str(scene.get("panel_beat_role") or panel_grammar),
+                        panel_beat_role,
                         narration,
                         focus_offset=focus_offset,
                         camera_pass=str(

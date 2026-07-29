@@ -2,6 +2,22 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — Render preflight validates bound panel identity, not response index
+
+- Chained recovery run
+  [`30436196983`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30436196983)
+  passed long-intro and long-THREAD story planning, reached renderer preflight
+  and then stopped because the historical check compared one frozen comic
+  page's grammar with the enclosing Reddit response number. Those are
+  different coordinate systems in a 16-20-page THREAD.
+- Renderer preflight now resolves the page's hash-bound `panel_beat_role` to its
+  canonical format, grammar ID and panel count, and requires those identities
+  to match the scene. It no longer fabricates an expected page from an
+  unrelated response index. A format mismatch, beat mismatch, panel-count
+  mismatch or camera drift still fails closed.
+- The run made no new OpenAI, VectorEngine or AI33 submission and did not reach
+  YouTube. The next check must chain from run `30436196983`.
+
 ## 2026-07-29 — Long THREAD responses reuse frozen pages without hiding them
 
 - Chained recovery run
