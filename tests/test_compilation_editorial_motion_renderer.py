@@ -1,3 +1,4 @@
+import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,7 +6,7 @@ from unittest import mock
 
 from PIL import Image
 
-from acc1_editorial_motion import build_editorial_motion_contract
+from acc1_editorial_motion import bind_payload, build_editorial_motion_contract
 from acc1_visual_contract import (
     ADULT_ANIMATION_WORK_STYLE_PROFILE,
     CINEMATIC_INK_WEBTOON_STYLE_PROFILE,
@@ -320,6 +321,26 @@ class EditorialMotionRendererTests(unittest.TestCase):
                 "caption_track": contract["caption_track"],
                 "caption_track_sha256": contract["caption_track"]["caption_track_sha256"],
             }
+            tampered = copy.deepcopy(storyboard)
+            tampered["slides"][1]["panel_grammar"] = "thread_viewpoint_mosaic"
+            tampered_motion_payload = {
+                key: value
+                for key, value in tampered["motion_plan"].items()
+                if key != "motion_plan_sha256"
+            }
+            tampered_motion_payload["scenes"] = tampered["slides"]
+            tampered["motion_plan"] = bind_payload(
+                tampered_motion_payload,
+                "motion_plan_sha256",
+            )
+            tampered["motion_plan_sha256"] = tampered["motion_plan"][
+                "motion_plan_sha256"
+            ]
+            with self.assertRaisesRegex(
+                EditorialMotionRenderError,
+                "panel grammar identity drifted",
+            ):
+                preflight_editorial_motion_storyboard(tampered, root)
             checked = preflight_editorial_motion_storyboard(storyboard, root)
         self.assertEqual(
             [scene["semantic_camera_pass"] for scene in checked[:2]],
@@ -415,8 +436,12 @@ class EditorialMotionRendererTests(unittest.TestCase):
                 story_metadata[segment_id] = {
                     "story_index": position,
                     "format_id": "THREAD",
-                    "format_scene_number": position,
-                    "format_scene_count": 2,
+                    "format_scene_number": (
+                        position if source_role == "prompt" else 14
+                    ),
+                    "format_scene_count": (
+                        2 if source_role == "prompt" else 14
+                    ),
                     "source_role": source_role,
                     "thread_response_number": (
                         1 if source_role == "response" else None
