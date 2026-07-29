@@ -17,6 +17,7 @@ from acc1_narration_profiles import (
 )
 from compilation_tts_runner import (
     CompilationTtsError,
+    _poll_with_retries,
     build_tts_chunks,
     resume_compilation_tts_from_saved_state,
     run_compilation_tts,
@@ -585,6 +586,88 @@ class CompilationTtsRunnerTests(unittest.TestCase):
         self.assertEqual(polls[:2], ["task-1", "task-1"])
         self.assertEqual(len(posts), len(state["chunks"]))
         self.assertEqual(sleeps, [5])
+
+    def test_server_busy_503_can_wait_thirty_minutes_without_resubmit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            clock = [100.0]
+            posts = []
+            polls = []
+            sleeps = []
+
+            def post(**kwargs):
+                posts.append(kwargs["file_name"])
+                return {
+                    "task_id": f"task-{len(posts)}",
+                    "model_id": "eleven_v3",
+                }
+
+            def poll(**kwargs):
+                polls.append(kwargs["task_id"])
+                if kwargs["task_id"] == "task-1" and sum(sleeps) < 1_800:
+                    raise Ai33Error(
+                        "AI33 task polling failed (503): "
+                        '{"success":false,"code":"server_busy",'
+                        '"message":"Task polling temporarily busy"}'
+                    )
+                kwargs["output_path"].write_bytes(b"audio")
+                return {"success": True, "model_id": "eleven_v3"}
+
+            def sleep_and_advance(seconds):
+                sleeps.append(seconds)
+                clock[0] += seconds
+
+            def concat(paths, output):
+                output.write_bytes(b"final")
+
+            state = run_compilation_tts(
+                sample_compilation(),
+                output_dir=root,
+                api_key="secret",
+                voice_id="voice",
+                post_task=post,
+                poll_task=poll,
+                concat=concat,
+                sleeper=sleep_and_advance,
+                monotonic=lambda: clock[0],
+                overall_timeout_seconds=1_900,
+                probe_duration=fake_probe_duration,
+                poll_concurrency=1,
+            )
+
+        self.assertEqual(sum(sleeps), 1_800)
+        self.assertGreater(polls.count("task-1"), 5)
+        self.assertEqual(len(posts), len(state["chunks"]))
+        self.assertEqual(state["status"], "COMPLETE")
+
+    def test_server_busy_503_still_fails_closed_after_thirty_minutes(self):
+        clock = [100.0]
+        sleeps = []
+
+        def poll(**_kwargs):
+            raise Ai33Error(
+                "AI33 task polling failed (503): "
+                '{"success":false,"code":"server_busy",'
+                '"message":"Task polling temporarily busy"}'
+            )
+
+        def sleep_and_advance(seconds):
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        with self.assertRaisesRegex(
+            CompilationTtsError,
+            "remained temporarily busy for 1800 seconds",
+        ):
+            _poll_with_retries(
+                poll,
+                retries=4,
+                sleeper=sleep_and_advance,
+                poll_kwargs={},
+                deadline=2_000,
+                monotonic=lambda: clock[0],
+            )
+        self.assertEqual(sum(sleeps), 1_800)
 
     def test_ambiguous_or_changed_state_never_submits(self):
         with tempfile.TemporaryDirectory() as temp:
