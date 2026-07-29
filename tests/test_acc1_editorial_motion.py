@@ -318,6 +318,74 @@ class EditorialMotionContractTests(unittest.TestCase):
             intro_text,
         )
 
+    def test_long_v3_story_reuses_one_page_without_exceeding_48_seconds(self):
+        grammar = select_format_visual_system_v3_panel_grammar("THREAD", 2, 16)
+        story_text = " ".join(f"ответ{index}" for index in range(160))
+        assets = [
+            asset(
+                "response-pack",
+                role,
+                "living_photo_depth",
+                token,
+                story_family="strange",
+                page_layout="thread_response_vignette",
+                panel_grammar=grammar["id"],
+                panel_count=grammar["panel_count"],
+                panel_beat_role=grammar["beat_role"],
+            )
+            for role, token in (
+                ("hero_plate", "a"),
+                ("detail_plate", "b"),
+            )
+        ]
+        for item in assets:
+            item["format_scene_number"] = 2
+            item["format_scene_count"] = 16
+        result = build_editorial_motion_contract(
+            narration_segments=[{
+                "segment_id": "story_response",
+                "kind": "story",
+                "voice_role": "comment",
+                "text": story_text,
+            }],
+            segment_timings={
+                "story_response": self._timing(story_text, 96.0),
+            },
+            story_assets={"story_response": assets},
+            story_metadata={"story_response": {
+                "story_index": 2,
+                "format_id": "THREAD",
+                "format_scene_number": 99,
+                "format_scene_count": 99,
+                "source_role": "response",
+                "thread_response_number": 1,
+            }},
+            final_audio_duration_sec=96.0,
+            style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+        )
+        scenes = result["scenes"]
+        self.assertEqual(len(scenes), 2)
+        self.assertEqual(
+            [scene["asset_family_id"] for scene in scenes],
+            ["response-pack", "response-pack"],
+        )
+        self.assertEqual(
+            [scene["semantic_camera_pass"] for scene in scenes],
+            ["semantic", "overview"],
+        )
+        self.assertEqual(
+            [scene["duration_sec"] for scene in scenes],
+            [48.0, 48.0],
+        )
+        self.assertEqual(
+            [(scene["scene_number"], scene["scene_count"]) for scene in scenes],
+            [(2, 16), (2, 16)],
+        )
+        self.assertEqual(
+            " ".join(scene["narration_text"] for scene in scenes),
+            story_text,
+        )
+
     def test_long_v3_intro_reuses_one_pack_with_distinct_semantic_passes(self):
         intro_text = " ".join(f"вступление{index}" for index in range(20))
         story_text = " ".join(f"слово{index}" for index in range(40))

@@ -2,6 +2,28 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — Long THREAD responses reuse frozen pages without hiding them
+
+- Chained recovery run
+  [`30434630788`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30434630788)
+  passed the repaired intro contract and then exposed the next historical
+  mismatch: a long THREAD response can outlast the old 48-second ceiling for
+  its allocated frozen comic page. The run stopped before rendering and made
+  no new OpenAI, VectorEngine or AI33 submission.
+- Format-v3 story planning now preserves every generated page and, only when a
+  spoken source segment would exceed 48 seconds per page, partitions it into
+  more contiguous scenes backed by those same verified pages. Repeated pages
+  alternate their source-bound semantic panel pass with a complete-page pass;
+  exact narration order and the 48-second ceiling remain intact.
+- The planner now derives each format-v3 page's global sequence number from the
+  already hash-bound image asset metadata instead of the enclosing THREAD
+  response number. Renderer THREAD validation counts source segments rather
+  than treating multiple pages or camera passes from one response as different
+  responses.
+- This revision is locally verified only. No local provider, MP4 render or
+  YouTube operation was performed; the next check must be a chained GitHub
+  recovery from run `30434630788`.
+
 ## 2026-07-29 — Long service scenes can reread one frozen comic page meaningfully
 
 - Chained recovery run
