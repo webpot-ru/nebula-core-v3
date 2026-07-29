@@ -2,6 +2,28 @@
 
 Last updated: 2026-07-28
 
+## 2026-07-29 — consumed portrait receipt made idempotent across recovery children
+
+- Run
+  [`30412752520`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30412752520)
+  was dispatched from the already-used parent `30362530066`; the single-use
+  lease guard stopped it before every provider request. Run
+  [`30417974771`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30417974771)
+  correctly continued from immediate child `30373196559`, created its new
+  lease, then stopped before provider transport while re-reading the already
+  consumed invalid-geometry state.
+- The first child had already preserved and consumed the portrait response,
+  but the empty image journal was later normalized to its base schema and
+  dropped the redundant `invalid_geometry_replacements` extension. The
+  immutable `image-geometry-replacement.json`, original portrait and preserved
+  portrait remained byte-identical and present.
+- A recovery child now treats that state idempotently only after validating
+  the exact receipt schema, original and preserved file hashes and dimensions,
+  fixed preservation path, absent scene checkpoint and unchanged image cap.
+  Any active image attempt, checkpoint, hash, path, dimension or receipt drift
+  still blocks before a provider request. Neither failed run called
+  VectorEngine, AI33, Reddit, OpenAI or YouTube.
+
 ## 2026-07-28 — AI33 ceiling fixed at 96 for every paid acc1 factory run
 
 - Recovery run
