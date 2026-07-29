@@ -236,6 +236,36 @@ class EpisodeImageTests(unittest.TestCase):
             "Первый смысловой фрагмент ведёт ко второму, затем к третьему и четвёртому.",
         )
 
+    def test_v3_semantic_camera_supports_overview_and_rotated_focus_passes(self):
+        text = "Первый фрагмент сменяется вторым, третьим и четвёртым."
+        overview = build_format_visual_system_v3_semantic_camera(
+            "bundle_escalation",
+            text,
+            camera_pass="overview",
+        )
+        rotated = build_format_visual_system_v3_semantic_camera(
+            "bundle_escalation",
+            text,
+            focus_offset=1,
+        )
+        self.assertEqual(overview["camera_path"][1]["kind"], "page_overview_hold")
+        self.assertEqual(
+            overview["semantic_focus"]["camera_pass"],
+            "overview",
+        )
+        self.assertEqual(
+            rotated["semantic_focus"]["reading_order"],
+            ["support_top", "support_middle", "support_bottom", "dominant"],
+        )
+        self.assertEqual(rotated["semantic_focus"]["focus_offset"], 1)
+        self.assertEqual(
+            " ".join(
+                beat["narration_excerpt"]
+                for beat in rotated["camera_path"][1:]
+            ),
+            text,
+        )
+
     def test_v3_plan_binds_panel_grammar_to_each_generated_asset(self):
         source_story = story("v3-grammar", words=160)
         source_story["image_target"] = 18

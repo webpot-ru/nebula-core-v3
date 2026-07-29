@@ -487,7 +487,11 @@ def _format_visual_system_v3_narration_chunks(text: object, count: int) -> list[
 
 
 def build_format_visual_system_v3_semantic_camera(
-    panel_beat_role: object, narration_text: object,
+    panel_beat_role: object,
+    narration_text: object,
+    *,
+    focus_offset: int = 0,
+    camera_pass: str = "semantic",
 ) -> dict[str, object]:
     """Bind normalized panel coordinates and camera beats to exact narration.
 
@@ -495,6 +499,15 @@ def build_format_visual_system_v3_semantic_camera(
     Camera moves therefore target a named panel associated with a source-text
     excerpt instead of choosing a direction from a generic animation module.
     """
+
+    if (
+        isinstance(focus_offset, bool)
+        or not isinstance(focus_offset, int)
+        or focus_offset < 0
+    ):
+        raise ValueError("semantic camera focus_offset must be a non-negative integer")
+    if camera_pass not in {"semantic", "overview"}:
+        raise ValueError("semantic camera pass must be semantic or overview")
 
     grammar = resolve_format_visual_system_v3_panel_grammar(panel_beat_role)
     regions = [
@@ -510,7 +523,14 @@ def build_format_visual_system_v3_semantic_camera(
         }
         for region in grammar["regions"]
     ]
-    chunks = _format_visual_system_v3_narration_chunks(narration_text, len(regions))
+    normalized_offset = focus_offset % len(regions)
+    ordered_regions = (
+        regions[normalized_offset:] + regions[:normalized_offset]
+    )
+    chunks = _format_visual_system_v3_narration_chunks(
+        narration_text,
+        len(ordered_regions),
+    )
     fractions = _FORMAT_VISUAL_SYSTEM_V3_FOCUS_FRACTIONS[len(regions)]
     camera_path = [{
         "beat_id": "overview",
@@ -521,29 +541,45 @@ def build_format_visual_system_v3_semantic_camera(
         "narration_excerpt": "",
         "transform": {"scale": 1.0, "x": 0, "y": 0},
     }]
-    for index, (region, excerpt, fraction) in enumerate(
-        zip(regions, chunks, fractions), start=1,
-    ):
-        camera_path.append({
-            "beat_id": f"focus_{index:02d}_{region['panel_id']}",
-            "kind": "semantic_panel_focus",
-            "at_fraction": fraction,
-            "panel_id": region["panel_id"],
-            "semantic_role": region["semantic_role"],
-            "narration_excerpt": excerpt,
-            "transform": dict(region["camera"]),
-        })
     normalized_text = " ".join(str(narration_text or "").split())
+    if camera_pass == "overview":
+        camera_path.append({
+            "beat_id": "overview_hold",
+            "kind": "page_overview_hold",
+            "at_fraction": 0.08,
+            "panel_id": None,
+            "semantic_role": "establish_page",
+            "narration_excerpt": normalized_text,
+            "transform": {"scale": 1.045, "x": 0, "y": -4},
+        })
+    else:
+        for index, (region, excerpt, fraction) in enumerate(
+            zip(ordered_regions, chunks, fractions), start=1,
+        ):
+            camera_path.append({
+                "beat_id": f"focus_{index:02d}_{region['panel_id']}",
+                "kind": "semantic_panel_focus",
+                "at_fraction": fraction,
+                "panel_id": region["panel_id"],
+                "semantic_role": region["semantic_role"],
+                "narration_excerpt": excerpt,
+                "transform": dict(region["camera"]),
+            })
+    semantic_focus = {
+        "primary_panel_id": ordered_regions[0]["panel_id"],
+        "reading_order": [region["panel_id"] for region in ordered_regions],
+        "source_text_sha256": hashlib.sha256(
+            normalized_text.encode("utf-8"),
+        ).hexdigest(),
+    }
+    if camera_pass != "semantic":
+        semantic_focus["camera_pass"] = camera_pass
+    if normalized_offset:
+        semantic_focus["focus_offset"] = normalized_offset
     return {
         "camera_contract_version": FORMAT_VISUAL_SYSTEM_V3_CAMERA_CONTRACT_VERSION,
         "panel_regions": regions,
-        "semantic_focus": {
-            "primary_panel_id": regions[0]["panel_id"],
-            "reading_order": [region["panel_id"] for region in regions],
-            "source_text_sha256": hashlib.sha256(
-                normalized_text.encode("utf-8"),
-            ).hexdigest(),
-        },
+        "semantic_focus": semantic_focus,
         "camera_path": camera_path,
     }
 EDITORIAL_MOTION_MIN_SCENE_SECONDS = 18.0

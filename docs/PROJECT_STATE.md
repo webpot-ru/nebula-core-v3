@@ -2,6 +2,25 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — Long service scenes can reread one frozen comic page meaningfully
+
+- Chained recovery run
+  [`30431196749`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30431196749)
+  reused the completed AI33 narration and existing images, but proved that the
+  first story contains only one verified comic-page pack while the spoken intro
+  needs two 15-second scenes. It stopped before rendering and made no new
+  provider submission.
+- Service-scene partitioning now cycles only frozen verified packs when fewer
+  packs exist than the spoken duration requires. A repeated format-v3 page is
+  not rendered with the same camera path: its first use is a complete-page
+  overview and its next use follows the source-bound semantic panel focus.
+  Further reuse rotates the deterministic panel reading order when the page has
+  multiple panels. Reuse count, pass and offset remain inside the hash-bound
+  storyboard and renderer preflight.
+- This revision is locally verified only. No local provider, MP4 render or
+  YouTube operation was performed; the next check must be a chained GitHub
+  recovery from run `30431196749`.
+
 ## 2026-07-29 — Long spoken intros partition into bounded service scenes
 
 - Chained recovery run
@@ -14,8 +33,7 @@ Last updated: 2026-07-29
   partitioning a longer intro, transition, CTA or outro into the minimum
   number of contiguous scenes. The scenes preserve the exact narration,
   consume only already verified asset packs in deterministic beginning/end
-  order and never repeat or invent a missing pack. Insufficient existing
-  packs still fail closed.
+  order and never invent a missing pack.
 - Targeted storyboard/editorial-motion tests pass locally. No local provider,
   render or YouTube operation was performed; the chained GitHub artifact
   remains the required source for the next no-resubmission recovery.

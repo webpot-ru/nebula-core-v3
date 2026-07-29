@@ -204,9 +204,22 @@ def preflight_editorial_motion_storyboard(
                         f"{scene_id} v3 panel grammar does not match its format sequence",
                     )
                 try:
+                    focus_offset = scene.get("semantic_focus_offset", 0)
+                    if (
+                        isinstance(focus_offset, bool)
+                        or not isinstance(focus_offset, int)
+                        or focus_offset < 0
+                    ):
+                        raise ValueError(
+                            "semantic_focus_offset must be a non-negative integer",
+                        )
                     expected_camera = build_format_visual_system_v3_semantic_camera(
                         str(scene.get("panel_beat_role") or panel_grammar),
                         narration,
+                        focus_offset=focus_offset,
+                        camera_pass=str(
+                            scene.get("semantic_camera_pass") or "semantic",
+                        ),
                     )
                 except ValueError as exc:
                     raise EditorialMotionRenderError(

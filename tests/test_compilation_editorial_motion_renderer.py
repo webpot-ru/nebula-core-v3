@@ -232,6 +232,104 @@ class EditorialMotionRendererTests(unittest.TestCase):
             checked = preflight_editorial_motion_storyboard(storyboard, root)
         self.assertEqual(checked[0]["style_profile"], FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE)
 
+    def test_v3_preflight_accepts_reused_service_page_with_distinct_camera_passes(self):
+        intro_text = " ".join(f"вступление{index}" for index in range(20))
+        story_text = " ".join(f"история{index}" for index in range(20))
+        grammar = select_format_visual_system_v3_panel_grammar("BUNDLE", 1, 1)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            assets = []
+            for index, role in enumerate(
+                ("hero_plate", "detail_plate"),
+                start=1,
+            ):
+                path = root / f"{role}.png"
+                Image.new("RGB", (1536, 1024), f"#{index}{index}{index}922").save(path)
+                import hashlib
+                assets.append({
+                    "kind": "generated_image",
+                    "local_path": path.name,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "asset_family_id": "pack-one",
+                    "layer_role": role,
+                    "motion_module": "living_photo_depth",
+                    "source_excerpt_sha256": "a" * 64,
+                    "factual_text_allowed": False,
+                    "story_family": "relationships",
+                    "page_layout": "bundle_story_opener",
+                    "panel_grammar": grammar["id"],
+                    "panel_count": grammar["panel_count"],
+                    "panel_beat_role": grammar["beat_role"],
+                })
+
+            def timing(text: str, duration: float) -> dict:
+                words = text.split()
+                step = duration / len(words)
+                return {
+                    "duration_sec": duration,
+                    "timing_source": "ai33",
+                    "words": [
+                        {
+                            "word": word,
+                            "start": index * step,
+                            "end": (index + 1) * step,
+                        }
+                        for index, word in enumerate(words)
+                    ],
+                }
+
+            contract = build_editorial_motion_contract(
+                narration_segments=[
+                    {
+                        "segment_id": "intro",
+                        "kind": "intro",
+                        "voice_role": "narrator",
+                        "text": intro_text,
+                    },
+                    {
+                        "segment_id": "story_one",
+                        "kind": "story",
+                        "voice_role": "narrator",
+                        "text": story_text,
+                    },
+                ],
+                segment_timings={
+                    "intro": timing(intro_text, 30.0),
+                    "story_one": timing(story_text, 20.0),
+                },
+                story_assets={"story_one": assets},
+                story_metadata={"story_one": {
+                    "story_index": 1,
+                    "format_id": "BUNDLE",
+                }},
+                final_audio_duration_sec=50.0,
+                style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            )
+            storyboard = {
+                "version": 4,
+                "format": "compilation_16x9",
+                "resolution": [1920, 1080],
+                "fps": 30,
+                "visual_mode": EDITORIAL_MOTION_MODE,
+                "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                "publication_authorized": False,
+                "timeline_duration_sec": 50.0,
+                "slides": contract["scenes"],
+                "motion_plan": contract["motion_plan"],
+                "motion_plan_sha256": contract["motion_plan"]["motion_plan_sha256"],
+                "caption_track": contract["caption_track"],
+                "caption_track_sha256": contract["caption_track"]["caption_track_sha256"],
+            }
+            checked = preflight_editorial_motion_storyboard(storyboard, root)
+        self.assertEqual(
+            [scene["semantic_camera_pass"] for scene in checked[:2]],
+            ["overview", "semantic"],
+        )
+        self.assertNotEqual(
+            checked[0]["camera_path"],
+            checked[1]["camera_path"],
+        )
+
     def test_v3_thread_preflight_and_markup_lock_question_answer_grammar(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
