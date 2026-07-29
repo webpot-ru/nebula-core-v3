@@ -2,6 +2,40 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — Segmented render completed, final duration assembly blocked
+
+- No-spend recovery run
+  [`30438523142`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30438523142)
+  restored the existing provider outputs from run `30436196983` and reached
+  the real bounded renderer. All 18 contiguous HyperFrames segments rendered
+  successfully; no monolithic browser render, new OpenAI/VectorEngine/AI33
+  submission or YouTube action occurred.
+- The run stopped only after final concatenation, audio mux and caption burn.
+  The assembled MP4 differed from the storyboard timeline by more than the
+  former fixed `0.35s` gate and raised `assembled MP4 duration drifted`.
+  Individual segments had already passed their own duration checks. The
+  remaining defect is cumulative frame/timestamp rounding across many H.264
+  parts combined with the former `-shortest` mux, not a provider, canvas,
+  panel-grammar, GitHub timeout or monolithic-render failure.
+- The local fix normalizes the captioned output to
+  `ceil(timeline_seconds × 30)` exact frames with CFR, last-frame padding,
+  trim and timestamp reset; the full existing narration is muxed before that
+  normalization instead of being shortened to the raw concatenated stream.
+  Final QA now reports actual, storyboard and frame-aligned durations plus the
+  exact delta, and retains a strict `0.12s` post-normalization gate.
+- Every completed segment is now retained under a path keyed by the
+  deterministic segment-plan hash. A self-hashed sidecar binds the segment
+  bytes, motion plan, caption track, style, scene IDs and timing. A later
+  recovery may reuse only an exact verified checkpoint; stale or changed
+  material is rendered again. Frame workspaces are still removed.
+- Run `30438523142` predates this checkpoint change, so its 18 temporary
+  segment files were not retained. The next recovery can reuse its existing
+  images and narration but must render the 18 bounded video parts once more.
+  The complete local suite passes `678/678` tests, targeted compilation checks
+  pass and the changed files compile. This correction is **code-verified
+  only** until the authorized no-spend GitHub recovery completes; no provider
+  or YouTube operation followed the failed run.
+
 ## 2026-07-29 — Render preflight validates bound panel identity, not response index
 
 - Chained recovery run

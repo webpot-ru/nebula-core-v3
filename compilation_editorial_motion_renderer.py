@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -41,6 +42,9 @@ from acc1_visual_contract import (
 
 HYPERFRAMES_VERSION = "0.7.61"
 DEFAULT_SEGMENT_MAX_DURATION_SEC = 120.0
+SEGMENT_CHECKPOINT_VERSION = 1
+SEGMENT_DURATION_TOLERANCE_SEC = 0.12
+FINAL_DURATION_TOLERANCE_SEC = 0.12
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -57,6 +61,24 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _write_bound_json(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    hash_field: str,
+) -> dict[str, Any]:
+    bound = dict(payload)
+    bound[hash_field] = canonical_hash(bound)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(bound, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+    return bound
 
 
 def _under_root(raw: str | Path, root: Path, *, label: str) -> Path:
@@ -1220,6 +1242,107 @@ def _probe_h264(path: Path, *, cwd: Path) -> dict[str, Any]:
     return {"stream": stream, "duration_sec": duration}
 
 
+def _segment_checkpoint_payload(
+    storyboard: dict[str, Any],
+    public_plan: dict[str, Any],
+    segment: dict[str, Any],
+    segment_path: Path,
+    render_report: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "version": SEGMENT_CHECKPOINT_VERSION,
+        "status": "PASS",
+        "renderer": "hyperframes_segmented",
+        "hyperframes_version": HYPERFRAMES_VERSION,
+        "resolution": [CANVAS_WIDTH, CANVAS_HEIGHT],
+        "fps": CANVAS_FPS,
+        "style_profile": str(storyboard["style_profile"]),
+        "motion_plan_sha256": str(storyboard["motion_plan_sha256"]),
+        "caption_track_sha256": str(storyboard["caption_track_sha256"]),
+        "segment_plan_sha256": canonical_hash(public_plan),
+        "segment_index": int(segment["index"]),
+        "segment_count": int(public_plan["segment_count"]),
+        "source_start_sec": float(segment["source_start_sec"]),
+        "source_end_sec": float(segment["source_end_sec"]),
+        "planned_duration_sec": float(segment["duration_sec"]),
+        "scene_ids": list(segment["scene_ids"]),
+        "output": segment_path.name,
+        "output_sha256": _sha256(segment_path),
+        "output_bytes": segment_path.stat().st_size,
+        "rendered_duration_sec": float(
+            render_report.get("duration_sec") or segment["duration_sec"],
+        ),
+        "temporary_workspace_removed": (
+            render_report.get("temporary_workspace_removed") is True
+        ),
+        "provider_calls": 0,
+        "youtube_called": False,
+    }
+
+
+def _reusable_segment_checkpoint(
+    storyboard: dict[str, Any],
+    artifact_root: Path,
+    public_plan: dict[str, Any],
+    segment: dict[str, Any],
+    segment_path: Path,
+    checkpoint_path: Path,
+) -> dict[str, Any] | None:
+    if not segment_path.is_file() or not checkpoint_path.is_file():
+        return None
+    try:
+        payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or not verify_bound_payload(
+        payload,
+        "checkpoint_sha256",
+    ):
+        return None
+    expected = {
+        "version": SEGMENT_CHECKPOINT_VERSION,
+        "status": "PASS",
+        "renderer": "hyperframes_segmented",
+        "hyperframes_version": HYPERFRAMES_VERSION,
+        "resolution": [CANVAS_WIDTH, CANVAS_HEIGHT],
+        "fps": CANVAS_FPS,
+        "style_profile": str(storyboard["style_profile"]),
+        "motion_plan_sha256": str(storyboard["motion_plan_sha256"]),
+        "caption_track_sha256": str(storyboard["caption_track_sha256"]),
+        "segment_plan_sha256": canonical_hash(public_plan),
+        "segment_index": int(segment["index"]),
+        "segment_count": int(public_plan["segment_count"]),
+        "source_start_sec": float(segment["source_start_sec"]),
+        "source_end_sec": float(segment["source_end_sec"]),
+        "planned_duration_sec": float(segment["duration_sec"]),
+        "scene_ids": list(segment["scene_ids"]),
+        "output": segment_path.name,
+        "temporary_workspace_removed": True,
+        "provider_calls": 0,
+        "youtube_called": False,
+    }
+    if any(payload.get(key) != value for key, value in expected.items()):
+        return None
+    if (
+        payload.get("output_bytes") != segment_path.stat().st_size
+        or payload.get("output_sha256") != _sha256(segment_path)
+    ):
+        return None
+    try:
+        probe = _probe_h264(segment_path, cwd=artifact_root)
+    except EditorialMotionRenderError:
+        return None
+    if (
+        abs(
+            float(probe["duration_sec"])
+            - float(segment["duration_sec"])
+        )
+        > SEGMENT_DURATION_TOLERANCE_SEC
+    ):
+        return None
+    return payload
+
+
 def render_editorial_motion_segment(
     storyboard: dict[str, Any],
     artifact_root: Path,
@@ -1274,7 +1397,10 @@ def render_editorial_motion_segment(
         if not output.is_file() or output.stat().st_size <= 0:
             raise EditorialMotionRenderError("HyperFrames produced no segment MP4")
         probe = _probe_h264(output, cwd=workspace)
-    if abs(float(probe["duration_sec"]) - float(segment["duration_sec"])) > 0.12:
+    if (
+        abs(float(probe["duration_sec"]) - float(segment["duration_sec"]))
+        > SEGMENT_DURATION_TOLERANCE_SEC
+    ):
         raise EditorialMotionRenderError("segment duration drifted")
     try:
         check_payload = json.loads(check.stdout or "{}")
@@ -1321,22 +1447,34 @@ def assemble_editorial_motion_segments(
         )
     verified_paths: list[Path] = []
     segment_reports: list[dict[str, Any]] = []
+    segment_duration_sum = 0.0
     for segment, raw_path in zip(plan, segment_paths, strict=True):
         path = _under_root(raw_path, root, label="editorial segment")
         probe = _probe_h264(path, cwd=root)
-        if abs(float(probe["duration_sec"]) - float(segment["duration_sec"])) > 0.12:
+        measured_duration = float(probe["duration_sec"])
+        if (
+            abs(measured_duration - float(segment["duration_sec"]))
+            > SEGMENT_DURATION_TOLERANCE_SEC
+        ):
             raise EditorialMotionRenderError(
                 "segment duration does not match deterministic plan",
             )
         verified_paths.append(path)
+        segment_duration_sum += measured_duration
         segment_reports.append({
             "index": segment["index"],
-            "duration_sec": round(float(probe["duration_sec"]), 3),
+            "duration_sec": round(measured_duration, 3),
             "sha256": _sha256(path),
             "bytes": path.stat().st_size,
         })
 
     audio_path = _under_root(audio, root, label="editorial narration audio")
+    expected_duration = float(storyboard["timeline_duration_sec"])
+    target_frame_count = max(
+        1,
+        math.ceil(expected_duration * CANVAS_FPS - 1e-9),
+    )
+    frame_aligned_duration = target_frame_count / CANVAS_FPS
     output = Path(output).resolve()
     if output == root or root not in output.parents:
         raise EditorialMotionRenderError("editorial output must remain under artifact_root")
@@ -1389,7 +1527,6 @@ def assemble_editorial_motion_segments(
             "aac",
             "-b:a",
             "192k",
-            "-shortest",
             "-movflags",
             "+faststart",
             str(muxed_output),
@@ -1402,13 +1539,27 @@ def assemble_editorial_motion_segments(
             storyboard["caption_track"],
             root / "editorial-motion-captions.ass",
         )
-        burn_captions(muxed_output, caption_ass_path, output)
+        burn_captions(
+            muxed_output,
+            caption_ass_path,
+            output,
+            target_duration_sec=expected_duration,
+            fps=CANVAS_FPS,
+        )
     if not output.is_file() or output.stat().st_size <= 0:
         raise EditorialMotionRenderError("segment assembly produced no MP4")
     probe = _probe_h264(output, cwd=root)
-    expected_duration = float(storyboard["timeline_duration_sec"])
-    if abs(float(probe["duration_sec"]) - expected_duration) > 0.35:
-        raise EditorialMotionRenderError("assembled MP4 duration drifted")
+    actual_duration = float(probe["duration_sec"])
+    duration_delta = abs(actual_duration - frame_aligned_duration)
+    if duration_delta > FINAL_DURATION_TOLERANCE_SEC:
+        raise EditorialMotionRenderError(
+            "assembled MP4 duration drifted "
+            f"(actual={actual_duration:.6f}s, "
+            f"timeline={expected_duration:.6f}s, "
+            f"frame_aligned={frame_aligned_duration:.6f}s, "
+            f"delta={duration_delta:.6f}s, "
+            f"tolerance={FINAL_DURATION_TOLERANCE_SEC:.6f}s)",
+        )
     return {
         "version": 3,
         "status": "PASS",
@@ -1422,7 +1573,12 @@ def assemble_editorial_motion_segments(
         "video_codec": "h264",
         "resolution": [CANVAS_WIDTH, CANVAS_HEIGHT],
         "fps": CANVAS_FPS,
-        "duration_sec": round(float(probe["duration_sec"]), 3),
+        "duration_sec": round(actual_duration, 3),
+        "timeline_duration_sec": round(expected_duration, 6),
+        "target_frame_count": target_frame_count,
+        "frame_aligned_duration_sec": round(frame_aligned_duration, 6),
+        "duration_delta_sec": round(duration_delta, 6),
+        "duration_tolerance_sec": FINAL_DURATION_TOLERANCE_SEC,
         "scene_count": len(scenes),
         "segment_count": len(plan),
         "segments": segment_reports,
@@ -1434,7 +1590,17 @@ def assemble_editorial_motion_segments(
         "caption_ass_sha256": _sha256(caption_ass_path),
         "captions_burned": True,
         "audio_sha256": _sha256(audio_path),
-        "audio_mux": "ffmpeg_concat_then_post_render_mux_and_caption_burn",
+        "segment_duration_sum_sec": round(segment_duration_sum, 6),
+        "segment_duration_delta_sec": round(
+            segment_duration_sum - expected_duration,
+            6,
+        ),
+        "audio_mux": (
+            "ffmpeg_concat_then_full_audio_mux_and_frame_aligned_caption_burn"
+        ),
+        "duration_normalization": (
+            "cfr_tpad_trim_exact_frame_count_before_caption_burn"
+        ),
         "motion_plan_sha256": storyboard["motion_plan_sha256"],
         "caption_track_sha256": storyboard["caption_track_sha256"],
         "module_usage": storyboard["motion_plan"]["module_usage"],
@@ -1469,17 +1635,42 @@ def render_editorial_motion_compilation(
     if output == root or root not in output.parents:
         raise EditorialMotionRenderError("editorial output must remain under artifact_root")
     output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".hf-bounded-parts-", dir=root) as temp:
-        segment_root = Path(temp)
-        public_plan = build_editorial_render_segment_plan(
+    public_plan = build_editorial_render_segment_plan(
+        storyboard,
+        root,
+        max_duration_sec=DEFAULT_SEGMENT_MAX_DURATION_SEC,
+    )
+    segment_plan_sha256 = canonical_hash(public_plan)
+    segment_root = (
+        root
+        / "editorial-motion-segments"
+        / segment_plan_sha256[:16]
+    )
+    segment_root.mkdir(parents=True, exist_ok=True)
+    segment_paths: list[Path] = []
+    segment_checkpoints: list[dict[str, Any]] = []
+    reused_segment_count = 0
+    rendered_segment_count = 0
+    for segment in public_plan["segments"]:
+        index = int(segment["index"])
+        segment_path = segment_root / f"segment-{index:03d}.mp4"
+        checkpoint_path = segment_root / f"segment-{index:03d}.json"
+        checkpoint = _reusable_segment_checkpoint(
             storyboard,
             root,
-            max_duration_sec=DEFAULT_SEGMENT_MAX_DURATION_SEC,
+            public_plan,
+            segment,
+            segment_path,
+            checkpoint_path,
         )
-        segment_paths: list[Path] = []
-        for segment in public_plan["segments"]:
-            index = int(segment["index"])
-            segment_path = segment_root / f"segment-{index:03d}.mp4"
+        if checkpoint is not None:
+            print(
+                f"reuse segment {index}/{public_plan['segment_count']} "
+                f"from bound checkpoint",
+                flush=True,
+            )
+            reused_segment_count += 1
+        else:
             report = render_editorial_motion_segment(
                 storyboard,
                 root,
@@ -1494,19 +1685,47 @@ def render_editorial_motion_compilation(
                 raise EditorialMotionRenderError(
                     f"editorial segment {index} did not pass its isolated render",
                 )
-            segment_paths.append(segment_path)
-        report = assemble_editorial_motion_segments(
-            storyboard,
-            root,
-            segment_paths,
-            output,
-            audio=audio_path,
-            max_duration_sec=DEFAULT_SEGMENT_MAX_DURATION_SEC,
+            checkpoint = _write_bound_json(
+                checkpoint_path,
+                _segment_checkpoint_payload(
+                    storyboard,
+                    public_plan,
+                    segment,
+                    segment_path,
+                    report,
+                ),
+                hash_field="checkpoint_sha256",
+            )
+            rendered_segment_count += 1
+        segment_paths.append(segment_path)
+        segment_checkpoints.append(checkpoint)
+    report = assemble_editorial_motion_segments(
+        storyboard,
+        root,
+        segment_paths,
+        output,
+        audio=audio_path,
+        max_duration_sec=DEFAULT_SEGMENT_MAX_DURATION_SEC,
+    )
+    if len(report.get("segments") or []) != len(segment_checkpoints):
+        raise EditorialMotionRenderError(
+            "assembled segment inventory does not match checkpoints",
         )
+    for segment_report, checkpoint in zip(
+        report["segments"],
+        segment_checkpoints,
+        strict=True,
+    ):
+        segment_report["checkpoint_sha256"] = checkpoint["checkpoint_sha256"]
     report.update({
         "hyperframes_check_passed": True,
         "render_strategy": "bounded_segments_then_assembly",
         "segment_plan_renderer": public_plan["renderer"],
+        "segment_plan_sha256": segment_plan_sha256,
+        "segment_checkpoint_dir": str(segment_root.relative_to(root)),
+        "segment_checkpoints_persisted": True,
+        "segments_reused": reused_segment_count,
+        "segments_rendered": rendered_segment_count,
         "monolithic_browser_render_forbidden": True,
     })
     return report

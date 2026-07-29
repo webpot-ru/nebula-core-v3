@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import shutil
 import subprocess
 from pathlib import Path
@@ -101,12 +102,63 @@ def subtitle_filter(captions: Path) -> str:
     return f"ass=filename='{name}'"
 
 
-def burn_captions(source: Path, captions: Path, output: Path) -> None:
-    """Burn ASS captions while preserving the already-approved audio track."""
+def burn_captions(
+    source: Path,
+    captions: Path,
+    output: Path,
+    *,
+    target_duration_sec: float | None = None,
+    fps: int | None = None,
+) -> None:
+    """Burn ASS captions while preserving the already-approved audio track.
 
+    A segmented render may accumulate sub-frame timestamp rounding when its
+    H.264 parts are concatenated.  When a target duration is supplied, make
+    the video stream exactly frame-aligned before burning captions so that the
+    final container cannot inherit that cumulative drift.
+    """
+
+    if (target_duration_sec is None) != (fps is None):
+        raise CaptionBurnError(
+            "target duration and fps must be supplied together",
+        )
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise CaptionBurnError("ffmpeg is required for burned captions")
+    video_filter = subtitle_filter(captions)
+    target_args: list[str] = []
+    if target_duration_sec is not None and fps is not None:
+        if (
+            isinstance(fps, bool)
+            or not isinstance(fps, int)
+            or fps <= 0
+            or isinstance(target_duration_sec, bool)
+            or not isinstance(target_duration_sec, (int, float))
+            or not math.isfinite(target_duration_sec)
+            or target_duration_sec <= 0
+        ):
+            raise CaptionBurnError("caption duration normalization is invalid")
+        target_frames = max(
+            1,
+            math.ceil(target_duration_sec * fps - 1e-9),
+        )
+        frame_aligned_duration = target_frames / fps
+        video_filter = ",".join([
+            f"fps={fps}",
+            (
+                "tpad=stop_mode=clone:"
+                f"stop_duration={frame_aligned_duration:.6f}"
+            ),
+            f"trim=end_frame={target_frames}",
+            f"setpts=N/({fps}*TB)",
+            video_filter,
+        ])
+        target_args = [
+            "-frames:v",
+            str(target_frames),
+            "-t",
+            f"{frame_aligned_duration:.6f}",
+        ]
     output.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [
@@ -117,7 +169,7 @@ def burn_captions(source: Path, captions: Path, output: Path) -> None:
             "-i",
             str(source),
             "-vf",
-            subtitle_filter(captions),
+            video_filter,
             "-c:v",
             "libx264",
             "-preset",
@@ -128,6 +180,7 @@ def burn_captions(source: Path, captions: Path, output: Path) -> None:
             "yuv420p",
             "-c:a",
             "copy",
+            *target_args,
             "-movflags",
             "+faststart",
             str(output),
