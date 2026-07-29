@@ -97,6 +97,29 @@ def _scene_count(duration: float, available_packs: int) -> int:
     return count
 
 
+def _service_scene_packs(
+    packs: list[dict[str, Any]],
+    *,
+    duration: float,
+    segment_kind: str,
+    from_end: bool = False,
+) -> list[dict[str, Any]]:
+    scene_count = max(
+        1,
+        math.ceil(
+            (duration - 0.001) / EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS,
+        ),
+    )
+    if len(packs) < scene_count:
+        raise EditorialMotionError(
+            f"editorial {segment_kind} requires {scene_count} existing asset "
+            f"packs but has {len(packs)}",
+        )
+    if from_end:
+        return packs[-scene_count:]
+    return packs[:scene_count]
+
+
 def _group_asset_packs(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     order: list[str] = []
@@ -308,26 +331,40 @@ def build_editorial_motion_contract(
                 )
             completed_story_count += 1
         else:
-            if duration > EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS + 0.001:
-                raise EditorialMotionError(
-                    f"editorial {segment_kind} must remain a short service scene",
-                )
-            scene_count = 1
             if segment_kind == "intro":
                 metadata_segment_id = story_ids[0]
-                packs = [story_packs[metadata_segment_id][0]]
+                packs = _service_scene_packs(
+                    story_packs[metadata_segment_id],
+                    duration=duration,
+                    segment_kind=segment_kind,
+                )
             elif segment_kind == "mid_story_cta":
                 metadata_segment_id = story_ids[-1]
-                packs = [story_packs[metadata_segment_id][-1]]
+                packs = _service_scene_packs(
+                    story_packs[metadata_segment_id],
+                    duration=duration,
+                    segment_kind=segment_kind,
+                    from_end=True,
+                )
             elif segment_kind == "outro":
                 metadata_segment_id = story_ids[-1]
-                packs = [story_packs[metadata_segment_id][-1]]
+                packs = _service_scene_packs(
+                    story_packs[metadata_segment_id],
+                    duration=duration,
+                    segment_kind=segment_kind,
+                    from_end=True,
+                )
             elif segment_kind == "transition":
                 position = min(completed_story_count, len(story_ids) - 1)
                 metadata_segment_id = story_ids[position]
-                packs = [story_packs[metadata_segment_id][0]]
+                packs = _service_scene_packs(
+                    story_packs[metadata_segment_id],
+                    duration=duration,
+                    segment_kind=segment_kind,
+                )
             else:
                 raise EditorialMotionError(f"unsupported segment kind {segment_kind}")
+            scene_count = len(packs)
 
         text_parts = _word_partitions(str(segment.get("text") or ""), scene_count)
         for index in range(scene_count):

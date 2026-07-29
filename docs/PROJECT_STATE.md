@@ -2,6 +2,24 @@
 
 Last updated: 2026-07-29
 
+## 2026-07-29 — Long spoken intros partition into bounded service scenes
+
+- Chained recovery run
+  [`30429671931`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30429671931)
+  successfully passed the new long AI33 busy-poll path and completed the
+  saved narration task without another TTS submission. It then stopped before
+  rendering because the real spoken intro exceeded the historical 15-second
+  single-service-scene ceiling.
+- Editorial service segments now retain the 15-second per-scene ceiling by
+  partitioning a longer intro, transition, CTA or outro into the minimum
+  number of contiguous scenes. The scenes preserve the exact narration,
+  consume only already verified asset packs in deterministic beginning/end
+  order and never repeat or invent a missing pack. Insufficient existing
+  packs still fail closed.
+- Targeted storyboard/editorial-motion tests pass locally. No local provider,
+  render or YouTube operation was performed; the chained GitHub artifact
+  remains the required source for the next no-resubmission recovery.
+
 ## 2026-07-29 — AI33 saved-task polling tolerates a 30-minute busy window
 
 - Recovery run
