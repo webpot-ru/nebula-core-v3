@@ -264,6 +264,97 @@ class EditorialMotionContractTests(unittest.TestCase):
         ])
         self.assertEqual(result["scenes"][1]["motion"]["module"], "evidence_transform")
 
+    def test_long_intro_uses_multiple_short_existing_service_scenes(self):
+        intro_text = " ".join(f"вступление{index}" for index in range(20))
+        story_text = " ".join(f"слово{index}" for index in range(40))
+        assets = [
+            asset("pack-a", "hero_plate", "living_photo_depth", "a"),
+            asset("pack-a", "detail_plate", "living_photo_depth", "b"),
+            asset("pack-b", "hero_plate", "evidence_transform", "c"),
+            asset("pack-b", "detail_plate", "evidence_transform", "d"),
+        ]
+        result = build_editorial_motion_contract(
+            narration_segments=[
+                {
+                    "segment_id": "intro",
+                    "kind": "intro",
+                    "voice_role": "narrator",
+                    "text": intro_text,
+                },
+                {
+                    "segment_id": "story_one",
+                    "kind": "story",
+                    "voice_role": "narrator",
+                    "text": story_text,
+                },
+            ],
+            segment_timings={
+                "intro": self._timing(intro_text, 30.0),
+                "story_one": self._timing(story_text, 20.0),
+            },
+            story_assets={"story_one": assets},
+            story_metadata={"story_one": {"story_index": 1}},
+            final_audio_duration_sec=50.0,
+        )
+        intro_scenes = [
+            scene for scene in result["scenes"]
+            if scene["presentation"] == "intro"
+        ]
+        self.assertEqual(len(intro_scenes), 2)
+        self.assertEqual(
+            [scene["asset_family_id"] for scene in intro_scenes],
+            ["pack-a", "pack-b"],
+        )
+        self.assertEqual(
+            [scene["duration_sec"] for scene in intro_scenes],
+            [15.0, 15.0],
+        )
+        self.assertTrue(all(
+            scene["motion"]["module"] == "nested_collage_zoom"
+            for scene in intro_scenes
+        ))
+        self.assertEqual(
+            " ".join(scene["narration_text"] for scene in intro_scenes),
+            intro_text,
+        )
+
+    def test_long_intro_fails_closed_without_enough_existing_asset_packs(self):
+        intro_text = " ".join(f"вступление{index}" for index in range(20))
+        story_text = " ".join(f"слово{index}" for index in range(40))
+        assets = [
+            asset("pack-a", "hero_plate", "living_photo_depth", "a"),
+            asset("pack-a", "detail_plate", "living_photo_depth", "b"),
+            asset("pack-b", "hero_plate", "evidence_transform", "c"),
+            asset("pack-b", "detail_plate", "evidence_transform", "d"),
+        ]
+        with self.assertRaisesRegex(
+            EditorialMotionError,
+            "editorial intro requires 3 existing asset packs but has 2",
+        ):
+            build_editorial_motion_contract(
+                narration_segments=[
+                    {
+                        "segment_id": "intro",
+                        "kind": "intro",
+                        "voice_role": "narrator",
+                        "text": intro_text,
+                    },
+                    {
+                        "segment_id": "story_one",
+                        "kind": "story",
+                        "voice_role": "narrator",
+                        "text": story_text,
+                    },
+                ],
+                segment_timings={
+                    "intro": self._timing(intro_text, 30.1),
+                    "story_one": self._timing(story_text, 20.0),
+                },
+                story_assets={"story_one": assets},
+                story_metadata={"story_one": {"story_index": 1}},
+                final_audio_duration_sec=50.1,
+            )
+
     def test_v3_thread_preserves_global_prompt_response_sequence_and_voices(self):
         prompt_grammar = select_format_visual_system_v3_panel_grammar(
             "THREAD", 1, 2,
