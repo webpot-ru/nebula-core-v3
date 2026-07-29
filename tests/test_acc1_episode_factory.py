@@ -1365,6 +1365,135 @@ class EpisodeFactoryTests(unittest.TestCase):
                     confirm_invalid_geometry_replacement="true",
                 )
 
+    def test_consumed_portrait_receipt_accepts_the_active_replacement_attempt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            scene_root = root / "scene-images"
+            journal_path = root / "provider-attempts" / "image.json"
+            scene_root.mkdir(parents=True)
+            portrait = scene_root / "story-01-source-scene-01.png"
+            Image.new("RGB", (1024, 1536), "#314159").save(portrait)
+            original_sha256 = factory._sha256_file(portrait)
+            factory._atomic_json(journal_path, {
+                "version": 1,
+                "provider": "image",
+                "cap": 41,
+                "attempts": [{
+                    "index": 1,
+                    "status": "COMPLETE",
+                    "request_sha256": "1" * 64,
+                    "output_sha256": original_sha256,
+                }],
+                "publication_authorized": False,
+            })
+            receipt = factory._consume_invalid_first_image_for_explicit_replacement(
+                workdir=root,
+                image_call_cap=41,
+                confirm_invalid_geometry_replacement="true",
+            )
+
+            Image.new("RGB", (1023, 1537), "#271828").save(portrait)
+            replacement_sha256 = factory._sha256_file(portrait)
+            replacement_attempt = {
+                "index": 1,
+                "status": "COMPLETE",
+                "request_sha256": "1" * 64,
+                "output_sha256": replacement_sha256,
+            }
+            factory._atomic_json(journal_path, {
+                "version": 1,
+                "provider": "image",
+                "cap": 41,
+                "attempts": [replacement_attempt],
+                "publication_authorized": False,
+            })
+
+            resumed = factory._consume_invalid_first_image_for_explicit_replacement(
+                workdir=root,
+                image_call_cap=41,
+                confirm_invalid_geometry_replacement="true",
+            )
+
+            stored = factory._read_object(journal_path)
+            self.assertEqual(resumed, receipt)
+            self.assertEqual(stored["attempts"], [replacement_attempt])
+            self.assertEqual(stored["invalid_geometry_replacements"], [receipt])
+            self.assertEqual(
+                factory._sha256_file(
+                    root / receipt["preserved_provider_image_path"],
+                ),
+                original_sha256,
+            )
+
+    def test_consumed_portrait_receipt_accepts_a_checkpointed_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            scene_root = root / "scene-images"
+            journal_path = root / "provider-attempts" / "image.json"
+            scene_root.mkdir(parents=True)
+            portrait = scene_root / "story-01-source-scene-01.png"
+            Image.new("RGB", (1024, 1536), "#314159").save(portrait)
+            original_sha256 = factory._sha256_file(portrait)
+            factory._atomic_json(journal_path, {
+                "version": 1,
+                "provider": "image",
+                "cap": 41,
+                "attempts": [{
+                    "index": 1,
+                    "status": "COMPLETE",
+                    "request_sha256": "1" * 64,
+                    "output_sha256": original_sha256,
+                }],
+                "publication_authorized": False,
+            })
+            receipt = factory._consume_invalid_first_image_for_explicit_replacement(
+                workdir=root,
+                image_call_cap=41,
+                confirm_invalid_geometry_replacement="true",
+            )
+
+            Image.new("RGB", (1023, 1537), "#271828").save(
+                scene_root / "story-01-source-scene-01.provider.png",
+            )
+            replacement_provider_sha256 = factory._sha256_file(
+                scene_root / "story-01-source-scene-01.provider.png",
+            )
+            Image.new("RGB", (1536, 864), "#161803").save(portrait)
+            normalized_sha256 = factory._sha256_file(portrait)
+            replacement_attempt = {
+                "index": 1,
+                "status": "COMPLETE",
+                "request_sha256": "1" * 64,
+                "output_sha256": replacement_provider_sha256,
+            }
+            factory._atomic_json(journal_path, {
+                "version": 1,
+                "provider": "image",
+                "cap": 41,
+                "attempts": [replacement_attempt],
+                "publication_authorized": False,
+            })
+            factory._atomic_json(root / "scene-image-checkpoint.json", {
+                "version": 1,
+                "entries": [{
+                    "index": 1,
+                    "output_path": "scene-images/story-01-source-scene-01.png",
+                    "output_sha256": normalized_sha256,
+                }],
+            })
+
+            resumed = factory._consume_invalid_first_image_for_explicit_replacement(
+                workdir=root,
+                image_call_cap=41,
+                confirm_invalid_geometry_replacement="true",
+            )
+
+            self.assertEqual(resumed, receipt)
+            self.assertEqual(
+                factory._read_object(journal_path)["attempts"],
+                [replacement_attempt],
+            )
+
     def test_resume_reuses_exact_pre_fallback_plan_without_mutating_identity(self):
         current_settings = {
             "creative": {

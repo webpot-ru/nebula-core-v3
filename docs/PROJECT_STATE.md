@@ -1,6 +1,35 @@
 # nebula-core-v3 Project State
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
+
+## 2026-07-29 — transposed VectorEngine pages recover without another paid retry
+
+- Chained run
+  [`30418807878`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30418807878)
+  passed the prior lease and consumed-receipt blockers, then made exactly one
+  new VectorEngine request. VectorEngine again returned the requested
+  `1536x1024` canvas transposed as a portrait, this time `1023x1537`, and the
+  run stopped before AI33, rendering or YouTube. It reused all existing source
+  and OpenAI evidence; no Reddit, OpenAI, AI33 or YouTube request occurred.
+- The active replacement may now coexist with the immutable first-portrait
+  receipt. The preserved `invalid-geometry-attempt-001.png` remains the
+  checksum-bound proof of the consumed response; the former scene slot may
+  contain either the exact active replacement attempt or its checkpointed
+  normalized output. Any unrelated hash still blocks.
+- A format-v3 response is eligible for local recovery only when its dimensions
+  match the exact transposed provider canvas within two pixels and its
+  meaning-led panel grammar is known. The raw paid PNG is retained, then its
+  top-to-bottom reading sequence is deterministically reframed into the same
+  one-to-five landscape panel regions targeted by the semantic camera. Generic
+  portrait, undersized or unknown-layout responses remain rejected. This uses
+  no additional provider request and records
+  `portrait_semantic_panel_reframe_v1` in the checkpoint and asset manifest.
+- Paired `hero_plate` and `detail_plate` outputs now have distinct deterministic
+  paths. The hero keeps the historical scene filename so the current first
+  attempt remains resumable; the detail receives a `-detail_plate` suffix and
+  can no longer overwrite the hero or collide with its preserved raw file.
+  This correction is locally tested only until the next explicitly approved
+  chained GitHub recovery.
 
 ## 2026-07-29 — consumed portrait receipt made idempotent across recovery children
 
@@ -20,8 +49,8 @@ Last updated: 2026-07-28
 - A recovery child now treats that state idempotently only after validating
   the exact receipt schema, original and preserved file hashes and dimensions,
   fixed preservation path, absent scene checkpoint and unchanged image cap.
-  Any active image attempt, checkpoint, hash, path, dimension or receipt drift
-  still blocks before a provider request. Neither failed run called
+  Any unexplained image attempt, checkpoint, hash, path, dimension or receipt
+  drift still blocks before a provider request. Neither failed run called
   VectorEngine, AI33, Reddit, OpenAI or YouTube.
 
 ## 2026-07-28 — AI33 ceiling fixed at 96 for every paid acc1 factory run

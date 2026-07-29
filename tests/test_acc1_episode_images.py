@@ -503,7 +503,7 @@ class EpisodeImageTests(unittest.TestCase):
                     generator=wrong_size_generator,
                 )
 
-    def test_portrait_provider_response_is_not_retried(self):
+    def test_portrait_provider_response_without_v3_grammar_is_not_retried(self):
         script = {"episode_format": "SAGA", "stories": [story("one")]}
         calls = []
 
@@ -513,7 +513,10 @@ class EpisodeImageTests(unittest.TestCase):
             return output_path
 
         with tempfile.TemporaryDirectory() as temp:
-            with self.assertRaisesRegex(EpisodeImageError, "wrong dimensions"):
+            with self.assertRaisesRegex(
+                EpisodeImageError,
+                "requires the exact v3 panel grammar",
+            ):
                 generate_episode_images(
                     script,
                     Path(temp),
@@ -521,6 +524,87 @@ class EpisodeImageTests(unittest.TestCase):
                     generator=portrait_generator,
                 )
         self.assertEqual(calls, [PROVIDER_CANVAS_SIZE])
+
+    def test_v3_transposed_portrait_is_reframed_and_resumed_without_retry(self):
+        source_story = story("portrait-v3", words=25)
+        source_story["image_target"] = 2
+        source_story["visual_identity_contract"] = (
+            "Recurring adult woman with dark wavy hair, burgundy cardigan and black trousers; "
+            "her face, age, body shape and wardrobe remain stable inside this mini-comic."
+        )
+        script = {
+            "episode_format": "BUNDLE",
+            "episode_plan_sha256": "a" * 64,
+            "visual_mode": EDITORIAL_MOTION_MODE,
+            "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+            "pillar": "relationships_family",
+            "stories": [source_story],
+        }
+        attempts = []
+
+        def portrait_provider(*, prompt, output_path, model, size, **_kwargs):
+            self.assertEqual(size, PROVIDER_CANVAS_SIZE)
+            portrait = Image.new("RGB", (1023, 1537), "#314159")
+            portrait.save(output_path)
+            attempts.append({
+                "index": len(attempts) + 1,
+                "status": "COMPLETE",
+                "request_sha256": _canonical_hash({
+                    "prompt": prompt, "model": model,
+                    "max_output_tokens": None, "voice_id": None,
+                }),
+                "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
+            })
+            return output_path
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            checkpoint = root / "scene-image-checkpoint.json"
+            _updated, assets = generate_episode_images(
+                script,
+                root / "scene-images",
+                artifact_root=root,
+                max_images=2,
+                generator=portrait_provider,
+                provider_attempts=attempts,
+                checkpoint_path=checkpoint,
+                visual_mode=EDITORIAL_MOTION_MODE,
+            )
+            self.assertEqual(len(attempts), 2)
+            self.assertEqual(len({item["local_path"] for item in assets}), 2)
+            self.assertTrue(assets[1]["local_path"].endswith("-detail_plate.png"))
+            self.assertTrue(all(
+                item["normalization_mode"]
+                == "portrait_semantic_panel_reframe_v1"
+                for item in assets
+            ))
+            for item in assets:
+                with Image.open(root / item["local_path"]) as image:
+                    self.assertEqual(image.size, (1536, 864))
+                raw_path = root / item["local_path"].replace(
+                    ".png", ".provider.png",
+                )
+                with Image.open(raw_path) as image:
+                    self.assertEqual(image.size, (1023, 1537))
+
+            _resumed, resumed_assets = generate_episode_images(
+                script,
+                root / "scene-images",
+                artifact_root=root,
+                max_images=2,
+                generator=lambda **_kwargs: self.fail(
+                    "reframed portrait was regenerated",
+                ),
+                provider_attempts=attempts,
+                checkpoint_path=checkpoint,
+                visual_mode=EDITORIAL_MOTION_MODE,
+            )
+            self.assertEqual(len(resumed_assets), 2)
+            self.assertTrue(all(
+                item["normalization_mode"]
+                == "portrait_semantic_panel_reframe_v1"
+                for item in resumed_assets
+            ))
 
     def test_large_near_ratio_provider_images_are_normalized_and_resumed(self):
         script = {
