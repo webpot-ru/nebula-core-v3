@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +25,7 @@ from compilation_editorial_motion_renderer import (
     _render_segment_plan,
     _semantic_webtoon_scene_tweens,
     _run,
+    assemble_editorial_motion_segments,
     build_editorial_render_segment_plan,
     preflight_editorial_motion_storyboard,
     render_editorial_motion_compilation,
@@ -40,7 +42,6 @@ class EditorialMotionRendererTests(unittest.TestCase):
         for index, role in enumerate(("hero_plate", "detail_plate"), start=1):
             path = root / f"{role}.png"
             Image.new("RGB", (1536, 864), f"#{index}{index}{index}922").save(path)
-            import hashlib
             assets.append({
                 "kind": "generated_image",
                 "local_path": path.name,
@@ -547,6 +548,104 @@ class EditorialMotionRendererTests(unittest.TestCase):
         with self.assertRaisesRegex(EditorialMotionRenderError, "render ceiling"):
             _render_segment_plan(scenes, max_duration_sec=120.0)
 
+    def test_assembly_uses_full_audio_and_frame_aligned_caption_burn(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            segments = [
+                root / "segment-001.mp4",
+                root / "segment-002.mp4",
+            ]
+            for index, path in enumerate(segments, start=1):
+                path.write_bytes(f"segment-{index}".encode())
+            audio = root / "narration.wav"
+            audio.write_bytes(b"audio")
+            output = root / "final.mp4"
+            caption_text = "Тестовая строка"
+            caption_track = bind_payload(
+                {
+                    "version": 1,
+                    "cues": [{
+                        "start_sec": 0.0,
+                        "end_sec": 10.0,
+                        "text": caption_text,
+                        "text_sha256": hashlib.sha256(
+                            caption_text.encode("utf-8"),
+                        ).hexdigest(),
+                    }],
+                },
+                "caption_track_sha256",
+            )
+            scenes = [
+                {
+                    "scene_id": "one",
+                    "start_sec": 0.0,
+                    "end_sec": 5.009,
+                    "duration_sec": 5.009,
+                    "asset_family_id": "pack-one",
+                },
+                {
+                    "scene_id": "two",
+                    "start_sec": 5.009,
+                    "end_sec": 10.018,
+                    "duration_sec": 5.009,
+                    "asset_family_id": "pack-two",
+                },
+            ]
+            storyboard = {
+                "timeline_duration_sec": 10.018,
+                "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                "caption_track": caption_track,
+                "motion_plan": {"module_usage": {"panel_read": 2}},
+                "motion_plan_sha256": "a" * 64,
+                "caption_track_sha256": caption_track["caption_track_sha256"],
+            }
+
+            def fake_burn(_source, _captions, final_output, **_kwargs):
+                final_output.write_bytes(b"final")
+
+            with (
+                mock.patch(
+                    "compilation_editorial_motion_renderer.preflight_editorial_motion_storyboard",
+                    return_value=scenes,
+                ),
+                mock.patch(
+                    "compilation_editorial_motion_renderer._probe_h264",
+                    side_effect=[
+                        {"duration_sec": 5.033},
+                        {"duration_sec": 5.033},
+                        {"duration_sec": 10.033333},
+                    ],
+                ),
+                mock.patch(
+                    "compilation_editorial_motion_renderer._run",
+                    return_value=mock.Mock(stdout="", stderr=""),
+                ) as run,
+                mock.patch(
+                    "compilation_editorial_motion_renderer.burn_captions",
+                    side_effect=fake_burn,
+                ) as burn,
+            ):
+                report = assemble_editorial_motion_segments(
+                    storyboard,
+                    root,
+                    segments,
+                    output,
+                    audio=audio,
+                    max_duration_sec=5.01,
+                )
+            mux_command = run.call_args_list[1].args[0]
+            burn_kwargs = burn.call_args.kwargs
+        self.assertNotIn("-shortest", mux_command)
+        self.assertEqual(burn_kwargs["target_duration_sec"], 10.018)
+        self.assertEqual(burn_kwargs["fps"], 30)
+        self.assertEqual(report["target_frame_count"], 301)
+        self.assertEqual(report["frame_aligned_duration_sec"], 10.033333)
+        self.assertEqual(report["duration_delta_sec"], 0.0)
+        self.assertEqual(
+            report["duration_normalization"],
+            "cfr_tpad_trim_exact_frame_count_before_caption_burn",
+        )
+
     def test_v3_public_segment_plan_contains_no_materialized_asset_paths(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -574,13 +673,30 @@ class EditorialMotionRendererTests(unittest.TestCase):
             storyboard = {
                 "timeline_duration_sec": 210.0,
                 "style_profile": FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+                "motion_plan_sha256": "a" * 64,
+                "caption_track_sha256": "b" * 64,
             }
             public_plan = {
+                "version": 2,
                 "renderer": "hyperframes_segmented",
+                "max_duration_sec": 120.0,
+                "timeline_duration_sec": 210.0,
                 "segment_count": 2,
                 "segments": [
-                    {"index": 1, "duration_sec": 105.0},
-                    {"index": 2, "duration_sec": 105.0},
+                    {
+                        "index": 1,
+                        "source_start_sec": 0.0,
+                        "source_end_sec": 105.0,
+                        "duration_sec": 105.0,
+                        "scene_ids": ["one"],
+                    },
+                    {
+                        "index": 2,
+                        "source_start_sec": 105.0,
+                        "source_end_sec": 210.0,
+                        "duration_sec": 105.0,
+                        "scene_ids": ["two"],
+                    },
                 ],
             }
             rendered_indices = []
@@ -641,6 +757,10 @@ class EditorialMotionRendererTests(unittest.TestCase):
                     "compilation_editorial_motion_renderer.assemble_editorial_motion_segments",
                     side_effect=fake_assemble,
                 ),
+                mock.patch(
+                    "compilation_editorial_motion_renderer._probe_h264",
+                    return_value={"duration_sec": 105.0},
+                ),
             ):
                 report = render_editorial_motion_compilation(
                     storyboard,
@@ -648,8 +768,22 @@ class EditorialMotionRendererTests(unittest.TestCase):
                     output,
                     audio=audio,
                 )
+                reused_report = render_editorial_motion_compilation(
+                    storyboard,
+                    root,
+                    output,
+                    audio=audio,
+                )
+                checkpoint_dir = root / report["segment_checkpoint_dir"]
+                self.assertTrue((checkpoint_dir / "segment-001.mp4").is_file())
+                self.assertTrue((checkpoint_dir / "segment-001.json").is_file())
         self.assertEqual(rendered_indices, [(1, 120.0), (2, 120.0)])
         self.assertEqual(report["renderer"], "hyperframes_segmented")
+        self.assertEqual(report["segments_rendered"], 2)
+        self.assertEqual(report["segments_reused"], 0)
+        self.assertEqual(reused_report["segments_rendered"], 0)
+        self.assertEqual(reused_report["segments_reused"], 2)
+        self.assertTrue(report["segment_checkpoints_persisted"])
         self.assertEqual(
             report["render_strategy"],
             "bounded_segments_then_assembly",
