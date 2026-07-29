@@ -318,7 +318,88 @@ class EditorialMotionContractTests(unittest.TestCase):
             intro_text,
         )
 
-    def test_long_intro_fails_closed_without_enough_existing_asset_packs(self):
+    def test_long_v3_intro_reuses_one_pack_with_distinct_semantic_passes(self):
+        intro_text = " ".join(f"вступление{index}" for index in range(20))
+        story_text = " ".join(f"слово{index}" for index in range(40))
+        grammar = select_format_visual_system_v3_panel_grammar("BUNDLE", 1, 1)
+        assets = [
+            asset(
+                "pack-a",
+                role,
+                "living_photo_depth",
+                token,
+                story_family="relationships",
+                page_layout="bundle_story_opener",
+                panel_grammar=grammar["id"],
+                panel_count=grammar["panel_count"],
+                panel_beat_role=grammar["beat_role"],
+            )
+            for role, token in (
+                ("hero_plate", "a"),
+                ("detail_plate", "b"),
+            )
+        ]
+        result = build_editorial_motion_contract(
+            narration_segments=[
+                {
+                    "segment_id": "intro",
+                    "kind": "intro",
+                    "voice_role": "narrator",
+                    "text": intro_text,
+                },
+                {
+                    "segment_id": "story_one",
+                    "kind": "story",
+                    "voice_role": "narrator",
+                    "text": story_text,
+                },
+            ],
+            segment_timings={
+                "intro": self._timing(intro_text, 30.0),
+                "story_one": self._timing(story_text, 20.0),
+            },
+            story_assets={"story_one": assets},
+            story_metadata={"story_one": {
+                "story_index": 1,
+                "format_id": "BUNDLE",
+            }},
+            final_audio_duration_sec=50.0,
+            style_profile=FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE,
+        )
+        intro_scenes = [
+            scene for scene in result["scenes"]
+            if scene["presentation"] == "intro"
+        ]
+        self.assertEqual(
+            [scene["asset_family_id"] for scene in intro_scenes],
+            ["pack-a", "pack-a"],
+        )
+        self.assertEqual(
+            [scene["semantic_camera_pass"] for scene in intro_scenes],
+            ["overview", "semantic"],
+        )
+        self.assertEqual(
+            [scene["duration_sec"] for scene in intro_scenes],
+            [15.0, 15.0],
+        )
+        self.assertNotEqual(
+            intro_scenes[0]["camera_path"],
+            intro_scenes[1]["camera_path"],
+        )
+        self.assertEqual(
+            intro_scenes[0]["camera_path"][1]["kind"],
+            "page_overview_hold",
+        )
+        self.assertEqual(
+            intro_scenes[1]["camera_path"][1]["kind"],
+            "semantic_panel_focus",
+        )
+        self.assertEqual(
+            " ".join(scene["narration_text"] for scene in intro_scenes),
+            intro_text,
+        )
+
+    def test_legacy_long_intro_still_fails_closed_without_enough_packs(self):
         intro_text = " ".join(f"вступление{index}" for index in range(20))
         story_text = " ".join(f"слово{index}" for index in range(40))
         assets = [

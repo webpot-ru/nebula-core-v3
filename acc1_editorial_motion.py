@@ -103,6 +103,7 @@ def _service_scene_packs(
     duration: float,
     segment_kind: str,
     from_end: bool = False,
+    allow_reuse: bool = False,
 ) -> list[dict[str, Any]]:
     scene_count = max(
         1,
@@ -110,14 +111,22 @@ def _service_scene_packs(
             (duration - 0.001) / EDITORIAL_MOTION_SERVICE_SCENE_MAX_SECONDS,
         ),
     )
-    if len(packs) < scene_count:
+    if not packs:
+        raise EditorialMotionError(
+            f"editorial {segment_kind} has no existing asset packs",
+        )
+    if len(packs) < scene_count and not allow_reuse:
         raise EditorialMotionError(
             f"editorial {segment_kind} requires {scene_count} existing asset "
             f"packs but has {len(packs)}",
         )
     if from_end:
-        return packs[-scene_count:]
-    return packs[:scene_count]
+        start = (len(packs) - scene_count) % len(packs)
+        return [
+            packs[(start + index) % len(packs)]
+            for index in range(scene_count)
+        ]
+    return [packs[index % len(packs)] for index in range(scene_count)]
 
 
 def _group_asset_packs(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -337,6 +346,9 @@ def build_editorial_motion_contract(
                     story_packs[metadata_segment_id],
                     duration=duration,
                     segment_kind=segment_kind,
+                    allow_reuse=(
+                        style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                    ),
                 )
             elif segment_kind == "mid_story_cta":
                 metadata_segment_id = story_ids[-1]
@@ -345,6 +357,9 @@ def build_editorial_motion_contract(
                     duration=duration,
                     segment_kind=segment_kind,
                     from_end=True,
+                    allow_reuse=(
+                        style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                    ),
                 )
             elif segment_kind == "outro":
                 metadata_segment_id = story_ids[-1]
@@ -353,6 +368,9 @@ def build_editorial_motion_contract(
                     duration=duration,
                     segment_kind=segment_kind,
                     from_end=True,
+                    allow_reuse=(
+                        style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                    ),
                 )
             elif segment_kind == "transition":
                 position = min(completed_story_count, len(story_ids) - 1)
@@ -361,6 +379,9 @@ def build_editorial_motion_contract(
                     story_packs[metadata_segment_id],
                     duration=duration,
                     segment_kind=segment_kind,
+                    allow_reuse=(
+                        style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
+                    ),
                 )
             else:
                 raise EditorialMotionError(f"unsupported segment kind {segment_kind}")
@@ -459,9 +480,33 @@ def build_editorial_motion_contract(
                 style_profile == FORMAT_VISUAL_SYSTEM_V3_STYLE_PROFILE
                 and panel_grammar
             ):
+                service_pack_use_count = sum(
+                    item["asset_family_id"] == pack["asset_family_id"]
+                    for item in packs
+                )
+                service_pack_use_index = sum(
+                    item["asset_family_id"] == pack["asset_family_id"]
+                    for item in packs[:index]
+                )
+                camera_pass = "semantic"
+                focus_offset = 0
+                if segment_kind != "story" and service_pack_use_count > 1:
+                    if service_pack_use_index == 0:
+                        camera_pass = "overview"
+                    else:
+                        focus_offset = service_pack_use_index - 1
+                    scene.update({
+                        "service_asset_reused": True,
+                        "service_asset_use_index": service_pack_use_index + 1,
+                        "service_asset_use_count": service_pack_use_count,
+                        "semantic_camera_pass": camera_pass,
+                        "semantic_focus_offset": focus_offset,
+                    })
                 scene.update(build_format_visual_system_v3_semantic_camera(
                     panel_beat_role,
                     text,
+                    focus_offset=focus_offset,
+                    camera_pass=camera_pass,
                 ))
             for field in ("title", "source_label", "truth_mode"):
                 if metadata.get(field):
