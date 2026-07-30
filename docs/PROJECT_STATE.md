@@ -2,6 +2,32 @@
 
 Last updated: 2026-07-30
 
+## 2026-07-30 — Completed artifact reached the final gate; conditional evidence inventory repaired
+
+- No-spend recovery run
+  [`30505420328`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30505420328)
+  reused all 18/18 hash-bound segments and completed
+  `Produce review-ready episode artifact` with
+  `READY_FOR_HUMAN_REVIEW`. It made no new Reddit, OpenAI, VectorEngine or
+  AI33 request and contained no YouTube action.
+- The retained artifact `acc1-daily-episode-30505420328` is
+  `2,267,940,121` bytes and expires on `2026-08-13`. Its motion-plan,
+  captions, media and release hashes are complete. The independent final gate
+  stopped only on `release manifest has incomplete evidence hash inventory`.
+- The manifest correctly included the conditional
+  `image_geometry_replacement` receipt created by the earlier approved
+  portrait replacement. The workflow gate used a static inventory that did
+  not add that valid conditional file, so the exact-key comparison rejected
+  one extra evidence key.
+- The local correction derives the same conditional path from
+  `factory-result.json`, requires its SHA-256 to match both the file and
+  manifest, and adds an explicit `gate_only` recovery lane. That lane requires
+  one exact parent run, all source/provider confirmations false, skips source,
+  provider preflight, spend/resume leases, production and rendering, and runs
+  only the independent artifact ceiling before resealing the artifact. This
+  correction is **code-verified only** until it is merged and the authorized
+  gate-only run succeeds.
+
 ## 2026-07-30 — Editorial render completed; release hash inventory regression isolated
 
 - Authorized no-spend recovery run

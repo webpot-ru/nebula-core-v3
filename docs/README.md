@@ -1045,6 +1045,26 @@ claim the other mode's plan hash, and `reddit_pages` cannot claim any of these
 visual hashes. This keeps the factory output and the independent GitHub
 human-review ceiling on one exact contract.
 
+The release evidence inventory is also conditional where the factory contract
+is conditional. When an approved invalid-geometry replacement was consumed,
+`factory-result.json` carries `image_geometry_replacement_sha256`, the release
+manifest carries the matching `image_geometry_replacement` evidence entry and
+the independent workflow ceiling verifies the same retained receipt bytes.
+An extra, missing or mismatched conditional receipt fails closed.
+
+`gate_only=true` is the narrow recovery route for a parent artifact that
+already completed production as `READY_FOR_HUMAN_REVIEW` but failed only in
+the independent GitHub artifact ceiling. It requires one numeric
+`resume_source_run_id`, requires `source_only=false` and every Reddit,
+OpenAI, image, AI33 and invalid-geometry confirmation to remain false. The
+plan job does not download the large parent merely to copy its daily plan; the
+build job restores the exact parent once. Dependency installation, production
+preflight, Flex-log proof, paid-provider preflight, spend/resume leases,
+provider production and rendering are all skipped. The unchanged independent
+hash/media ceiling runs and the workflow reseals the verified files under the
+new run artifact name. This route has no uploader and cannot authorize
+publication.
+
 `.github/workflows/acc1_segmented_no_spend_canary.yml` is a separate
 frozen-media matrix proof: it downloads exactly five retained pages from
 artifact `acc1-panel-grammar-canary-30063115374` and the matching retained

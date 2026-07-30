@@ -1,5 +1,5 @@
 name: acc1 Daily Episode Factory
-run-name: acc1 daily episode date=${{ inputs.production_date }} pilot=${{ inputs.pilot_id }} mode=${{ inputs.visual_mode }} source_only=${{ inputs.source_only }}
+run-name: acc1 daily episode date=${{ inputs.production_date }} pilot=${{ inputs.pilot_id }} mode=${{ inputs.visual_mode }} source_only=${{ inputs.source_only }} gate_only=${{ inputs.gate_only }}
 
 # This workflow can enforce source, packaging, media, and review gates. It
 # cannot guarantee millions of views: audience response is measurable only
@@ -32,6 +32,11 @@ on:
         type: string
       source_only:
         description: Stop successfully after hash-bound Reddit source evidence; forbids every paid provider and YouTube
+        required: true
+        default: false
+        type: boolean
+      gate_only:
+        description: Validate and reseal one completed parent artifact; forbids source, providers, rendering, and YouTube
         required: true
         default: false
         type: boolean
@@ -132,6 +137,25 @@ jobs:
           test "$CONFIRM_IMAGE_SPEND" = "false"
           test "$CONFIRM_AI33_SPEND" = "false"
           test "$CONFIRM_INVALID_GEOMETRY_REPLACEMENT" = "false"
+      - name: Validate exact gate-only no-provider scope
+        if: inputs.gate_only
+        env:
+          RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
+          SOURCE_ONLY: ${{ inputs.source_only }}
+          CONFIRM_REDDIT_READ: ${{ inputs.confirm_reddit_read }}
+          CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
+          CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
+          CONFIRM_AI33_SPEND: ${{ inputs.confirm_ai33_spend }}
+          CONFIRM_INVALID_GEOMETRY_REPLACEMENT: ${{ inputs.confirm_invalid_geometry_replacement }}
+        run: |
+          set -euo pipefail
+          [[ "$RESUME_SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$SOURCE_ONLY" = "false"
+          test "$CONFIRM_REDDIT_READ" = "false"
+          test "$CONFIRM_OPENAI_SPEND" = "false"
+          test "$CONFIRM_IMAGE_SPEND" = "false"
+          test "$CONFIRM_AI33_SPEND" = "false"
+          test "$CONFIRM_INVALID_GEOMETRY_REPLACEMENT" = "false"
       - name: Test deterministic planner contract
         run: >-
           python -m unittest
@@ -140,7 +164,7 @@ jobs:
           tests.test_acc1_spend_lock
           tests.test_acc1_resume_lock
       - name: Build one Europe/Moscow daily plan
-        if: inputs.resume_source_run_id == ''
+        if: ${{ inputs.resume_source_run_id == '' && !inputs.gate_only }}
         env:
           DAILY_PLAN_PATH: build/acc1-daily/daily-plan.json
           PRODUCTION_DATE: ${{ inputs.production_date }}
@@ -164,7 +188,7 @@ jobs:
           set -euo pipefail
           [[ "$RESUME_SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
       - name: Download immutable parent episode artifact
-        if: inputs.resume_source_run_id != ''
+        if: ${{ inputs.resume_source_run_id != '' && !inputs.gate_only }}
         uses: actions/download-artifact@v4
         with:
           name: acc1-daily-episode-${{ inputs.resume_source_run_id }}
@@ -172,13 +196,14 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.resume_source_run_id }}
       - name: Restore parent daily plan without mutation
-        if: inputs.resume_source_run_id != ''
+        if: ${{ inputs.resume_source_run_id != '' && !inputs.gate_only }}
         run: |
           set -euo pipefail
           test -f build/acc1-resume-parent/daily-plan.json
           mkdir -p build/acc1-daily
           cp build/acc1-resume-parent/daily-plan.json build/acc1-daily/daily-plan.json
       - name: Export immutable daily plan identity
+        if: ${{ !inputs.gate_only }}
         id: daily-plan
         env:
           DAILY_PLAN_PATH: build/acc1-daily/daily-plan.json
@@ -194,6 +219,7 @@ jobs:
           print(f"production_date={plan['production_date']}")
           PY
       - name: Transfer immutable plan to build job
+        if: ${{ !inputs.gate_only }}
         uses: actions/upload-artifact@v4
         with:
           name: acc1-daily-plan-${{ github.run_id }}
@@ -232,12 +258,14 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install project dependencies
+        if: ${{ !inputs.gate_only }}
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           sudo apt-get update
           sudo apt-get install -y ffmpeg
       - name: Download immutable daily plan
+        if: ${{ !inputs.gate_only }}
         uses: actions/download-artifact@v4
         with:
           name: acc1-daily-plan-${{ github.run_id }}
@@ -251,7 +279,7 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.resume_source_run_id }}
       - name: Confirm only an exact parent OpenAI Flex 429 rejection
-        if: inputs.resume_source_run_id != ''
+        if: ${{ inputs.resume_source_run_id != '' && !inputs.gate_only }}
         env:
           GH_TOKEN: ${{ github.token }}
           RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
@@ -269,7 +297,44 @@ jobs:
             --journal "$WORKDIR/provider-attempts/openai.json" \
             --proof "$WORKDIR/openai-flex-429-rejection.json" \
             "${PARENT_RESUME_ARGS[@]}"
+      - name: Validate restored gate-only review artifact
+        if: inputs.gate_only
+        env:
+          RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
+        run: |
+          set -euo pipefail
+          python - "$WORKDIR/factory-result.json" "$VISUAL_MODE" "$RESUME_SOURCE_RUN_ID" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          result_path = Path(sys.argv[1])
+          expected_visual_mode = sys.argv[2]
+          source_run_id = sys.argv[3]
+          if not re.fullmatch(r"[1-9][0-9]*", source_run_id):
+              raise SystemExit("gate-only recovery requires one exact parent run id")
+          required_paths = (
+              result_path,
+              result_path.parent / "release-candidate-manifest.json",
+              result_path.parent / "episode-plan.json",
+              result_path.parent / "final-output.mp4",
+          )
+          missing = [path.name for path in required_paths if not path.is_file()]
+          if missing:
+              raise SystemExit(
+                  "gate-only parent artifact is incomplete: " + ", ".join(missing)
+              )
+          result = json.loads(result_path.read_text(encoding="utf-8"))
+          if result.get("status") != "READY_FOR_HUMAN_REVIEW":
+              raise SystemExit("gate-only parent is not READY_FOR_HUMAN_REVIEW")
+          if result.get("publication_authorized") is not False:
+              raise SystemExit("gate-only recovery cannot authorize publication")
+          if result.get("visual_mode") != expected_visual_mode:
+              raise SystemExit("gate-only parent visual mode does not match dispatch")
+          PY
       - name: Run no-spend production preflight
+        if: ${{ !inputs.gate_only }}
         run: |
           set -euo pipefail
           python scripts/run_acc1_episode_factory.py \
@@ -397,7 +462,7 @@ jobs:
               handle.write("\n".join(lines) + "\n")
           PY
       - name: Require all paid-provider confirmations after source success
-        if: ${{ !inputs.source_only }}
+        if: ${{ !inputs.source_only && !inputs.gate_only }}
         env:
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
           CONFIRM_IMAGE_SPEND: ${{ inputs.confirm_image_spend }}
@@ -409,7 +474,7 @@ jobs:
           test "$CONFIRM_IMAGE_SPEND" = "true"
           test "$CONFIRM_AI33_SPEND" = "true"
       - name: Run source-dependent paid preflight before lease
-        if: ${{ !inputs.source_only }}
+        if: ${{ !inputs.source_only && !inputs.gate_only }}
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -437,7 +502,7 @@ jobs:
             --confirm-ai33-spend "$CONFIRM_AI33_SPEND" \
             --ai33-call-cap "$AI33_CALL_CAP"
       - name: Create exact source-bound paid spend lease
-        if: ${{ !inputs.source_only && inputs.resume_source_run_id == '' }}
+        if: ${{ !inputs.source_only && !inputs.gate_only && inputs.resume_source_run_id == '' }}
         env:
           CONFIRM_REDDIT_READ: ${{ inputs.confirm_reddit_read }}
           CONFIRM_OPENAI_SPEND: ${{ inputs.confirm_openai_spend }}
@@ -472,7 +537,7 @@ jobs:
             --confirm-image-spend "$CONFIRM_IMAGE_SPEND" \
             --confirm-ai33-spend "$CONFIRM_AI33_SPEND"
       - name: Persist paid spend lease before the first paid request
-        if: ${{ !inputs.source_only && inputs.resume_source_run_id == '' }}
+        if: ${{ !inputs.source_only && !inputs.gate_only && inputs.resume_source_run_id == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: acc1-paid-lease-${{ github.run_id }}
@@ -480,7 +545,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Create one hash-bound paid resume lock
-        if: ${{ !inputs.source_only && inputs.resume_source_run_id != '' }}
+        if: ${{ !inputs.source_only && !inputs.gate_only && inputs.resume_source_run_id != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           RESUME_SOURCE_RUN_ID: ${{ inputs.resume_source_run_id }}
@@ -561,7 +626,7 @@ jobs:
             "${PARENT_RESUME_ARGS[@]}" \
             --output "$WORKDIR/resume-spend-lease.json"
       - name: Persist paid resume lock before the first continuation request
-        if: ${{ !inputs.source_only && inputs.resume_source_run_id != '' }}
+        if: ${{ !inputs.source_only && !inputs.gate_only && inputs.resume_source_run_id != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: acc1-resume-lease-${{ github.run_id }}
@@ -569,7 +634,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Produce review-ready episode artifact
-        if: ${{ !inputs.source_only }}
+        if: ${{ !inputs.source_only && !inputs.gate_only }}
         env:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -772,6 +837,17 @@ jobs:
               "image_attempts": root / "provider-attempts" / "image.json",
               "ai33_attempts": root / "provider-attempts" / "ai33.json",
           }
+          geometry_replacement_hash = result.get(
+              "image_geometry_replacement_sha256"
+          )
+          if geometry_replacement_hash is not None:
+              if not sha256.fullmatch(str(geometry_replacement_hash)):
+                  raise SystemExit(
+                      "factory result has invalid image_geometry_replacement_sha256"
+                  )
+              evidence_paths["image_geometry_replacement"] = (
+                  root / "image-geometry-replacement.json"
+              )
           if visual_mode == "cinematic_story_v1":
               evidence_paths.update({
                   "shot_plan": root / "shot-plan.json",
@@ -831,6 +907,13 @@ jobs:
                   actual = file_sha256(path)
                   if claimed.get(field) != actual:
                       raise SystemExit(f"release manifest {label} hash mismatch: {field}")
+                  if (
+                      field == "image_geometry_replacement"
+                      and geometry_replacement_hash != actual
+                  ):
+                      raise SystemExit(
+                          "factory result image geometry replacement hash mismatch"
+                      )
 
           source_stage = json.loads(evidence_paths["source_stage"].read_text(encoding="utf-8"))
           source_stage_payload = dict(source_stage)
