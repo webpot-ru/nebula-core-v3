@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-30
 
-## 2026-07-30 — Completed artifact reached the final gate; conditional evidence inventory repaired
+## 2026-07-30 — Conditional evidence inventory and gate-only recovery GitHub-verified
 
 - No-spend recovery run
   [`30505420328`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30505420328)
@@ -19,14 +19,25 @@ Last updated: 2026-07-30
   portrait replacement. The workflow gate used a static inventory that did
   not add that valid conditional file, so the exact-key comparison rejected
   one extra evidence key.
-- The local correction derives the same conditional path from
+- The correction merged through
+  [PR `#119`](https://github.com/webpot-ru/nebula-core-v3/pull/119). It derives
+  the same conditional path from
   `factory-result.json`, requires its SHA-256 to match both the file and
   manifest, and adds an explicit `gate_only` recovery lane. That lane requires
   one exact parent run, all source/provider confirmations false, skips source,
   provider preflight, spend/resume leases, production and rendering, and runs
-  only the independent artifact ceiling before resealing the artifact. This
-  correction is **code-verified only** until it is merged and the authorized
-  gate-only run succeeds.
+  only the independent artifact ceiling before resealing the artifact.
+- Authorized gate-only run
+  [`30518556386`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30518556386)
+  completed in 3m22s. Its exact no-provider scope check, restored-artifact
+  check and independent human-review ceiling all passed. Dependency
+  installation, plan duplication, Flex proof, Reddit/source work, paid
+  preflight, every spend/resume lease, `Produce review-ready episode artifact`
+  and rendering were skipped; the workflow has no YouTube action.
+- The successful artifact `acc1-daily-episode-30518556386` has ID
+  `8749882685`, is `2,267,940,121` bytes and expires on `2026-08-13`. This
+  factory result is now **GitHub artifact-verified** and remains
+  `READY_FOR_HUMAN_REVIEW`; it is not uploaded or published.
 
 ## 2026-07-30 — Editorial render completed; release hash inventory regression isolated
 
