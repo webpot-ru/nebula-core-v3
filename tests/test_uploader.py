@@ -151,6 +151,69 @@ class UploaderTests(unittest.TestCase):
         self.assertEqual(state["caption_language_readback"], "ru")
         self.assertEqual(state["caption_sha256"], expected_caption_sha256)
 
+    def test_large_video_upload_uses_bounded_resumable_chunks(self):
+        class InsertRequest:
+            def next_chunk(self):
+                return None, {"id": "video-123"}
+
+        class Videos:
+            def insert(self, **_kwargs):
+                return InsertRequest()
+
+        class YouTube:
+            def videos(self):
+                return Videos()
+
+        media_calls = []
+        googleapiclient = types.ModuleType("googleapiclient")
+        googleapiclient_http = types.ModuleType("googleapiclient.http")
+
+        def media_file_upload(*args, **kwargs):
+            media_calls.append({"args": args, "kwargs": kwargs})
+            return {"args": args, "kwargs": kwargs}
+
+        googleapiclient_http.MediaFileUpload = media_file_upload
+        with tempfile.TemporaryDirectory() as temp:
+            video = Path(temp) / "video.mp4"
+            video.write_bytes(b"video")
+            with (
+                mock.patch.dict(sys.modules, {
+                    "googleapiclient": googleapiclient,
+                    "googleapiclient.http": googleapiclient_http,
+                }),
+                mock.patch.object(
+                    uploader,
+                    "get_youtube_service",
+                    return_value=YouTube(),
+                ),
+                mock.patch.object(
+                    uploader,
+                    "read_video_metadata",
+                    return_value={
+                        "snippet": {"channelId": "channel-123"},
+                        "status": {"privacyStatus": "private"},
+                    },
+                ),
+            ):
+                uploader.upload_video(
+                    str(video),
+                    "Заголовок",
+                    "Описание",
+                    privacy_status="private",
+                    verify_channel=False,
+                )
+
+        self.assertEqual(len(media_calls), 1)
+        self.assertTrue(media_calls[0]["kwargs"]["resumable"])
+        self.assertEqual(
+            media_calls[0]["kwargs"]["chunksize"],
+            uploader.YOUTUBE_RESUMABLE_CHUNK_SIZE,
+        )
+        self.assertEqual(
+            uploader.YOUTUBE_RESUMABLE_CHUNK_SIZE % (256 * 1024),
+            0,
+        )
+
     def test_upload_state_is_atomic_and_contains_no_credentials(self):
         with tempfile.TemporaryDirectory() as temp:
             target = Path(temp) / "receipt.json"

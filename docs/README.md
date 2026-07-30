@@ -1114,6 +1114,24 @@ The no-network integration proof is `/tmp/acc1-cinematic-comparison-main-2026071
 
 Private YouTube upload is deliberately separated into two manual workflows after the factory artifact has been downloaded and reviewed. `.github/workflows/acc1_release_review.yml` downloads the exact successful factory artifact, joins a completed checksum-bound human creative review with a source-by-source rights manifest, and can emit only `READY_FOR_PRIVATE_REVIEW`; it cannot call providers or YouTube and never authorizes upload/publication. The hardened `.github/workflows/acc1_private_upload.yml` then requires that exact release-gate run and self-hash in addition to the factory run and manifest hash before a separately confirmed one-video private upload. It verifies the acc1 OAuth mapping, uploads exactly one private video, applies the custom thumbnail, and preserves readback. It has no Reddit, Gemini, OpenAI, image, AI33, history-write, public, or unlisted path.
 
+`.github/workflows/acc1_review_only_private_upload.yml` is a narrower
+pre-release viewing lane for cases where the owner must watch the actual
+GitHub-rendered MP4 before completing the human creative and rights bundle. It
+accepts one exact successful `acc1 Daily Episode Factory` run, revalidates the
+self-hashed episode plan, release manifest, media QA, video, thumbnail and
+metadata, and derives metadata visibly marked `[ПРОСМОТР]`. It refuses a
+retained receipt for the same source run, requires first run-attempt semantics,
+checks the exact acc1 OAuth channel ID, hardcodes `private`, and verifies the
+video, thumbnail, channel and private-status readback. The workflow installs
+only YouTube client dependencies and has no Reddit, OpenAI, Gemini,
+VectorEngine, AI33, caption mutation, schedule, public, unlisted, history-write
+or publication step. Its strongest receipt is
+`PRIVATE_REVIEW_UPLOAD_VERIFIED` with
+`publication_authorized=false`; it does not replace or satisfy the later human
+creative, source-rights or release gates. The shared uploader uses bounded
+8 MiB resumable chunks so multi-gigabyte review masters are not sent as one
+monolithic request.
+
 Live readback on 2026-07-17 found the older active `acc1 Private Artifact Upload` on `main` (workflow id `313326356`) still accepts `READY_FOR_HUMAN_REVIEW` without the new rights/release receipt, while `acc1 Release Review Gate` is not registered. Do not dispatch that old workflow. The local hardened chain must be merged and registered first; the old workflow should remain disabled while the PR is pending.
 
 The recovered first release is a historical fixed-input production run, not an
@@ -1193,6 +1211,17 @@ gh workflow run acc1_private_upload.yml \
   -f release_gate_run_id=EXACT_RELEASE_GATE_RUN_ID \
   -f expected_release_gate_sha256=EXACT_RELEASE_GATE_SHA256 \
   -f confirm_private_upload=true
+```
+
+For an explicitly authorized pre-gate playback check, use the review-only lane
+instead. This command performs a YouTube upload and therefore still requires
+separate approval for the exact source run:
+
+```bash
+gh workflow run acc1_review_only_private_upload.yml \
+  --repo webpot-ru/nebula-core-v3 --ref main \
+  -f source_run_id=EXACT_FACTORY_RUN_ID \
+  -f confirm_review_only_private_upload=true
 ```
 
 The factory command can consume Reddit/API quota, OpenAI Flex tokens, image generation, AI33, GitHub runner, and artifact storage. Do not run it without exact approval of that spend scope. The artifact contains `daily-plan.json`, source evidence, 3-5 finalist reviews, `topic-playoff.json`, immutable `episode-plan.json`, paid-preflight and spend-lease evidence, script, metadata, scene images, thumbnail, narration state/audio, exact layout/runtime reports, storyboard, `final-output.mp4`, media QA, creative-review template, provider attempt journals, and `release-candidate-manifest.json`. `acc1_release_gate.py` now supports this factory evidence shape but remains a review receipt only: human creative review, real rights evidence, and a separately authorized private upload are still mandatory.

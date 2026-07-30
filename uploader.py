@@ -11,6 +11,9 @@ class UploadError(RuntimeError):
     pass
 
 
+YOUTUBE_RESUMABLE_CHUNK_SIZE = 8 * 1024 * 1024
+
+
 def _sha256_file(path):
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -279,7 +282,11 @@ def upload_video(video_file, title, description, account_index="1", category_id=
     }
 
     print(f"Uploading '{video_file}' to YouTube Account #{account_index} as {privacy_status}...")
-    media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
+    media = MediaFileUpload(
+        video_file,
+        chunksize=YOUTUBE_RESUMABLE_CHUNK_SIZE,
+        resumable=True,
+    )
     request = youtube.videos().insert(part=','.join(body.keys()), body=body, media_body=media)
 
     response = None

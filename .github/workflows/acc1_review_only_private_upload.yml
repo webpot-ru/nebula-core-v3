@@ -1,0 +1,186 @@
+name: acc1 Review-Only Private Upload
+run-name: acc1 review-only private upload source_run=${{ inputs.source_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Exact successful acc1 Daily Episode Factory run to inspect
+        required: true
+        type: string
+      confirm_review_only_private_upload:
+        description: Authorize one acc1 upload strictly as private for human review
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    concurrency:
+      group: acc1-review-only-private-upload
+      cancel-in-progress: false
+    env:
+      WORK_ROOT: build/acc1-review-only-private-upload
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Require exact one-attempt review-only scope
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIRM_REVIEW_ONLY_PRIVATE_UPLOAD: ${{ inputs.confirm_review_only_private_upload }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM_REVIEW_ONLY_PRIVATE_UPLOAD" = "true"
+          test "$RUN_ATTEMPT" = "1"
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+      - name: Verify exact source run and reject an existing upload receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_SOURCE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK_ROOT"
+          gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json workflowName,conclusion,event,headBranch,headSha \
+            > "$WORK_ROOT/source-run.json"
+          receipt_name="acc1-review-only-private-upload-source-$SOURCE_RUN_ID"
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$receipt_name&per_page=100" \
+            > "$WORK_ROOT/prior-upload-artifacts.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["WORK_ROOT"])
+          source = json.loads((root / "source-run.json").read_text(encoding="utf-8"))
+          if source.get("workflowName") != "acc1 Daily Episode Factory":
+              raise SystemExit("source run is not the acc1 Daily Episode Factory")
+          if source.get("conclusion") != "success":
+              raise SystemExit("source factory run did not succeed")
+          if source.get("event") != "workflow_dispatch":
+              raise SystemExit("source factory run was not manually dispatched")
+          if source.get("headBranch") != os.environ["EXPECTED_SOURCE_BRANCH"]:
+              raise SystemExit("source factory run is not from the trusted default branch")
+
+          artifacts = json.loads(
+              (root / "prior-upload-artifacts.json").read_text(encoding="utf-8")
+          ).get("artifacts") or []
+          retained = [
+              item for item in artifacts
+              if item.get("expired") is not True
+          ]
+          if retained:
+              raise SystemExit(
+                  "a retained upload receipt already exists for this source run; "
+                  "duplicate YouTube upload blocked"
+              )
+          PY
+      - name: Download the exact factory artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "acc1-daily-episode-$SOURCE_RUN_ID" \
+            --dir "$WORK_ROOT/artifact"
+      - name: Verify the review candidate and derive marked private metadata
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_SOURCE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          python scripts/acc1_review_only_private_upload.py prepare \
+            --artifact-root "$WORK_ROOT/artifact" \
+            --source-run "$WORK_ROOT/source-run.json" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --expected-branch "$EXPECTED_SOURCE_BRANCH" \
+            --channels channels.json \
+            --metadata-output "$WORK_ROOT/review-only-youtube-metadata.json" \
+            --contract-output "$WORK_ROOT/review-only-upload-contract.json"
+      - name: Install YouTube client dependencies only
+        run: |
+          python -m pip install --disable-pip-version-check \
+            "google-api-python-client>=2.80.0" \
+            "google-auth-httplib2>=0.1.0" \
+            "google-auth-oauthlib>=1.0.0" \
+            "requests>=2.28.0"
+      - name: Verify exact acc1 OAuth mapping without upload
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN_ACC1: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC1 }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from uploader import check_channel_mapping
+
+          channel = check_channel_mapping("1")
+          if channel.get("id") != "UCNSxg53AGM4WstRjGiQdS8w":
+              raise SystemExit(
+                  "acc1 OAuth token resolves to the wrong exact YouTube channel id"
+              )
+          PY
+      - name: Upload exact factory video and thumbnail strictly as private
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN_ACC1: ${{ secrets.YOUTUBE_REFRESH_TOKEN_ACC1 }}
+        run: |
+          set -euo pipefail
+          python uploader.py \
+            "$WORK_ROOT/artifact/final-output.mp4" 1 \
+            --privacy-status private \
+            --category-id 24 \
+            --metadata-file "$WORK_ROOT/review-only-youtube-metadata.json" \
+            --thumbnail-file "$WORK_ROOT/artifact/youtube-thumbnail.png" \
+            --result "$WORK_ROOT/youtube-review-only-upload.json"
+      - name: Verify private channel and artifact readback
+        env:
+          UPLOAD_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python scripts/acc1_review_only_private_upload.py verify-receipt \
+            --contract "$WORK_ROOT/review-only-upload-contract.json" \
+            --receipt "$WORK_ROOT/youtube-review-only-upload.json" \
+            --upload-run-id "$UPLOAD_RUN_ID" \
+            --result-output "$WORK_ROOT/review-only-upload-result.json"
+      - name: Preserve a source-bound receipt whenever YouTube created a video
+        if: ${{ always() && hashFiles('build/acc1-review-only-private-upload/youtube-review-only-upload.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-review-only-private-upload-source-${{ inputs.source_run_id }}
+          path: |
+            ${{ env.WORK_ROOT }}/source-run.json
+            ${{ env.WORK_ROOT }}/review-only-upload-contract.json
+            ${{ env.WORK_ROOT }}/review-only-youtube-metadata.json
+            ${{ env.WORK_ROOT }}/youtube-review-only-upload.json
+            ${{ env.WORK_ROOT }}/review-only-upload-result.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Preserve small diagnostics without media
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: acc1-review-only-private-upload-diagnostics-${{ github.run_id }}
+          path: |
+            ${{ env.WORK_ROOT }}/source-run.json
+            ${{ env.WORK_ROOT }}/prior-upload-artifacts.json
+            ${{ env.WORK_ROOT }}/review-only-upload-contract.json
+            ${{ env.WORK_ROOT }}/review-only-youtube-metadata.json
+            ${{ env.WORK_ROOT }}/youtube-review-only-upload.json
+            ${{ env.WORK_ROOT }}/review-only-upload-result.json
+          if-no-files-found: warn
+          retention-days: 30

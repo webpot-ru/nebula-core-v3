@@ -2,6 +2,28 @@
 
 Last updated: 2026-07-30
 
+## 2026-07-30 — Review-only private-upload lane code-verified
+
+- A separate `.github/workflows/acc1_review_only_private_upload.yml` lane is
+  implemented for viewing one exact successful factory MP4 before completing
+  the human creative and rights bundle. It does not weaken or replace
+  `acc1_release_review.yml` or the post-review private-upload workflow.
+- The lane accepts only a successful manual `acc1 Daily Episode Factory` run
+  from the default branch, rejects a retained receipt for the same source run,
+  and refuses GitHub reruns. It revalidates the self-hashed episode plan,
+  release manifest, media QA and exact video/thumbnail/metadata bytes before
+  using YouTube credentials.
+- The only external mutation is one hardcoded `private` upload to exact acc1
+  channel ID `UCNSxg53AGM4WstRjGiQdS8w`, with marked `[ПРОСМОТР]` metadata and
+  the factory thumbnail. Channel, privacy, video and thumbnail readback are
+  fail-closed. Provider credentials, captions, scheduling, history writes,
+  public and unlisted states are absent.
+- Its strongest receipt is `PRIVATE_REVIEW_UPLOAD_VERIFIED` with
+  `review_only=true`, `publication_authorized=false` and
+  `scheduling_authorized=false`. The implementation is **code-verified only**
+  until its PR is merged and the separately authorized run for artifact
+  `30518556386` succeeds. No YouTube call was made while implementing it.
+
 ## 2026-07-30 — Conditional evidence inventory and gate-only recovery GitHub-verified
 
 - No-spend recovery run
