@@ -249,19 +249,19 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
 
         paid_steps = {
             "Require all paid-provider confirmations after source success":
-                "if: ${{ !inputs.source_only }}",
+                "if: ${{ !inputs.source_only && !inputs.gate_only }}",
             "Run source-dependent paid preflight before lease":
-                "if: ${{ !inputs.source_only }}",
+                "if: ${{ !inputs.source_only && !inputs.gate_only }}",
             "Create exact source-bound paid spend lease":
-                "if: ${{ !inputs.source_only && inputs.resume_source_run_id == '' }}",
+                "if: ${{ !inputs.source_only && !inputs.gate_only && inputs.resume_source_run_id == '' }}",
             "Persist paid spend lease before the first paid request":
-                "if: ${{ !inputs.source_only && inputs.resume_source_run_id == '' }}",
+                "if: ${{ !inputs.source_only && !inputs.gate_only && inputs.resume_source_run_id == '' }}",
             "Create one hash-bound paid resume lock":
-                "if: ${{ !inputs.source_only && inputs.resume_source_run_id != '' }}",
+                "if: ${{ !inputs.source_only && !inputs.gate_only && inputs.resume_source_run_id != '' }}",
             "Persist paid resume lock before the first continuation request":
-                "if: ${{ !inputs.source_only && inputs.resume_source_run_id != '' }}",
+                "if: ${{ !inputs.source_only && !inputs.gate_only && inputs.resume_source_run_id != '' }}",
             "Produce review-ready episode artifact":
-                "if: ${{ !inputs.source_only }}",
+                "if: ${{ !inputs.source_only && !inputs.gate_only }}",
             "Enforce hash-bound human-review ceiling":
                 "if: ${{ !inputs.source_only }}",
         }
@@ -272,6 +272,85 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
                     1,
                 )[0]
                 self.assertIn(exact_gate, section)
+
+    def test_gate_only_reseals_one_parent_without_source_providers_or_render(self):
+        workflow = self.workflow
+        declaration = workflow.split("      gate_only:\n", 1)[1].split(
+            "      visual_mode:\n",
+            1,
+        )[0]
+        self.assertIn("default: false", declaration)
+        self.assertIn("type: boolean", declaration)
+        self.assertIn(
+            "forbids source, providers, rendering, and YouTube",
+            declaration,
+        )
+
+        scope = workflow.split(
+            "- name: Validate exact gate-only no-provider scope",
+            1,
+        )[1].split("- name:", 1)[0]
+        self.assertIn("if: inputs.gate_only", scope)
+        self.assertIn(
+            '[[ "$RESUME_SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]',
+            scope,
+        )
+        self.assertIn('test "$SOURCE_ONLY" = "false"', scope)
+        self.assertIn('test "$CONFIRM_REDDIT_READ" = "false"', scope)
+        for provider in ("OPENAI", "IMAGE", "AI33"):
+            self.assertIn(
+                f'test "$CONFIRM_{provider}_SPEND" = "false"',
+                scope,
+            )
+        self.assertIn(
+            'test "$CONFIRM_INVALID_GEOMETRY_REPLACEMENT" = "false"',
+            scope,
+        )
+        self.assertNotIn("${{ secrets.", scope)
+
+        restored = workflow.split(
+            "- name: Validate restored gate-only review artifact",
+            1,
+        )[1].split("- name:", 1)[0]
+        self.assertIn("if: inputs.gate_only", restored)
+        self.assertIn("READY_FOR_HUMAN_REVIEW", restored)
+        self.assertIn("publication_authorized", restored)
+        self.assertIn("final-output.mp4", restored)
+        self.assertNotIn("${{ secrets.", restored)
+
+        for step_name in (
+            "Install project dependencies",
+            "Download immutable daily plan",
+            "Confirm only an exact parent OpenAI Flex 429 rejection",
+            "Run no-spend production preflight",
+        ):
+            section = workflow.split(f"- name: {step_name}", 1)[1].split(
+                "- name:",
+                1,
+            )[0]
+            self.assertIn("!inputs.gate_only", section)
+
+        for step_name in (
+            "Require all paid-provider confirmations after source success",
+            "Run source-dependent paid preflight before lease",
+            "Create exact source-bound paid spend lease",
+            "Persist paid spend lease before the first paid request",
+            "Create one hash-bound paid resume lock",
+            "Persist paid resume lock before the first continuation request",
+            "Produce review-ready episode artifact",
+        ):
+            section = workflow.split(f"- name: {step_name}", 1)[1].split(
+                "- name:",
+                1,
+            )[0]
+            self.assertIn("!inputs.gate_only", section)
+
+        final_gate = workflow.split(
+            "- name: Enforce hash-bound human-review ceiling",
+            1,
+        )[1].split("- name:", 1)[0]
+        self.assertIn("if: ${{ !inputs.source_only }}", final_gate)
+        self.assertNotIn("!inputs.gate_only", final_gate)
 
     def test_openai_secret_is_scoped_to_paid_preflight_and_produce(self):
         workflow = self.workflow
@@ -416,6 +495,10 @@ class Acc1DailyWorkflowTests(unittest.TestCase):
             '"narration_profile_sha256"',
             '"audio_mix_report_sha256"',
             '"caption_srt_sha256"',
+            '"image_geometry_replacement_sha256"',
+            'evidence_paths["image_geometry_replacement"] = (',
+            'root / "image-geometry-replacement.json"',
+            "factory result image geometry replacement hash mismatch",
             'manifest.get("artifact_sha256")',
             'manifest.get("evidence_sha256")',
             "actual = file_sha256(path)",
