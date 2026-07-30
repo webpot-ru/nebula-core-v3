@@ -2,6 +2,34 @@
 
 Last updated: 2026-07-30
 
+## 2026-07-30 — Editorial render completed; release hash inventory regression isolated
+
+- Authorized no-spend recovery run
+  [`30499797145`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30499797145)
+  restored run `30487851424`, reused all 18/18 hash-bound render segments and
+  completed the final encode. The no-spend and paid preflight receipts report
+  no new Reddit, OpenAI, VectorEngine or AI33 request, the paid spend lease
+  steps were skipped, and no YouTube action existed.
+- `Produce review-ready episode artifact` returned
+  `READY_FOR_HUMAN_REVIEW`; the separate hash-bound human-review ceiling then
+  stopped on `editorial_motion_v1 result has invalid motion_plan_sha256`.
+  Artifact `acc1-daily-episode-30499797145` was still retained at
+  `2,267,852,787` bytes through `2026-08-13`.
+- The renderer and motion plan were not the failure. The factory wrote the
+  cinematic `shot_plan_sha256` into creative review, release manifest and
+  factory result, but omitted the editorial `motion_plan_sha256`. It also did
+  not make the editorial motion plan, caption track and SRT part of its own
+  release evidence inventory even though the workflow ceiling already
+  required those exact files and hashes.
+- The local correction derives one mode-aware visual release contract,
+  verifies the self-hashed cinematic/editorial plan and caption track,
+  verifies the actual caption SRT bytes, persists the portable plan/track
+  files, and propagates the same four visual hashes into all three release
+  documents. A regression rejects a mismatched top-level motion-plan hash.
+  The full deterministic suite passes `682/682`; this correction is
+  **code-verified only** until it is merged and a separately authorized
+  no-spend recovery succeeds.
+
 ## 2026-07-30 — Report/motion QA repaired; relative audio evidence path blocked release
 
 - Authorized no-spend recovery run

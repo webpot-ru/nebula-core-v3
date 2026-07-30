@@ -1033,6 +1033,18 @@ the directory and strand `tts/audio-mix-report.json` outside the canonical
 release-evidence location. Serialized paths remain relative to the resolved
 artifact root, so review artifacts stay portable.
 
+The release boundary derives one mode-aware visual contract after rendering.
+For `cinematic_story_v1` it persists the self-hashed shot plan, caption track
+and final SRT; for `editorial_motion_v1` it persists the self-hashed motion
+plan, caption track and editorial SRT. The caption SRT checksum must match the
+actual retained bytes. The same shot/motion, caption-track and caption-SRT
+hashes are then copied into `creative-review.json`,
+`release-candidate-manifest.json` and `factory-result.json`, while the three
+portable files are included in the release evidence inventory. A mode cannot
+claim the other mode's plan hash, and `reddit_pages` cannot claim any of these
+visual hashes. This keeps the factory output and the independent GitHub
+human-review ceiling on one exact contract.
+
 `.github/workflows/acc1_segmented_no_spend_canary.yml` is a separate
 frozen-media matrix proof: it downloads exactly five retained pages from
 artifact `acc1-panel-grammar-canary-30063115374` and the matching retained

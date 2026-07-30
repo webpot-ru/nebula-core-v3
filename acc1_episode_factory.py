@@ -260,6 +260,81 @@ def _verify_self_hash(value: dict[str, Any], field: str) -> bool:
     return bool(SHA256_RE.fullmatch(expected)) and expected == _self_hash(value, field)
 
 
+def _persist_release_visual_contract(
+    *,
+    storyboard: dict[str, Any],
+    render_report: dict[str, Any],
+    visual_mode: str,
+    workdir: Path,
+    video_path: Path,
+) -> tuple[dict[str, str | None], dict[str, Path]]:
+    bindings: dict[str, str | None] = {
+        "shot_plan_sha256": storyboard.get("shot_plan_sha256"),
+        "motion_plan_sha256": storyboard.get("motion_plan_sha256"),
+        "caption_track_sha256": storyboard.get("caption_track_sha256"),
+        "caption_srt_sha256": render_report.get("caption_srt_sha256"),
+    }
+    evidence_paths: dict[str, Path] = {}
+    if visual_mode == DEFAULT_VISUAL_MODE:
+        unexpected = [
+            field for field, value in bindings.items() if value is not None
+        ]
+        if unexpected:
+            raise EpisodeFactoryError(
+                "reddit_pages must not claim visual contract hashes: "
+                + ", ".join(sorted(unexpected))
+            )
+        return bindings, evidence_paths
+
+    if visual_mode == CINEMATIC_STORY_MODE:
+        plan_key = "shot_plan"
+        plan_hash_field = "shot_plan_sha256"
+        plan_path = workdir / "shot-plan.json"
+        caption_srt_path = video_path.with_suffix(".srt")
+    elif visual_mode == EDITORIAL_MOTION_MODE:
+        plan_key = "motion_plan"
+        plan_hash_field = "motion_plan_sha256"
+        plan_path = workdir / "motion-plan.json"
+        caption_srt_path = workdir / "editorial-motion-captions.srt"
+    else:
+        raise EpisodeFactoryError("visual release contract has unknown mode")
+
+    plan = storyboard.get(plan_key)
+    caption_track = storyboard.get("caption_track")
+    for label, payload, hash_field in (
+        (plan_key, plan, plan_hash_field),
+        ("caption_track", caption_track, "caption_track_sha256"),
+    ):
+        if (
+            not isinstance(payload, dict)
+            or not _verify_self_hash(payload, hash_field)
+            or bindings[hash_field] != payload.get(hash_field)
+        ):
+            raise EpisodeFactoryError(
+                f"{visual_mode} has invalid bound {label}"
+            )
+    caption_srt_sha256 = bindings["caption_srt_sha256"]
+    if (
+        not isinstance(caption_srt_sha256, str)
+        or not SHA256_RE.fullmatch(caption_srt_sha256)
+        or not caption_srt_path.is_file()
+        or _sha256_file(caption_srt_path) != caption_srt_sha256
+    ):
+        raise EpisodeFactoryError(
+            f"{visual_mode} has invalid bound caption SRT"
+        )
+
+    caption_track_path = workdir / "caption-track.json"
+    _atomic_json(plan_path, plan)
+    _atomic_json(caption_track_path, caption_track)
+    evidence_paths.update({
+        plan_key: plan_path,
+        "caption_track": caption_track_path,
+        "caption_srt": caption_srt_path,
+    })
+    return bindings, evidence_paths
+
+
 def _exact_confirmation(value: str | bool, label: str) -> None:
     normalized = value if isinstance(value, bool) else str(value).strip().casefold() == "true"
     if normalized is not True:
@@ -3534,13 +3609,6 @@ def run_produce_stage(
     )
     storyboard_path = workdir / "storyboard.json"
     _atomic_json(storyboard_path, storyboard)
-    shot_plan_path: Path | None = None
-    caption_track_path: Path | None = None
-    if resolved_visual_mode == CINEMATIC_STORY_MODE:
-        shot_plan_path = workdir / "shot-plan.json"
-        caption_track_path = workdir / "caption-track.json"
-        _atomic_json(shot_plan_path, storyboard["shot_plan"])
-        _atomic_json(caption_track_path, storyboard["caption_track"])
 
     video_path = workdir / "final-output.mp4"
     render_report = render_compilation(
@@ -3555,6 +3623,13 @@ def run_produce_stage(
             render_report["caption_srt"],
         ).resolve().relative_to(workdir.resolve()).as_posix()
     _atomic_json(workdir / "render-report.json", render_report)
+    visual_hashes, visual_evidence_paths = _persist_release_visual_contract(
+        storyboard=storyboard,
+        render_report=render_report,
+        visual_mode=resolved_visual_mode,
+        workdir=workdir,
+        video_path=video_path,
+    )
 
     artifact_paths = {
         "script_sha256": workdir / "episode-script.json",
@@ -3609,10 +3684,7 @@ def run_produce_stage(
     creative_review["audio_mix_report_sha256"] = audio_mix_report[
         "audio_mix_report_sha256"
     ]
-    creative_review["shot_plan_sha256"] = storyboard.get("shot_plan_sha256")
-    creative_review["caption_track_sha256"] = storyboard.get(
-        "caption_track_sha256"
-    )
+    creative_review.update(visual_hashes)
     _atomic_json(workdir / "creative-review.json", creative_review)
 
     evidence_paths = {
@@ -3648,12 +3720,7 @@ def run_produce_stage(
         evidence_paths["image_geometry_replacement"] = (
             workdir / "image-geometry-replacement.json"
         )
-    if resolved_visual_mode == CINEMATIC_STORY_MODE:
-        evidence_paths.update({
-            "shot_plan": shot_plan_path,
-            "caption_track": caption_track_path,
-            "caption_srt": video_path.with_suffix(".srt"),
-        })
+    evidence_paths.update(visual_evidence_paths)
     missing_evidence = [name for name, path in evidence_paths.items() if not path.is_file()]
     if missing_evidence:
         raise EpisodeFactoryError(
@@ -3693,9 +3760,7 @@ def run_produce_stage(
         "audio_mix_report_sha256": audio_mix_report[
             "audio_mix_report_sha256"
         ],
-        "shot_plan_sha256": storyboard.get("shot_plan_sha256"),
-        "caption_track_sha256": storyboard.get("caption_track_sha256"),
-        "caption_srt_sha256": render_report.get("caption_srt_sha256"),
+        **visual_hashes,
         "timing_contract_sha256": tts_state.get("timing_contract_sha256"),
         "audio_sha256": audio_mix_report["output_sha256"],
         "media_qa_status": "PASS",
@@ -3739,9 +3804,7 @@ def run_produce_stage(
         "audio_mix_report_sha256": audio_mix_report[
             "audio_mix_report_sha256"
         ],
-        "shot_plan_sha256": storyboard.get("shot_plan_sha256"),
-        "caption_track_sha256": storyboard.get("caption_track_sha256"),
-        "caption_srt_sha256": render_report.get("caption_srt_sha256"),
+        **visual_hashes,
         "timing_contract_sha256": tts_state.get("timing_contract_sha256"),
         "audio_sha256": audio_mix_report["output_sha256"],
         "artifact_directory": ".",
