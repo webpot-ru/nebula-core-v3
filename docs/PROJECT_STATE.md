@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-30
 
-## 2026-07-30 — Review-only private-upload lane code-verified
+## 2026-07-30 — Review-only private upload GitHub- and YouTube-verified
 
 - A separate `.github/workflows/acc1_review_only_private_upload.yml` lane is
   implemented for viewing one exact successful factory MP4 before completing
@@ -20,9 +20,26 @@ Last updated: 2026-07-30
   public and unlisted states are absent.
 - Its strongest receipt is `PRIVATE_REVIEW_UPLOAD_VERIFIED` with
   `review_only=true`, `publication_authorized=false` and
-  `scheduling_authorized=false`. The implementation is **code-verified only**
-  until its PR is merged and the separately authorized run for artifact
-  `30518556386` succeeds. No YouTube call was made while implementing it.
+  `scheduling_authorized=false`. The implementation merged through
+  [PR `#121`](https://github.com/webpot-ru/nebula-core-v3/pull/121) as commit
+  `097cc98cf3d79f8489b5d041db86596fe1159a4c`.
+- The one authorized review upload
+  [`30549721934`](https://github.com/webpot-ru/nebula-core-v3/actions/runs/30549721934)
+  completed from `main` in 1m46s for exact source run `30518556386`. Source
+  identity, duplicate guard, artifact download, manifest/media/hash validation,
+  YouTube-only dependency installation, exact OAuth mapping, private upload,
+  readback verification and both small receipt uploads all passed.
+- YouTube created video `jpbd3OjL9Q0`. Readback returned exact acc1 channel
+  `UCNSxg53AGM4WstRjGiQdS8w`, `privacy=private` and `language=ru`; the workflow
+  also verified the exact factory video and thumbnail hashes and confirmed the
+  custom thumbnail upload. No Reddit, OpenAI, VectorEngine, AI33, other
+  provider, caption, schedule, public or unlisted action exists in the run.
+- Source-bound receipt artifact
+  `acc1-review-only-private-upload-source-30518556386` has ID `8762287404`
+  and expires on `2026-08-29`; diagnostics artifact ID is `8762287864`.
+  This state is **YouTube-private-verified only**. The video has not been
+  published or scheduled, and human creative/rights release approval remains
+  outstanding.
 
 ## 2026-07-30 — Conditional evidence inventory and gate-only recovery GitHub-verified
 
