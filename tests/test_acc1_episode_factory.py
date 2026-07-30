@@ -2547,6 +2547,84 @@ class EpisodeFactoryTests(unittest.TestCase):
         manifest["publication_authorized"] = True
         self.assertFalse(factory._verify_self_hash(manifest, "release_candidate_manifest_sha256"))
 
+    def test_editorial_release_contract_persists_exact_bound_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            motion_plan = {
+                "version": 2,
+                "scenes": [{"scene_id": "scene-1"}],
+            }
+            motion_plan["motion_plan_sha256"] = factory._self_hash(
+                motion_plan,
+                "motion_plan_sha256",
+            )
+            caption_track = {
+                "version": 1,
+                "cues": [{"cue_id": "cue-1", "text": "Тест"}],
+            }
+            caption_track["caption_track_sha256"] = factory._self_hash(
+                caption_track,
+                "caption_track_sha256",
+            )
+            caption_srt = root / "editorial-motion-captions.srt"
+            caption_srt.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\nТест\n",
+                encoding="utf-8",
+            )
+            caption_srt_sha256 = factory._sha256_file(caption_srt)
+            storyboard = {
+                "motion_plan": motion_plan,
+                "motion_plan_sha256": motion_plan["motion_plan_sha256"],
+                "caption_track": caption_track,
+                "caption_track_sha256": caption_track["caption_track_sha256"],
+            }
+
+            bindings, evidence_paths = factory._persist_release_visual_contract(
+                storyboard=storyboard,
+                render_report={"caption_srt_sha256": caption_srt_sha256},
+                visual_mode=factory.EDITORIAL_MOTION_MODE,
+                workdir=root,
+                video_path=root / "final-output.mp4",
+            )
+
+            self.assertEqual(
+                bindings,
+                {
+                    "shot_plan_sha256": None,
+                    "motion_plan_sha256": motion_plan["motion_plan_sha256"],
+                    "caption_track_sha256": caption_track[
+                        "caption_track_sha256"
+                    ],
+                    "caption_srt_sha256": caption_srt_sha256,
+                },
+            )
+            self.assertEqual(
+                set(evidence_paths),
+                {"motion_plan", "caption_track", "caption_srt"},
+            )
+            self.assertEqual(
+                json.loads((root / "motion-plan.json").read_text(encoding="utf-8")),
+                motion_plan,
+            )
+            self.assertEqual(
+                json.loads((root / "caption-track.json").read_text(encoding="utf-8")),
+                caption_track,
+            )
+
+            tampered = copy.deepcopy(storyboard)
+            tampered["motion_plan_sha256"] = "0" * 64
+            with self.assertRaisesRegex(
+                factory.EpisodeFactoryError,
+                "invalid bound motion_plan",
+            ):
+                factory._persist_release_visual_contract(
+                    storyboard=tampered,
+                    render_report={"caption_srt_sha256": caption_srt_sha256},
+                    visual_mode=factory.EDITORIAL_MOTION_MODE,
+                    workdir=root,
+                    video_path=root / "final-output.mp4",
+                )
+
     def test_blocked_playoff_persists_paid_review_diagnostics(self):
         """A paid editorial rejection must retain its exact model evidence."""
         with tempfile.TemporaryDirectory() as temp:
@@ -3004,6 +3082,13 @@ class EpisodeFactoryTests(unittest.TestCase):
                 release["audio_sha256"],
                 audio_mix_report["output_sha256"],
             )
+            creative_review = json.loads(
+                (workdir / "creative-review.json").read_text(encoding="utf-8")
+            )
+            for document in (result, release, creative_review):
+                self.assertIn("motion_plan_sha256", document)
+                self.assertIsNone(document["motion_plan_sha256"])
+            self.assertNotIn("motion_plan", release["evidence_sha256"])
 
 
 if __name__ == "__main__":
